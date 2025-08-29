@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="669.6"
+    android:viewportHeight="669.6">
+  <group android:scaleX="0.45"
+      android:scaleY="0.45"
+      android:translateX="184.14"
+      android:translateY="184.14">
+    <!-- 4-pointed star only -->
+    <path
+        android:pathData="M334.8,465h0c0,-124.3 -100.7,-225 -225,-225h0c124.3,0 225,-100.7 225,-225h0c0,124.3 100.7,225 225,225h0c-124.3,0 -225,100.7 -225,225Z"
+        android:fillColor="#fff"/>
+  </group>
+</vector>
