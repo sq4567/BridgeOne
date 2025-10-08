@@ -12,8 +12,16 @@ description: "커밋 메시지 작성 가이드라인 - 페이즈 번호 포함 
 1. **한글 사용**: 제목은 항상 한글로 작성합니다.
 2. **페이즈 번호 포함**: [development-plan-checklist.md](mdc:Docs/development-plan-checklist.md)의 각 페이즈 번호를 포함합니다.
 3. **간결성**: 변경사항의 핵심을 50자 이내로 요약합니다.
+4. **개발환경 설정 예외**: `src/`의 각 플랫폼별 개발환경 설정 커밋은 Phase 번호를 붙이지 말고 `init:` 접두사를 사용합니다.
 
-## 페이즈별 예시 제목
+## 커밋 메시지 예시
+
+### 개발환경 설정 커밋
+- `init: Android 프로젝트 초기 설정 완료`
+- `init: Board 개발환경 구성 완료`
+- `init: Windows 서버 프로젝트 초기 설정 완료`
+
+### 페이즈별 예시 제목
 
 ### Phase 1 세부 단계 예시
 - **Phase 1.1.1**: `Phase 1.1.1: Android 기본 USB 통신 구현 완료`
