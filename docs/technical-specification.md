@@ -989,7 +989,7 @@ class Esp32SerialManager {
 
 | 용어 | 설명 | 사양 | 역할 |
 |------|------|------|------|
-| **Windows Service 아키텍처** | 백그라운드 서비스 실행 방식 | .NET 6+ 기반 | Windows 통합 및 백그라운드 실행 |
+| **Windows Service 아키텍처** | 백그라운드 서비스 실행 방식 | .NET 8.0+ 기반 | Windows 통합 및 백그라운드 실행 |
 | **USB HID/CDC 통신** | USB 복합 장치 통신 | ESP32-S3 동글 | Android 앱과의 데이터 교환 |
 | **시스템 레벨 입력 시뮬레이션** | Windows API 기반 입력 처리 | SendInput API | 키보드/마우스 입력 생성 |
 | **성능 모니터링 시스템** | 실시간 시스템 지표 추적 | CPU/메모리/네트워크 사용량 | 성능 최적화 및 문제 진단 |

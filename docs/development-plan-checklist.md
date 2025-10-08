@@ -128,7 +128,7 @@ updated: "2025-10-08"
 - `@docs/Windows/technical-specification-server.md` §3 (핵심 기능)
 
 **구현 체크리스트**:
-- [ ] **.NET 6+ 기본 프로젝트 구조**
+- [ ] **.NET 8.0+ 기본 프로젝트 구조**
   - [ ] 콘솔 애플리케이션 기본 구조 (WPF는 나중에 추가)
   - [ ] ESP32-S3 HID 장치 열거 및 감지
   - [ ] Vendor CDC 장치 통신 초기화
@@ -415,7 +415,7 @@ updated: "2025-10-08"
 - `@docs/Windows/design-guide-server.md` §7.1 (서버 실행), §10.2 (WPF UI)
 
 **구현 체크리스트**:
-- [ ] **.NET 6+ WPF 프로젝트 구조**
+- [ ] **.NET 8.0+ WPF 프로젝트 구조**
   - [ ] WPF UI 라이브러리 (lepoco/wpfui) 통합
   - [ ] Fluent Design System 및 Mica 배경 효과
   - [ ] MVVM 패턴 및 의존성 주입 구조
@@ -551,7 +551,7 @@ updated: "2025-10-08"
 - [ ] **Windows 서버 실행 파일**
   - [ ] Release 모드 빌드 생성
   - [ ] 자동 실행 배치 스크립트 작성
-  - [ ] 필요 의존성 확인 (.NET 6+ Runtime)
+  - [ ] 필요 의존성 확인 (.NET 8.0+ Runtime)
   - [ ] 로컬 설치 및 실행 가이드
 
 - [ ] **ESP32-S3 펌웨어 개발 완성**
