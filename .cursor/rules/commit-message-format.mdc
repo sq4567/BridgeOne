@@ -24,27 +24,127 @@ description: "커밋 메시지 작성 가이드라인 - 페이즈 번호 포함 
 ### 페이즈별 예시 제목
 
 ### Phase 1 세부 단계 예시
-- **Phase 1.1.1**: `Phase 1.1.1: Android 기본 USB 통신 구현 완료`
-- **Phase 1.1.2**: `Phase 1.1.2: Board 기본 UART 수신 구현 완료`
-- **Phase 1.1.3**: `Phase 1.1.3: Android ↔ Board 통신 테스트 완료`
-- **Phase 1.2.1**: `Phase 1.2.1: Board USB HID 출력 구현 완료`
-- **Phase 1.2.2**: `Phase 1.2.2: Board Vendor CDC 구현 완료`
-- **Phase 1.3.1**: `Phase 1.3.1: 프레임 릴레이 시스템 구현 완료`
+- **Phase 1.1.1.1**: `Phase 1.1.1.1: USB Serial 라이브러리 통합 완료`
+- **Phase 1.1.1.2**: `Phase 1.1.1.2: USB 장치 감지 및 권한 요청 구현 완료`
+- **Phase 1.1.1.3**: `Phase 1.1.1.3: USB Serial 포트 초기화 완료`
+- **Phase 1.1.1.4**: `Phase 1.1.1.4: BridgeOne 프레임 데이터 클래스 구현 완료`
+- **Phase 1.1.1.5**: `Phase 1.1.1.5: 순번 카운터 관리 시스템 구현 완료`
+- **Phase 1.1.1.6**: `Phase 1.1.1.6: 기본 터치 입력 변환 구현 완료`
+- **Phase 1.1.2.1**: `Phase 1.1.2.1: UART 통신 초기화 완료`
+- **Phase 1.1.2.2**: `Phase 1.1.2.2: BridgeOne 프레임 구조체 정의 완료`
+- **Phase 1.1.2.3**: `Phase 1.1.2.3: UART 수신 및 프레임 파싱 구현 완료`
+- **Phase 1.1.2.4**: `Phase 1.1.2.4: 순번 카운터 검증 로직 구현 완료`
+- **Phase 1.1.2.5**: `Phase 1.1.2.5: FreeRTOS 태스크 구조 구현 완료`
+- **Phase 1.1.3.1**: `Phase 1.1.3.1: Android 앱 통신 레이어 통합 완료`
+- **Phase 1.1.3.2**: `Phase 1.1.3.2: 기본 연결 및 프레임 송수신 테스트 완료`
+- **Phase 1.2.1.1**: `Phase 1.2.1.1: Arduino USB HID 라이브러리 초기화 완료`
+- **Phase 1.2.1.2**: `Phase 1.2.1.2: BridgeFrame → HID 마우스 변환 구현 완료`
+- **Phase 1.2.1.3**: `Phase 1.2.1.3: BridgeFrame → HID 키보드 변환 구현 완료`
+- **Phase 1.2.1.4**: `Phase 1.2.1.4: 홀드 입력 반복 처리 구현 완료`
+- **Phase 1.2.1.5**: `Phase 1.2.1.5: FreeRTOS HID 전송 태스크 통합 완료`
+- **Phase 1.2.2.1**: `Phase 1.2.2.1: USB Serial CDC 인터페이스 초기화 완료`
+- **Phase 1.2.2.2**: `Phase 1.2.2.2: JSON 메시지 프레임 구조 구현 완료`
+- **Phase 1.2.2.3**: `Phase 1.2.2.3: 명령 처리 시스템 구현 완료`
+- **Phase 1.2.3.1**: `Phase 1.2.3.1: .NET 8.0 콘솔 프로젝트 구조 및 로깅 완료`
+- **Phase 1.2.3.2**: `Phase 1.2.3.2: HID 장치 열거 및 ESP32-S3 감지 완료`
+- **Phase 1.2.3.3**: `Phase 1.2.3.3: Raw Input API 기반 HID 입력 수신 완료`
+- **Phase 1.2.3.4**: `Phase 1.2.3.4: Windows 커서/키 입력 시뮬레이션 완료`
+- **Phase 1.2.3.5**: `Phase 1.2.3.5: Vendor CDC 통신 초기화 완료`
+- **Phase 1.2.4.1**: `Phase 1.2.4.1: ESP32-S3 테스트 펌웨어 작성 완료`
+- **Phase 1.2.4.2**: `Phase 1.2.4.2: Windows 서버 통합 테스트 및 HID 장치 인식 완료`
+- **Phase 1.2.4.3**: `Phase 1.2.4.3: HID 마우스 입력 E2E 테스트 완료`
+- **Phase 1.2.4.4**: `Phase 1.2.4.4: HID 키보드 입력 E2E 테스트 완료`
+- **Phase 1.2.4.5**: `Phase 1.2.4.5: Vendor CDC 명령 송수신 테스트 완료`
+- **Phase 1.2.4.6**: `Phase 1.2.4.6: 1분간 연속 HID 전송 안정성 테스트 완료`
+- **Phase 1.3.1.1**: `Phase 1.3.1.1: 통합 테스트 환경 구성 및 로깅 완료`
+- **Phase 1.3.1.2**: `Phase 1.3.1.2: Android 터치 → Windows 커서 E2E 첫 연결 완료`
+- **Phase 1.3.1.3**: `Phase 1.3.1.3: E2E 지연시간 측정 및 분석 완료`
+- **Phase 1.3.1.4**: `Phase 1.3.1.4: 프레임 손실 및 순번 검증 완료`
+- **Phase 1.3.2.1**: `Phase 1.3.2.1: Android 객체 풀링 구현 완료`
+- **Phase 1.3.2.2**: `Phase 1.3.2.2: Board 프레임 큐 최적화 완료`
+- **Phase 1.3.2.3**: `Phase 1.3.2.3: 전송 빈도 측정 및 최적화 완료`
+- **Phase 1.3.2.4**: `Phase 1.3.2.4: E2E 통합 테스트 및 최종 검증 완료`
+- **Phase 1.4.1.1**: `Phase 1.4.1.1: Android Keep-alive 시스템 구현 완료`
+- **Phase 1.4.1.2**: `Phase 1.4.1.2: Windows Keep-alive 응답 구현 완료`
+- **Phase 1.4.1.3**: `Phase 1.4.1.3: USB 분리/재연결 자동 처리 완료`
+- **Phase 1.4.2.1**: `Phase 1.4.2.1: 상태 관리 시스템 구현 완료`
+- **Phase 1.4.2.2**: `Phase 1.4.2.2: 핸드셰이크 프로토콜 구현 완료`
+- **Phase 1.4.2.3**: `Phase 1.4.2.3: 모드별 UI 전환 구현 완료`
+- **Phase 1.4.3.1**: `Phase 1.4.3.1: USB 연결 오류 처리 및 진단 완료`
+- **Phase 1.4.3.2**: `Phase 1.4.3.2: 통신 프로토콜 오류 처리 완료`
+- **Phase 1.4.4.1**: `Phase 1.4.4.1: 기본 안정성 테스트 완료`
+- **Phase 1.4.4.2**: `Phase 1.4.4.2: 프로토콜 무결성 테스트 완료`
+- **Phase 1.4.4.3**: `Phase 1.4.4.3: 실제 사용 시나리오 테스트 완료`
 
 ### Phase 2 세부 단계 예시
-- **Phase 2.1**: `Phase 2.1: 터치패드 입력 엔진 구현 완료`
-- **Phase 2.2**: `Phase 2.2: UI 컴포넌트 시스템 구현 완료`
-- **Phase 2.3**: `Phase 2.3: 페이지 네비게이션 및 상태 관리 완료`
+- **Phase 2.1.1.1**: `Phase 2.1.1.1: TouchpadWrapper 기본 구조 구현 완료`
+- **Phase 2.1.1.2**: `Phase 2.1.1.2: TouchpadAreaWrapper 터치 감지 영역 구현 완료`
+- **Phase 2.1.1.3**: `Phase 2.1.1.3: ControlButtonContainer 오버레이 구현 완료`
+- **Phase 2.1.2.1**: `Phase 2.1.2.1: 데드존 보상 알고리즘 구현 완료`
+- **Phase 2.1.2.2**: `Phase 2.1.2.2: 직각 이동 알고리즘 구현 완료`
+- **Phase 2.1.2.3**: `Phase 2.1.2.3: 자유 이동 모드 구현 완료`
+- **Phase 2.1.2.4**: `Phase 2.1.2.4: 클릭 판정 로직 구현 완료`
+- **Phase 2.1.3.1**: `Phase 2.1.3.1: 일반 스크롤 모드 구현 완료`
+- **Phase 2.1.3.2**: `Phase 2.1.3.2: 무한 스크롤 모드 구현 완료`
+- **Phase 2.1.4.1**: `Phase 2.1.4.1: 모드 Enum 및 상태 관리 구현 완료`
+- **Phase 2.1.4.2**: `Phase 2.1.4.2: 제어 버튼 및 테두리 색상 구현 완료`
+- **Phase 2.2.1.1**: `Phase 2.2.1.1: KeyboardKeyButton 구현 완료`
+- **Phase 2.2.1.2**: `Phase 2.2.1.2: ShortcutButton 구현 완료`
+- **Phase 2.2.1.3**: `Phase 2.2.1.3: ContainerButton 구현 완료`
+- **Phase 2.2.2.1**: `Phase 2.2.2.1: 8분할 섹터 판정 알고리즘 구현 완료`
+- **Phase 2.2.2.2**: `Phase 2.2.2.2: 대각선 입력 처리 구현 완료`
+- **Phase 2.2.2.3**: `Phase 2.2.2.3: Sticky Hold 기능 구현 완료`
+- **Phase 2.2.3.1**: `Phase 2.2.3.1: 상태 알림 토스트 구현 완료`
+- **Phase 2.2.3.2**: `Phase 2.2.3.2: 페이지 인디케이터 및 햅틱 피드백 구현 완료`
+- **Phase 2.2.3.3**: `Phase 2.2.3.3: 컴포넌트 비활성화 시스템 구현 완료`
+- **Phase 2.3.1.1**: `Phase 2.3.1.1: Essential 페이지 레이아웃 구현 완료`
+- **Phase 2.3.1.2**: `Phase 2.3.1.2: Page 1 레이아웃 구현 완료`
+- **Phase 2.3.1.3**: `Phase 2.3.1.3: Page 2 레이아웃 구현 완료`
+- **Phase 2.3.1.4**: `Phase 2.3.1.4: Page 3 레이아웃 구현 완료`
+- **Phase 2.3.2.1**: `Phase 2.3.2.1: HorizontalPager 구현 및 슬라이드 제스처 완료`
+- **Phase 2.3.2.2**: `Phase 2.3.2.2: 페이지 전환 애니메이션 구현 완료`
+- **Phase 2.3.3.1**: `Phase 2.3.3.1: 페이지별 상태 지속성 구현 완료`
+- **Phase 2.4.1.1**: `Phase 2.4.1.1: Compose Recomposition 최소화 완료`
+- **Phase 2.4.1.2**: `Phase 2.4.1.2: GPU 가속 및 하드웨어 레이어 완료`
+- **Phase 2.4.1.3**: `Phase 2.4.1.3: Canvas 기반 고성능 그리기 완료`
+- **Phase 2.4.2.1**: `Phase 2.4.2.1: 객체 풀링 확장 완료`
+- **Phase 2.4.2.2**: `Phase 2.4.2.2: 배치 처리 시스템 완료`
+- **Phase 2.4.2.3**: `Phase 2.4.2.3: 스레드 풀 관리 완료`
 
 ### Phase 3 세부 단계 예시
-- **Phase 3.1**: `Phase 3.1: Windows 서버 기본 구조 구현 완료`
-- **Phase 3.2**: `Phase 3.2: 커서 팩 연동 시스템 구현 완료`
-- **Phase 3.3**: `Phase 3.3: 멀티 커서 관리 시스템 구현 완료`
+- **Phase 3.1.1.1**: `Phase 3.1.1.1: WPF UI 라이브러리 통합 완료`
+- **Phase 3.1.1.2**: `Phase 3.1.1.2: MVVM 패턴 및 의존성 주입 완료`
+- **Phase 3.1.1.3**: `Phase 3.1.1.3: 시스템 트레이 및 로딩 스플래시 완료`
+- **Phase 3.1.2.1**: `Phase 3.1.2.1: 백그라운드 서비스 등록 완료`
+- **Phase 3.1.2.2**: `Phase 3.1.2.2: 설정 저장소 및 백업/복원 완료`
+- **Phase 3.2.1.1**: `Phase 3.2.1.1: 레지스트리 기반 커서 스킴 감지 완료`
+- **Phase 3.2.1.2**: `Phase 3.2.1.2: Install.inf 파싱 및 커서 타입 매핑 완료`
+- **Phase 3.2.2.1**: `Phase 3.2.2.1: 실시간 스킴 변경 감지 완료`
+- **Phase 3.3.1.1**: `Phase 3.3.1.1: 전체화면 투명 오버레이 윈도우 완료`
+- **Phase 3.3.1.2**: `Phase 3.3.1.2: 6가지 가상 커서 표시 타입 완료`
+- **Phase 3.3.2.1**: `Phase 3.3.2.1: 커서 전환 신호 수신 및 이동 완료`
+- **Phase 3.3.2.2**: `Phase 3.3.2.2: 3단계 텔레포트 애니메이션 완료`
+- **Phase 3.3.3.1**: `Phase 3.3.3.1: 커서 상태 모니터링 및 이미지 업데이트 완료`
+- **Phase 3.4.1.1**: `Phase 3.4.1.1: MULTI_CURSOR_SWITCH 명령 구현 완료`
+- **Phase 3.4.1.2**: `Phase 3.4.1.2: UI_FORCE_ENABLE 명령 구현 완료`
+- **Phase 3.4.1.3**: `Phase 3.4.1.3: Android ↔ Windows 설정 동기화 완료`
 
 ### Phase 4 세부 단계 예시
-- **Phase 4.1**: `Phase 4.1: 통합 테스트 및 품질 검증 완료`
-- **Phase 4.2**: `Phase 4.2: 접근성 및 사용성 완성 완료`
-- **Phase 4.3**: `Phase 4.3: 개발 완료 및 로컬 배포 완료`
+- **Phase 4.1.1.1**: `Phase 4.1.1.1: 전체 사용자 시나리오 테스트 완료`
+- **Phase 4.1.1.2**: `Phase 4.1.1.2: 멀티 커서 고급 기능 테스트 완료`
+- **Phase 4.1.1.3**: `Phase 4.1.1.3: 24시간 연속 사용 안정성 테스트 완료`
+- **Phase 4.1.2.1**: `Phase 4.1.2.1: 디바이스 등급별 전송 빈도 벤치마크 완료`
+- **Phase 4.1.2.2**: `Phase 4.1.2.2: E2E 지연시간 최종 검증 완료`
+- **Phase 4.1.2.3**: `Phase 4.1.2.3: 렌더링 및 메모리 벤치마크 완료`
+- **Phase 4.2.1.1**: `Phase 4.2.1.1: TalkBack 지원 구현 완료`
+- **Phase 4.2.1.2**: `Phase 4.2.1.2: 터치 영역 및 시각적 접근성 완료`
+- **Phase 4.2.2.1**: `Phase 4.2.2.1: WCAG 2.1 AA 준수 완료`
+- **Phase 4.3.1.1**: `Phase 4.3.1.1: Android APK 디버그 빌드 완료`
+- **Phase 4.3.1.2**: `Phase 4.3.1.2: Windows 서버 Release 빌드 완료`
+- **Phase 4.3.1.3**: `Phase 4.3.1.3: ESP32-S3 Release 펌웨어 완료`
+- **Phase 4.3.2.1**: `Phase 4.3.2.1: 통합 설치 가이드 작성 완료`
+- **Phase 4.4.1.1**: `Phase 4.4.1.1: 사용자 가이드 작성 완료`
+- **Phase 4.4.2.1**: `Phase 4.4.2.1: 개발자 문서 작성 완료`
 
 ## 메시지 구조
 
