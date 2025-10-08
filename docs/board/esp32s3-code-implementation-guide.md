@@ -602,6 +602,7 @@ board_build.partitions = huge_app.csv
 lib_deps = 
     bblanchon/ArduinoJson@^6.21.0
     robtillaart/CRC@^1.0.1
+```
 
 ### 7.2 디버깅 도구
 
