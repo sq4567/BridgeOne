@@ -1,0 +1,368 @@
+---
+globs: "*.cs"
+description: C# implementation patterns for Windows Server GUI development
+---
+
+# BridgeOne Windows Server C# Implementation Guide
+
+## Code Organization Standards
+
+### Class Structure
+Based on [design-guide-server.md](mdc:docs/design-guide-server.md) user experience principles:
+
+```csharp
+/// <summary>
+/// Main window class handling BridgeOne server GUI interactions
+/// Implements Fluent Design System with automatic theme detection
+/// </summary>
+public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
+{
+    // Constants: UPPER_CASE_WITH_UNDERSCORES
+    private const int MAX_RETRY_COUNT = 3;
+    private const int DEFAULT_PORT = 8888;
+    
+    // Boolean variables: is/has/can prefix
+    private bool isConnected = false;
+    private bool hasAdvancedFeatures = false;
+    private bool canExecuteMacros = false;
+    
+    // Services and dependencies (injected)
+    private readonly IConnectionService _connectionService;
+    private readonly IMacroService _macroService;
+    
+    public MainWindow(IConnectionService connectionService, IMacroService macroService)
+    {
+        InitializeComponent();
+        _connectionService = connectionService;
+        _macroService = macroService;
+        
+        InitializeTheme();
+        SetupEventHandlers();
+    }
+}
+```
+
+### Theme Management Implementation
+
+**Required Pattern**:
+```csharp
+/// <summary>
+/// 시스템 테마 자동 감지 및 적용을 초기화합니다.
+/// Mica 배경과 액센트 색상 자동 업데이트를 포함합니다.
+/// </summary>
+private void InitializeTheme()
+{
+    Loaded += (sender, args) =>
+    {
+        // SystemThemeWatcher를 사용한 자동 테마 감지
+        Wpf.Ui.Appearance.SystemThemeWatcher.Watch(
+            this,
+            Wpf.Ui.Controls.WindowBackdropType.Mica,
+            true // 액센트 색상 자동 업데이트
+        );
+    };
+}
+
+/// <summary>
+/// 다크/라이트 테마 간 전환을 처리합니다.
+/// </summary>
+private void ToggleTheme()
+{
+    var currentTheme = Wpf.Ui.Appearance.ApplicationThemeManager.GetAppTheme();
+    var newTheme = currentTheme == Wpf.Ui.Appearance.ApplicationTheme.Dark 
+        ? Wpf.Ui.Appearance.ApplicationTheme.Light 
+        : Wpf.Ui.Appearance.ApplicationTheme.Dark;
+    
+    Wpf.Ui.Appearance.ApplicationThemeManager.Apply(
+        newTheme,
+        Wpf.Ui.Controls.WindowBackdropType.Mica,
+        true
+    );
+}
+```
+
+## Connection State Management
+
+### Connection Status Enum
+```csharp
+/// <summary>
+/// 안드로이드 앱과의 연결 상태를 정의합니다.
+/// UI 색상 시스템과 매핑됩니다.
+/// </summary>
+public enum ConnectionStatus
+{
+    Disconnected,    // Gray (#6B7280)
+    Connecting,      // Amber (#F59E0B) 
+    Connected,       // Green (#10B981)
+    Error           // Red (#EF4444)
+}
+```
+
+### Connection Service Pattern
+```csharp
+/// <summary>
+/// ESP32-S3을 통한 안드로이드 앱 연결을 관리합니다.
+/// 핸드셰이크 프로세스와 Keep-alive를 포함합니다.
+/// </summary>
+public class ConnectionService : IConnectionService
+{
+    public event EventHandler<ConnectionStatusChangedEventArgs> StatusChanged;
+    
+    private ConnectionStatus _currentStatus = ConnectionStatus.Disconnected;
+    private Timer _keepAliveTimer;
+    private readonly ILogger<ConnectionService> _logger;
+    
+    /// <summary>
+    /// 안드로이드 디바이스와의 연결을 시작합니다.
+    /// 1. Discovery (1-2초)
+    /// 2. Authentication (1-2초)  
+    /// 3. Feature negotiation
+    /// </summary>
+    public async Task<bool> ConnectAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            UpdateStatus(ConnectionStatus.Connecting);
+            
+            // 단계별 연결 프로세스 구현
+            var discovered = await DiscoverDeviceAsync(cancellationToken);
+            if (!discovered) return false;
+            
+            var authenticated = await AuthenticateAsync(cancellationToken);
+            if (!authenticated) return false;
+            
+            var featuresNegotiated = await NegotiateFeaturesAsync(cancellationToken);
+            
+            UpdateStatus(ConnectionStatus.Connected);
+            StartKeepAlive();
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "연결 과정에서 오류가 발생했습니다");
+            UpdateStatus(ConnectionStatus.Error);
+            return false;
+        }
+    }
+    
+    private void UpdateStatus(ConnectionStatus newStatus)
+    {
+        if (_currentStatus != newStatus)
+        {
+            _currentStatus = newStatus;
+            StatusChanged?.Invoke(this, new ConnectionStatusChangedEventArgs(newStatus));
+        }
+    }
+}
+```
+
+## Macro Management Implementation
+
+### Macro Category System
+```csharp
+/// <summary>
+/// 매크로 카테고리와 UI 색상을 정의합니다.
+/// [styleframe-server.md](mdc:docs/styleframe-server.md) §3.2 참조
+/// </summary>
+public enum MacroCategory
+{
+    Application,    // Purple (#8B5CF6)
+    System,         // Cyan (#06B6D4)
+    Gaming,         // Orange (#F97316)
+    Custom          // Lime (#84CC16)
+}
+
+/// <summary>
+/// 매크로 정보를 포함하는 모델 클래스입니다.
+/// </summary>
+public class MacroInfo
+{
+    public string Id { get; set; }
+    public string Name { get; set; }
+    public string Description { get; set; }
+    public MacroCategory Category { get; set; }
+    public DateTime LastModified { get; set; }
+    public List<MacroStep> Steps { get; set; } = new();
+    
+    /// <summary>
+    /// 카테고리에 따른 UI 색상을 반환합니다.
+    /// </summary>
+    public string GetCategoryColor()
+    {
+        return Category switch
+        {
+            MacroCategory.Application => "#8B5CF6",
+            MacroCategory.System => "#06B6D4", 
+            MacroCategory.Gaming => "#F97316",
+            MacroCategory.Custom => "#84CC16",
+            _ => "#6B7280"
+        };
+    }
+}
+```
+
+## Error Handling and User Feedback
+
+### Progress Reporting Pattern
+```csharp
+/// <summary>
+/// 매크로 실행 진행 상황을 UI에 보고합니다.
+/// </summary>
+public class MacroExecutionService
+{
+    public event EventHandler<MacroProgressEventArgs> ProgressUpdated;
+    
+    /// <summary>
+    /// 매크로를 실행하고 진행 상황을 업데이트합니다.
+    /// </summary>
+    public async Task ExecuteMacroAsync(MacroInfo macro, CancellationToken cancellationToken)
+    {
+        var totalSteps = macro.Steps.Count;
+        
+        for (int i = 0; i < totalSteps; i++)
+        {
+            var step = macro.Steps[i];
+            var progress = (double)(i + 1) / totalSteps * 100;
+            
+            // UI에 진행 상황 보고
+            ProgressUpdated?.Invoke(this, new MacroProgressEventArgs
+            {
+                MacroName = macro.Name,
+                CurrentStep = i + 1,
+                TotalSteps = totalSteps,
+                ProgressPercentage = progress,
+                CurrentStepDescription = step.Description
+            });
+            
+            await ExecuteStepAsync(step, cancellationToken);
+        }
+    }
+}
+```
+
+### Error Dialog Pattern
+```csharp
+/// <summary>
+/// 사용자 친화적인 오류 다이얼로그를 표시합니다.
+/// [design-guide-server.md](mdc:docs/design-guide-server.md) §4.2 오류 방지 원칙 적용
+/// </summary>
+public static class ErrorHandler
+{
+    /// <summary>
+    /// 위험한 작업에 대한 확인 다이얼로그를 표시합니다.
+    /// </summary>
+    public static async Task<bool> ShowConfirmationAsync(string title, string message, string actionText = "확인")
+    {
+        var dialog = new Wpf.Ui.Controls.MessageBox
+        {
+            Title = title,
+            Content = message,
+            PrimaryButtonText = actionText,
+            SecondaryButtonText = "취소"
+        };
+        
+        var result = await dialog.ShowDialogAsync();
+        return result == Wpf.Ui.Controls.MessageBoxResult.Primary;
+    }
+    
+    /// <summary>
+    /// 오류 정보를 표시하고 복구 옵션을 제공합니다.
+    /// </summary>
+    public static async Task ShowErrorWithRecoveryAsync(string title, string error, string recoveryAction = null)
+    {
+        var content = error;
+        if (!string.IsNullOrEmpty(recoveryAction))
+        {
+            content += $"\n\n권장 조치: {recoveryAction}";
+        }
+        
+        var dialog = new Wpf.Ui.Controls.MessageBox
+        {
+            Title = title,
+            Content = content,
+            PrimaryButtonText = "확인"
+        };
+        
+        await dialog.ShowDialogAsync();
+    }
+}
+```
+
+## Accessibility Implementation
+
+### AutomationPeer Override Pattern
+```csharp
+/// <summary>
+/// 사용자 정의 컨트롤의 접근성을 구현합니다.
+/// 스크린 리더 지원과 키보드 네비게이션을 포함합니다.
+/// </summary>
+public class ConnectionStatusCard : UserControl
+{
+    protected override AutomationPeer OnCreateAutomationPeer()
+    {
+        return new ConnectionStatusCardAutomationPeer(this);
+    }
+}
+
+public class ConnectionStatusCardAutomationPeer : UserControlAutomationPeer
+{
+    public ConnectionStatusCardAutomationPeer(ConnectionStatusCard owner) : base(owner) { }
+    
+    protected override string GetClassNameCore() => "ConnectionStatusCard";
+    
+    protected override string GetNameCore()
+    {
+        var card = (ConnectionStatusCard)Owner;
+        return $"연결 상태: {card.Status}, 디바이스: {card.DeviceName}";
+    }
+}
+```
+
+## Logging and Diagnostics
+
+### Structured Logging Pattern
+```csharp
+/// <summary>
+/// 구조화된 로깅을 사용하여 디버깅과 모니터링을 지원합니다.
+/// </summary>
+public class ConnectionManager
+{
+    private readonly ILogger<ConnectionManager> _logger;
+    
+    public async Task HandleConnectionAsync()
+    {
+        using var scope = _logger.BeginScope("연결 처리 {ConnectionId}", Guid.NewGuid());
+        
+        try
+        {
+            _logger.LogInformation("안드로이드 디바이스 검색 시작");
+            
+            var device = await DiscoverDeviceAsync();
+            if (device != null)
+            {
+                _logger.LogInformation("디바이스 발견: {DeviceName} ({DeviceId})", 
+                    device.Name, device.Id);
+            }
+            else
+            {
+                _logger.LogWarning("연결 가능한 디바이스를 찾을 수 없습니다");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "연결 처리 중 예상치 못한 오류가 발생했습니다");
+            throw;
+        }
+    }
+}
+```
+
+## Validation Rules
+
+- **ALWAYS** use dependency injection for services
+- **REQUIRED** proper exception handling with user-friendly messages  
+- **MANDATORY** structured logging for all critical operations
+- **NEVER** use Thread.Sleep - always use async/await patterns
+- **ALWAYS** implement INotifyPropertyChanged for data binding
+- **REQUIRED** cancellation token support for long-running operations
