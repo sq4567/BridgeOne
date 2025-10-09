@@ -1,10 +1,12 @@
 /**
  * @file main.cpp
- * @brief Phase 1.1.2.4: 순번 카운터 검증 로직 구현
- * @details ESP32-S3 UART2를 통한 8바이트 BridgeFrame 수신, 파싱 및 순번 검증
+ * @brief Phase 1.1.2.5: FreeRTOS 태스크 구조 구현
+ * @details UART 수신 및 디버그 출력을 별도 태스크로 분리한 멀티태스킹 구조
  */
 
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 // ============================================================================
 // BridgeOne 프레임 구조체 정의 (Phase 1.1.2.2)
@@ -47,6 +49,20 @@ static_assert(sizeof(BridgeFrame) == 8,
 BridgeFrame g_rxFrame;
 
 // ============================================================================
+// FreeRTOS 태스크 핸들 (Phase 1.1.2.5)
+// ============================================================================
+
+/**
+ * @brief FreeRTOS 태스크 핸들
+ * @details UART 수신 태스크와 디버그 태스크를 관리하기 위한 핸들
+ * 
+ * - uartRxTaskHandle: UART2 수신 및 프레임 처리 태스크
+ * - debugTaskHandle: 통계 정보 출력 및 시스템 모니터링 태스크
+ */
+TaskHandle_t uartRxTaskHandle = NULL;  // UART 수신 태스크 핸들
+TaskHandle_t debugTaskHandle = NULL;   // 디버그 출력 태스크 핸들
+
+// ============================================================================
 // 순번 검증 변수 (Phase 1.1.2.4)
 // ============================================================================
 
@@ -61,6 +77,9 @@ BridgeFrame g_rxFrame;
 uint8_t g_lastSeq = 255;       // 마지막 수신 순번 (255는 초기화 상태)
 uint32_t g_frameCount = 0;     // 수신 프레임 카운터
 uint32_t g_lostFrames = 0;     // 손실 프레임 카운터
+
+// FreeRTOS 태스크 동기화용 뮤텍스 (통계 변수 보호)
+SemaphoreHandle_t g_statsMutex = NULL;
 
 // ============================================================================
 // UART 수신 함수 (Phase 1.1.2.3)
@@ -170,6 +189,140 @@ bool validateSequence(uint8_t currentSeq) {
 }
 
 // ============================================================================
+// FreeRTOS 태스크 함수 (Phase 1.1.2.5)
+// ============================================================================
+
+/**
+ * @brief UART 수신 태스크 (Core 1, 우선순위 3)
+ * @details UART2로부터 BridgeFrame을 수신하고 순번 검증을 수행
+ * 
+ * 동작 과정:
+ * 1. receiveFrame()을 호출하여 8바이트 프레임 수신 시도
+ * 2. 수신 성공 시 validateSequence()로 순번 검증
+ * 3. 프레임 내용 출력 (버튼, 이동, 휠, 키 입력)
+ * 4. 5ms 대기 후 반복 (200Hz 폴링)
+ * 
+ * @param pvParameters 태스크 파라미터 (미사용)
+ * 
+ * @note Core 1에 할당되어 UART 통신 전용으로 동작
+ * @note 우선순위 3으로 설정되어 실시간 처리 보장
+ * @see receiveFrame(), validateSequence()
+ */
+void uartRxTask(void* pvParameters) {
+  Serial.println("[UART RX Task] Started on Core 1");
+  
+  // 무한 루프: UART 수신 처리
+  for (;;) {
+    // UART2로부터 프레임 수신 시도
+    if (receiveFrame()) {
+      // 순번 검증 (Phase 1.1.2.4)
+      bool seqValid = validateSequence(g_rxFrame.seq);
+      
+      // ========================================
+      // 프레임 수신 성공 - 내용 출력
+      // ========================================
+      Serial.printf("[RX #%lu] seq=%d %s, buttons=0x%02X, delta=(%d,%d), wheel=%d, mods=0x%02X, keys=[0x%02X, 0x%02X]\n",
+                    g_frameCount,
+                    g_rxFrame.seq,
+                    seqValid ? "✓" : "✗",  // 순번 검증 결과 표시
+                    g_rxFrame.buttons,
+                    g_rxFrame.deltaX,
+                    g_rxFrame.deltaY,
+                    g_rxFrame.wheel,
+                    g_rxFrame.modifiers,
+                    g_rxFrame.keyCode1,
+                    g_rxFrame.keyCode2);
+      
+      // 버튼 상태 상세 출력 (디버깅용)
+      if (g_rxFrame.buttons != 0) {
+        Serial.print("  └─ Buttons: ");
+        if (g_rxFrame.buttons & 0x01) Serial.print("[LEFT] ");
+        if (g_rxFrame.buttons & 0x02) Serial.print("[RIGHT] ");
+        if (g_rxFrame.buttons & 0x04) Serial.print("[MIDDLE] ");
+        Serial.println();
+      }
+      
+      // 마우스 이동 출력 (0이 아닐 때만)
+      if (g_rxFrame.deltaX != 0 || g_rxFrame.deltaY != 0) {
+        Serial.printf("  └─ Mouse Move: X%+d Y%+d\n", g_rxFrame.deltaX, g_rxFrame.deltaY);
+      }
+      
+      // 휠 스크롤 출력 (0이 아닐 때만)
+      if (g_rxFrame.wheel != 0) {
+        Serial.printf("  └─ Wheel: %+d\n", g_rxFrame.wheel);
+      }
+    }
+    
+    // 5ms 대기 (200Hz 폴링, CPU 부하 감소)
+    // vTaskDelay는 다른 태스크에게 CPU 시간을 양보
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+}
+
+/**
+ * @brief 디버그 출력 태스크 (Core 0, 우선순위 1)
+ * @details 1초마다 시스템 통계 정보를 출력
+ * 
+ * 출력 정보:
+ * - Uptime: 시스템 가동 시간 (초)
+ * - Received: 수신된 프레임 수
+ * - Lost: 손실된 프레임 수 및 손실률 (%)
+ * - Last Seq: 마지막 수신 순번
+ * - Free Heap: 사용 가능한 힙 메모리 크기
+ * - UART Rx Task: UART 수신 태스크 상태 (스택 워터마크)
+ * 
+ * @param pvParameters 태스크 파라미터 (미사용)
+ * 
+ * @note Core 0에 할당되어 백그라운드 모니터링 수행
+ * @note 우선순위 1로 설정되어 UART 태스크에 영향 최소화
+ */
+void debugTask(void* pvParameters) {
+  Serial.println("[Debug Task] Started on Core 0");
+  
+  // 무한 루프: 통계 출력
+  for (;;) {
+    // 1초 대기
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    
+    // ========================================
+    // 통계 정보 계산
+    // ========================================
+    uint32_t currentTime = millis();
+    
+    // 수신율 계산 (손실률)
+    float lossRate = 0.0f;
+    if (g_frameCount > 0) {
+      lossRate = (g_lostFrames * 100.0f) / (g_frameCount + g_lostFrames);
+    }
+    
+    // 메모리 정보
+    uint32_t freeHeap = ESP.getFreeHeap();
+    uint32_t minFreeHeap = ESP.getMinFreeHeap();
+    
+    // 태스크 상태 정보
+    UBaseType_t uartRxStackWatermark = 0;
+    if (uartRxTaskHandle != NULL) {
+      uartRxStackWatermark = uxTaskGetStackHighWaterMark(uartRxTaskHandle);
+    }
+    
+    // ========================================
+    // 통계 출력
+    // ========================================
+    Serial.println("========================================");
+    Serial.printf("[STATS] Uptime: %lu sec\n", currentTime / 1000);
+    Serial.printf("[STATS] Received: %lu frames\n", g_frameCount);
+    Serial.printf("[STATS] Lost: %lu frames (%.2f%%)\n", g_lostFrames, lossRate);
+    Serial.printf("[STATS] Last Seq: %d\n", g_lastSeq);
+    Serial.println("----------------------------------------");
+    Serial.printf("[MEMORY] Free Heap: %lu bytes\n", freeHeap);
+    Serial.printf("[MEMORY] Min Free Heap: %lu bytes\n", minFreeHeap);
+    Serial.println("----------------------------------------");
+    Serial.printf("[TASK] UART Rx Task: Stack Watermark = %u words\n", uartRxStackWatermark);
+    Serial.println("========================================");
+  }
+}
+
+// ============================================================================
 // UART 설정 상수
 // ============================================================================
 // 참고: ESP32-S3 Arduino 프레임워크에는 Serial2가 이미 정의되어 있음
@@ -194,7 +347,7 @@ void setup() {
   Serial.println();
   Serial.println("========================================");
   Serial.println("  BridgeOne ESP32-S3 Board");
-  Serial.println("  Phase 1.1.2.4: Sequence Validation");
+  Serial.println("  Phase 1.1.2.5: FreeRTOS Task Structure");
   Serial.println("========================================");
   Serial.println();
   
@@ -244,80 +397,71 @@ void setup() {
   Serial.println("[INIT] All systems initialized successfully!");
   Serial.println("========================================");
   Serial.println();
+  
+  // ========================================
+  // FreeRTOS 태스크 생성 (Phase 1.1.2.5)
+  // ========================================
+  Serial.println("[FreeRTOS] Creating tasks...");
+  
+  // UART 수신 태스크 생성 (Core 1, 우선순위 3)
+  // - Stack Size: 4096 bytes (4KB)
+  // - Priority: 3 (높음 - 실시간 UART 처리)
+  // - Core: 1 (UART 통신 전용 코어)
+  BaseType_t xReturned;
+  xReturned = xTaskCreatePinnedToCore(
+    uartRxTask,           // 태스크 함수
+    "UART_RX",            // 태스크 이름 (디버깅용)
+    4096,                 // 스택 크기 (words)
+    NULL,                 // 태스크 파라미터
+    3,                    // 우선순위 (0=lowest, 24=highest)
+    &uartRxTaskHandle,    // 태스크 핸들
+    1                     // 코어 ID (Core 1)
+  );
+  
+  if (xReturned == pdPASS) {
+    Serial.println("  ✓ UART RX Task created on Core 1 (Priority 3)");
+  } else {
+    Serial.println("  ✗ Failed to create UART RX Task!");
+  }
+  
+  // 디버그 출력 태스크 생성 (Core 0, 우선순위 1)
+  // - Stack Size: 3072 bytes (3KB)
+  // - Priority: 1 (낮음 - 백그라운드 모니터링)
+  // - Core: 0 (메인 코어, Arduino loop()와 동일)
+  xReturned = xTaskCreatePinnedToCore(
+    debugTask,            // 태스크 함수
+    "DEBUG",              // 태스크 이름 (디버깅용)
+    3072,                 // 스택 크기 (words)
+    NULL,                 // 태스크 파라미터
+    1,                    // 우선순위 (낮음)
+    &debugTaskHandle,     // 태스크 핸들
+    0                     // 코어 ID (Core 0)
+  );
+  
+  if (xReturned == pdPASS) {
+    Serial.println("  ✓ Debug Task created on Core 0 (Priority 1)");
+  } else {
+    Serial.println("  ✗ Failed to create Debug Task!");
+  }
+  
+  Serial.println("[FreeRTOS] Task creation completed!");
+  Serial.println("========================================");
+  Serial.println();
 }
 
 /**
- * @brief 메인 루프
- * @details UART2로부터 프레임 수신, 순번 검증 및 통계 출력
+ * @brief 메인 루프 (사용 안 함)
+ * @details FreeRTOS 태스크 구조로 전환되어 loop()는 비활성화됨
+ * 
+ * FreeRTOS 태스크 구조:
+ * - uartRxTask: UART 수신 및 프레임 처리 (Core 1, 우선순위 3)
+ * - debugTask: 통계 출력 및 모니터링 (Core 0, 우선순위 1)
+ * 
+ * @note loop() 대신 FreeRTOS 태스크가 무한 루프로 동작
+ * @note vTaskDelete(NULL)로 setup() 태스크 종료
  */
 void loop() {
-  // ========================================
-  // 통계 출력 (1초마다)
-  // ========================================
-  static uint32_t lastStatsTime = 0;  // 마지막 통계 출력 시간 (ms)
-  uint32_t currentTime = millis();
-  
-  // 1초(1000ms) 경과 시 통계 출력
-  if (currentTime - lastStatsTime >= 1000) {
-    lastStatsTime = currentTime;
-    
-    // 수신율 계산 (손실률)
-    float lossRate = 0.0f;
-    if (g_frameCount > 0) {
-      lossRate = (g_lostFrames * 100.0f) / (g_frameCount + g_lostFrames);
-    }
-    
-    Serial.println("----------------------------------------");
-    Serial.printf("[STATS] Uptime: %lu sec\n", currentTime / 1000);
-    Serial.printf("[STATS] Received: %lu frames\n", g_frameCount);
-    Serial.printf("[STATS] Lost: %lu frames (%.2f%%)\n", g_lostFrames, lossRate);
-    Serial.printf("[STATS] Last Seq: %d\n", g_lastSeq);
-    Serial.println("----------------------------------------");
-  }
-  
-  // ========================================
-  // UART2 프레임 수신 및 순번 검증
-  // ========================================
-  if (receiveFrame()) {
-    // 순번 검증 (Phase 1.1.2.4)
-    bool seqValid = validateSequence(g_rxFrame.seq);
-    
-    // ========================================
-    // 프레임 수신 성공 - 내용 출력
-    // ========================================
-    Serial.printf("[RX #%lu] seq=%d %s, buttons=0x%02X, delta=(%d,%d), wheel=%d, mods=0x%02X, keys=[0x%02X, 0x%02X]\n",
-                  g_frameCount,
-                  g_rxFrame.seq,
-                  seqValid ? "✓" : "✗",  // 순번 검증 결과 표시
-                  g_rxFrame.buttons,
-                  g_rxFrame.deltaX,
-                  g_rxFrame.deltaY,
-                  g_rxFrame.wheel,
-                  g_rxFrame.modifiers,
-                  g_rxFrame.keyCode1,
-                  g_rxFrame.keyCode2);
-    
-    // 버튼 상태 상세 출력 (디버깅용)
-    if (g_rxFrame.buttons != 0) {
-      Serial.print("  └─ Buttons: ");
-      if (g_rxFrame.buttons & 0x01) Serial.print("[LEFT] ");
-      if (g_rxFrame.buttons & 0x02) Serial.print("[RIGHT] ");
-      if (g_rxFrame.buttons & 0x04) Serial.print("[MIDDLE] ");
-      Serial.println();
-    }
-    
-    // 마우스 이동 출력 (0이 아닐 때만)
-    if (g_rxFrame.deltaX != 0 || g_rxFrame.deltaY != 0) {
-      Serial.printf("  └─ Mouse Move: X%+d Y%+d\n", g_rxFrame.deltaX, g_rxFrame.deltaY);
-    }
-    
-    // 휠 스크롤 출력 (0이 아닐 때만)
-    if (g_rxFrame.wheel != 0) {
-      Serial.printf("  └─ Wheel: %+d\n", g_rxFrame.wheel);
-    }
-  }
-  
-  // CPU 부하 감소를 위한 짧은 지연 (1ms)
-  // 너무 빠른 폴링은 불필요한 CPU 사용 증가
-  delay(1);
+  // FreeRTOS 태스크로 전환되어 loop()는 사용하지 않음
+  // setup() 완료 후 이 태스크를 삭제하여 메모리 절약
+  vTaskDelete(NULL);
 }
