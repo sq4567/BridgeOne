@@ -431,5 +431,43 @@ class UsbConnectionManager(private val context: Context) {
      * @return 현재 연결된 CP2102 USB 장치, 연결되지 않은 경우 null
      */
     fun getCurrentDevice(): UsbDevice? = currentDevice
+    
+    /**
+     * BridgeFrame을 USB Serial 포트로 전송합니다.
+     * 
+     * 8바이트 BridgeFrame을 직렬화하여 USB Serial 포트를 통해 ESP32-S3 보드로 전송합니다.
+     * 포트가 열려있지 않거나 전송 중 오류가 발생하면 false를 반환합니다.
+     * 
+     * @param frame 전송할 BridgeFrame 객체
+     * @return 전송 성공 시 true, 실패 시 false
+     * 
+     * @see [technical-specification-app.md §1.1.3 프레임 전송 요구사항]
+     */
+    fun sendFrame(frame: com.chatterbones.bridgeone.protocol.BridgeFrame): Boolean {
+        val port = serialPort
+        if (port == null) {
+            Log.w(TAG, "Serial 포트가 열려있지 않아 프레임을 전송할 수 없습니다")
+            return false
+        }
+        
+        try {
+            // BridgeFrame을 8바이트 배열로 직렬화
+            val data = frame.toByteArray()
+            
+            // USB Serial 포트로 전송 (타임아웃: 0ms = 블로킹 전송)
+            // write() 메서드는 반환값이 없으며, 실패 시 IOException을 던집니다
+            port.write(data, 0)
+            
+            Log.d(TAG, "프레임 전송 성공: $frame")
+            return true
+            
+        } catch (e: IOException) {
+            Log.e(TAG, "프레임 전송 실패 (IOException): ${e.message}", e)
+            return false
+        } catch (e: Exception) {
+            Log.e(TAG, "프레임 전송 중 예상치 못한 오류: ${e.message}", e)
+            return false
+        }
+    }
 }
 
