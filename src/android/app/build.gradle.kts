@@ -53,7 +53,12 @@ dependencies {
     // USB Serial 라이브러리
     implementation("com.github.mik3y:usb-serial-for-android:3.9.0")
     
+    // Kotlin Logging 라이브러리
+    implementation("io.github.oshai:kotlin-logging-jvm:7.0.3")
+    implementation("org.slf4j:slf4j-android:1.7.36")
+    
     testImplementation(libs.junit)
+    testImplementation("org.slf4j:slf4j-simple:1.7.36")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
