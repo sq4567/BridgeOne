@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ESP32-S3 USB 장치 필터 -->
+    <!-- Vendor ID: 0x303A (Espressif Systems) -->
+    <!-- Product ID: 0x1001 (ESP32-S3 기본 USB PID) -->
+    <usb-device vendor-id="12346" product-id="4097" />
+</resources>
+
