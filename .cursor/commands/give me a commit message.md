@@ -1,0 +1,1 @@
+직접 커밋하지 말고 커밋 메시지만 @commit-message-format.mdc 내용에 맞게 작성해줘.
