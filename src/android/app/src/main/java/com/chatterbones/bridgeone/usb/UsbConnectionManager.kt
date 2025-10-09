@@ -9,9 +9,13 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.util.Log
+import com.hoho.android.usbserial.driver.UsbSerialDriver
+import com.hoho.android.usbserial.driver.UsbSerialPort
+import com.hoho.android.usbserial.driver.UsbSerialProber
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.IOException
 
 /**
  * USB 연결 관리자 클래스
@@ -43,6 +47,14 @@ class UsbConnectionManager(private val context: Context) {
         
         // 권한 요청 액션
         private const val ACTION_USB_PERMISSION = "com.chatterbones.bridgeone.USB_PERMISSION"
+        
+        // USB Serial 통신 파라미터
+        // @see [technical-specification-app.md §1.1.1 하드웨어 연결 요구사항]
+        private const val BAUD_RATE = 1000000          // 1Mbps (1,000,000 bps)
+        private const val DATA_BITS = 8                // 8비트 데이터
+        private const val STOP_BITS = UsbSerialPort.STOPBITS_1  // 1 스톱비트
+        private const val PARITY = UsbSerialPort.PARITY_NONE    // 패리티 없음
+        private const val READ_TIMEOUT_MS = 200        // 읽기 타임아웃 200ms
     }
 
     // USB 관리자 시스템 서비스
@@ -55,6 +67,9 @@ class UsbConnectionManager(private val context: Context) {
 
     // 현재 감지된 USB 장치
     private var currentDevice: UsbDevice? = null
+    
+    // USB Serial 포트 인스턴스
+    private var serialPort: UsbSerialPort? = null
 
     /**
      * USB 권한 응답 및 장치 연결/분리 이벤트를 처리하는 BroadcastReceiver
@@ -78,10 +93,11 @@ class UsbConnectionManager(private val context: Context) {
                         }
 
                         if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                            // 권한 승인 성공
+                            // 권한 승인 성공 - Serial 포트 열기
                             device?.let {
                                 Log.i(TAG, "USB 권한 승인: ${it.deviceName}")
-                                _connectionState.value = UsbConnectionState.Connected(it.deviceName)
+                                // Serial 포트 열기 (openSerialPort()에서 Connected 상태로 전환)
+                                openSerialPort()
                             }
                         } else {
                             // 권한 거부
@@ -123,6 +139,7 @@ class UsbConnectionManager(private val context: Context) {
                     device?.let {
                         if (isCp2102Device(it)) {
                             Log.i(TAG, "CP2102 장치 분리 감지: ${it.deviceName}")
+                            closeSerialPort()  // Serial 포트 닫기
                             currentDevice = null
                             _connectionState.value = UsbConnectionState.Disconnected
                         }
@@ -166,6 +183,10 @@ class UsbConnectionManager(private val context: Context) {
      */
     fun cleanup() {
         Log.d(TAG, "UsbConnectionManager 정리")
+        
+        // Serial 포트 닫기
+        closeSerialPort()
+        
         try {
             context.unregisterReceiver(usbReceiver)
         } catch (e: IllegalArgumentException) {
@@ -214,7 +235,8 @@ class UsbConnectionManager(private val context: Context) {
         // 권한 확인 및 요청
         if (usbManager.hasPermission(cp2102Device)) {
             Log.i(TAG, "USB 장치 권한 이미 보유: ${cp2102Device.deviceName}")
-            _connectionState.value = UsbConnectionState.Connected(cp2102Device.deviceName)
+            // Serial 포트 열기 (openSerialPort()에서 Connected 상태로 전환)
+            openSerialPort()
         } else {
             Log.i(TAG, "USB 장치 권한 요청: ${cp2102Device.deviceName}")
             _connectionState.value = UsbConnectionState.Requesting
@@ -248,6 +270,161 @@ class UsbConnectionManager(private val context: Context) {
         return device.vendorId == CP2102_VENDOR_ID && device.productId == CP2102_PRODUCT_ID
     }
 
+    /**
+     * USB Serial 포트 열기 및 통신 설정
+     * 
+     * 권한이 승인된 USB 장치에 대해 Serial 포트를 열고 1Mbps UART 통신을 설정합니다.
+     * 이 메서드는 권한 승인 후 자동으로 호출되며, 통신 파라미터를 구성합니다.
+     * 
+     * **통신 파라미터:**
+     * - Baud Rate: 1,000,000 bps (1Mbps)
+     * - Data Bits: 8
+     * - Stop Bits: 1
+     * - Parity: None
+     * - Read Timeout: 200ms
+     * 
+     * **예외 처리:**
+     * - IOException: 포트 열기 실패, 통신 설정 실패
+     * - SecurityException: 권한 부족
+     * - IllegalArgumentException: 잘못된 통신 파라미터
+     * 
+     * @see [technical-specification-app.md §1.1.1 하드웨어 연결 요구사항]
+     * @see [technical-specification-app.md §1.1.2 연결 관리 요구사항]
+     */
+    fun openSerialPort() {
+        val device = currentDevice
+        if (device == null) {
+            Log.e(TAG, "USB 장치가 없어 Serial 포트를 열 수 없습니다")
+            _connectionState.value = UsbConnectionState.Error(
+                "USB 장치를 찾을 수 없습니다.",
+                null
+            )
+            return
+        }
+        
+        try {
+            // UsbSerialDriver 인스턴스 생성 (usb-serial-for-android 라이브러리)
+            val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
+            val driver = availableDrivers.firstOrNull { it.device.deviceId == device.deviceId }
+            
+            if (driver == null) {
+                Log.e(TAG, "USB Serial 드라이버를 찾을 수 없습니다: ${device.deviceName}")
+                _connectionState.value = UsbConnectionState.Error(
+                    "USB Serial 드라이버를 찾을 수 없습니다. CP2102 드라이버가 지원되지 않을 수 있습니다.",
+                    null
+                )
+                return
+            }
+            
+            // USB 연결 생성
+            val connection = usbManager.openDevice(driver.device)
+            if (connection == null) {
+                Log.e(TAG, "USB 장치 연결을 열 수 없습니다: ${device.deviceName}")
+                _connectionState.value = UsbConnectionState.Error(
+                    "USB 장치 연결을 열 수 없습니다. USB 케이블을 확인해주세요.",
+                    null
+                )
+                return
+            }
+            
+            // Serial 포트 가져오기 (첫 번째 포트 사용)
+            val port = driver.ports.firstOrNull()
+            if (port == null) {
+                connection.close()
+                Log.e(TAG, "USB Serial 포트를 찾을 수 없습니다: ${device.deviceName}")
+                _connectionState.value = UsbConnectionState.Error(
+                    "USB Serial 포트를 찾을 수 없습니다.",
+                    null
+                )
+                return
+            }
+            
+            // 포트 열기
+            port.open(connection)
+            Log.i(TAG, "USB Serial 포트 열기 성공: ${device.deviceName}")
+            
+            // 통신 파라미터 설정 (1Mbps, 8N1)
+            port.setParameters(
+                BAUD_RATE,    // 1,000,000 bps (1Mbps)
+                DATA_BITS,    // 8 데이터 비트
+                STOP_BITS,    // 1 스톱 비트
+                PARITY        // 패리티 없음
+            )
+            Log.i(TAG, "USB Serial 통신 파라미터 설정 완료: ${BAUD_RATE}bps, ${DATA_BITS}N${STOP_BITS}")
+            
+            // 읽기 타임아웃 설정 (200ms)
+            // usb-serial-for-android 라이브러리에서는 read() 메서드 호출 시 타임아웃을 파라미터로 전달
+            // 여기서는 포트가 성공적으로 열렸음을 확인
+            Log.i(TAG, "USB Serial 읽기 타임아웃: ${READ_TIMEOUT_MS}ms")
+            
+            // Serial 포트 저장
+            serialPort = port
+            
+            // 연결 성공 상태로 전환
+            _connectionState.value = UsbConnectionState.Connected(device.deviceName)
+            Log.i(TAG, "USB Serial 포트 초기화 완료: ${device.deviceName}")
+            
+        } catch (e: IOException) {
+            Log.e(TAG, "USB Serial 포트 열기 실패 (IOException): ${e.message}", e)
+            _connectionState.value = UsbConnectionState.Error(
+                "USB Serial 포트를 열 수 없습니다: ${e.message}",
+                e
+            )
+            closeSerialPort()
+        } catch (e: SecurityException) {
+            Log.e(TAG, "USB Serial 포트 열기 실패 (SecurityException): ${e.message}", e)
+            _connectionState.value = UsbConnectionState.Error(
+                "USB 장치 접근 권한이 부족합니다: ${e.message}",
+                e
+            )
+            closeSerialPort()
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "USB Serial 통신 파라미터 설정 실패: ${e.message}", e)
+            _connectionState.value = UsbConnectionState.Error(
+                "통신 파라미터 설정에 실패했습니다: ${e.message}",
+                e
+            )
+            closeSerialPort()
+        } catch (e: Exception) {
+            Log.e(TAG, "USB Serial 포트 초기화 중 예상치 못한 오류: ${e.message}", e)
+            _connectionState.value = UsbConnectionState.Error(
+                "USB 연결 중 오류가 발생했습니다: ${e.message}",
+                e
+            )
+            closeSerialPort()
+        }
+    }
+    
+    /**
+     * USB Serial 포트 닫기 및 리소스 정리
+     * 
+     * 열려있는 Serial 포트를 안전하게 닫고 관련 리소스를 해제합니다.
+     * 이 메서드는 연결 오류 발생 시, USB 장치 분리 시, 또는 앱 종료 시 호출됩니다.
+     * 
+     * **정리 작업:**
+     * - Serial 포트 닫기 (IOException 처리)
+     * - 포트 인스턴스 null로 설정
+     * - 연결 상태를 Disconnected로 전환 (선택적)
+     */
+    fun closeSerialPort() {
+        serialPort?.let { port ->
+            try {
+                port.close()
+                Log.i(TAG, "USB Serial 포트 닫기 완료")
+            } catch (e: IOException) {
+                Log.w(TAG, "USB Serial 포트 닫기 중 오류: ${e.message}", e)
+            }
+        }
+        serialPort = null
+    }
+    
+    /**
+     * 현재 열린 USB Serial 포트 반환
+     * 
+     * @return 현재 열려있는 UsbSerialPort 인스턴스, 닫혀있는 경우 null
+     */
+    fun getSerialPort(): UsbSerialPort? = serialPort
+    
     /**
      * 현재 연결된 USB 장치 반환
      * 
