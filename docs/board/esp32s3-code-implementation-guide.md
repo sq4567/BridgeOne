@@ -35,7 +35,7 @@ Android 앱 ↔ [UART 1Mbps] ↔ ESP32-S3 ↔ [USB HID/CDC] ↔ PC (Windows)
 
 **Geekble nano ESP32-S3 스펙**:
 - **MCU**: Dual-core Xtensa LX7 (240MHz max)
-- **메모리**: 512KB SRAM, 384KB ROM, 8MB Flash
+- **메모리**: 512KB SRAM, 384KB ROM, 4MB Flash
 - **USB**: Native USB-OTG 지원 (Device 모드)
 - **GPIO**: 45개 GPIO 핀 (6개 SPI, 3개 UART, 2개 I2C)
 - **전력**: 3.3V 동작, 저전력 모드 지원
@@ -568,40 +568,126 @@ typedef struct {
 
 **PlatformIO 설정 요구사항**:
 - **플랫폼**: `espressif32`
-- **보드**: `esp32-s3-usb-otg` (Geekble nano ESP32-S3와 호환)
+- **보드**: `geekble-nano-esp32s3` (커스텀 보드 정의, Geekble nano ESP32-S3 하드웨어 스펙에 최적화)
 - **프레임워크**: `arduino`
-- **빌드 플래그**: USB HID/CDC 기능 활성화, 릴리즈 빌드를 위한 최적화(-Os) 및 디버그 레벨 최소화 설정이 필요합니다.
+- **빌드 플래그**: USB HID/CDC 기능 활성화, 릴리즈 빌드를 위한 최적화(-Os) 및 디버그 레벨 조절 설정이 필요합니다.
 - **라이브러리**: Arduino USB 라이브러리, `ArduinoJson` 등 핵심 라이브러리가 포함되어야 합니다.
-- **파티션**: 대용량 애플리케이션을 위한 파티션 테이블(`huge_app.csv`)을 사용해야 합니다.
+- **파티션**: 4MB Flash에 적합한 기본 파티션 테이블(`default.csv`)을 사용해야 합니다.
 
 **platformio.ini 설정 예시**:
 ```ini
-[env:geekble_nano_esp32s3]
-platform = espressif32
-board = esp32-s3-usb-otg
-framework = arduino
+[platformio]
+default_envs = geekble_nano_esp32s3_test
 
-; Geekble nano ESP32-S3 특화 설정
-board_build.flash_size = 8MB
-board_build.psram_type = opi
+; ============================================================================
+; 공통 설정
+; ============================================================================
+[env]
+platform = espressif32
+board = geekble-nano-esp32s3   ; Geekble nano 커스텀 보드 (4MB Flash, No PSRAM)
+framework = arduino
+board_dir = boards             ; 프로젝트 내 커스텀 보드 디렉토리
+
+; Geekble nano ESP32-S3 하드웨어 특화 설정
+; MCU: Dual-core Xtensa LX7 (240MHz max)
+; 메모리: 512KB SRAM, 384KB ROM, 4MB Flash (실제 하드웨어 감지값)
+; USB: Native USB-OTG 지원 (Device 모드)
 board_build.f_cpu = 240000000L
 board_build.f_flash = 80000000L
 
-; USB HID/CDC 기능 활성화
-build_flags = 
-    -DARDUINO_USB_MODE=1
-    -DARDUINO_USB_CDC_ON_BOOT=0
+; 4MB Flash에 적합한 파티션 테이블
+board_build.partitions = default.csv
+
+; 필수 라이브러리 의존성
+lib_deps =
+    bblanchon/ArduinoJson@^6.21.0
+    robtillaart/CRC@^1.0.1
+
+; 시리얼 모니터 설정
+monitor_speed = 115200
+monitor_filters = default, colorize
+monitor_dtr = 0          ; DTR 신호 비활성화 (ESP32-S3 리셋 방지)
+monitor_rts = 0          ; RTS 신호 비활성화 (부트로더 진입 방지)
+
+; 업로드 설정
+upload_speed = 921600
+
+; ============================================================================
+; 테스트 환경: 개발 및 디버깅용
+; ============================================================================
+; Serial.print() 출력이 USB CDC로 정상 동작
+; HID 기능도 동시에 사용 가능
+; Phase 1.1.2.1 ~ 1.2.4.x 개발 단계에서 사용
+[env:geekble_nano_esp32s3_test]
+build_flags =
+    -DARDUINO_USB_MODE=1               ; USB OTG 모드
+    -DARDUINO_USB_CDC_ON_BOOT=1        ; 부팅 시 CDC 활성화 (시리얼 출력 가능)
     -DCONFIG_TINYUSB_ENABLED=1
     -DCONFIG_TINYUSB_CDC_ENABLED=1
     -DCONFIG_TINYUSB_HID_ENABLED=1
+    -Os
+    -DCORE_DEBUG_LEVEL=3               ; 상세 디버그 로그
 
-; 파티션 테이블 설정
-board_build.partitions = huge_app.csv
+; ============================================================================
+; 실사용 환경: HID 장치로 운영
+; ============================================================================
+; HID 장치가 우선 열거되며, Vendor CDC는 보조 채널로 동작
+; Serial.print() 출력은 동작하지 않음 (CDC_ON_BOOT=0)
+; Phase 1.3.x 이후 통합 테스트 및 최종 배포 시 사용
+[env:geekble_nano_esp32s3]
+build_flags =
+    -DARDUINO_USB_MODE=1               ; USB OTG 모드
+    -DARDUINO_USB_CDC_ON_BOOT=0        ; HID 우선 (시리얼 출력 비활성화)
+    -DCONFIG_TINYUSB_ENABLED=1
+    -DCONFIG_TINYUSB_CDC_ENABLED=1
+    -DCONFIG_TINYUSB_HID_ENABLED=1
+    -Os
+    -DCORE_DEBUG_LEVEL=1               ; 최소 로그
+```
 
-; 라이브러리 의존성
-lib_deps = 
-    bblanchon/ArduinoJson@^6.21.0
-    robtillaart/CRC@^1.0.1
+**커스텀 보드 정의 파일 (boards/geekble-nano-esp32s3.json)**:
+```json
+{
+  "build": {
+    "arduino": {
+      "ldscript": "esp32s3_out.ld",
+      "partitions": "default.csv",
+      "memory_type": "qio_qspi"
+    },
+    "core": "esp32",
+    "extra_flags": [
+      "-DARDUINO_GEEKBLE_NANO_ESP32S3",
+      "-DARDUINO_USB_MODE=1",
+      "-DARDUINO_USB_CDC_ON_BOOT=1"
+    ],
+    "f_cpu": "240000000L",
+    "f_flash": "80000000L",
+    "flash_mode": "qio",
+    "hwids": [
+      [
+        "0x303A",
+        "0x1001"
+      ]
+    ],
+    "mcu": "esp32s3",
+    "variant": "esp32s3"
+  },
+  "frameworks": [
+    "arduino",
+    "espidf"
+  ],
+  "platform": "espressif32",
+  "name": "Geekble nano ESP32-S3 (4MB Flash, No PSRAM)",
+  "upload": {
+    "flash_size": "4MB",
+    "maximum_ram_size": 327680,
+    "maximum_size": 4194304,
+    "require_upload_port": true,
+    "speed": 921600
+  },
+  "url": "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html",
+  "vendor": "Geekble"
+}
 ```
 
 ### 7.2 디버깅 도구
