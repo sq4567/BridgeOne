@@ -1,10 +1,50 @@
 /**
  * @file main.cpp
- * @brief Phase 1.1.2.1: UART 통신 초기화
- * @details ESP32-S3 UART2 포트 초기화 및 1Mbps 통신 설정
+ * @brief Phase 1.1.2.2: BridgeOne 프레임 구조체 정의
+ * @details ESP32-S3 UART2 포트 초기화 및 BridgeFrame 데이터 구조 구현
  */
 
 #include <Arduino.h>
+
+// ============================================================================
+// BridgeOne 프레임 구조체 정의 (Phase 1.1.2.2)
+// ============================================================================
+
+/**
+ * @brief BridgeOne 통신 프레임 구조체
+ * @details Android 앱에서 UART를 통해 전송되는 8바이트 프레임 구조
+ * 
+ * 프레임 레이아웃:
+ * - [0] seq:       순번 카운터 (0-255 순환, 패킷 손실 감지용)
+ * - [1] buttons:   마우스 버튼 상태 (bit0=왼쪽, bit1=오른쪽, bit2=가운데)
+ * - [2] deltaX:    X축 상대 이동량 (-127~127)
+ * - [3] deltaY:    Y축 상대 이동량 (-127~127)
+ * - [4] wheel:     마우스 휠 스크롤량 (-127~127)
+ * - [5] modifiers: 키보드 모디파이어 키 (Ctrl, Alt, Shift, GUI)
+ * - [6] keyCode1:  주요 키 코드 (첫 번째 키)
+ * - [7] keyCode2:  보조 키 코드 (두 번째 키)
+ * 
+ * @note __attribute__((packed))를 사용하여 컴파일러 패딩 방지
+ * @note 정확히 8바이트 크기를 보장해야 함
+ * @see docs/Board/esp32s3-code-implementation-guide.md §2.1
+ */
+typedef struct __attribute__((packed)) {
+  uint8_t seq;        // [0] 순번 카운터 (0~255 순환)
+  uint8_t buttons;    // [1] 마우스 버튼 상태 (bit mask)
+  int8_t deltaX;      // [2] X축 상대 이동 (-127~127)
+  int8_t deltaY;      // [3] Y축 상대 이동 (-127~127)
+  int8_t wheel;       // [4] 휠 스크롤량 (-127~127)
+  uint8_t modifiers;  // [5] 키보드 모디파이어 (bit mask)
+  uint8_t keyCode1;   // [6] 주요 키 입력
+  uint8_t keyCode2;   // [7] 보조 키 입력
+} BridgeFrame;
+
+// 컴파일 타임 크기 검증: BridgeFrame이 정확히 8바이트인지 확인
+static_assert(sizeof(BridgeFrame) == 8, 
+              "BridgeFrame must be exactly 8 bytes! Check structure packing.");
+
+// 전역 BridgeFrame 버퍼 (UART 수신 데이터 저장용)
+BridgeFrame g_rxFrame;
 
 // ============================================================================
 // UART 설정 상수
@@ -31,8 +71,30 @@ void setup() {
   Serial.println();
   Serial.println("========================================");
   Serial.println("  BridgeOne ESP32-S3 Board");
-  Serial.println("  Phase 1.1.2.1: UART Initialization");
+  Serial.println("  Phase 1.1.2.2: BridgeFrame Structure");
   Serial.println("========================================");
+  Serial.println();
+  
+  // ========================================
+  // BridgeFrame 구조체 검증 (Phase 1.1.2.2)
+  // ========================================
+  Serial.println("[BridgeFrame] Structure Verification:");
+  Serial.printf("  - Size: %d bytes (expected: 8 bytes)\n", sizeof(BridgeFrame));
+  Serial.printf("  - seq offset: %d\n", offsetof(BridgeFrame, seq));
+  Serial.printf("  - buttons offset: %d\n", offsetof(BridgeFrame, buttons));
+  Serial.printf("  - deltaX offset: %d\n", offsetof(BridgeFrame, deltaX));
+  Serial.printf("  - deltaY offset: %d\n", offsetof(BridgeFrame, deltaY));
+  Serial.printf("  - wheel offset: %d\n", offsetof(BridgeFrame, wheel));
+  Serial.printf("  - modifiers offset: %d\n", offsetof(BridgeFrame, modifiers));
+  Serial.printf("  - keyCode1 offset: %d\n", offsetof(BridgeFrame, keyCode1));
+  Serial.printf("  - keyCode2 offset: %d\n", offsetof(BridgeFrame, keyCode2));
+  
+  // 구조체 크기 검증 (런타임)
+  if (sizeof(BridgeFrame) == 8) {
+    Serial.println("  ✓ BridgeFrame size verification: PASS");
+  } else {
+    Serial.println("  ✗ BridgeFrame size verification: FAIL!");
+  }
   Serial.println();
   
   // ========================================
