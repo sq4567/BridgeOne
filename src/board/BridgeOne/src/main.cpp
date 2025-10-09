@@ -1,7 +1,7 @@
 /**
  * @file main.cpp
- * @brief Phase 1.1.2.3: UART 수신 및 프레임 파싱 구현
- * @details ESP32-S3 UART2를 통한 8바이트 BridgeFrame 수신 및 파싱
+ * @brief Phase 1.1.2.4: 순번 카운터 검증 로직 구현
+ * @details ESP32-S3 UART2를 통한 8바이트 BridgeFrame 수신, 파싱 및 순번 검증
  */
 
 #include <Arduino.h>
@@ -47,6 +47,22 @@ static_assert(sizeof(BridgeFrame) == 8,
 BridgeFrame g_rxFrame;
 
 // ============================================================================
+// 순번 검증 변수 (Phase 1.1.2.4)
+// ============================================================================
+
+/**
+ * @brief 순번 검증을 위한 전역 변수
+ * @details 프레임 손실 및 중복 감지를 위한 카운터
+ * 
+ * - lastSeq: 마지막으로 수신한 프레임의 순번 (초기값 255, 첫 프레임 감지용)
+ * - frameCount: 정상 수신된 프레임 개수
+ * - lostFrames: 손실된 프레임 개수 (순번 불일치로 감지)
+ */
+uint8_t g_lastSeq = 255;       // 마지막 수신 순번 (255는 초기화 상태)
+uint32_t g_frameCount = 0;     // 수신 프레임 카운터
+uint32_t g_lostFrames = 0;     // 손실 프레임 카운터
+
+// ============================================================================
 // UART 수신 함수 (Phase 1.1.2.3)
 // ============================================================================
 
@@ -89,6 +105,71 @@ bool receiveFrame() {
 }
 
 // ============================================================================
+// 순번 검증 함수 (Phase 1.1.2.4)
+// ============================================================================
+
+/**
+ * @brief 수신한 프레임의 순번(seq)을 검증하고 손실 감지
+ * @details 순번은 0~255 범위에서 순환하며, 255 다음은 0으로 순환
+ * 
+ * 검증 과정:
+ * 1. 첫 프레임 수신 (g_lastSeq == 255): 초기화 상태로, 순번을 저장하고 통과
+ * 2. 정상 순번: (g_lastSeq + 1) % 256 == currentSeq인 경우
+ *    - g_lastSeq 업데이트
+ *    - g_frameCount 증가
+ * 3. 불일치 순번: 예상 순번과 다른 경우
+ *    - 손실 프레임 계산 (순환 고려)
+ *    - 경고 메시지 출력
+ *    - g_lostFrames 증가
+ * 
+ * @param currentSeq 현재 수신한 프레임의 순번 (0~255)
+ * @return true  - 순번 검증 통과 (첫 프레임 또는 정상 순번)
+ * @return false - 순번 불일치 (프레임 손실 감지)
+ * 
+ * @note 255→0 순환을 정확히 처리하기 위해 모듈로 연산 사용
+ * @see docs/Board/esp32s3-code-implementation-guide.md §2.1
+ */
+bool validateSequence(uint8_t currentSeq) {
+  // 첫 프레임 수신 (초기화 상태)
+  if (g_lastSeq == 255) {
+    g_lastSeq = currentSeq;
+    g_frameCount++;
+    Serial.printf("[SEQ] First frame received: seq=%d\n", currentSeq);
+    return true;
+  }
+  
+  // 예상 순번 계산 (0~255 순환 처리)
+  uint8_t expectedSeq = (g_lastSeq + 1) % 256;
+  
+  // 순번 일치: 정상 수신
+  if (currentSeq == expectedSeq) {
+    g_lastSeq = currentSeq;
+    g_frameCount++;
+    return true;
+  }
+  
+  // 순번 불일치: 프레임 손실 감지
+  // 손실된 프레임 개수 계산 (순환 고려)
+  uint32_t lost;
+  if (currentSeq > expectedSeq) {
+    // 일반적인 경우: currentSeq가 더 큼
+    lost = currentSeq - expectedSeq;
+  } else {
+    // 순환 케이스: 예) expectedSeq=254, currentSeq=2 → 손실=4 (254,255,0,1)
+    lost = (256 - expectedSeq) + currentSeq;
+  }
+  
+  g_lostFrames += lost;
+  g_lastSeq = currentSeq;  // 현재 순번으로 업데이트 (다음 검증을 위해)
+  g_frameCount++;          // 현재 프레임은 수신됨으로 카운트
+  
+  Serial.printf("[WARN] Sequence mismatch! Expected=%d, Received=%d, Lost=%lu frames\n",
+                expectedSeq, currentSeq, lost);
+  
+  return false;
+}
+
+// ============================================================================
 // UART 설정 상수
 // ============================================================================
 // 참고: ESP32-S3 Arduino 프레임워크에는 Serial2가 이미 정의되어 있음
@@ -113,7 +194,7 @@ void setup() {
   Serial.println();
   Serial.println("========================================");
   Serial.println("  BridgeOne ESP32-S3 Board");
-  Serial.println("  Phase 1.1.2.3: UART RX & Frame Parsing");
+  Serial.println("  Phase 1.1.2.4: Sequence Validation");
   Serial.println("========================================");
   Serial.println();
   
@@ -167,21 +248,47 @@ void setup() {
 
 /**
  * @brief 메인 루프
- * @details UART2로부터 프레임 수신 및 처리
+ * @details UART2로부터 프레임 수신, 순번 검증 및 통계 출력
  */
 void loop() {
-  static uint32_t frameCount = 0;  // 수신 프레임 카운터
+  // ========================================
+  // 통계 출력 (1초마다)
+  // ========================================
+  static uint32_t lastStatsTime = 0;  // 마지막 통계 출력 시간 (ms)
+  uint32_t currentTime = millis();
   
-  // UART2로부터 프레임 수신 시도
+  // 1초(1000ms) 경과 시 통계 출력
+  if (currentTime - lastStatsTime >= 1000) {
+    lastStatsTime = currentTime;
+    
+    // 수신율 계산 (손실률)
+    float lossRate = 0.0f;
+    if (g_frameCount > 0) {
+      lossRate = (g_lostFrames * 100.0f) / (g_frameCount + g_lostFrames);
+    }
+    
+    Serial.println("----------------------------------------");
+    Serial.printf("[STATS] Uptime: %lu sec\n", currentTime / 1000);
+    Serial.printf("[STATS] Received: %lu frames\n", g_frameCount);
+    Serial.printf("[STATS] Lost: %lu frames (%.2f%%)\n", g_lostFrames, lossRate);
+    Serial.printf("[STATS] Last Seq: %d\n", g_lastSeq);
+    Serial.println("----------------------------------------");
+  }
+  
+  // ========================================
+  // UART2 프레임 수신 및 순번 검증
+  // ========================================
   if (receiveFrame()) {
+    // 순번 검증 (Phase 1.1.2.4)
+    bool seqValid = validateSequence(g_rxFrame.seq);
+    
     // ========================================
     // 프레임 수신 성공 - 내용 출력
     // ========================================
-    frameCount++;
-    
-    Serial.printf("[RX #%lu] seq=%d, buttons=0x%02X, delta=(%d,%d), wheel=%d, mods=0x%02X, keys=[0x%02X, 0x%02X]\n",
-                  frameCount,
+    Serial.printf("[RX #%lu] seq=%d %s, buttons=0x%02X, delta=(%d,%d), wheel=%d, mods=0x%02X, keys=[0x%02X, 0x%02X]\n",
+                  g_frameCount,
                   g_rxFrame.seq,
+                  seqValid ? "✓" : "✗",  // 순번 검증 결과 표시
                   g_rxFrame.buttons,
                   g_rxFrame.deltaX,
                   g_rxFrame.deltaY,
