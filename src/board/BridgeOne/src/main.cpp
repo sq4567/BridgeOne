@@ -1,7 +1,7 @@
 /**
  * @file main.cpp
- * @brief Phase 1.1.2.2: BridgeOne 프레임 구조체 정의
- * @details ESP32-S3 UART2 포트 초기화 및 BridgeFrame 데이터 구조 구현
+ * @brief Phase 1.1.2.3: UART 수신 및 프레임 파싱 구현
+ * @details ESP32-S3 UART2를 통한 8바이트 BridgeFrame 수신 및 파싱
  */
 
 #include <Arduino.h>
@@ -47,6 +47,48 @@ static_assert(sizeof(BridgeFrame) == 8,
 BridgeFrame g_rxFrame;
 
 // ============================================================================
+// UART 수신 함수 (Phase 1.1.2.3)
+// ============================================================================
+
+/**
+ * @brief UART2로부터 8바이트 BridgeFrame을 수신하고 파싱
+ * @details 버퍼에 8바이트 이상의 데이터가 있을 때만 읽기 수행
+ * 
+ * 동작 과정:
+ * 1. UART2.available()로 수신 버퍼의 데이터 크기 확인
+ * 2. 8바이트 이상이면 readBytes()로 g_rxFrame에 직접 읽기
+ * 3. 정확히 8바이트 읽었는지 검증
+ * 
+ * @return true  - 8바이트 프레임 수신 성공
+ * @return false - 수신할 데이터 부족 또는 읽기 실패
+ * 
+ * @note 버퍼 오버플로우 방지를 위해 available() 체크 필수
+ * @note readBytes()는 블로킹 함수이므로 available() 선행 체크로 안전성 확보
+ * @see HardwareSerial::available() - ESP32 Arduino Core
+ * @see HardwareSerial::readBytes() - ESP32 Arduino Core
+ */
+bool receiveFrame() {
+  // 수신 버퍼에 8바이트 이상의 데이터가 있는지 확인
+  if (Serial2.available() >= 8) {
+    // 8바이트를 g_rxFrame 구조체에 직접 읽기
+    // readBytes()는 실제로 읽은 바이트 수를 반환
+    size_t bytesRead = Serial2.readBytes((uint8_t*)&g_rxFrame, sizeof(BridgeFrame));
+    
+    // 정확히 8바이트를 읽었는지 검증
+    if (bytesRead == 8) {
+      return true;  // 수신 성공
+    } else {
+      // 예상치 못한 읽기 오류 (정상적으로는 발생하지 않아야 함)
+      Serial.printf("[WARN] receiveFrame: Expected 8 bytes, but read %d bytes\n", bytesRead);
+      return false;
+    }
+  }
+  
+  // 8바이트 미만이면 대기 (버퍼 오버플로우 방지)
+  return false;
+}
+
+// ============================================================================
 // UART 설정 상수
 // ============================================================================
 // 참고: ESP32-S3 Arduino 프레임워크에는 Serial2가 이미 정의되어 있음
@@ -71,7 +113,7 @@ void setup() {
   Serial.println();
   Serial.println("========================================");
   Serial.println("  BridgeOne ESP32-S3 Board");
-  Serial.println("  Phase 1.1.2.2: BridgeFrame Structure");
+  Serial.println("  Phase 1.1.2.3: UART RX & Frame Parsing");
   Serial.println("========================================");
   Serial.println();
   
@@ -125,14 +167,50 @@ void setup() {
 
 /**
  * @brief 메인 루프
- * @details UART2 연결 상태 확인 및 카운터 출력
+ * @details UART2로부터 프레임 수신 및 처리
  */
 void loop() {
-  static uint32_t counter = 0;
+  static uint32_t frameCount = 0;  // 수신 프레임 카운터
   
-  // USB CDC로 카운터 출력
-  Serial.printf("[Loop] Counter: %lu | UART2 Available: %d bytes\n", 
-                counter++, Serial2.available());
+  // UART2로부터 프레임 수신 시도
+  if (receiveFrame()) {
+    // ========================================
+    // 프레임 수신 성공 - 내용 출력
+    // ========================================
+    frameCount++;
+    
+    Serial.printf("[RX #%lu] seq=%d, buttons=0x%02X, delta=(%d,%d), wheel=%d, mods=0x%02X, keys=[0x%02X, 0x%02X]\n",
+                  frameCount,
+                  g_rxFrame.seq,
+                  g_rxFrame.buttons,
+                  g_rxFrame.deltaX,
+                  g_rxFrame.deltaY,
+                  g_rxFrame.wheel,
+                  g_rxFrame.modifiers,
+                  g_rxFrame.keyCode1,
+                  g_rxFrame.keyCode2);
+    
+    // 버튼 상태 상세 출력 (디버깅용)
+    if (g_rxFrame.buttons != 0) {
+      Serial.print("  └─ Buttons: ");
+      if (g_rxFrame.buttons & 0x01) Serial.print("[LEFT] ");
+      if (g_rxFrame.buttons & 0x02) Serial.print("[RIGHT] ");
+      if (g_rxFrame.buttons & 0x04) Serial.print("[MIDDLE] ");
+      Serial.println();
+    }
+    
+    // 마우스 이동 출력 (0이 아닐 때만)
+    if (g_rxFrame.deltaX != 0 || g_rxFrame.deltaY != 0) {
+      Serial.printf("  └─ Mouse Move: X%+d Y%+d\n", g_rxFrame.deltaX, g_rxFrame.deltaY);
+    }
+    
+    // 휠 스크롤 출력 (0이 아닐 때만)
+    if (g_rxFrame.wheel != 0) {
+      Serial.printf("  └─ Wheel: %+d\n", g_rxFrame.wheel);
+    }
+  }
   
-  delay(1000);
+  // CPU 부하 감소를 위한 짧은 지연 (1ms)
+  // 너무 빠른 폴링은 불필요한 CPU 사용 증가
+  delay(1);
 }
