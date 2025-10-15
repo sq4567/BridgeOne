@@ -1,10 +1,12 @@
 /**
  * @file main.cpp
- * @brief Phase 1.1.3.2: Android ↔ ESP32-S3 통신 테스트
- * @details UART 프레임 수신 및 검증
+ * @brief Phase 1.2.1.1: Arduino USB HID 라이브러리 초기화
+ * @details ESP32-S3 USB 복합 장치 구성 (HID Mouse + HID Keyboard)
  */
 
 #include <Arduino.h>
+#include "USBHIDMouse.h"
+#include "USBHIDKeyboard.h"
 
 // ============================================================================
 // BridgeFrame 구조체 정의
@@ -22,6 +24,13 @@ typedef struct __attribute__((packed)) {
 } BridgeFrame;
 
 static_assert(sizeof(BridgeFrame) == 8, "BridgeFrame must be exactly 8 bytes!");
+
+// ============================================================================
+// USB HID 객체
+// ============================================================================
+
+USBHIDMouse Mouse;
+USBHIDKeyboard Keyboard;
 
 // ============================================================================
 // 전역 변수
@@ -115,15 +124,30 @@ void printStats() {
 // ============================================================================
 
 void setup() {
-  // USB CDC 초기화
+  // USB CDC 초기화 (디버그용)
   Serial.begin(115200);
-  delay(1000);
+  delay(1500);  // USB enumeration 안정화 대기
   
   Serial.println();
   Serial.println("========================================");
   Serial.println("  BridgeOne ESP32-S3 Board");
-  Serial.println("  Phase 1.1.3.2: Communication Test");
+  Serial.println("  Phase 1.2.1.1: USB HID Initialization");
   Serial.println("========================================");
+  Serial.println();
+  
+  // USB HID 초기화
+  Serial.println("[USB HID] Initializing...");
+  
+  // HID 장치 초기화 (USB.begin()은 자동 처리됨)
+  Mouse.begin();
+  Serial.println("  ✓ USBHIDMouse initialized");
+  
+  Keyboard.begin();
+  Serial.println("  ✓ USBHIDKeyboard initialized");
+  
+  delay(100);  // HID 초기화 안정화 대기
+  
+  Serial.println("  ✓ USB HID initialization complete");
   Serial.println();
   
   // BridgeFrame 검증
