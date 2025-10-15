@@ -20,11 +20,11 @@ import java.io.IOException
 /**
  * USB 연결 관리자 클래스
  * 
- * CP2102 USB-Serial 칩셋 기반 ESP32-S3 장치의 자동 감지, 권한 요청, 연결 관리를 담당합니다.
+ * ESP32-S3 DevKitC-1 보드 내장 USB-Serial 칩을 통한 장치 자동 감지, 권한 요청, 연결 관리를 담당합니다.
  * Cancel and Restart 패턴을 적용하여 안전한 연결 복구를 보장합니다.
  * 
  * 주요 기능:
- * - CP2102 장치 자동 스캔 및 감지 (VID: 0x10C4, PID: 0xEA60)
+ * - USB-Serial 장치 자동 스캔 및 감지 (USB-Serial-for-Android 라이브러리의 범용 드라이버)
  * - USB 장치 접근 권한 요청 및 응답 처리
  * - 연결 상태를 StateFlow로 실시간 관리
  * - USB 장치 연결/분리 이벤트 감지
@@ -39,11 +39,6 @@ class UsbConnectionManager(private val context: Context) {
 
     companion object {
         private const val TAG = "UsbConnectionManager"
-        
-        // CP2102 USB-Serial 칩셋 식별자
-        // @see [technical-specification-app.md §1.1.1 하드웨어 연결 요구사항]
-        private const val CP2102_VENDOR_ID = 0x10C4  // Silicon Labs
-        private const val CP2102_PRODUCT_ID = 0xEA60 // CP2102 USB to UART Bridge Controller
         
         // 권한 요청 액션
         private const val ACTION_USB_PERMISSION = "com.chatterbones.bridgeone.USB_PERMISSION"
@@ -120,8 +115,8 @@ class UsbConnectionManager(private val context: Context) {
                     }
 
                     device?.let {
-                        if (isCp2102Device(it)) {
-                            Log.i(TAG, "CP2102 장치 연결 감지: ${it.deviceName}")
+                        if (isUsbSerialDevice(it)) {
+                            Log.i(TAG, "USB-Serial 장치 연결 감지: ${it.deviceName}")
                             scanAndRequestPermission()
                         }
                     }
@@ -137,8 +132,8 @@ class UsbConnectionManager(private val context: Context) {
                     }
 
                     device?.let {
-                        if (isCp2102Device(it)) {
-                            Log.i(TAG, "CP2102 장치 분리 감지: ${it.deviceName}")
+                        if (isUsbSerialDevice(it)) {
+                            Log.i(TAG, "USB-Serial 장치 분리 감지: ${it.deviceName}")
                             closeSerialPort()  // Serial 포트 닫기
                             currentDevice = null
                             _connectionState.value = UsbConnectionState.Disconnected
@@ -152,7 +147,7 @@ class UsbConnectionManager(private val context: Context) {
     /**
      * USB 연결 관리자 초기화
      * 
-     * BroadcastReceiver를 등록하고 CP2102 장치를 스캔합니다.
+     * BroadcastReceiver를 등록하고 USB-Serial 장치를 스캔합니다.
      * Activity의 onCreate() 또는 ViewModel의 초기화에서 호출해야 합니다.
      */
     fun initialize() {
@@ -198,9 +193,9 @@ class UsbConnectionManager(private val context: Context) {
     }
 
     /**
-     * CP2102 장치 스캔 및 권한 요청
+     * USB-Serial 장치 스캔 및 권한 요청
      * 
-     * 연결된 모든 USB 장치를 스캔하여 CP2102 칩셋을 식별하고,
+     * 연결된 모든 USB 장치를 스캔하여 USB-Serial-for-Android 라이브러리로 지원되는 장치를 식별하고,
      * 권한이 없는 경우 사용자에게 권한을 요청합니다.
      * 
      * @see [technical-specification-app.md §1.1.2 연결 관리 요구사항]
@@ -212,33 +207,33 @@ class UsbConnectionManager(private val context: Context) {
         val deviceList: HashMap<String, UsbDevice> = usbManager.deviceList
         Log.d(TAG, "연결된 USB 장치 수: ${deviceList.size}")
 
-        // CP2102 장치 필터링
-        val cp2102Device = deviceList.values.firstOrNull { device ->
-            isCp2102Device(device).also { isMatch ->
+        // USB-Serial 장치 필터링 (USB-Serial-for-Android 라이브러리 사용)
+        val usbSerialDevice = deviceList.values.firstOrNull { device ->
+            isUsbSerialDevice(device).also { isMatch ->
                 if (isMatch) {
-                    Log.i(TAG, "CP2102 장치 발견: VID=0x${device.vendorId.toString(16)}, PID=0x${device.productId.toString(16)}, Name=${device.deviceName}")
+                    Log.i(TAG, "USB-Serial 장치 발견: VID=0x${device.vendorId.toString(16)}, PID=0x${device.productId.toString(16)}, Name=${device.deviceName}")
                 }
             }
         }
 
-        if (cp2102Device == null) {
-            Log.w(TAG, "CP2102 장치를 찾을 수 없습니다")
+        if (usbSerialDevice == null) {
+            Log.w(TAG, "USB-Serial 장치를 찾을 수 없습니다")
             _connectionState.value = UsbConnectionState.Error(
-                "USB 장치를 찾을 수 없습니다. CP2102 칩셋이 탑재된 ESP32-S3 장치를 연결해주세요.",
+                "USB 장치를 찾을 수 없습니다. ESP32-S3 DevKitC-1 보드의 UART 포트를 연결해주세요.",
                 null
             )
             return
         }
 
-        currentDevice = cp2102Device
+        currentDevice = usbSerialDevice
 
         // 권한 확인 및 요청
-        if (usbManager.hasPermission(cp2102Device)) {
-            Log.i(TAG, "USB 장치 권한 이미 보유: ${cp2102Device.deviceName}")
+        if (usbManager.hasPermission(usbSerialDevice)) {
+            Log.i(TAG, "USB 장치 권한 이미 보유: ${usbSerialDevice.deviceName}")
             // Serial 포트 열기 (openSerialPort()에서 Connected 상태로 전환)
             openSerialPort()
         } else {
-            Log.i(TAG, "USB 장치 권한 요청: ${cp2102Device.deviceName}")
+            Log.i(TAG, "USB 장치 권한 요청: ${usbSerialDevice.deviceName}")
             _connectionState.value = UsbConnectionState.Requesting
 
             // 권한 요청 PendingIntent 생성
@@ -254,20 +249,27 @@ class UsbConnectionManager(private val context: Context) {
             )
 
             // 권한 요청
-            usbManager.requestPermission(cp2102Device, permissionIntent)
+            usbManager.requestPermission(usbSerialDevice, permissionIntent)
         }
     }
 
     /**
-     * USB 장치가 CP2102 칩셋인지 확인
+     * USB 장치가 USB-Serial 칩셋인지 확인
+     * 
+     * USB-Serial-for-Android 라이브러리의 범용 드라이버를 사용하여
+     * 지원되는 USB-Serial 칩셋 여부를 확인합니다.
      * 
      * @param device 확인할 USB 장치
-     * @return CP2102 장치 여부 (VID: 0x10C4, PID: 0xEA60)
+     * @return USB-Serial 장치 여부 (USB-Serial-for-Android 라이브러리에서 지원되는 칩셋)
      * 
      * @see [technical-specification-app.md §1.1.1 하드웨어 연결 요구사항]
      */
-    private fun isCp2102Device(device: UsbDevice): Boolean {
-        return device.vendorId == CP2102_VENDOR_ID && device.productId == CP2102_PRODUCT_ID
+    private fun isUsbSerialDevice(device: UsbDevice): Boolean {
+        // USB-Serial-for-Android 라이브러리의 DefaultProber를 사용하여
+        // 지원되는 다양한 USB-Serial 칩셋인지 확인
+        // (지원 칩셋: Silicon Labs CP210x, FTDI, CH340, PL2303 등)
+        val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
+        return availableDrivers.any { it.device.deviceId == device.deviceId }
     }
 
     /**
@@ -310,7 +312,7 @@ class UsbConnectionManager(private val context: Context) {
             if (driver == null) {
                 Log.e(TAG, "USB Serial 드라이버를 찾을 수 없습니다: ${device.deviceName}")
                 _connectionState.value = UsbConnectionState.Error(
-                    "USB Serial 드라이버를 찾을 수 없습니다. CP2102 드라이버가 지원되지 않을 수 있습니다.",
+                    "USB Serial 드라이버를 찾을 수 없습니다. 지원되지 않는 USB-Serial 칩셋일 수 있습니다.",
                     null
                 )
                 return
@@ -428,7 +430,7 @@ class UsbConnectionManager(private val context: Context) {
     /**
      * 현재 연결된 USB 장치 반환
      * 
-     * @return 현재 연결된 CP2102 USB 장치, 연결되지 않은 경우 null
+     * @return 현재 연결된 USB-Serial 장치, 연결되지 않은 경우 null
      */
     fun getCurrentDevice(): UsbDevice? = currentDevice
     

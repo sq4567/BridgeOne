@@ -1,5 +1,5 @@
 ---
-title: "ESP32-S3 (Geekble nano) 설계 명세서"
+title: "ESP32-S3-WROOM-1-N16R8 설계 명세서"
 description: "BridgeOne 시스템에서 ESP32-S3 USB 브릿지 역할을 위한 설계 요구사항과 아키텍처 명세"
 tags: ["esp32-s3", "firmware", "design", "specification", "architecture"]
 version: "v1.0"
@@ -7,7 +7,7 @@ owner: "Chatterbones"
 updated: "2025-09-22"
 ---
 
-# ESP32-S3 (Geekble nano) 설계 명세서
+# ESP32-S3-WROOM-1-N16R8 설계 명세서
 
 > **문서 목적**: BridgeOne 시스템에서 ESP32-S3가 수행해야 할 USB 브릿지 역할을 위한 설계 요구사항과 아키텍처 원칙을 정의합니다. 구체적인 구현 방법은 `.cursor/rules/`의 개발 가이드 문서를 참조하십시오.
 >
@@ -33,17 +33,18 @@ Android 앱 ↔ [UART 1Mbps] ↔ ESP32-S3 ↔ [USB HID/CDC] ↔ PC (Windows)
 
 ### 1.2 하드웨어 사양
 
-**Geekble nano ESP32-S3 스펙**:
+**ESP32-S3-WROOM-1-N16R8 스펙**:
 - **MCU**: Dual-core Xtensa LX7 (240MHz max)
-- **메모리**: 512KB SRAM, 384KB ROM, 4MB Flash
+- **메모리**: 512KB SRAM, 384KB ROM, 16MB Flash, 8MB PSRAM
 - **USB**: Native USB-OTG 지원 (Device 모드)
 - **GPIO**: 45개 GPIO 핀 (6개 SPI, 3개 UART, 2개 I2C)
 - **전력**: 3.3V 동작, 저전력 모드 지원
+- **PSRAM**: 8MB PSRAM은 추후 고급 기능 확장(대용량 버퍼링, OTA 업데이트) 시 활용 예정
 
 **연결 구성**:
-- **UART0**: CP2102 어댑터와 연결 (TX, RX, GND)
-- **USB**: PC와 직접 연결 (복합 장치)
-- **전원**: USB 5V 또는 외부 3.3V
+- **UART (Android 연결)**: GPIO43 (TX), GPIO44 (RX) - 보드 내장 USB-Serial
+- **USB (PC 연결)**: Native USB OTG - HID/CDC 복합 장치
+- **전원**: USB 5V
 
 ## 2. 통신 프로토콜 명세
 
@@ -528,6 +529,7 @@ typedef struct {
 **정적 메모리 할당**:
 - FreeRTOS 태스크, 큐, 버퍼 등 시스템 운영에 필요한 모든 주요 메모리 자원은 힙(Heap)에서의 동적 할당 대신 정적 할당(Static Allocation)을 사용해야 합니다.
 - 이는 메모리 단편화를 방지하고 시스템의 예측 가능성과 안정성을 높이는 것을 목적으로 합니다.
+- 현재는 512KB SRAM 내에서 정적 할당 전략을 유지하며, 향후 대용량 버퍼링 또는 고급 기능 추가 시 8MB PSRAM을 활용할 수 있습니다.
 
 ### 5.3 전력 관리 최적화 요구사항
 
@@ -568,35 +570,40 @@ typedef struct {
 
 **PlatformIO 설정 요구사항**:
 - **플랫폼**: `espressif32`
-- **보드**: `geekble-nano-esp32s3` (커스텀 보드 정의, Geekble nano ESP32-S3 하드웨어 스펙에 최적화)
+- **보드**: `esp32-s3-devkitc-1` (표준 ESP32-S3 보드 정의 사용)
 - **프레임워크**: `arduino`
 - **빌드 플래그**: USB HID/CDC 기능 활성화, 릴리즈 빌드를 위한 최적화(-Os) 및 디버그 레벨 조절 설정이 필요합니다.
 - **라이브러리**: Arduino USB 라이브러리, `ArduinoJson` 등 핵심 라이브러리가 포함되어야 합니다.
-- **파티션**: 4MB Flash에 적합한 기본 파티션 테이블(`default.csv`)을 사용해야 합니다.
+- **파티션**: 16MB Flash에 적합한 파티션 테이블(`default_16MB.csv`)을 사용해야 합니다.
 
 **platformio.ini 설정 예시**:
 ```ini
 [platformio]
-default_envs = geekble_nano_esp32s3_test
+default_envs = esp32s3_wroom_test
 
 ; ============================================================================
 ; 공통 설정
 ; ============================================================================
 [env]
 platform = espressif32
-board = geekble-nano-esp32s3   ; Geekble nano 커스텀 보드 (4MB Flash, No PSRAM)
+board = esp32-s3-devkitc-1
 framework = arduino
-board_dir = boards             ; 프로젝트 내 커스텀 보드 디렉토리
 
-; Geekble nano ESP32-S3 하드웨어 특화 설정
+; ESP32-S3-WROOM-1-N16R8 하드웨어 설정
 ; MCU: Dual-core Xtensa LX7 (240MHz max)
-; 메모리: 512KB SRAM, 384KB ROM, 4MB Flash (실제 하드웨어 감지값)
+; 메모리: 512KB SRAM, 384KB ROM, 16MB Flash, 8MB PSRAM
 ; USB: Native USB-OTG 지원 (Device 모드)
+board_build.mcu = esp32s3
 board_build.f_cpu = 240000000L
 board_build.f_flash = 80000000L
+board_build.flash_size = 16MB
 
-; 4MB Flash에 적합한 파티션 테이블
-board_build.partitions = default.csv
+; 16MB Flash에 적합한 파티션 테이블
+board_build.partitions = default_16MB.csv
+
+; PSRAM 설정 (추후 활용 예정, 현재 비활성화)
+; board_build.arduino.memory_type = qio_opi
+; board_build.psram_type = opi
 
 ; 필수 라이브러리 의존성
 lib_deps =
@@ -618,7 +625,7 @@ upload_speed = 921600
 ; Serial.print() 출력이 USB CDC로 정상 동작
 ; HID 기능도 동시에 사용 가능
 ; Phase 1.1.2.1 ~ 1.2.4.x 개발 단계에서 사용
-[env:geekble_nano_esp32s3_test]
+[env:esp32s3_wroom_test]
 build_flags =
     -DARDUINO_USB_MODE=1               ; USB OTG 모드
     -DARDUINO_USB_CDC_ON_BOOT=1        ; 부팅 시 CDC 활성화 (시리얼 출력 가능)
@@ -634,7 +641,7 @@ build_flags =
 ; HID 장치가 우선 열거되며, Vendor CDC는 보조 채널로 동작
 ; Serial.print() 출력은 동작하지 않음 (CDC_ON_BOOT=0)
 ; Phase 1.3.x 이후 통합 테스트 및 최종 배포 시 사용
-[env:geekble_nano_esp32s3]
+[env:esp32s3_wroom]
 build_flags =
     -DARDUINO_USB_MODE=1               ; USB OTG 모드
     -DARDUINO_USB_CDC_ON_BOOT=0        ; HID 우선 (시리얼 출력 비활성화)
@@ -643,51 +650,6 @@ build_flags =
     -DCONFIG_TINYUSB_HID_ENABLED=1
     -Os
     -DCORE_DEBUG_LEVEL=1               ; 최소 로그
-```
-
-**커스텀 보드 정의 파일 (boards/geekble-nano-esp32s3.json)**:
-```json
-{
-  "build": {
-    "arduino": {
-      "ldscript": "esp32s3_out.ld",
-      "partitions": "default.csv",
-      "memory_type": "qio_qspi"
-    },
-    "core": "esp32",
-    "extra_flags": [
-      "-DARDUINO_GEEKBLE_NANO_ESP32S3",
-      "-DARDUINO_USB_MODE=1",
-      "-DARDUINO_USB_CDC_ON_BOOT=1"
-    ],
-    "f_cpu": "240000000L",
-    "f_flash": "80000000L",
-    "flash_mode": "qio",
-    "hwids": [
-      [
-        "0x303A",
-        "0x1001"
-      ]
-    ],
-    "mcu": "esp32s3",
-    "variant": "esp32s3"
-  },
-  "frameworks": [
-    "arduino",
-    "espidf"
-  ],
-  "platform": "espressif32",
-  "name": "Geekble nano ESP32-S3 (4MB Flash, No PSRAM)",
-  "upload": {
-    "flash_size": "4MB",
-    "maximum_ram_size": 327680,
-    "maximum_size": 4194304,
-    "require_upload_port": true,
-    "speed": 921600
-  },
-  "url": "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html",
-  "vendor": "Geekble"
-}
 ```
 
 ### 7.2 디버깅 도구
@@ -761,7 +723,7 @@ build_flags =
 | UART 처리량 | ≥ 1000 frame/sec | 소프트웨어 카운터 |
 | USB 전송 성공률 | ≥ 99.9% | 오류 카운터 |
 | CPU 사용률 | ≤ 30% | FreeRTOS 통계 |
-| 메모리 사용률 | ≤ 70% (360KB) | 힙 모니터링 |
+| 메모리 사용률 | ≤ 70% (360KB SRAM 기준, PSRAM 추후 활용) | 힙 모니터링 |
 | 전력 소모 (활성 모드) | ≤ 150mA | 전력 측정기 |
 | 연속 동작 시간 | ≥ 72시간 | 스트레스 테스트 |
 
@@ -869,7 +831,7 @@ build_flags =
 4. **신뢰성 보장**을 위한 오류 처리 및 복구 체계
 5. **테스트 및 검증** 방법론 수립
 
-이제 ESP32-S3가 BridgeOne 시스템의 핵심 USB 브릿지로서 요구되는 모든 기능을 안정적으로 수행할 수 있는 완전한 설계 기반이 마련되었습니다. 구체적인 구현 방법은 `.cursor/rules/esp32s3-implementation-guide.md`를 참조하십시오.
+이제 ESP32-S3-WROOM-1-N16R8이 BridgeOne 시스템의 핵심 USB 브릿지로서 요구되는 모든 기능을 안정적으로 수행할 수 있는 완전한 설계 기반이 마련되었습니다. 구체적인 구현 방법은 `.cursor/rules/esp32s3-implementation-guide.md`를 참조하십시오.
 
 ---
 

@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ESP32-S3 USB 장치 필터 -->
-    <!-- Vendor ID: 0x303A (Espressif Systems) -->
-    <!-- Product ID: 0x1001 (ESP32-S3 기본 USB PID) -->
+    <!-- ESP32-S3 DevKitC-1 USB 장치 필터 -->
+    <!-- 
+        참고: USB-Serial-for-Android 라이브러리가 다양한 USB-Serial 칩셋을 자동으로 감지하므로
+        특정 VID/PID를 등록하지 않아도 됩니다.
+        
+        아래는 ESP32-S3의 Native USB VID/PID입니다:
+        - Vendor ID: 0x303A (12346, Espressif Systems)
+        - Product ID: 0x1001 (4097, ESP32-S3 기본 USB PID)
+        
+        보드 내장 USB-Serial 칩의 실제 VID/PID는 보드 제조사에 따라 다를 수 있습니다.
+    -->
     <usb-device vendor-id="12346" product-id="4097" />
 </resources>
 

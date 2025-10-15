@@ -19,7 +19,7 @@ updated: "2025-09-22"
 
 본 문서는 BridgeOne Android 앱의 **구체적 구현 명세서**로, 다음 3개 주요 기술 영역에 대한 상세한 설계 요구사항과 구현 세부사항을 체계적으로 정의합니다:
 
-1. **USB 통신 (HID/Vendor CDC)**: CP2102 칩셋 기반 고속 통신 아키텍처와 BridgeOne 프로토콜 구현
+1. **USB 통신 (HID/Vendor CDC)**: 보드 내장 USB-Serial 기반 고속 통신 아키텍처와 BridgeOne 프로토콜 구현
 2. **핵심 기능 로직**: 터치패드 알고리즘, 컴포넌트 설계, UI 상태 제어 시스템 구현
 3. **상수 및 임계값 정의**: 모든 기술 영역에 대한 정량적 기준값과 설정값 정리
 
@@ -66,8 +66,8 @@ updated: "2025-09-22"
 #### 1.1.1 하드웨어 연결 요구사항
 
 **장치 식별 요구사항:**
-- CP2102 USB-Serial 칩셋 자동 인식 필요
-- VID: 0x10C4, PID: 0xEA60으로 장치 필터링
+- ESP32-S3 DevKitC-1 보드 내장 USB-Serial 칩 자동 인식 필요
+- 보드별 VID/PID 자동 감지 (USB-Serial-for-Android 라이브러리의 범용 드라이버 활용)
 - USB OTG 호스트 모드 지원 필수
 
 **통신 설정 요구사항:**
@@ -78,8 +78,8 @@ updated: "2025-09-22"
 #### 1.1.2 연결 관리 요구사항
 
 **자동 탐지 요구사항:**
-- 시스템 부팅 시 CP2102 장치 자동 스캔
-- VID/PID 기반 정확한 장치 식별
+- 시스템 부팅 시 USB-Serial 장치 자동 스캔
+- USB-Serial-for-Android 라이브러리의 범용 드라이버로 자동 식별
 - 다중 장치 환경에서 우선순위 처리
 
 **권한 관리 요구사항:**
@@ -390,7 +390,7 @@ data class VendorCdcFrame(
 #### 1.7.1 테스트 환경 구축
 
 **하드웨어 테스트 환경:**
-- **실제 장치 테스트**: Samsung Galaxy s10e + CP2102 + ESP32-S3 + Windows PC
+- **실제 장치 테스트**: Samsung Galaxy s10e + ESP32-S3 DevKitC-1 + Windows PC
 - **에뮬레이터 테스트**: Android Emulator + Virtual USB Serial Device
 - **CI/CD 파이프라인**: 자동화된 통합 테스트 환경 구축
 - **테스트 장비**: 오실로스코프, 로직 애널라이저, USB 프로토콜 분석기
@@ -1592,7 +1592,7 @@ class AdaptiveTransmissionRate {
 - Little-Endian 바이트 순서 확인
 - 순번 카운터 순환 (0~255) 검증
 - 버튼 상태 비트 플래그 정확성 확인
-- CP2102 장치 자동 인식 정확성 검증
+- USB-Serial 장치 자동 인식 정확성 검증
 - 권한 요청 및 응답 처리 검증
 - Keep-alive 메커니즘 동작 확인
 - 연결 끊김 감지 및 복구 검증

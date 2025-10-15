@@ -1,107 +1,123 @@
-# Geekble nano ESP32-S3 커스텀 보드 설정 가이드
+# ESP32-S3-WROOM-1-N16R8 보드 설정 가이드
 
 ## 개요
 
-이 디렉토리에는 Geekble nano ESP32-S3 보드를 위한 PlatformIO 커스텀 보드 정의가 포함되어 있습니다.
+이 프로젝트는 ESP32-S3-WROOM-1-N16R8 모듈을 사용하며, PlatformIO의 표준 `esp32-s3-devkitc-1` 보드 정의를 사용합니다.
 
 ## 보드 스펙
 
 - **MCU**: Dual-core Xtensa LX7 @ 240MHz
-- **Flash**: 4MB QSPI
+- **Flash**: 16MB QSPI
 - **RAM**: 512KB SRAM
 - **ROM**: 384KB
-- **PSRAM**: 없음
+- **PSRAM**: 8MB (추후 활용 예정, 현재 비활성화)
 - **USB**: Native USB-OTG (Device 모드)
 - **WiFi**: 802.11 b/g/n
 - **Bluetooth**: BLE 5.0
 
-## 사용 방법
+## PlatformIO 설정
 
-### 방법 1: 프로젝트 로컬 보드 사용 (권장)
-
-현재 설정된 방식으로, `platformio.ini`에서 `board_dir = boards`가 설정되어 있어 프로젝트 내 `boards/` 폴더의 보드 정의를 자동으로 사용합니다.
+프로젝트는 표준 ESP32-S3 보드 정의를 사용하며, `platformio.ini`에서 하드웨어 스펙에 맞게 설정합니다:
 
 ```ini
+[platformio]
+default_envs = esp32s3_wroom_test
+
 [env]
 platform = espressif32
-board = geekble-nano-esp32s3
+board = esp32-s3-devkitc-1
 framework = arduino
-board_dir = boards
+
+; ESP32-S3-WROOM-1-N16R8 하드웨어 설정
+board_build.mcu = esp32s3
+board_build.f_cpu = 240000000L
+board_build.f_flash = 80000000L
+board_build.flash_size = 16MB
+
+; 16MB Flash에 적합한 파티션 테이블
+board_build.partitions = default_16MB.csv
+
+; PSRAM 설정 (추후 활용 예정, 현재 비활성화)
+; board_build.arduino.memory_type = qio_opi
+; board_build.psram_type = opi
 ```
 
-**장점**:
-- 프로젝트와 함께 버전 관리 가능
-- 팀원 간 동일한 설정 공유
-- PlatformIO 전역 설정 수정 불필요
+**주요 특징**:
+- 표준 보드 정의 사용으로 유지보수 용이
+- 16MB Flash 파티션 테이블 적용
+- PSRAM 설정 준비 (추후 활용 시 주석 해제)
 
-### 방법 2: 전역 보드 디렉토리에 설치 (선택사항)
+## 빌드 환경
 
-전역적으로 사용하고 싶다면 다음 경로에 JSON 파일을 복사:
+### 테스트 환경 (esp32s3_wroom_test)
+개발 및 디버깅용으로, Serial.print() 출력이 USB CDC로 정상 동작합니다.
 
-**Windows**:
-```
-%USERPROFILE%\.platformio\platforms\espressif32\boards\geekble-nano-esp32s3.json
-```
-
-**Linux/Mac**:
-```
-~/.platformio/platforms/espressif32/boards/geekble-nano-esp32s3.json
-```
-
-이 경우 `platformio.ini`에서 `board_dir` 라인을 제거할 수 있습니다.
-
-## 보드 설정 상세
-
-### USB 설정
-
-```json
-"extra_flags": [
-  "-DARDUINO_GEEKBLE_NANO_ESP32S3",
-  "-DARDUINO_USB_MODE=1",           // USB OTG 모드 활성화
-  "-DARDUINO_USB_CDC_ON_BOOT=1"     // 부팅 시 CDC 활성화
-]
+```ini
+[env:esp32s3_wroom_test]
+build_flags = 
+    -D ARDUINO_USB_MODE=1               ; USB OTG 모드
+    -D ARDUINO_USB_CDC_ON_BOOT=1        ; 부팅 시 CDC 활성화 (시리얼 출력 가능)
+    -D CONFIG_TINYUSB_ENABLED=1
+    -D CONFIG_TINYUSB_CDC_ENABLED=1
+    -D CONFIG_TINYUSB_HID_ENABLED=1
+    -Os
+    -D CORE_DEBUG_LEVEL=3               ; 상세 디버그 로그
 ```
 
-- `USB_MODE=1`: Native USB OTG 활성화
-- `USB_CDC_ON_BOOT=1`: 시리얼 디버깅 활성화 (개발 시)
-- `USB_CDC_ON_BOOT=0`: HID 우선 모드 (배포 시)
+### 실사용 환경 (esp32s3_wroom)
+HID 장치 우선 운영용으로, Vendor CDC는 보조 채널로만 동작합니다.
 
-### 메모리 설정
-
-```json
-"upload": {
-  "flash_size": "4MB",              // 4MB Flash
-  "maximum_ram_size": 327680,       // 320KB 사용 가능 SRAM
-  "maximum_size": 4194304           // 4MB = 4 * 1024 * 1024
-}
+```ini
+[env:esp32s3_wroom]
+build_flags = 
+    -D ARDUINO_USB_MODE=1               ; USB OTG 모드
+    -D ARDUINO_USB_CDC_ON_BOOT=0        ; HID 우선 (시리얼 출력 비활성화)
+    -D CONFIG_TINYUSB_ENABLED=1
+    -D CONFIG_TINYUSB_CDC_ENABLED=1
+    -D CONFIG_TINYUSB_HID_ENABLED=1
+    -Os
+    -D CORE_DEBUG_LEVEL=1               ; 최소 로그
 ```
-
-### 파티션 테이블
-
-기본적으로 `default.csv` 사용 (4MB Flash에 최적화):
-- Bootloader: ~32KB
-- Partition Table: ~4KB
-- NVS: ~24KB
-- OTA Data: ~8KB
-- App0: ~1.2MB
-- App1: ~1.2MB (OTA 업데이트용)
-- SPIFFS/FATFS: ~1.5MB
 
 ## 빌드 및 업로드
 
 ### 빌드
 ```bash
-pio run -e geekble_nano_esp32s3_test
+pio run -e esp32s3_wroom_test
 ```
 
 ### 업로드
 ```bash
-pio run -e geekble_nano_esp32s3_test --target upload
+pio run -e esp32s3_wroom_test --target upload
 ```
 
 ### 시리얼 모니터
 ```bash
 pio device monitor
+```
+
+## 파티션 테이블
+
+16MB Flash에 최적화된 `default_16MB.csv` 사용:
+- Bootloader: ~32KB
+- Partition Table: ~4KB
+- NVS: ~24KB
+- OTA Data: ~8KB
+- App0: ~3MB
+- App1: ~3MB (OTA 업데이트용)
+- SPIFFS/FATFS: ~10MB
+
+## PSRAM 활용 계획
+
+현재는 512KB SRAM만 사용하며, 8MB PSRAM은 추후 다음 용도로 활용 예정:
+- 대용량 버퍼링 (UART 링 버퍼, JSON 버퍼 확장)
+- OTA 업데이트 임시 저장소
+- 고급 기능 확장 시 동적 메모리 할당
+
+PSRAM 활성화가 필요한 경우 `platformio.ini`에서 주석 해제:
+```ini
+board_build.arduino.memory_type = qio_opi
+board_build.psram_type = opi
 ```
 
 ## 트러블슈팅
@@ -120,28 +136,33 @@ pio device monitor
 **원인**: `USB_CDC_ON_BOOT=0`으로 설정된 경우
 
 **해결방법**:
-- 개발 시에는 `geekble_nano_esp32s3_test` 환경 사용 (CDC 활성화)
-- 배포 시에는 `geekble_nano_esp32s3` 환경 사용 (HID 우선)
+- 개발 시에는 `esp32s3_wroom_test` 환경 사용 (CDC 활성화)
+- 배포 시에는 `esp32s3_wroom` 환경 사용 (HID 우선)
 
-### 3. 보드를 찾을 수 없음
+### 3. 플래시 메모리 부족
 
-**증상**: `Error: Unknown board ID 'geekble-nano-esp32s3'`
+**증상**: `Error: sketch too big`
 
 **해결방법**:
-1. `boards/geekble-nano-esp32s3.json` 파일 존재 확인
-2. `platformio.ini`에 `board_dir = boards` 설정 확인
-3. PlatformIO 캐시 정리: `pio run --target clean`
+1. `default_16MB.csv` 파티션 테이블 사용 확인
+2. 빌드 플래그에 `-Os` 최적화 옵션 확인
+3. 불필요한 디버그 로그 비활성화 (`CORE_DEBUG_LEVEL=1`)
 
 ## 참고 자료
 
-- [PlatformIO 보드 생성 가이드](https://docs.platformio.org/en/latest/platforms/creating_board.html)
-- [ESP32-S3 공식 문서](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/)
-- [PlatformIO 커뮤니티 - ESP32-S3 설정](https://community.platformio.org/t/how-do-you-set-up-a-new-board-esp32-s3-n16r8/32306)
+- [ESP32-S3-WROOM-1 데이터시트](https://www.espressif.com/sites/default/files/documentation/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf)
+- [ESP32-S3 기술 참조 매뉴얼](https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf)
+- [PlatformIO ESP32-S3 가이드](https://docs.platformio.org/en/latest/boards/espressif32/esp32-s3-devkitc-1.html)
+- [Arduino ESP32 USB 라이브러리](https://docs.espressif.com/projects/arduino-esp32/en/latest/api/usb.html)
 
 ## 버전 히스토리
 
-- **v1.0** (2025-10-09): 초기 보드 정의 생성
+- **v2.0** (2025-10-15): ESP32-S3-WROOM-1-N16R8로 보드 변경
+  - 16MB Flash 지원 (4MB → 16MB)
+  - 8MB PSRAM 추가 (추후 활용 예정)
+  - 표준 `esp32-s3-devkitc-1` 보드 정의 사용
+  - 환경명 변경: `esp32s3_wroom_test`, `esp32s3_wroom`
+- **v1.0** (2025-10-09): 초기 보드 정의 생성 (Geekble nano)
   - 4MB Flash 지원
   - Native USB-OTG 지원
   - 개발/배포 환경 분리
-

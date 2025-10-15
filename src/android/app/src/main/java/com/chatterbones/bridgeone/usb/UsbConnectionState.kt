@@ -18,7 +18,7 @@ sealed class UsbConnectionState {
     /**
      * USB 장치 접근 권한 요청 중인 상태
      * 
-     * CP2102 장치 감지 후 사용자에게 권한을 요청하는 중입니다.
+     * USB-Serial 장치 감지 후 사용자에게 권한을 요청하는 중입니다.
      * PendingIntent를 통해 시스템 권한 다이얼로그가 표시됩니다.
      */
     data object Requesting : UsbConnectionState()
@@ -28,7 +28,7 @@ sealed class UsbConnectionState {
      * 
      * 권한 승인이 완료되어 USB 통신이 가능한 상태입니다.
      * 
-     * @param deviceName 연결된 USB 장치 이름 (예: "CP2102 USB to UART Bridge Controller")
+     * @param deviceName 연결된 USB 장치 이름 (예: "USB Serial Device")
      */
     data class Connected(val deviceName: String) : UsbConnectionState()
 

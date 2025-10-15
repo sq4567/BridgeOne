@@ -327,9 +327,14 @@ void debugTask(void* pvParameters) {
 // ============================================================================
 // 참고: ESP32-S3 Arduino 프레임워크에는 Serial2가 이미 정의되어 있음
 // HardwareSerial Serial2(2)는 HardwareSerial.cpp에서 자동으로 생성됨
+// 
+// ESP32-S3 DevKitC-1 보드 내장 USB-Serial 사용:
+// - 보드의 UART 포트(왼쪽)가 내장 USB-Serial 칩을 통해 GPIO43/44와 연결됨
+// - Android 폰에서 OTG 케이블로 보드의 UART 포트에 직접 연결
+// - 외부 USB-Serial 어댑터 불필요
 constexpr uint32_t UART_BAUD_RATE = 1000000;    // 1Mbps (1,000,000 bps)
-constexpr uint8_t UART_RX_PIN = 16;             // GPIO16 (RX)
-constexpr uint8_t UART_TX_PIN = 17;             // GPIO17 (TX)
+constexpr uint8_t UART_RX_PIN = 44;             // GPIO44 (RX) - 보드 내장 UART 포트
+constexpr uint8_t UART_TX_PIN = 43;             // GPIO43 (TX) - 보드 내장 UART 포트
 constexpr size_t UART_RX_BUFFER_SIZE = 256;     // RX 버퍼: 256 bytes
 constexpr size_t UART_TX_BUFFER_SIZE = 128;     // TX 버퍼: 128 bytes
 
@@ -382,16 +387,16 @@ void setup() {
                 UART_RX_BUFFER_SIZE, UART_TX_BUFFER_SIZE);
   
   // ========================================
-  // UART2 초기화
+  // UART2 초기화 (보드 내장 USB-Serial 경로)
   // ========================================
   // 파라미터:
   //   - baud: 1,000,000 bps (1Mbps)
   //   - config: SERIAL_8N1 (8 data bits, No parity, 1 stop bit)
-  //   - rxPin: GPIO16
-  //   - txPin: GPIO17
+  //   - rxPin: GPIO44 (보드 UART 포트와 연결)
+  //   - txPin: GPIO43 (보드 UART 포트와 연결)
   Serial2.begin(UART_BAUD_RATE, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
   Serial.printf("[UART2] Initialized: %d bps, 8N1\n", UART_BAUD_RATE);
-  Serial.printf("[UART2] Pins: RX=GPIO%d, TX=GPIO%d\n", UART_RX_PIN, UART_TX_PIN);
+  Serial.printf("[UART2] Pins: RX=GPIO%d, TX=GPIO%d (Board UART Port)\n", UART_RX_PIN, UART_TX_PIN);
   
   Serial.println();
   Serial.println("[INIT] All systems initialized successfully!");

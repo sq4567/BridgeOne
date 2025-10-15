@@ -226,7 +226,8 @@ Android (Kotlin):
 - USB‑OTG 전송(동글 직결) 및 양방향 통신
 
 USB HID 동글(펌웨어):
-- MCU: ESP32‑S3
+- MCU: ESP32-S3-WROOM-1-N16R8
+- 메모리: 512KB SRAM, 16MB Flash, 8MB PSRAM (PSRAM 추후 활용)
 - Arduino HID + Vendor CDC 하이브리드 방식
   - 인터페이스 1: HID Boot Protocol Mouse + Report Protocol 확장(휠)
   - 인터페이스 2: Vendor-Defined 또는 CDC-ACM (양방향 데이터 채널)
