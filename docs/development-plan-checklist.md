@@ -445,8 +445,7 @@ TouchInputProcessor.kt 클래스를 작성해:
 
 ##### 1.2.1 Board USB HID 출력 구현
 
-**참조 문서**:
-- `@docs/Board/esp32s3-code-implementation-guide.md` §3 (USB HID 출력)
+**참조 문서**: `@docs/Board/esp32s3-code-implementation-guide.md` §3 (USB HID 출력)
 
 ###### 1.2.1.1 Arduino USB HID 라이브러리 초기화
 

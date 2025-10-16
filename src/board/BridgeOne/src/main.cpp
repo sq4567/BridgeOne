@@ -101,7 +101,7 @@ bool validateSequence(uint8_t currentSeq) {
 void printStats() {
   uint32_t now = millis();
   
-  if (now - g_lastStatsTime >= 1000) {  // 1초마다
+  if (now - g_lastStatsTime >= 10000) {  // 1초마다
     float lossRate = 0.0f;
     if (g_frameCount > 0) {
       lossRate = (g_lostFrames * 100.0f) / (g_frameCount + g_lostFrames);
