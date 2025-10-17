@@ -379,7 +379,7 @@ TouchInputProcessor.kt 클래스를 작성해:
    - TouchInputProcessor로 터치 이벤트 전달
    - BridgeFrame 생성 → UsbConnectionManager로 전송
 4. 연결 상태에 따른 UI 업데이트 (StateFlow 수집)
-5. 터치 시 햅틱 피드백 (HapticFeedback.LongPress)
+5. 터치 시 햅틱 피드백 (Vibrator 시스템 서비스, 10ms 진동)
 
 간단한 Material3 디자인으로 구현하고, 실시간 통계를 1초마다 업데이트해줘.
 ```
@@ -2406,7 +2406,7 @@ DPI 독립적 처리로 다양한 화면 해상도에서 일관된 커서 속도
 6. 클릭 타입 처리:
    - ClickMode.LEFT → buttons = 0x01
    - ClickMode.RIGHT → buttons = 0x02
-   - 햅틱 피드백 (HapticFeedback.LongPress)
+   - 햅틱 피드백 (HapticHelper.performHaptic(HapticCategory.MEDIUM))
 
 클릭 판정으로 의도적 클릭과 드래그를 정확히 구분해.
 ```
@@ -2432,7 +2432,7 @@ DPI 독립적 처리로 다양한 화면 해상도에서 일관된 커서 속도
 1. NormalScroll 클래스:
    class NormalScroll(
        private val scrollUnit: Dp = 50.dp,
-       private val hapticFeedback: HapticFeedback
+       private val hapticHelper: HapticHelper
    ) {
        private var accumulatedDistance = 0f
        private var lastHapticDistance = 0f
@@ -2450,8 +2450,8 @@ DPI 독립적 처리로 다양한 화면 해상도에서 일관된 커서 속도
            // 스크롤 발생 시 누적 거리 리셋
            accumulatedDistance %= scrollUnit.toPx()
            
-           // 햅틱 피드백
-           hapticFeedback.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+           // 햅틱 피드백 (가벼운 틱)
+           hapticHelper.performHaptic(HapticCategory.LIGHT)
            lastHapticDistance = 0f
        }
        
@@ -2461,7 +2461,7 @@ DPI 독립적 처리로 다양한 화면 해상도에서 일관된 커서 속도
 
 3. 햅틱 피드백 동기화:
    - 50dp 이동마다 정확히 1회 피드백
-   - CLOCK_TICK 타입 (가벼운 피드백)
+   - HapticCategory.LIGHT (5ms 가벼운 진동)
 
 4. 리셋 로직:
    fun reset() {
@@ -2770,9 +2770,9 @@ DPI 독립적 처리로 다양한 화면 해상도에서 일관된 커서 속도
    - Disabled: 회색 + alpha 0.4f
 
 5. 햅틱 피드백:
-   - 탭: HapticFeedback.LongPress
-   - 롱프레스: HapticFeedback.LongPress
-   - Sticky Hold 활성화: Strong 피드백
+   - 탭: HapticHelper.performHaptic(HapticCategory.MEDIUM)
+   - 롱프레스 시작: HapticHelper.performHaptic(HapticCategory.MEDIUM)
+   - Sticky Hold 활성화: HapticHelper.performHaptic(HapticCategory.STRONG)
 
 예시: Esc, Enter, Backspace, Space 버튼들을 만들 때 사용해.
 ```
@@ -2819,7 +2819,7 @@ DPI 독립적 처리로 다양한 화면 해상도에서 일관된 커서 속도
    - Disabled: 회색 처리
 
 5. 햅틱 피드백:
-   - 클릭 시: Medium 피드백
+   - 클릭 시: HapticHelper.performHaptic(HapticCategory.MEDIUM)
 
 예시: Ctrl+C(복사), Ctrl+V(붙여넣기), Alt+Tab(창 전환) 버튼들.
 ```
@@ -3049,17 +3049,17 @@ DPI 독립적 처리로 다양한 화면 해상도에서 일관된 커서 속도
        val isDoubleTap = (currentTime - lastTapTime) < 300L &&
                          direction == lastTapDirection
        
-       if (isDoubleTap && !isStickyActive) {
-           // Sticky Hold 활성화
-           isStickyActive = true
-           stickyDirection = direction
-           // 햅틱: Strong
-       } else if (isDoubleTap && isStickyActive) {
-           // Sticky Hold 해제
-           isStickyActive = false
-           stickyDirection = Direction.NONE
-           // 모든 키 Up
-       }
+      if (isDoubleTap && !isStickyActive) {
+          // Sticky Hold 활성화
+          isStickyActive = true
+          stickyDirection = direction
+          hapticHelper.performHaptic(HapticCategory.STRONG)
+      } else if (isDoubleTap && isStickyActive) {
+          // Sticky Hold 해제
+          isStickyActive = false
+          stickyDirection = Direction.NONE
+          // 모든 키 Up
+      }
        
        lastTapTime = currentTime
        lastTapDirection = direction
@@ -3200,26 +3200,51 @@ Sticky Hold로 방향키를 계속 누르고 있는 효과를 낼 수 있어.
 
 **햅틱 피드백 시스템** (@src/android/.../utils/HapticHelper.kt):
 
-1. HapticCategory enum:
-   enum class HapticCategory {
-       LIGHT,      // 터치 시작
-       MEDIUM,     // 버튼 클릭
-       STRONG,     // 모드 전환
-       ERROR       // 오류 발생
+1. HapticCategory enum과 진동 패턴:
+   enum class HapticCategory(val durationMs: Long) {
+       LIGHT(5),       // 터치 시작 (5ms)
+       MEDIUM(10),     // 버튼 클릭 (10ms)
+       STRONG(20),     // 모드 전환 (20ms)
+       ERROR(50)       // 오류 발생 (50ms)
    }
 
-2. performHaptic() 함수:
-   fun performHaptic(category: HapticCategory, view: View) {
-       val type = when (category) {
-           LIGHT -> HapticFeedbackConstants.CLOCK_TICK
-           MEDIUM -> HapticFeedbackConstants.KEYBOARD_TAP
-           STRONG -> HapticFeedbackConstants.LONG_PRESS
-           ERROR -> HapticFeedbackConstants.REJECT
+2. HapticHelper class (Vibrator 시스템 서비스 기반):
+   class HapticHelper(private val vibrator: Vibrator) {
+       fun performHaptic(category: HapticCategory) {
+           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+               vibrator.vibrate(
+                   VibrationEffect.createOneShot(
+                       category.durationMs,
+                       VibrationEffect.DEFAULT_AMPLITUDE
+                   )
+               )
+           } else {
+               @Suppress("DEPRECATION")
+               vibrator.vibrate(category.durationMs)
+           }
        }
-       view.performHapticFeedback(type)
    }
+
+3. Compose에서 사용:
+   val context = LocalContext.current
+   val hapticHelper = remember {
+       val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+           context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+               .defaultVibrator
+       } else {
+           @Suppress("DEPRECATION")
+           context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+       }
+       HapticHelper(vibrator)
+   }
+   
+   // 사용 예시
+   Button(onClick = { 
+       hapticHelper.performHaptic(HapticCategory.MEDIUM)
+   })
 
 모든 UI 컴포넌트에서 HapticHelper를 사용해서 일관된 피드백을 제공해줘.
+AndroidManifest.xml에 VIBRATE 권한이 이미 선언되어 있음.
 ```
 
 **검증 방법**:
@@ -3575,7 +3600,7 @@ Minecraft 플레이에 최적화된 레이아웃이야.
    LaunchedEffect(pagerState.currentPage) {
        // 페이지 변경 시 로직
        onPageChanged(pagerState.currentPage)
-       performHaptic(HapticCategory.STRONG)
+       hapticHelper.performHaptic(HapticCategory.STRONG)
    }
 
 5. Essential/Standard 모드 연동:
