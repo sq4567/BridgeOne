@@ -1,6 +1,10 @@
 package com.chatterbones.bridgeone
 
+import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -34,9 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -66,6 +68,17 @@ class MainActivity : ComponentActivity() {
     // 순번 카운터
     private val sequenceCounter = SequenceCounter()
     
+    // Vibrator 서비스 (햅틱 피드백용)
+    private val vibrator: Vibrator by lazy {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(VIBRATOR_SERVICE) as Vibrator
+        }
+    }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
@@ -80,6 +93,7 @@ class MainActivity : ComponentActivity() {
                     MainScreen(
                         usbConnectionManager = usbConnectionManager,
                         sequenceCounter = sequenceCounter,
+                        vibrator = vibrator,
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -104,12 +118,14 @@ class MainActivity : ComponentActivity() {
  * 
  * @param usbConnectionManager USB 연결 관리자
  * @param sequenceCounter 순번 카운터
+ * @param vibrator 햅틱 피드백용 Vibrator
  * @param modifier Compose Modifier
  */
 @Composable
 fun MainScreen(
     usbConnectionManager: UsbConnectionManager,
     sequenceCounter: SequenceCounter,
+    vibrator: Vibrator,
     modifier: Modifier = Modifier
 ) {
     // USB 연결 상태 구독
@@ -153,6 +169,7 @@ fun MainScreen(
                 .weight(1f),
             usbConnectionManager = usbConnectionManager,
             sequenceCounter = sequenceCounter,
+            vibrator = vibrator,
             isConnected = connectionState is UsbConnectionState.Connected
         )
         
@@ -229,6 +246,7 @@ fun ConnectionStatusCard(connectionState: UsbConnectionState) {
  * @param modifier Compose Modifier
  * @param usbConnectionManager USB 연결 관리자
  * @param sequenceCounter 순번 카운터
+ * @param vibrator 햅틱 피드백용 Vibrator
  * @param isConnected USB 연결 여부
  */
 @Composable
@@ -236,9 +254,9 @@ fun TouchpadArea(
     modifier: Modifier = Modifier,
     usbConnectionManager: UsbConnectionManager,
     sequenceCounter: SequenceCounter,
+    vibrator: Vibrator,
     isConnected: Boolean
 ) {
-    val hapticFeedback = LocalHapticFeedback.current
     
     // 이전 터치 좌표 저장 (델타 계산용)
     var previousPosition by remember { mutableStateOf(0f to 0f) }
@@ -270,8 +288,15 @@ fun TouchpadArea(
                             change.pressed && change.previousPressed.not() -> {
                                 previousPosition = change.position.x to change.position.y
                                 
-                                // 햅틱 피드백
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                // 햅틱 피드백 (10ms 짧은 진동)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    vibrator.vibrate(
+                                        VibrationEffect.createOneShot(10, VibrationEffect.DEFAULT_AMPLITUDE)
+                                    )
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    vibrator.vibrate(10)
+                                }
                                 
                                 // 좌클릭 버튼 활성화 프레임 전송 (이동 없음)
                                 val frame = BridgeFrame(
