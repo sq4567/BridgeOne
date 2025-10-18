@@ -1,8 +1,8 @@
 /**
  * @file main.cpp
- * @brief Phase 1.2.1.3: BridgeFrame → HID 키보드 변환 구현
+ * @brief Phase 1.2.1.4: 홀드 입력 반복 처리 구현
  * @details BridgeFrame을 HID Boot Mouse/Keyboard 리포트로 변환하여 PC로 전송
- * @note Phase 1.2.1.2 코드 기반 위에 키보드 입력 변환 로직 추가
+ * @note Phase 1.2.1.3 코드 기반 위에 키 홀드 반복 입력 로직 추가
  * @note Arduino USBHIDMouse/Keyboard API 사용 (Context7 공식 문서 기반)
  */
 
@@ -86,6 +86,19 @@ uint8_t g_lastKeyCode2 = 0;
 uint32_t g_lastKeyUpdateMs = 0;
 
 // ============================================================================
+// Phase 1.2.1.4: 홀드 입력 반복 처리 변수
+// ============================================================================
+
+// 홀드 상태 추적
+uint8_t g_holdKey = 0;              // 현재 홀드 중인 키 (0이면 홀드 없음)
+uint32_t g_holdStartTime = 0;       // 홀드 시작 시간 (ms)
+uint32_t g_lastRepeatTime = 0;      // 마지막 반복 시간 (ms)
+
+// 홀드 타이밍 설정
+constexpr uint32_t HOLD_THRESHOLD_MS = 300;   // 홀드 상태 진입 임계값 (300ms)
+constexpr uint32_t REPEAT_INTERVAL_MS = 30;   // 반복 입력 간격 (30ms)
+
+// ============================================================================
 // UART 설정 상수
 // ============================================================================
 
@@ -108,6 +121,15 @@ constexpr uint32_t FRAME_QUEUE_SIZE = 32;             // 최대 32개 프레임 
 // ============================================================================
 // 함수 선언 및 구현
 // ============================================================================
+
+// 함수 프로토타입 선언
+void processMouseInput(const BridgeFrame& frame);
+void processKeyboardInput(const BridgeFrame& frame);
+void processHoldInput(uint8_t currentKey);
+bool receiveFrame();
+bool validateSequence(uint8_t currentSeq);
+void uartRxTask(void* pvParameters);
+void debugTask(void* pvParameters);
 
 /**
  * @brief BridgeFrame을 HID 마우스 입력으로 변환 및 전송
@@ -371,9 +393,137 @@ void processKeyboardInput(const BridgeFrame& frame) {
     }
   }
   
+  // ============================================================================
+  // Phase 1.2.1.4: 홀드 입력 반복 처리
+  // ============================================================================
+  // keyCode1에 대해 홀드 상태를 추적하고 반복 입력 처리
+  // 화살표 키, 백스페이스 등 반복이 필요한 키에 유용
+  
+  processHoldInput(frame.keyCode1);
+  
   // 마지막 업데이트 시간 갱신
   g_lastKeyUpdateMs = currentMs;
 }
+
+/**
+ * @brief 홀드 입력 자동 반복 처리
+ * 
+ * Phase 1.2.1.4에서 구현된 키 홀드 반복 입력 함수입니다.
+ * 특정 키가 300ms 이상 지속되면 홀드 상태로 진입하고,
+ * 30ms 간격으로 Keyboard.write()를 호출하여 반복 입력을 생성합니다.
+ * 
+ * 주요 기능:
+ * - 동일한 키가 300ms 이상 유지되면 홀드 상태 진입
+ * - 홀드 중일 때 30ms 간격으로 키 반복 입력 전송
+ * - 키가 변경되거나 0이 되면 홀드 상태 해제
+ * - 화살표 키, 백스페이스 등 반복이 필요한 키에 유용
+ * 
+ * @param currentKey 현재 프레임의 keyCode1 값 (반복 처리할 키)
+ * 
+ * @note 참조: @docs/Board/esp32s3-code-implementation-guide.md §3.3
+ * @note Arduino Keyboard.write() API 사용 (Context7 공식 문서 기반)
+ * @note 공식 문서 출처:
+ *       - https://docs.arduino.cc/language-reference/en/functions/usb/Keyboard
+ *       - Keyboard.write() = press + release 자동 수행
+ *       - 반복 입력은 애플리케이션 레벨에서 구현
+ */
+void processHoldInput(uint8_t currentKey) {
+  uint32_t currentMs = millis();
+  
+  // ============================================================================
+  // 케이스 1: 키 입력이 없음 (currentKey == 0)
+  // ============================================================================
+  // 홀드 상태 완전히 해제
+  
+  if (currentKey == 0) {
+    if (g_holdKey != 0) {
+      // 홀드 중이던 키가 해제됨
+      Serial.printf("[HOLD] Key released: 0x%02X\n", g_holdKey);
+      g_holdKey = 0;
+      g_holdStartTime = 0;
+      g_lastRepeatTime = 0;
+    }
+    return;
+  }
+  
+  // ============================================================================
+  // 케이스 2: 키가 변경됨 (다른 키로 전환)
+  // ============================================================================
+  // 이전 홀드 취소하고 새로운 키의 홀드 타이머 시작
+  
+  if (currentKey != g_holdKey) {
+    if (g_holdKey != 0) {
+      // 이전 홀드 중이던 키 취소
+      Serial.printf("[HOLD] Key changed: 0x%02X → 0x%02X\n", g_holdKey, currentKey);
+    }
+    
+    // 새로운 키의 홀드 시작 시간 기록
+    g_holdKey = currentKey;
+    g_holdStartTime = currentMs;
+    g_lastRepeatTime = 0;  // 아직 반복 없음
+    return;
+  }
+  
+  // ============================================================================
+  // 케이스 3: 동일한 키가 계속 유지됨
+  // ============================================================================
+  // 홀드 시간을 체크하여 반복 입력 여부 결정
+  
+  uint32_t holdDuration = currentMs - g_holdStartTime;
+  
+  // ============================================================================
+  // 서브 케이스 3-1: 홀드 임계값(300ms) 도달 전
+  // ============================================================================
+  // 아직 홀드 상태가 아니므로 아무것도 하지 않음
+  
+  if (holdDuration < HOLD_THRESHOLD_MS) {
+    return;  // 홀드 상태 진입 대기 중
+  }
+  
+  // ============================================================================
+  // 서브 케이스 3-2: 홀드 상태 진입 (첫 반복)
+  // ============================================================================
+  // 300ms가 지나고 아직 반복을 시작하지 않은 경우
+  
+  if (g_lastRepeatTime == 0) {
+    // 첫 반복 입력 시작
+    Serial.printf("[HOLD] Hold state entered: 0x%02X (held for %lu ms)\n", 
+                  g_holdKey, holdDuration);
+    
+    // Keyboard.write()를 사용하여 press + release 자동 수행
+    // 참조: Arduino 공식 문서 - "Keyboard.write(): Simulates a press and release of a key."
+    Keyboard.write(g_holdKey);
+    
+    g_lastRepeatTime = currentMs;
+    Serial.printf("[HOLD] First repeat sent: 0x%02X\n", g_holdKey);
+    return;
+  }
+  
+  // ============================================================================
+  // 서브 케이스 3-3: 홀드 중 반복 입력 (30ms 간격)
+  // ============================================================================
+  // 마지막 반복으로부터 30ms가 지난 경우 다음 반복 입력 전송
+  
+  uint32_t timeSinceLastRepeat = currentMs - g_lastRepeatTime;
+  
+  if (timeSinceLastRepeat >= REPEAT_INTERVAL_MS) {
+    // 반복 입력 전송
+    // Keyboard.write()는 press + release를 자동으로 수행하므로
+    // 매번 완전한 키 입력이 생성됨
+    Keyboard.write(g_holdKey);
+    
+    g_lastRepeatTime = currentMs;
+    
+    // 디버그 출력 (너무 많으므로 100ms마다만 출력)
+    static uint32_t lastDebugPrint = 0;
+    if (currentMs - lastDebugPrint >= 100) {
+      Serial.printf("[HOLD] Repeating: 0x%02X (held for %lu ms)\n", 
+                    g_holdKey, holdDuration);
+      lastDebugPrint = currentMs;
+    }
+  }
+}
+
 
 /**
  * @brief UART로부터 BridgeFrame 수신 시도
@@ -589,7 +739,7 @@ void setup() {
   Serial.println();
   Serial.println("========================================");
   Serial.println("  BridgeOne ESP32-S3 Board");
-  Serial.println("  Phase 1.2.1.3: HID Keyboard Input Conversion");
+  Serial.println("  Phase 1.2.1.4: Hold Input Repeat");
   Serial.println("========================================");
   Serial.println();
   
@@ -602,6 +752,7 @@ void setup() {
   Serial.println("  ✓ USB HID Keyboard initialized (Phase 1.2.1.1)");
   Serial.println("  ✓ Mouse input processing enabled (Phase 1.2.1.2)");
   Serial.println("  ✓ Keyboard input processing enabled (Phase 1.2.1.3)");
+  Serial.println("  ✓ Hold input repeat enabled (Phase 1.2.1.4)");
   Serial.println("  ⓘ USB already started by CDC_ON_BOOT=1 (no USB.begin() call)");
   Serial.println("  ⓘ Device will be enumerated as HID Mouse + Keyboard + CDC");
   Serial.println();
