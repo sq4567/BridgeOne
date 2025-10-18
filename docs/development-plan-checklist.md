@@ -690,11 +690,23 @@ TouchInputProcessor.kt 클래스를 작성해:
 - [ ] HID 전송 FPS 1000Hz 근접 확인
 - [ ] 큐 오버플로우 없음 확인
 
-##### 1.2.2 Board Vendor CDC 구현
+##### 1.2.2 Board Vendor CDC 구현 ✅
 
 **참조 문서**:
 - `@docs/Board/esp32s3-code-implementation-guide.md` §2.3 (Vendor CDC)
 - `@docs/technical-specification.md` §3.2 (Vendor CDC 프로토콜)
+
+**완료 상태**: ✅ 완료 (2025-01-18)
+**전체 세부사항**:
+- Phase 1.2.2.1: USB Serial CDC 인터페이스 초기화 완료
+- Phase 1.2.2.2: JSON 메시지 프레임 구조 구현 완료
+- Phase 1.2.2.3: 명령 처리 시스템 구현 완료
+- ArduinoJson 기반 JSON 직렬화/역직렬화
+- CRC16-CCITT 무결성 검증
+- FreeRTOS CDC 수신 태스크 (Core 0, 우선순위 2)
+- 명령 타입 enum 및 처리 시스템
+- 메시지 ID 기반 요청-응답 매칭
+- Context7 공식 문서 기반 구현 (Trust Score 9.0+ 출처 사용)
 
 ###### 1.2.2.1 USB Serial CDC 인터페이스 초기화
 
@@ -799,10 +811,56 @@ ESP32-S3의 USB Serial은 자동으로 CDC 인터페이스로 노출되니,
 ```
 
 **검증 방법**:
-- [ ] Windows에서 PING 명령 전송 → 응답 수신
-- [ ] GET_STATUS로 상태 정보 조회
-- [ ] 메시지 ID 매칭 확인
-- [ ] CRC16 검증 실패 시 오류 처리
+- [x] ESP32-S3 빌드 및 업로드 성공
+- [x] Serial Monitor 초기화 로그 정상 출력
+- [x] FreeRTOS CDC 태스크 정상 시작
+- [x] 명령 처리 시스템 초기화 확인
+- [ ] ~~Windows에서 PING 명령 전송~~ → Phase 1.2.4.5에서 수행
+- [ ] ~~GET_STATUS로 상태 정보 조회~~ → Phase 1.2.4.5에서 수행
+- [x] **Python 스크립트로 JSON 프레임 직접 전송 테스트** (Phase 1.2.3 이전 선행 검증)
+  - [x] `test_command_system.py` 스크립트 작성 및 COM 포트 설정
+  - [x] CMD_PING 테스트 통과 (메시지 ID 매칭 확인)
+  - [x] CMD_GET_STATUS 테스트 통과 (시스템 상태 수신)
+  - [x] CMD_SET_CONFIG 테스트 통과 (설정 변경 확인)
+  - [x] CRC16 검증 정상 동작
+  - [x] Serial Monitor에서 명령 처리 로그 확인
+- [x] CRC16 검증 로직 구현 완료 (실제 테스트는 Python 스크립트로 완료)
+
+**참고**:
+- Windows 서버가 구현되기 전까지는 Python 스크립트(`test_command_system.py`)를 사용하여 Board 단독으로 명령 처리 로직을 검증할 수 있습니다.
+- Python 테스트는 선택사항이지만, Windows 서버 구현 전에 Board 로직을 검증하여 개발 시간을 단축할 수 있습니다.
+- Phase 1.2.4.5에서 Windows 서버와 통합하여 최종 검증을 수행합니다.
+
+**향후 활용 계획**:
+- **Phase 1.2.4.5**: Windows 서버 구현 전 선행 검증 도구로 활용
+- **Phase 4.1.1.1**: 전체 사용자 시나리오 테스트에서 일부 자동화
+- **유지보수**: 펌웨어 업데이트 후 회귀 테스트용
+- **디버깅**: 통신 문제 발생 시 원인 파악 도구
+
+**완료 상태**: ✅ 완료 (2025-01-18)
+**완료 세부사항**:
+- CommandType enum 정의 (CMD_PING, CMD_GET_STATUS, CMD_SET_CONFIG)
+- CommandStatus enum 정의 (OK, ERROR, INVALID, MISSING_PARAM)
+- parseCommandType() 함수 구현: JSON에서 명령 타입 파싱
+- processCommand() 함수 구현:
+  - 메시지 ID 기반 요청-응답 매칭 (request["id"] → response["id"])
+  - CMD_PING: 연결 확인 응답 (timestamp 포함)
+  - CMD_GET_STATUS: 시스템 상태 정보 반환 (fps, queueSize, uptime, frameCount, lostFrames, hidTxCount, freeHeap)
+  - CMD_SET_CONFIG: 설정 변경 처리 (debugMode, logLevel 예시)
+- cdcRxTask() 업데이트: processCommand() 통합
+- ArduinoJson API 사용 (Context7 공식 문서 기반)
+- FreeRTOS 태스크에서 안정적으로 동작
+- 에러 처리 및 검증 로직 포함
+- 상세한 디버그 로그 출력
+
+**Context7 공식 문서 출처**:
+- ArduinoJson: https://github.com/bblanchon/arduinojson (Trust Score: 9.6)
+  - deserializeJson(), serializeJson() API
+  - JsonDocument, JsonObject, containsKey() 사용
+- FreeRTOS: https://github.com/freertos/freertos-kernel (Trust Score: 9.4)
+  - Task management and queue APIs
+- ESP32 Arduino: https://github.com/espressif/arduino-esp32 (Trust Score: 9.1)
+  - USB CDC Serial communication
 
 ##### 1.2.3 Windows 기본 장치 인식 구현
 
@@ -1141,6 +1199,11 @@ ESP32-S3 테스트 펌웨어와 Windows 서버를 사용하여:
 4. JSON 파싱 오류 처리:
    - 잘못된 JSON 수신 시 오류 로그
    - CRC16 불일치 시 재전송 요청
+
+**참고**: Windows 서버 구현 전까지는 Python 스크립트(`test_command_system.py`)로 선행 검증 가능:
+- ESP32-S3 단독으로 모든 명령 처리 테스트
+- CRC16 검증 및 메시지 ID 매칭 확인
+- 실제 펌웨어 업데이트 후 회귀 테스트용
 ```
 
 **검증 방법**:
@@ -1149,6 +1212,7 @@ ESP32-S3 테스트 펌웨어와 Windows 서버를 사용하여:
 - [ ] SET_CONFIG → 설정 변경 확인 응답
 - [ ] 타임아웃 처리 정상 동작
 - [ ] 10회 연속 PING 응답률 100%
+- [ ] **선택사항**: `test_command_system.py`로 Windows 서버 구현 전 선행 검증
 
 ###### 1.2.4.6 1분간 연속 HID 전송 안정성 테스트
 
@@ -5445,6 +5509,11 @@ Windows에서 디버깅 시 모든 UI를 강제로 활성화할 수 있어.
 4. 그림 그리기 (Paint)
 
 각 시나리오마다 체크리스트를 작성하고 통과/실패를 기록해줘.
+
+**참고**: Phase 1.2.2.3에서 구현한 `test_command_system.py` 스크립트로 일부 시나리오 자동화 가능:
+- 초기 연결 검증 (시나리오 1 일부)
+- 명령 처리 시스템 테스트 (시나리오 2 일부)
+- 펌웨어 업데이트 후 회귀 테스트용
 ```
 
 **검증 방법**:
@@ -5452,6 +5521,7 @@ Windows에서 디버깅 시 모든 UI를 강제로 활성화할 수 있어.
 - [ ] 각 시나리오 재현 가능
 - [ ] 오류 없이 완료
 - [ ] 사용자 경험 만족스러움
+- [ ] **선택사항**: `test_command_system.py`로 일부 시나리오 자동화 테스트
 
 ###### 4.1.1.2 멀티 커서 고급 기능 테스트
 

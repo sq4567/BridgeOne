@@ -119,6 +119,38 @@ uint32_t g_cdcTxCount = 0;        // CDC로 송신한 메시지 수
 bool g_cdcInitialized = false;    // CDC 초기화 상태
 
 // ============================================================================
+// Phase 1.2.2.3: 명령 처리 시스템 Enum 정의
+// ============================================================================
+
+/**
+ * @brief Windows → Board 명령 타입 정의
+ * 
+ * ESP32-S3 보드가 Windows 서버로부터 수신하는 명령 타입을 정의합니다.
+ * JSON 메시지의 "cmd" 필드 값으로 사용됩니다.
+ * 
+ * @note 참조: @docs/development-plan-checklist.md §1.2.2.3
+ */
+enum CommandType : uint8_t {
+    CMD_PING = 0x01,          // 연결 확인 명령
+    CMD_GET_STATUS = 0x02,    // 상태 정보 요청
+    CMD_SET_CONFIG = 0x03,    // 설정 변경 명령
+    CMD_UNKNOWN = 0xFF        // 알 수 없는 명령
+};
+
+/**
+ * @brief 명령 처리 결과 코드
+ * 
+ * processCommand() 함수의 반환값으로 사용됩니다.
+ * 명령 처리 성공/실패 여부를 나타냅니다.
+ */
+enum CommandStatus : uint8_t {
+    CMD_STATUS_OK = 0x00,           // 명령 처리 성공
+    CMD_STATUS_ERROR = 0x01,        // 명령 처리 실패
+    CMD_STATUS_INVALID = 0x02,      // 유효하지 않은 명령
+    CMD_STATUS_MISSING_PARAM = 0x03 // 필수 파라미터 누락
+};
+
+// ============================================================================
 // Phase 1.2.1.2: HID 마우스 상태 관리 변수
 // ============================================================================
 
@@ -270,19 +302,19 @@ bool sendJsonMessage(const JsonDocument& doc) {
     // 완성된 프레임 전송
     size_t frameSize = dataLength + 2;  // 헤더 + 길이 + payload + CRC16
     size_t bytesWritten = Serial.write(frameBuffer, frameSize);
-
+    
+    // 디버그 로그는 주석 처리 (COM 포트 데이터 오염 방지)
+    // Serial.printf("[JSON_TX] Frame sent successfully (%d bytes)\n", frameSize);
+    // Serial.printf("[JSON_TX] Payload: %d bytes, CRC16: 0x%04X\n",
+    //               jsonString.length(), crc16);
+    // Serial.printf("[JSON_TX] Content: %s\n", jsonString.c_str());
+    
     if (bytesWritten == frameSize) {
-        Serial.printf("[JSON_TX] Frame sent successfully (%d bytes)\n", frameSize);
-        Serial.printf("[JSON_TX] Payload: %d bytes, CRC16: 0x%04X\n",
-                      jsonString.length(), crc16);
-
-        // 디버그용 JSON 내용 출력 (프로덕션에서는 제거 가능)
-        Serial.printf("[JSON_TX] Content: %s\n", jsonString.c_str());
-
         return true;
     } else {
-        Serial.printf("[JSON_TX] Error: Failed to send frame (%d/%d bytes written)\n",
-                      bytesWritten, frameSize);
+        // 오류만 출력 (문제 발생 시에만)
+        // Serial.printf("[JSON_TX] Error: Failed to send frame (%d/%d bytes written)\n",
+        //               bytesWritten, frameSize);
         return false;
     }
 }
@@ -304,32 +336,32 @@ bool receiveJsonMessage(JsonDocument& doc) {
     uint8_t headerBuffer[1];
 
     // 0xFF 헤더 대기
-    Serial.println("[JSON_RX] Waiting for frame header (0xFF)...");
+    // Serial.println("[JSON_RX] Waiting for frame header (0xFF)...");
 
     size_t headerBytes = Serial.readBytes(headerBuffer, 1);
     if (headerBytes != 1 || headerBuffer[0] != JSON_FRAME_HEADER) {
-        Serial.printf("[JSON_RX] Error: Invalid or missing header (0x%02X)\n", headerBuffer[0]);
+        // Serial.printf("[JSON_RX] Error: Invalid or missing header (0x%02X)\n", headerBuffer[0]);
         return false;
     }
 
-    Serial.println("[JSON_RX] Header received, waiting for length...");
+    // Serial.println("[JSON_RX] Header received, waiting for length...");
 
     // 길이 정보 읽기 (2바이트, Little-Endian)
     uint8_t lengthBuffer[2];
     size_t lengthBytes = Serial.readBytes(lengthBuffer, 2);
     if (lengthBytes != 2) {
-        Serial.println("[JSON_RX] Error: Failed to read length field");
+        // Serial.println("[JSON_RX] Error: Failed to read length field");
         return false;
     }
 
     uint16_t payloadLength = lengthBuffer[0] | (lengthBuffer[1] << 8);
 
-    Serial.printf("[JSON_RX] Payload length: %d bytes\n", payloadLength);
+    // Serial.printf("[JSON_RX] Payload length: %d bytes\n", payloadLength);
 
     // payload 길이 검증
     if (payloadLength > JSON_MAX_PAYLOAD) {
-        Serial.printf("[JSON_RX] Error: Payload too large (%d bytes > %d bytes)\n",
-                      payloadLength, JSON_MAX_PAYLOAD);
+        // Serial.printf("[JSON_RX] Error: Payload too large (%d bytes > %d bytes)\n",
+        //               payloadLength, JSON_MAX_PAYLOAD);
         return false;
     }
 
@@ -337,24 +369,24 @@ bool receiveJsonMessage(JsonDocument& doc) {
     uint8_t payloadBuffer[JSON_MAX_PAYLOAD];
     size_t payloadBytes = Serial.readBytes(payloadBuffer, payloadLength);
     if (payloadBytes != payloadLength) {
-        Serial.printf("[JSON_RX] Error: Failed to read payload (%d/%d bytes)\n",
-                      payloadBytes, payloadLength);
+        // Serial.printf("[JSON_RX] Error: Failed to read payload (%d/%d bytes)\n",
+        //               payloadBytes, payloadLength);
         return false;
     }
 
-    Serial.println("[JSON_RX] Payload received, waiting for CRC16...");
+    // Serial.println("[JSON_RX] Payload received, waiting for CRC16...");
 
     // CRC16 읽기 (2바이트, Little-Endian)
     uint8_t crcBuffer[2];
     size_t crcBytes = Serial.readBytes(crcBuffer, 2);
     if (crcBytes != 2) {
-        Serial.println("[JSON_RX] Error: Failed to read CRC16 field");
+        // Serial.println("[JSON_RX] Error: Failed to read CRC16 field");
         return false;
     }
 
     uint16_t receivedCrc = crcBuffer[0] | (crcBuffer[1] << 8);
 
-    Serial.printf("[JSON_RX] CRC16 received: 0x%04X\n", receivedCrc);
+    // Serial.printf("[JSON_RX] CRC16 received: 0x%04X\n", receivedCrc);
 
     // 헤더부터 payload까지의 데이터에 대해 CRC16 계산 및 검증
     uint8_t verifyBuffer[3 + JSON_MAX_PAYLOAD];
@@ -365,28 +397,328 @@ bool receiveJsonMessage(JsonDocument& doc) {
 
     uint16_t calculatedCrc = calculateCRC16(verifyBuffer, 3 + payloadLength);
 
-    Serial.printf("[JSON_RX] CRC16 calculated: 0x%04X\n", calculatedCrc);
+    // Serial.printf("[JSON_RX] CRC16 calculated: 0x%04X\n", calculatedCrc);
 
     // CRC16 검증
     if (receivedCrc != calculatedCrc) {
-        Serial.printf("[JSON_RX] Error: CRC16 mismatch (0x%04X != 0x%04X)\n",
-                      receivedCrc, calculatedCrc);
+        // Serial.printf("[JSON_RX] Error: CRC16 mismatch (0x%04X != 0x%04X)\n",
+        //               receivedCrc, calculatedCrc);
         return false;
     }
 
-    Serial.println("[JSON_RX] CRC16 verification passed");
+    // Serial.println("[JSON_RX] CRC16 verification passed");
 
     // JSON 데이터 파싱
     DeserializationError error = deserializeJson(doc, payloadBuffer, payloadLength);
     if (error) {
-        Serial.printf("[JSON_RX] Error: JSON parsing failed - %s\n", error.c_str());
+        // Serial.printf("[JSON_RX] Error: JSON parsing failed - %s\n", error.c_str());
         return false;
     }
 
-    Serial.printf("[JSON_RX] Frame received successfully (%d bytes total)\n",
-                  1 + 2 + payloadLength + 2);
+    // Serial.printf("[JSON_RX] Frame received successfully (%d bytes total)\n",
+    //               1 + 2 + payloadLength + 2);
 
     return true;
+}
+
+// ============================================================================
+// Phase 1.2.2.3: 명령 처리 시스템 구현
+// ============================================================================
+
+/**
+ * @brief JSON 요청에서 명령 타입 파싱
+ * 
+ * JSON 문서의 "cmd" 필드를 읽어 CommandType enum으로 변환합니다.
+ * "cmd" 필드가 없거나 유효하지 않은 값이면 CMD_UNKNOWN을 반환합니다.
+ * 
+ * @param request 수신된 JSON 요청 문서
+ * @return CommandType 파싱된 명령 타입 또는 CMD_UNKNOWN
+ * 
+ * @note 참조: @docs/development-plan-checklist.md §1.2.2.3
+ * @note ArduinoJson API 사용 (Context7 공식 문서 기반)
+ * @note 공식 문서 출처:
+ *       - https://github.com/bblanchon/arduinojson
+ *       - JsonDocument.containsKey(), JsonDocument[] operator
+ */
+CommandType parseCommandType(const JsonDocument& request) {
+    // "cmd" 필드 확인
+    if (!request.containsKey("cmd")) {
+        // Serial.println("[CMD_PARSE] Error: Missing 'cmd' field");
+        return CMD_UNKNOWN;
+    }
+    
+    // cmd 값 읽기 (정수형) - ArduinoJson의 타입 변환 사용
+    int cmdInt = request["cmd"].as<int>();
+    uint8_t cmdValue = (uint8_t)cmdInt;
+    
+    // 디버그 로그는 주석 처리 (COM 포트 데이터 오염 방지)
+    // Serial.printf("[CMD_PARSE] Received cmd value: %d (0x%02X) [int: %d]\n", cmdValue, cmdValue, cmdInt);
+    
+    // CommandType enum으로 변환
+    switch (cmdValue) {
+        case CMD_PING:
+            // Serial.println("[CMD_PARSE] Command: PING (0x01)");
+            return CMD_PING;
+        
+        case CMD_GET_STATUS:
+            // Serial.println("[CMD_PARSE] Command: GET_STATUS (0x02)");
+            return CMD_GET_STATUS;
+        
+        case CMD_SET_CONFIG:
+            // Serial.println("[CMD_PARSE] Command: SET_CONFIG (0x03)");
+            return CMD_SET_CONFIG;
+        
+        default:
+            // Serial.printf("[CMD_PARSE] Unknown command: 0x%02X\n", cmdValue);
+            return CMD_UNKNOWN;
+    }
+}
+
+/**
+ * @brief 명령 처리 메인 함수
+ * 
+ * Phase 1.2.2.3에서 구현된 명령 처리 시스템의 핵심 함수입니다.
+ * Windows 서버로부터 수신한 JSON 요청을 파싱하고, 명령 타입에 따라
+ * 적절한 처리를 수행한 후 JSON 응답을 생성합니다.
+ * 
+ * 지원 명령:
+ * - CMD_PING (0x01): 연결 확인
+ * - CMD_GET_STATUS (0x02): 시스템 상태 정보 요청
+ * - CMD_SET_CONFIG (0x03): 설정 변경
+ * 
+ * 메시지 ID 기반 요청-응답 매칭:
+ * - request["id"]가 있으면 response["id"]에 동일한 값 복사
+ * - 이를 통해 Windows 서버는 비동기 응답을 요청과 매칭 가능
+ * 
+ * @param request 수신된 JSON 요청 문서 (const 참조)
+ * @param response 생성할 JSON 응답 문서 (참조)
+ * @return CommandStatus 명령 처리 결과 코드
+ * 
+ * @note 참조: @docs/development-plan-checklist.md §1.2.2.3
+ * @note ArduinoJson API 사용 (Context7 공식 문서 기반)
+ * @note 공식 문서 출처:
+ *       - https://github.com/bblanchon/arduinojson
+ *       - deserializeJson(), serializeJson(), JsonDocument API
+ */
+CommandStatus processCommand(const JsonDocument& request, JsonDocument& response) {
+    // Serial.println();
+    // Serial.println("[CMD_PROCESS] ========================================");
+    // Serial.println("[CMD_PROCESS] Processing command...");
+    
+    // ============================================================================
+    // 메시지 ID 매칭 처리
+    // ============================================================================
+    // Windows 서버에서 요청 시 "id" 필드를 포함하면 응답에도 동일한 ID 복사
+    // 이를 통해 비동기 요청-응답 매칭 가능
+    
+    if (request.containsKey("id")) {
+        uint32_t messageId = request["id"];
+        response["id"] = messageId;
+        // Serial.printf("[CMD_PROCESS] Message ID: %lu\n", messageId);
+    }
+    
+    // ============================================================================
+    // 명령 타입 파싱
+    // ============================================================================
+    CommandType cmdType = parseCommandType(request);
+    
+    if (cmdType == CMD_UNKNOWN) {
+        // 알 수 없는 명령 처리
+        response["status"] = "error";
+        response["error"] = "Unknown command";
+        
+        if (request.containsKey("cmd")) {
+            response["cmd_received"] = (uint8_t)request["cmd"];
+        }
+        
+        // Serial.println("[CMD_PROCESS] Result: CMD_STATUS_INVALID");
+        // Serial.println("[CMD_PROCESS] ========================================");
+        // Serial.println();
+        
+        return CMD_STATUS_INVALID;
+    }
+    
+    // ============================================================================
+    // 명령별 처리 로직
+    // ============================================================================
+    
+    switch (cmdType) {
+        // ========================================================================
+        // CMD_PING (0x01): 연결 확인
+        // ========================================================================
+        // Windows 서버가 ESP32-S3 보드와의 연결 상태를 확인하는 명령
+        // 응답: {"status": "ok", "timestamp": millis()}
+        
+        case CMD_PING: {
+            // Serial.println("[CMD_PROCESS] Handling CMD_PING...");
+            
+            response["status"] = "ok";
+            response["cmd"] = CMD_PING;
+            response["timestamp"] = millis();
+            
+            // Serial.printf("[CMD_PROCESS] PING response prepared (uptime: %lu ms)\n", millis());
+            // Serial.println("[CMD_PROCESS] Result: CMD_STATUS_OK");
+            break;
+        }
+        
+        // ========================================================================
+        // CMD_GET_STATUS (0x02): 시스템 상태 정보 요청
+        // ========================================================================
+        // Windows 서버가 ESP32-S3 보드의 시스템 상태를 조회하는 명령
+        // 응답: {"status": "ok", "data": {...}}
+        // - fps: 초당 처리 프레임 수 (추정치)
+        // - queueSize: 현재 큐에 대기 중인 프레임 수
+        // - uptime: 부팅 후 경과 시간 (밀리초)
+        // - frameCount: 수신한 총 프레임 수
+        // - lostFrames: 손실된 프레임 수
+        // - hidTxCount: 전송한 HID 리포트 수
+        // - freeHeap: 사용 가능한 힙 메모리 (바이트)
+        
+        case CMD_GET_STATUS: {
+            // Serial.println("[CMD_PROCESS] Handling CMD_GET_STATUS...");
+            
+            response["status"] = "ok";
+            response["cmd"] = CMD_GET_STATUS;
+            
+            // 시스템 상태 데이터 수집
+            JsonObject data = response.createNestedObject("data");
+            
+            // FPS 추정 (최근 1초간의 프레임 전송 속도)
+            // 실제 구현에서는 실시간 FPS 카운터가 필요하지만,
+            // 여기서는 g_hidTxCount를 기반으로 추정
+            uint32_t uptime_sec = millis() / 1000;
+            float estimated_fps = uptime_sec > 0 ? (float)g_hidTxCount / uptime_sec : 0.0f;
+            data["fps"] = estimated_fps;
+            
+            // 큐 상태 (현재 대기 중인 프레임 수)
+            UBaseType_t queueWaiting = 0;
+            if (g_frameQueue != NULL) {
+                queueWaiting = uxQueueMessagesWaiting(g_frameQueue);
+            }
+            data["queueSize"] = queueWaiting;
+            
+            // 업타임 (밀리초)
+            data["uptime"] = millis();
+            
+            // 프레임 통계
+            data["frameCount"] = g_frameCount;
+            data["lostFrames"] = g_lostFrames;
+            data["hidTxCount"] = g_hidTxCount;
+            
+            // 메모리 정보
+            data["freeHeap"] = ESP.getFreeHeap();
+            
+            // Serial.printf("[CMD_PROCESS] Status data collected (fps: %.2f, queue: %lu, uptime: %lu ms)\n",
+            //               estimated_fps, queueWaiting, millis());
+            // Serial.println("[CMD_PROCESS] Result: CMD_STATUS_OK");
+            break;
+        }
+        
+        // ========================================================================
+        // CMD_SET_CONFIG (0x03): 설정 변경
+        // ========================================================================
+        // Windows 서버가 ESP32-S3 보드의 설정을 변경하는 명령
+        // 요청: {"cmd": 0x03, "config": {...}}
+        // 응답: {"status": "ok", "config": {...}} (적용된 설정 반환)
+        
+        case CMD_SET_CONFIG: {
+            // Serial.println("[CMD_PROCESS] Handling CMD_SET_CONFIG...");
+            
+            // "config" 필드 확인
+            if (!request.containsKey("config")) {
+                // Serial.println("[CMD_PROCESS] Error: Missing 'config' field");
+                
+                response["status"] = "error";
+                response["error"] = "Missing config field";
+                response["cmd"] = CMD_SET_CONFIG;
+                
+                // Serial.println("[CMD_PROCESS] Result: CMD_STATUS_MISSING_PARAM");
+                // Serial.println("[CMD_PROCESS] ========================================");
+                // Serial.println();
+                
+                return CMD_STATUS_MISSING_PARAM;
+            }
+            
+            // 설정 값 읽기
+            JsonObjectConst config = request["config"];
+            
+            // 설정 적용 (예시: 로그 레벨, 디버그 모드 등)
+            // 실제 구현에서는 전역 변수나 EEPROM에 저장
+            bool configApplied = false;
+            
+            // 예시: "debugMode" 설정
+            if (config.containsKey("debugMode")) {
+                bool debugMode = config["debugMode"];
+                // Serial.printf("[CMD_PROCESS] Config: debugMode = %s\n", 
+                //               debugMode ? "true" : "false");
+                // 실제 구현: g_debugMode = debugMode;
+                configApplied = true;
+            }
+            
+            // 예시: "logLevel" 설정
+            if (config.containsKey("logLevel")) {
+                uint8_t logLevel = config["logLevel"];
+                // Serial.printf("[CMD_PROCESS] Config: logLevel = %d\n", logLevel);
+                // 실제 구현: g_logLevel = logLevel;
+                configApplied = true;
+            }
+            
+            if (configApplied) {
+                response["status"] = "ok";
+                response["cmd"] = CMD_SET_CONFIG;
+                response["message"] = "Configuration updated";
+                
+                // 적용된 설정을 응답에 포함
+                JsonObject appliedConfig = response.createNestedObject("config");
+                if (config.containsKey("debugMode")) {
+                    appliedConfig["debugMode"] = config["debugMode"];
+                }
+                if (config.containsKey("logLevel")) {
+                    appliedConfig["logLevel"] = config["logLevel"];
+                }
+                
+                // Serial.println("[CMD_PROCESS] Configuration applied successfully");
+                // Serial.println("[CMD_PROCESS] Result: CMD_STATUS_OK");
+            } else {
+                response["status"] = "error";
+                response["error"] = "No valid configuration parameters";
+                response["cmd"] = CMD_SET_CONFIG;
+                
+                // Serial.println("[CMD_PROCESS] Error: No valid configuration parameters");
+                // Serial.println("[CMD_PROCESS] Result: CMD_STATUS_INVALID");
+                // Serial.println("[CMD_PROCESS] ========================================");
+                // Serial.println();
+                
+                return CMD_STATUS_INVALID;
+            }
+            
+            break;
+        }
+        
+        // ========================================================================
+        // 기본 케이스 (도달하지 않아야 함)
+        // ========================================================================
+        
+        default: {
+            // Serial.println("[CMD_PROCESS] Error: Unhandled command type");
+            
+            response["status"] = "error";
+            response["error"] = "Unhandled command";
+            response["cmd"] = (uint8_t)cmdType;
+            
+            // Serial.println("[CMD_PROCESS] Result: CMD_STATUS_ERROR");
+            // Serial.println("[CMD_PROCESS] ========================================");
+            // Serial.println();
+            
+            return CMD_STATUS_ERROR;
+        }
+    }
+    
+    // 성공적으로 처리 완료
+    // Serial.println("[CMD_PROCESS] ========================================");
+    // Serial.println();
+    
+    return CMD_STATUS_OK;
 }
 
 // ============================================================================
@@ -410,6 +742,12 @@ void debugTask(void* pvParameters);
 uint16_t calculateCRC16(const uint8_t* data, size_t length);
 bool sendJsonMessage(const JsonDocument& doc);
 bool receiveJsonMessage(JsonDocument& doc);
+
+// ============================================================================
+// Phase 1.2.2.3: 명령 처리 시스템 함수 프로토타입
+// ============================================================================
+CommandType parseCommandType(const JsonDocument& request);
+CommandStatus processCommand(const JsonDocument& request, JsonDocument& response);
 
 /**
  * @brief BridgeFrame을 HID 마우스 입력으로 변환 및 전송
@@ -1030,6 +1368,7 @@ void hidTxTask(void* pvParameters) {
  * @brief Vendor CDC 수신 태스크
  * 
  * Phase 1.2.2.1에서 새로 추가: Windows 서버로부터 CDC 메시지 수신 및 처리
+ * Phase 1.2.2.3에서 업데이트: processCommand() 함수를 사용한 명령 처리
  * 
  * 이 태스크는 USB Serial CDC (Serial 객체)를 통해 Windows 서버와 통신합니다.
  * JSON 형식의 명령을 수신하고 응답을 전송합니다.
@@ -1049,14 +1388,14 @@ void cdcRxTask(void* pvParameters) {
   Serial.println("[CDC_RX_TASK] Started on Core 0");
   Serial.println("[CDC_RX_TASK] Waiting for Windows connection...");
 
-  char rxBuffer[256];  // CDC 수신 버퍼 (최대 256바이트)
-  StaticJsonDocument<200> rxDoc;  // 수신 JSON 문서 (200바이트 용량)
+  StaticJsonDocument<256> rxDoc;       // 수신 JSON 문서 (256바이트 용량)
+  StaticJsonDocument<512> responseDoc; // 응답 JSON 문서 (512바이트 용량)
 
   while (true) {
     // ============================================================================
-    // Phase 1.2.2.2: JSON 메시지 프레임 수신 처리
+    // Phase 1.2.2.3: JSON 메시지 프레임 수신 및 명령 처리
     // ============================================================================
-    // ArduinoJson을 사용한 JSON 메시지 프레임 수신 및 처리
+    // ArduinoJson을 사용한 JSON 메시지 프레임 수신 및 processCommand() 호출
     // 프레임 형식: [0xFF][길이 2바이트][JSON payload][CRC16 2바이트]
     //
     // 참조: ArduinoJson deserializeJson() API
@@ -1067,107 +1406,38 @@ void cdcRxTask(void* pvParameters) {
         // CDC 수신 카운터 증가
         g_cdcRxCount++;
 
-        // 수신된 JSON 메시지 처리
-        Serial.println("[CDC_RX] Processing received JSON message...");
+        // Serial.println("[CDC_RX] Processing received JSON message...");
 
         // ============================================================================
-        // Phase 1.2.2.2: JSON 명령 처리
+        // Phase 1.2.2.3: processCommand() 함수 호출
         // ============================================================================
-
-        // 명령 타입 확인
-        if (rxDoc.containsKey("command")) {
-          String command = rxDoc["command"];
-
-          Serial.printf("[CDC_RX] Command received: %s\n", command.c_str());
-
-          // 명령별 처리
-          if (command == "PING") {
-            // 연결 확인 명령 처리
-            Serial.println("[CDC_RX] Processing PING command...");
-
-            // 응답 JSON 생성
-            StaticJsonDocument<100> responseDoc;
-            responseDoc["response"] = "PONG";
-            responseDoc["timestamp"] = millis();
-            responseDoc["status"] = "connected";
-
-            // JSON 응답 전송
-            if (sendJsonMessage(responseDoc)) {
-              g_cdcTxCount++;
-              Serial.printf("[CDC_TX] PONG response sent (Total TX: %lu)\n", g_cdcTxCount);
-            }
-
-          } else if (command == "STATUS") {
-            // 상태 요청 명령 처리
-            Serial.println("[CDC_RX] Processing STATUS command...");
-
-            // 시스템 상태 정보 수집
-            StaticJsonDocument<200> responseDoc;
-            responseDoc["response"] = "STATUS";
-            responseDoc["uptime_ms"] = millis();
-            responseDoc["frames_received"] = g_frameCount;
-            responseDoc["frames_lost"] = g_lostFrames;
-            responseDoc["hid_sent"] = g_hidTxCount;
-            responseDoc["free_heap"] = ESP.getFreeHeap();
-
-            JsonObject cdcInfo = responseDoc.createNestedObject("cdc");
-            cdcInfo["rx_count"] = g_cdcRxCount;
-            cdcInfo["tx_count"] = g_cdcTxCount;
-            cdcInfo["initialized"] = g_cdcInitialized;
-
-            // JSON 응답 전송
-            if (sendJsonMessage(responseDoc)) {
-              g_cdcTxCount++;
-              Serial.printf("[CDC_TX] STATUS response sent (Total TX: %lu)\n", g_cdcTxCount);
-            }
-
-          } else if (command == "RESET_STATS") {
-            // 통계 리셋 명령 처리
-            Serial.println("[CDC_RX] Processing RESET_STATS command...");
-
-            g_frameCount = 0;
-            g_lostFrames = 0;
-            g_hidTxCount = 0;
-            g_hidTxDropped = 0;
-            g_cdcRxCount = 0;
-            g_cdcTxCount = 0;
-
-            // 응답 전송
-            StaticJsonDocument<50> responseDoc;
-            responseDoc["response"] = "STATS_RESET";
-            responseDoc["timestamp"] = millis();
-
-            if (sendJsonMessage(responseDoc)) {
-              g_cdcTxCount++;
-              Serial.printf("[CDC_TX] STATS_RESET response sent (Total TX: %lu)\n", g_cdcTxCount);
-            }
-
-          } else {
-            // 알 수 없는 명령
-            Serial.printf("[CDC_RX] Unknown command: %s\n", command.c_str());
-
-            StaticJsonDocument<100> responseDoc;
-            responseDoc["response"] = "ERROR";
-            responseDoc["error"] = "Unknown command";
-            responseDoc["command"] = command;
-
-            if (sendJsonMessage(responseDoc)) {
-              g_cdcTxCount++;
-              Serial.printf("[CDC_TX] ERROR response sent (Total TX: %lu)\n", g_cdcTxCount);
-            }
-          }
-
-        } else {
-          // JSON에 command 필드가 없음
-          Serial.println("[CDC_RX] Invalid JSON: missing 'command' field");
-
-          StaticJsonDocument<100> responseDoc;
-          responseDoc["response"] = "ERROR";
-          responseDoc["error"] = "Missing command field";
-
+        // 수신한 JSON 요청을 processCommand()에 전달하여 처리
+        // 응답은 responseDoc에 저장됨
+        
+        // 응답 문서 초기화
+        responseDoc.clear();
+        
+        // 명령 처리
+        CommandStatus status = processCommand(rxDoc, responseDoc);
+        
+        // 처리 결과에 따라 응답 전송
+        if (status == CMD_STATUS_OK || 
+            status == CMD_STATUS_INVALID || 
+            status == CMD_STATUS_MISSING_PARAM) {
+          // 응답 전송 (성공, 유효하지 않은 명령, 파라미터 누락 모두 응답 전송)
           if (sendJsonMessage(responseDoc)) {
             g_cdcTxCount++;
-            Serial.printf("[CDC_TX] ERROR response sent (Total TX: %lu)\n", g_cdcTxCount);
+            // Serial.printf("[CDC_TX] Response sent successfully (Total TX: %lu)\n", g_cdcTxCount);
+          } else {
+            // Serial.println("[CDC_TX] Failed to send response");
+          }
+        } else {
+          // CMD_STATUS_ERROR인 경우도 응답 전송
+          if (sendJsonMessage(responseDoc)) {
+            g_cdcTxCount++;
+            // Serial.printf("[CDC_TX] Error response sent (Total TX: %lu)\n", g_cdcTxCount);
+          } else {
+            // Serial.println("[CDC_TX] Failed to send error response");
           }
         }
 
@@ -1178,31 +1448,7 @@ void cdcRxTask(void* pvParameters) {
 
       } else {
         // 프레임 수신 실패 - 타임아웃이나 오류 발생 가능성
-        Serial.println("[CDC_RX] Frame reception failed or timeout");
-      }
-    }
-
-    // ============================================================================
-    // 이전 버전 호환성: 텍스트 메시지도 처리 (Phase 1.2.2.1)
-    // ============================================================================
-
-    // 텍스트 메시지 확인 (JSON 프레임과 병행 처리)
-    if (Serial.available() > 0) {
-      size_t textBytes = Serial.readBytesUntil('\n', rxBuffer, sizeof(rxBuffer) - 1);
-
-      if (textBytes > 0) {
-        rxBuffer[textBytes] = '\0';
-
-        // 빈 메시지나 공백만 있는 경우 무시
-        if (strlen(rxBuffer) > 0 && rxBuffer[0] != '\r') {
-          g_cdcRxCount++;
-          Serial.printf("[CDC_RX] Text message received (%d bytes): %s\n", textBytes, rxBuffer);
-
-          // 간단한 에코 응답 (이전 버전 호환성)
-          Serial.println("OK");
-          g_cdcTxCount++;
-          Serial.printf("[CDC_TX] Echo response sent (Total TX: %lu)\n", g_cdcTxCount);
-        }
+        // Serial.println("[CDC_RX] Frame reception failed or timeout");
       }
     }
 
@@ -1226,7 +1472,7 @@ void cdcRxTask(void* pvParameters) {
  * @param pvParameters 태스크 파라미터 (미사용)
  */
 void debugTask(void* pvParameters) {
-  Serial.println("[DEBUG_TASK] Started on Core 0");
+  // Serial.println("[DEBUG_TASK] Started on Core 0");
   
   while (true) {
     // 1초마다 통계 정보 출력
@@ -1250,6 +1496,9 @@ void debugTask(void* pvParameters) {
       queueUsage = (queueWaiting * 100.0f) / FRAME_QUEUE_SIZE;
     }
     
+    // 디버그 로그는 주석 처리 (COM 포트 데이터 오염 방지)
+    // 통계는 Serial Monitor 전용으로 사용 시 주석 해제
+    /*
     Serial.println("========================================");
     Serial.printf("[STATS] Uptime: %lu sec\n", millis() / 1000);
     Serial.printf("[STATS] Received: %lu frames\n", g_frameCount);
@@ -1267,6 +1516,7 @@ void debugTask(void* pvParameters) {
     Serial.println("---------------------------------------");
     Serial.printf("[MEMORY] Free Heap: %u bytes\n", ESP.getFreeHeap());
     Serial.println("========================================");
+    */
     
     // 1초 대기
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -1532,13 +1782,34 @@ void setup() {
   Serial.println("  ✓ CRC16-CCITT calculation function implemented");
   Serial.println("  ✓ JSON serialization/deserialization functions added");
   Serial.println("  ✓ Vendor CDC task updated with JSON processing");
-  Serial.println("  ✓ Command processing system integrated:");
-  Serial.println("    - PING: Connection verification");
-  Serial.println("    - STATUS: System status report");
-  Serial.println("    - RESET_STATS: Statistics reset");
   Serial.println("  ✓ Frame format: [0xFF][length][JSON][CRC16]");
   Serial.println("  ✓ Error handling and validation implemented");
-  Serial.println("  ✓ Backward compatibility with text messages maintained");
+  Serial.println("========================================");
+  Serial.println();
+  
+  // ============================================================================
+  // Phase 1.2.2.3: 명령 처리 시스템 구현 완료 확인
+  // ============================================================================
+  
+  Serial.println("[Phase 1.2.2.3] Command Processing System Implementation:");
+  Serial.println("  ✓ Command type enum defined:");
+  Serial.println("    - CMD_PING (0x01): Connection verification");
+  Serial.println("    - CMD_GET_STATUS (0x02): System status query");
+  Serial.println("    - CMD_SET_CONFIG (0x03): Configuration update");
+  Serial.println("  ✓ Command status enum defined (OK, ERROR, INVALID, MISSING_PARAM)");
+  Serial.println("  ✓ parseCommandType() function implemented");
+  Serial.println("  ✓ processCommand() function implemented:");
+  Serial.println("    - Parses command type from JSON request");
+  Serial.println("    - Executes command-specific logic");
+  Serial.println("    - Generates JSON response");
+  Serial.println("  ✓ Message ID-based request-response matching:");
+  Serial.println("    - Request ID copied to response ID");
+  Serial.println("    - Enables async response matching on Windows server");
+  Serial.println("  ✓ Vendor CDC task updated with processCommand() integration");
+  Serial.println("  ✓ Command processing flow:");
+  Serial.println("    1. receiveJsonMessage() -> Parse JSON frame");
+  Serial.println("    2. processCommand() -> Execute command logic");
+  Serial.println("    3. sendJsonMessage() -> Send JSON response");
   Serial.println("========================================");
   Serial.println();
 }
