@@ -37,7 +37,7 @@ internal class Program
         {
             Log.Information("==============================================");
             Log.Information("BridgeOne Windows Server 시작");
-            Log.Information("Version: 1.0.0 (Phase 1.2.3.1)");
+            Log.Information("Version: 1.0.0 (Phase 1.2.3.2)");
             Log.Information("==============================================");
 
             // 시스템 정보 로깅
@@ -47,16 +47,46 @@ internal class Program
 
             // 테스트 로그 메시지
             Log.Information("로깅 시스템 초기화 완료");
-            Log.Debug("Debug 레벨 로그 테스트");
-            Log.Warning("Warning 레벨 로그 테스트");
 
-            // 비동기 작업 시뮬레이션
-            await Task.Delay(1000);
-            Log.Information("비동기 작업 테스트 완료");
-
-            // 실제 서버 로직은 이후 단계에서 구현 예정
-            Log.Information("서버 초기화 완료. 종료 대기 중...");
-            await Task.Delay(2000);
+            // HID 장치 관리자 초기화
+            using var hidDeviceManager = new HidDeviceManager();
+            
+            // 장치 연결 이벤트 핸들러 등록
+            hidDeviceManager.DeviceConnected += (sender, device) =>
+            {
+                Log.Information("이벤트: ESP32-S3 HID 장치 연결됨");
+                Log.Debug("이벤트 핸들러에서 장치 경로: {Path}", device.DevicePath);
+            };
+            
+            // 장치 분리 이벤트 핸들러 등록
+            hidDeviceManager.DeviceDisconnected += (sender, devicePath) =>
+            {
+                Log.Warning("이벤트: ESP32-S3 HID 장치 분리됨");
+                Log.Debug("이벤트 핸들러에서 장치 경로: {Path}", devicePath);
+            };
+            
+            Log.Information("HID 장치 관리자 초기화 완료");
+            
+            // 장치 감지 대기 (10초간 테스트)
+            Log.Information("ESP32-S3 장치를 감지 중입니다. 10초 후 종료됩니다...");
+            Log.Information("테스트를 위해 ESP32-S3를 USB에 연결하거나 분리해보세요.");
+            await Task.Delay(10000);
+            
+            // 현재 연결된 장치 목록 출력
+            var connectedDevices = hidDeviceManager.GetConnectedDevices();
+            Log.Information("========================================");
+            Log.Information("현재 연결된 ESP32-S3 장치: {Count}개", connectedDevices.Count);
+            foreach (var device in connectedDevices)
+            {
+                Log.Information("  - VID: 0x{VID:X4}, PID: 0x{PID:X4}, 경로: {Path}", 
+                    device.Attributes.VendorId, 
+                    device.Attributes.ProductId, 
+                    device.DevicePath);
+            }
+            Log.Information("========================================");
+            
+            // HID 장치 관리자 중지
+            hidDeviceManager.Stop();
 
             Log.Information("==============================================");
             Log.Information("BridgeOne Windows Server 정상 종료");
