@@ -1,9 +1,9 @@
 /**
  * @file main.cpp
- * @brief Phase 1.2.1.1: Arduino USB HID 라이브러리 초기화
- * @details ESP32-S3 Arduino HID 라이브러리 설정 및 USB 복합 장치 구성
- * @note Phase 1.1.2.5 코드 기반 위에 USB HID 기능 추가
- * @note USB.begin() 제외 - ARDUINO_USB_CDC_ON_BOOT=1로 이미 자동 시작됨
+ * @brief Phase 1.2.1.2: BridgeFrame → HID 마우스 변환 구현
+ * @details BridgeFrame을 HID Boot Mouse 리포트로 변환하여 PC로 전송
+ * @note Phase 1.2.1.1 코드 기반 위에 마우스 입력 변환 로직 추가
+ * @note Arduino USBHIDMouse API 사용 (Context7 공식 문서 기반)
  */
 
 #include <Arduino.h>
@@ -62,6 +62,16 @@ TaskHandle_t g_debugTaskHandle = NULL;
 QueueHandle_t g_frameQueue = NULL;
 
 // ============================================================================
+// Phase 1.2.1.2: HID 마우스 상태 관리 변수
+// ============================================================================
+
+// 이전 버튼 상태 (버튼 변화 감지용)
+uint8_t g_lastMouseButtons = 0;
+
+// 마우스 입력 디바운싱 (40ms)
+uint32_t g_lastMouseUpdateMs = 0;
+
+// ============================================================================
 // UART 설정 상수
 // ============================================================================
 
@@ -84,6 +94,107 @@ constexpr uint32_t FRAME_QUEUE_SIZE = 32;             // 최대 32개 프레임 
 // ============================================================================
 // 함수 선언 및 구현
 // ============================================================================
+
+/**
+ * @brief BridgeFrame을 HID 마우스 입력으로 변환 및 전송
+ * 
+ * Phase 1.2.1.2에서 구현된 마우스 입력 처리 함수입니다.
+ * BridgeFrame의 버튼, deltaX, deltaY, wheel 필드를 추출하여
+ * Arduino USBHIDMouse API를 통해 HID 리포트로 전송합니다.
+ * 
+ * 주요 기능:
+ * - 버튼 상태 변화 감지 (press/release)
+ * - 상대 이동 (deltaX, deltaY) 및 휠 스크롤 처리
+ * - 40ms 디바운싱 적용
+ * 
+ * @param frame 처리할 BridgeFrame 구조체
+ * 
+ * @note 참조: @docs/Board/esp32s3-code-implementation-guide.md §3.1
+ * @note Arduino ESP32 HID Mouse API 사용 (Context7 공식 문서 기반)
+ */
+void processMouseInput(const BridgeFrame& frame) {
+  uint32_t currentMs = millis();
+  
+  // ============================================================================
+  // 40ms 디바운싱 적용
+  // ============================================================================
+  // Arduino 예제 기준 HID_DEBOUNCE_MS = 40ms
+  // 너무 잦은 HID 전송을 방지하여 시스템 안정성 확보
+  
+  if (currentMs - g_lastMouseUpdateMs < 40) {
+    return;  // 디바운싱 기간 중이므로 스킵
+  }
+  
+  // ============================================================================
+  // 마우스 버튼 처리 (비트 필드 분석)
+  // ============================================================================
+  // buttons 필드: bit0=좌클릭, bit1=우클릭, bit2=중클릭
+  // 이전 상태와 비교하여 변화가 있는 경우만 press/release 호출
+  
+  uint8_t currentButtons = frame.buttons;
+  
+  // 좌클릭 버튼 처리 (bit 0)
+  if ((currentButtons & 0x01) && !(g_lastMouseButtons & 0x01)) {
+    // 좌클릭 버튼이 눌림
+    Mouse.press(MOUSE_LEFT);
+    Serial.println("[HID MOUSE] Left button pressed");
+  } else if (!(currentButtons & 0x01) && (g_lastMouseButtons & 0x01)) {
+    // 좌클릭 버튼이 떼어짐
+    Mouse.release(MOUSE_LEFT);
+    Serial.println("[HID MOUSE] Left button released");
+  }
+  
+  // 우클릭 버튼 처리 (bit 1)
+  if ((currentButtons & 0x02) && !(g_lastMouseButtons & 0x02)) {
+    // 우클릭 버튼이 눌림
+    Mouse.press(MOUSE_RIGHT);
+    Serial.println("[HID MOUSE] Right button pressed");
+  } else if (!(currentButtons & 0x02) && (g_lastMouseButtons & 0x02)) {
+    // 우클릭 버튼이 떼어짐
+    Mouse.release(MOUSE_RIGHT);
+    Serial.println("[HID MOUSE] Right button released");
+  }
+  
+  // 중간클릭 버튼 처리 (bit 2)
+  if ((currentButtons & 0x04) && !(g_lastMouseButtons & 0x04)) {
+    // 중간클릭 버튼이 눌림
+    Mouse.press(MOUSE_MIDDLE);
+    Serial.println("[HID MOUSE] Middle button pressed");
+  } else if (!(currentButtons & 0x04) && (g_lastMouseButtons & 0x04)) {
+    // 중간클릭 버튼이 떼어짐
+    Mouse.release(MOUSE_MIDDLE);
+    Serial.println("[HID MOUSE] Middle button released");
+  }
+  
+  // 버튼 상태 갱신
+  g_lastMouseButtons = currentButtons;
+  
+  // ============================================================================
+  // 마우스 이동 및 휠 처리
+  // ============================================================================
+  // deltaX, deltaY: 상대 이동량 (-127~127)
+  // wheel: 휠 스크롤량 (-127~127)
+  // 
+  // Arduino USBHIDMouse::move(int8_t x, int8_t y, int8_t wheel, int8_t hWheel)
+  // - x, y: 상대 커서 이동
+  // - wheel: 수직 휠 스크롤
+  // - hWheel: 수평 휠 스크롤 (현재 미사용)
+  
+  if (frame.deltaX != 0 || frame.deltaY != 0 || frame.wheel != 0) {
+    Mouse.move(frame.deltaX, frame.deltaY, frame.wheel, 0);
+    
+    // 디버그 출력 (이동량이 있을 때만)
+    if (frame.deltaX != 0 || frame.deltaY != 0) {
+      Serial.printf("[HID MOUSE] Move: dx=%d, dy=%d\n", frame.deltaX, frame.deltaY);
+    }
+    if (frame.wheel != 0) {
+      Serial.printf("[HID MOUSE] Wheel: %d\n", frame.wheel);
+    }
+  }
+  
+  // 마지막 업데이트 시간 갱신
+  g_lastMouseUpdateMs = currentMs;
+}
 
 /**
  * @brief UART로부터 BridgeFrame 수신 시도
@@ -185,6 +296,14 @@ void uartRxTask(void* pvParameters) {
                     g_rxFrame.keyCode1,
                     g_rxFrame.keyCode2);
       
+      // ============================================================================
+      // Phase 1.2.1.2: HID 마우스 입력 처리
+      // ============================================================================
+      // 수신된 프레임을 즉시 HID 마우스 입력으로 변환하여 전송
+      // processMouseInput()에서 40ms 디바운싱이 적용됨
+      
+      processMouseInput(g_rxFrame);
+      
       // 프레임 큐에 추가 (향후 HID 전송용)
       // 현재는 큐가 NULL이므로 스킵
       if (g_frameQueue != NULL) {
@@ -283,7 +402,7 @@ void setup() {
   Serial.println();
   Serial.println("========================================");
   Serial.println("  BridgeOne ESP32-S3 Board");
-  Serial.println("  Phase 1.2.1.1: USB HID Initialization");
+  Serial.println("  Phase 1.2.1.2: HID Mouse Input Conversion");
   Serial.println("========================================");
   Serial.println();
   
@@ -292,8 +411,9 @@ void setup() {
   // ============================================================================
   
   Serial.println("[USB HID] Initialization Status:");
-  Serial.println("  ✓ USB HID Mouse initialized");
-  Serial.println("  ✓ USB HID Keyboard initialized");
+  Serial.println("  ✓ USB HID Mouse initialized (Phase 1.2.1.1)");
+  Serial.println("  ✓ USB HID Keyboard initialized (Phase 1.2.1.1)");
+  Serial.println("  ✓ Mouse input processing enabled (Phase 1.2.1.2)");
   Serial.println("  ⓘ USB already started by CDC_ON_BOOT=1 (no USB.begin() call)");
   Serial.println("  ⓘ Device will be enumerated as HID Mouse + Keyboard + CDC");
   Serial.println();
