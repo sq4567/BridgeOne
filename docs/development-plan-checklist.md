@@ -964,6 +964,14 @@ ESP32-S3는 HID-compliant mouse/keyboard로 인식될 거야.
 - [ ] ESP32-S3 키보드 입력 수신 확인
 - [ ] 입력 데이터 로깅 (deltaX/Y, 키 코드)
 
+**대안 방법 (Raw Input API 실패 시)**:
+- [ ] Zadig를 사용하여 WinUSB 드라이버 설치
+  - Zadig 다운로드: https://zadig.akeo.ie/
+  - Options > List All Devices 체크
+  - ESP32-S3 HID 장치 선택 (VID: 0x303A)
+  - WinUSB 드라이버 설치
+  - HidLibrary로 직접 장치 열기 방식으로 전환
+
 ###### 1.2.3.4 Windows 커서/키 입력 시뮬레이션
 
 **구현 목표**: 수신한 HID 입력을 실제 Windows 입력으로 변환
