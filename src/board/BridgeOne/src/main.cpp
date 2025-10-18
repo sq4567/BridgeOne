@@ -1,9 +1,9 @@
 /**
  * @file main.cpp
- * @brief Phase 1.2.1.2: BridgeFrame → HID 마우스 변환 구현
- * @details BridgeFrame을 HID Boot Mouse 리포트로 변환하여 PC로 전송
- * @note Phase 1.2.1.1 코드 기반 위에 마우스 입력 변환 로직 추가
- * @note Arduino USBHIDMouse API 사용 (Context7 공식 문서 기반)
+ * @brief Phase 1.2.1.3: BridgeFrame → HID 키보드 변환 구현
+ * @details BridgeFrame을 HID Boot Mouse/Keyboard 리포트로 변환하여 PC로 전송
+ * @note Phase 1.2.1.2 코드 기반 위에 키보드 입력 변환 로직 추가
+ * @note Arduino USBHIDMouse/Keyboard API 사용 (Context7 공식 문서 기반)
  */
 
 #include <Arduino.h>
@@ -70,6 +70,20 @@ uint8_t g_lastMouseButtons = 0;
 
 // 마우스 입력 디바운싱 (40ms)
 uint32_t g_lastMouseUpdateMs = 0;
+
+// ============================================================================
+// Phase 1.2.1.3: HID 키보드 상태 관리 변수
+// ============================================================================
+
+// 이전 모디파이어 상태 (변화 감지용)
+uint8_t g_lastModifiers = 0;
+
+// 이전 키 코드 상태 (변화 감지용)
+uint8_t g_lastKeyCode1 = 0;
+uint8_t g_lastKeyCode2 = 0;
+
+// 키보드 입력 디바운싱 (30ms)
+uint32_t g_lastKeyUpdateMs = 0;
 
 // ============================================================================
 // UART 설정 상수
@@ -197,6 +211,171 @@ void processMouseInput(const BridgeFrame& frame) {
 }
 
 /**
+ * @brief BridgeFrame을 HID 키보드 입력으로 변환 및 전송
+ * 
+ * Phase 1.2.1.3에서 구현된 키보드 입력 처리 함수입니다.
+ * BridgeFrame의 modifiers, keyCode1, keyCode2 필드를 추출하여
+ * Arduino USBHIDKeyboard API를 통해 HID 리포트로 전송합니다.
+ * 
+ * 주요 기능:
+ * - 모디파이어 키 상태 변화 감지 및 처리 (Ctrl, Shift, Alt, GUI)
+ * - 최대 2개 키 동시 입력 처리
+ * - 30ms 디바운싱 적용
+ * - 이전 상태와 비교하여 변화된 키만 처리
+ * 
+ * @param frame 처리할 BridgeFrame 구조체
+ * 
+ * @note 참조: @docs/Board/esp32s3-code-implementation-guide.md §3.2
+ * @note Arduino ESP32 HID Keyboard API 사용 (Context7 공식 문서 기반)
+ * @note 공식 문서 출처:
+ *       - https://github.com/espressif/arduino-esp32/blob/master/libraries/USB/src/USBHIDKeyboard.cpp
+ *       - https://docs.arduino.cc/language-reference/en/functions/usb/Keyboard/keyboardModifiers
+ *       - https://docs.arduino.cc/language-reference/en/functions/usb/Keyboard
+ */
+void processKeyboardInput(const BridgeFrame& frame) {
+  uint32_t currentMs = millis();
+  
+  // ============================================================================
+  // 30ms 디바운싱 적용
+  // ============================================================================
+  // Arduino 예제 및 공식 문서 기반 안정적인 키 입력 간격 확보
+  // 너무 잦은 HID 전송을 방지하여 시스템 안정성 보장
+  
+  if (currentMs - g_lastKeyUpdateMs < 30) {
+    return;  // 디바운싱 기간 중이므로 스킵
+  }
+  
+  // ============================================================================
+  // 모디파이어 키 처리 (비트 필드 분석)
+  // ============================================================================
+  // modifiers 필드: bit0=Ctrl, bit1=Shift, bit2=Alt, bit3=GUI
+  // Arduino 공식 문서의 KEY_LEFT_CTRL, KEY_LEFT_SHIFT, KEY_LEFT_ALT, KEY_LEFT_GUI 사용
+  // 
+  // 참조: https://docs.arduino.cc/language-reference/en/functions/usb/Keyboard/keyboardModifiers
+  // | Key             | Hexadecimal value | Decimal value |
+  // |-----------------|-------------------|---------------|
+  // | KEY_LEFT_CTRL   | 0x80              | 128           |
+  // | KEY_LEFT_SHIFT  | 0x81              | 129           |
+  // | KEY_LEFT_ALT    | 0x82              | 130           |
+  // | KEY_LEFT_GUI    | 0x83              | 131           |
+  
+  uint8_t currentModifiers = frame.modifiers;
+  
+  // Ctrl 키 처리 (bit 0)
+  if ((currentModifiers & 0x01) && !(g_lastModifiers & 0x01)) {
+    // Ctrl 키가 눌림
+    Keyboard.press(KEY_LEFT_CTRL);
+    Serial.println("[HID KEYBOARD] Ctrl pressed");
+  } else if (!(currentModifiers & 0x01) && (g_lastModifiers & 0x01)) {
+    // Ctrl 키가 떼어짐
+    Keyboard.release(KEY_LEFT_CTRL);
+    Serial.println("[HID KEYBOARD] Ctrl released");
+  }
+  
+  // Shift 키 처리 (bit 1)
+  if ((currentModifiers & 0x02) && !(g_lastModifiers & 0x02)) {
+    // Shift 키가 눌림
+    Keyboard.press(KEY_LEFT_SHIFT);
+    Serial.println("[HID KEYBOARD] Shift pressed");
+  } else if (!(currentModifiers & 0x02) && (g_lastModifiers & 0x02)) {
+    // Shift 키가 떼어짐
+    Keyboard.release(KEY_LEFT_SHIFT);
+    Serial.println("[HID KEYBOARD] Shift released");
+  }
+  
+  // Alt 키 처리 (bit 2)
+  if ((currentModifiers & 0x04) && !(g_lastModifiers & 0x04)) {
+    // Alt 키가 눌림
+    Keyboard.press(KEY_LEFT_ALT);
+    Serial.println("[HID KEYBOARD] Alt pressed");
+  } else if (!(currentModifiers & 0x04) && (g_lastModifiers & 0x04)) {
+    // Alt 키가 떼어짐
+    Keyboard.release(KEY_LEFT_ALT);
+    Serial.println("[HID KEYBOARD] Alt released");
+  }
+  
+  // GUI 키 (Windows 키 / Command 키) 처리 (bit 3)
+  if ((currentModifiers & 0x08) && !(g_lastModifiers & 0x08)) {
+    // GUI 키가 눌림
+    Keyboard.press(KEY_LEFT_GUI);
+    Serial.println("[HID KEYBOARD] GUI pressed");
+  } else if (!(currentModifiers & 0x08) && (g_lastModifiers & 0x08)) {
+    // GUI 키가 떼어짐
+    Keyboard.release(KEY_LEFT_GUI);
+    Serial.println("[HID KEYBOARD] GUI released");
+  }
+  
+  // 모디파이어 상태 갱신
+  g_lastModifiers = currentModifiers;
+  
+  // ============================================================================
+  // 일반 키 입력 처리
+  // ============================================================================
+  // keyCode1, keyCode2: HID 키 코드 (최대 2개 동시 입력)
+  // 0이면 해당 키 없음을 의미
+  // 
+  // Arduino Keyboard.press() / Keyboard.release() API 사용
+  // 참조: https://docs.arduino.cc/language-reference/en/functions/usb/Keyboard
+  // 
+  // 공식 문서:
+  // - Keyboard.press(key_code): 키를 누르고 유지
+  // - Keyboard.release(key_code): 키를 떼어냄
+  // - Keyboard.releaseAll(): 모든 키를 해제
+  
+  // keyCode1 처리
+  if (frame.keyCode1 != g_lastKeyCode1) {
+    // 이전 키가 있었다면 해제
+    if (g_lastKeyCode1 != 0) {
+      Keyboard.release(g_lastKeyCode1);
+      Serial.printf("[HID KEYBOARD] Key1 released: 0x%02X\n", g_lastKeyCode1);
+    }
+    
+    // 새로운 키가 있다면 누름
+    if (frame.keyCode1 != 0) {
+      Keyboard.press(frame.keyCode1);
+      Serial.printf("[HID KEYBOARD] Key1 pressed: 0x%02X\n", frame.keyCode1);
+    }
+    
+    g_lastKeyCode1 = frame.keyCode1;
+  }
+  
+  // keyCode2 처리
+  if (frame.keyCode2 != g_lastKeyCode2) {
+    // 이전 키가 있었다면 해제
+    if (g_lastKeyCode2 != 0) {
+      Keyboard.release(g_lastKeyCode2);
+      Serial.printf("[HID KEYBOARD] Key2 released: 0x%02X\n", g_lastKeyCode2);
+    }
+    
+    // 새로운 키가 있다면 누름
+    if (frame.keyCode2 != 0) {
+      Keyboard.press(frame.keyCode2);
+      Serial.printf("[HID KEYBOARD] Key2 pressed: 0x%02X\n", frame.keyCode2);
+    }
+    
+    g_lastKeyCode2 = frame.keyCode2;
+  }
+  
+  // ============================================================================
+  // 모든 키 해제 조건 처리
+  // ============================================================================
+  // 모디파이어와 일반 키가 모두 0이면 모든 키 해제
+  // 이는 Android 앱에서 키 입력이 완전히 종료되었음을 의미
+  
+  if (currentModifiers == 0 && frame.keyCode1 == 0 && frame.keyCode2 == 0) {
+    // 모든 키가 해제된 상태
+    if (g_lastModifiers != 0 || g_lastKeyCode1 != 0 || g_lastKeyCode2 != 0) {
+      // 이전에 눌린 키가 있었다면 완전히 해제
+      Keyboard.releaseAll();
+      Serial.println("[HID KEYBOARD] All keys released");
+    }
+  }
+  
+  // 마지막 업데이트 시간 갱신
+  g_lastKeyUpdateMs = currentMs;
+}
+
+/**
  * @brief UART로부터 BridgeFrame 수신 시도
  * 
  * Serial2에 8바이트 이상 데이터가 있으면 프레임을 읽어옵니다.
@@ -304,6 +483,14 @@ void uartRxTask(void* pvParameters) {
       
       processMouseInput(g_rxFrame);
       
+      // ============================================================================
+      // Phase 1.2.1.3: HID 키보드 입력 처리
+      // ============================================================================
+      // 수신된 프레임을 즉시 HID 키보드 입력으로 변환하여 전송
+      // processKeyboardInput()에서 30ms 디바운싱이 적용됨
+      
+      processKeyboardInput(g_rxFrame);
+      
       // 프레임 큐에 추가 (향후 HID 전송용)
       // 현재는 큐가 NULL이므로 스킵
       if (g_frameQueue != NULL) {
@@ -402,7 +589,7 @@ void setup() {
   Serial.println();
   Serial.println("========================================");
   Serial.println("  BridgeOne ESP32-S3 Board");
-  Serial.println("  Phase 1.2.1.2: HID Mouse Input Conversion");
+  Serial.println("  Phase 1.2.1.3: HID Keyboard Input Conversion");
   Serial.println("========================================");
   Serial.println();
   
@@ -414,6 +601,7 @@ void setup() {
   Serial.println("  ✓ USB HID Mouse initialized (Phase 1.2.1.1)");
   Serial.println("  ✓ USB HID Keyboard initialized (Phase 1.2.1.1)");
   Serial.println("  ✓ Mouse input processing enabled (Phase 1.2.1.2)");
+  Serial.println("  ✓ Keyboard input processing enabled (Phase 1.2.1.3)");
   Serial.println("  ⓘ USB already started by CDC_ON_BOOT=1 (no USB.begin() call)");
   Serial.println("  ⓘ Device will be enumerated as HID Mouse + Keyboard + CDC");
   Serial.println();
