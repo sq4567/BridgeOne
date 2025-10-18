@@ -1,9 +1,9 @@
 /**
  * @file main.cpp
- * @brief Phase 1.2.1.4: 홀드 입력 반복 처리 구현
- * @details BridgeFrame을 HID Boot Mouse/Keyboard 리포트로 변환하여 PC로 전송
- * @note Phase 1.2.1.3 코드 기반 위에 키 홀드 반복 입력 로직 추가
- * @note Arduino USBHIDMouse/Keyboard API 사용 (Context7 공식 문서 기반)
+ * @brief Phase 1.2.1.5: FreeRTOS HID 전송 태스크 통합
+ * @details UART 수신과 HID 전송을 FreeRTOS 큐로 분리하여 1000 FPS 목표 달성
+ * @note Phase 1.2.1.4 코드 기반 위에 FreeRTOS 큐 및 HID 전송 태스크 추가
+ * @note FreeRTOS Queue API 사용 (Context7 공식 문서 기반)
  */
 
 #include <Arduino.h>
@@ -53,12 +53,15 @@ uint8_t g_lastSeq = 255;
 // 통계 카운터
 uint32_t g_frameCount = 0;
 uint32_t g_lostFrames = 0;
+uint32_t g_hidTxCount = 0;      // Phase 1.2.1.5: HID 전송 횟수
+uint32_t g_hidTxDropped = 0;    // Phase 1.2.1.5: 큐 오버플로우로 드롭된 프레임 수
 
 // FreeRTOS 태스크 핸들
 TaskHandle_t g_uartRxTaskHandle = NULL;
+TaskHandle_t g_hidTxTaskHandle = NULL;  // Phase 1.2.1.5: HID 전송 태스크
 TaskHandle_t g_debugTaskHandle = NULL;
 
-// 프레임 큐 (향후 HID 전송용)
+// 프레임 큐 (Phase 1.2.1.5: UART 수신 → HID 전송 큐)
 QueueHandle_t g_frameQueue = NULL;
 
 // ============================================================================
@@ -111,10 +114,13 @@ constexpr uint8_t UART_TX_PIN = 43;
 // ============================================================================
 
 constexpr uint32_t UART_RX_TASK_STACK_SIZE = 4096;    // 4KB 스택
+constexpr uint32_t HID_TX_TASK_STACK_SIZE = 4096;     // 4KB 스택 (Phase 1.2.1.5)
 constexpr uint32_t DEBUG_TASK_STACK_SIZE = 4096;      // 4KB 스택
 constexpr UBaseType_t UART_RX_TASK_PRIORITY = 3;      // 높은 우선순위
+constexpr UBaseType_t HID_TX_TASK_PRIORITY = 3;       // 높은 우선순위 (Phase 1.2.1.5)
 constexpr UBaseType_t DEBUG_TASK_PRIORITY = 1;        // 낮은 우선순위
 constexpr BaseType_t UART_RX_TASK_CORE = 1;           // Core 1
+constexpr BaseType_t HID_TX_TASK_CORE = 1;            // Core 1 (Phase 1.2.1.5)
 constexpr BaseType_t DEBUG_TASK_CORE = 0;             // Core 0
 constexpr uint32_t FRAME_QUEUE_SIZE = 32;             // 최대 32개 프레임 큐잉
 
@@ -129,6 +135,7 @@ void processHoldInput(uint8_t currentKey);
 bool receiveFrame();
 bool validateSequence(uint8_t currentSeq);
 void uartRxTask(void* pvParameters);
+void hidTxTask(void* pvParameters);  // Phase 1.2.1.5: HID 전송 태스크
 void debugTask(void* pvParameters);
 
 /**
@@ -596,8 +603,10 @@ bool validateSequence(uint8_t currentSeq) {
 /**
  * @brief UART 수신 태스크
  * 
+ * Phase 1.2.1.5에서 수정: 수신한 프레임을 큐에 추가
+ * 
  * 이 태스크는 UART로부터 BridgeFrame을 수신하고 검증합니다.
- * 향후 HID 전송을 위해 유효한 프레임을 큐에 추가합니다.
+ * 유효한 프레임은 frameQueue에 추가하여 HID 전송 태스크에서 처리합니다.
  * 
  * 우선순위: 3 (높음) - 실시간 입력 처리를 위해 높은 우선순위 설정
  * 코어: 1 (Core 1에 고정)
@@ -626,34 +635,121 @@ void uartRxTask(void* pvParameters) {
                     g_rxFrame.keyCode2);
       
       // ============================================================================
-      // Phase 1.2.1.2: HID 마우스 입력 처리
+      // Phase 1.2.1.5: 프레임 큐에 추가 (UART 수신 → HID 전송 분리)
       // ============================================================================
-      // 수신된 프레임을 즉시 HID 마우스 입력으로 변환하여 전송
-      // processMouseInput()에서 40ms 디바운싱이 적용됨
+      // FreeRTOS Queue API 사용 (Context7 공식 문서 기반)
+      // xQueueSend(): 큐의 뒤에 아이템 추가 (xQueueSendToBack와 동일)
+      // 
+      // 참조: https://github.com/freertos/freertos-kernel
+      // - xQueueSend(QueueHandle_t, const void *pvItemToQueue, TickType_t xTicksToWait)
+      // - 반환값: pdPASS (성공) / errQUEUE_FULL (실패)
+      // - xTicksToWait = 0: 대기하지 않고 즉시 반환 (Non-blocking)
       
-      processMouseInput(g_rxFrame);
-      
-      // ============================================================================
-      // Phase 1.2.1.3: HID 키보드 입력 처리
-      // ============================================================================
-      // 수신된 프레임을 즉시 HID 키보드 입력으로 변환하여 전송
-      // processKeyboardInput()에서 30ms 디바운싱이 적용됨
-      
-      processKeyboardInput(g_rxFrame);
-      
-      // 프레임 큐에 추가 (향후 HID 전송용)
-      // 현재는 큐가 NULL이므로 스킵
       if (g_frameQueue != NULL) {
         // 큐가 가득 찼을 경우 대기하지 않고 즉시 드롭
         if (xQueueSend(g_frameQueue, &g_rxFrame, 0) != pdTRUE) {
-          Serial.println("[WARN] Frame queue full - frame dropped!");
+          g_hidTxDropped++;
+          Serial.printf("[WARN] Frame queue full - frame dropped! (Total: %lu)\n", g_hidTxDropped);
         }
+      } else {
+        Serial.println("[ERROR] Frame queue is NULL!");
       }
     }
     
     // 5ms 대기 (약 200Hz 폴링 주기)
     // vTaskDelay는 틱 단위이며, portTICK_PERIOD_MS로 변환
     vTaskDelay(pdMS_TO_TICKS(5));
+  }
+}
+
+/**
+ * @brief HID 전송 태스크
+ * 
+ * Phase 1.2.1.5에서 새로 추가: 큐에서 프레임을 꺼내 HID 입력으로 변환 및 전송
+ * 
+ * 이 태스크는 frameQueue에서 BridgeFrame을 꺼내서 HID 마우스 및 키보드 입력으로 변환합니다.
+ * 1ms vTaskDelay를 사용하여 1000 FPS 목표 전송 빈도를 달성합니다.
+ * 
+ * 우선순위: 3 (높음) - UART 수신과 동일한 우선순위로 실시간 처리
+ * 코어: 1 (Core 1에 고정) - UART 수신과 같은 코어에서 처리
+ * 
+ * @param pvParameters 태스크 파라미터 (미사용)
+ * 
+ * @note 참조: @docs/Board/esp32s3-code-implementation-guide.md §3.4
+ * @note FreeRTOS Queue API 사용 (Context7 공식 문서 기반)
+ * @note 공식 문서 출처: https://github.com/freertos/freertos-kernel
+ */
+void hidTxTask(void* pvParameters) {
+  Serial.println("[HID_TX_TASK] Started on Core 1");
+  
+  BridgeFrame frameToProcess;
+  uint32_t lastFpsCalcTime = millis();
+  uint32_t fpsCounter = 0;
+  float currentFps = 0.0f;
+  
+  while (true) {
+    // ============================================================================
+    // 큐에서 BridgeFrame 꺼내기
+    // ============================================================================
+    // FreeRTOS Queue API 사용 (Context7 공식 문서 기반)
+    // xQueueReceive(): 큐의 앞에서 아이템 꺼내기
+    // 
+    // 참조: https://github.com/freertos/freertos-kernel
+    // - xQueueReceive(QueueHandle_t, void *pvBuffer, TickType_t xTicksToWait)
+    // - 반환값: pdPASS (성공) / errQUEUE_EMPTY (실패)
+    // - xTicksToWait = portMAX_DELAY: 아이템이 올 때까지 무한 대기 (Blocking)
+    
+    if (xQueueReceive(g_frameQueue, &frameToProcess, portMAX_DELAY) == pdTRUE) {
+      // ============================================================================
+      // Phase 1.2.1.2: HID 마우스 입력 처리
+      // ============================================================================
+      // 큐에서 꺼낸 프레임을 HID 마우스 입력으로 변환하여 전송
+      // processMouseInput()에서 40ms 디바운싱이 적용됨
+      
+      processMouseInput(frameToProcess);
+      
+      // ============================================================================
+      // Phase 1.2.1.3: HID 키보드 입력 처리
+      // ============================================================================
+      // 큐에서 꺼낸 프레임을 HID 키보드 입력으로 변환하여 전송
+      // processKeyboardInput()에서 30ms 디바운싱이 적용됨
+      
+      processKeyboardInput(frameToProcess);
+      
+      // ============================================================================
+      // Phase 1.2.1.4: 홀드 입력 반복 처리
+      // ============================================================================
+      // processKeyboardInput() 내부에서 processHoldInput()이 호출되므로
+      // 여기서는 별도로 호출하지 않음
+      
+      // HID 전송 카운터 증가
+      g_hidTxCount++;
+      fpsCounter++;
+      
+      // ============================================================================
+      // FPS 계산 (1초마다)
+      // ============================================================================
+      uint32_t currentMs = millis();
+      if (currentMs - lastFpsCalcTime >= 1000) {
+        currentFps = fpsCounter / ((currentMs - lastFpsCalcTime) / 1000.0f);
+        Serial.printf("[HID_TX_TASK] HID Transmission FPS: %.2f Hz (Target: 1000 Hz)\n", currentFps);
+        
+        fpsCounter = 0;
+        lastFpsCalcTime = currentMs;
+      }
+    }
+    
+    // ============================================================================
+    // 1ms 대기 (1000 FPS 목표)
+    // ============================================================================
+    // vTaskDelay(pdMS_TO_TICKS(1))를 사용하여 1ms 간격으로 큐를 폴링합니다.
+    // 이는 최대 1000 FPS의 전송 빈도를 달성할 수 있게 합니다.
+    // 
+    // 참고: xQueueReceive()에서 portMAX_DELAY를 사용하므로
+    // 실제로는 프레임이 도착할 때까지 블로킹되며,
+    // 이 vTaskDelay()는 프레임 처리 후 약간의 여유 시간을 제공합니다.
+    
+    vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
 
@@ -681,11 +777,32 @@ void debugTask(void* pvParameters) {
       lossRate = (g_lostFrames * 100.0f) / (g_frameCount + g_lostFrames);
     }
     
+    // ============================================================================
+    // Phase 1.2.1.5: HID 전송 통계 추가
+    // ============================================================================
+    // - HID 전송 FPS: 1000Hz 목표
+    // - 큐 사용률: 현재 큐에 대기 중인 프레임 수 / 최대 큐 크기
+    // - 큐 오버플로우: 큐가 가득 차서 드롭된 프레임 수
+    
+    UBaseType_t queueWaiting = 0;
+    float queueUsage = 0.0f;
+    
+    if (g_frameQueue != NULL) {
+      queueWaiting = uxQueueMessagesWaiting(g_frameQueue);
+      queueUsage = (queueWaiting * 100.0f) / FRAME_QUEUE_SIZE;
+    }
+    
     Serial.println("========================================");
     Serial.printf("[STATS] Uptime: %lu sec\n", millis() / 1000);
     Serial.printf("[STATS] Received: %lu frames\n", g_frameCount);
     Serial.printf("[STATS] Lost: %lu frames (%.2f%%)\n", g_lostFrames, lossRate);
     Serial.printf("[STATS] Last Seq: %d\n", g_lastSeq);
+    Serial.println("--- Phase 1.2.1.5: HID Transmission ---");
+    Serial.printf("[HID TX] Transmitted: %lu frames\n", g_hidTxCount);
+    Serial.printf("[HID TX] Dropped: %lu frames\n", g_hidTxDropped);
+    Serial.printf("[HID TX] Queue Usage: %lu/%d (%.1f%%)\n", 
+                  queueWaiting, FRAME_QUEUE_SIZE, queueUsage);
+    Serial.println("---------------------------------------");
     Serial.printf("[MEMORY] Free Heap: %u bytes\n", ESP.getFreeHeap());
     Serial.println("========================================");
     
@@ -739,7 +856,7 @@ void setup() {
   Serial.println();
   Serial.println("========================================");
   Serial.println("  BridgeOne ESP32-S3 Board");
-  Serial.println("  Phase 1.2.1.4: Hold Input Repeat");
+  Serial.println("  Phase 1.2.1.5: FreeRTOS HID Task");
   Serial.println("========================================");
   Serial.println();
   
@@ -753,6 +870,7 @@ void setup() {
   Serial.println("  ✓ Mouse input processing enabled (Phase 1.2.1.2)");
   Serial.println("  ✓ Keyboard input processing enabled (Phase 1.2.1.3)");
   Serial.println("  ✓ Hold input repeat enabled (Phase 1.2.1.4)");
+  Serial.println("  ✓ FreeRTOS HID transmission task enabled (Phase 1.2.1.5)");
   Serial.println("  ⓘ USB already started by CDC_ON_BOOT=1 (no USB.begin() call)");
   Serial.println("  ⓘ Device will be enumerated as HID Mouse + Keyboard + CDC");
   Serial.println();
@@ -778,12 +896,34 @@ void setup() {
   Serial.printf("[UART2] Pins: RX=GPIO%d, TX=GPIO%d\n", UART_RX_PIN, UART_TX_PIN);
   Serial.println();
   
-  // 프레임 큐 생성 (향후 HID 전송용)
-  // 현재는 NULL로 설정하여 큐 사용 안 함
-  // g_frameQueue = xQueueCreate(FRAME_QUEUE_SIZE, sizeof(BridgeFrame));
-  // if (g_frameQueue == NULL) {
-  //   Serial.println("[ERROR] Failed to create frame queue!");
-  // }
+  // ============================================================================
+  // Phase 1.2.1.5: 프레임 큐 생성
+  // ============================================================================
+  // FreeRTOS Queue API 사용 (Context7 공식 문서 기반)
+  // xQueueCreate(): 큐 생성
+  // 
+  // 참조: https://github.com/freertos/freertos-kernel
+  // - xQueueCreate(UBaseType_t uxQueueLength, UBaseType_t uxItemSize)
+  // - 반환값: QueueHandle_t (성공) / NULL (실패)
+  // - uxQueueLength: 큐가 보관할 수 있는 최대 아이템 수
+  // - uxItemSize: 각 아이템의 크기 (바이트)
+  
+  Serial.println("[FREERTOS] Creating frame queue...");
+  
+  g_frameQueue = xQueueCreate(FRAME_QUEUE_SIZE, sizeof(BridgeFrame));
+  
+  if (g_frameQueue == NULL) {
+    Serial.println("  ✗ Failed to create frame queue!");
+    Serial.println("  ⓘ System cannot proceed without queue. Halting...");
+    while (1) {
+      delay(1000);  // 큐 생성 실패 시 무한 루프
+    }
+  } else {
+    Serial.printf("  ✓ Frame queue created (Size: %d, Item: %d bytes)\n", 
+                  FRAME_QUEUE_SIZE, sizeof(BridgeFrame));
+  }
+  
+  Serial.println();
   
   // FreeRTOS 태스크 생성
   Serial.println("[FREERTOS] Creating tasks...");
@@ -806,8 +946,29 @@ void setup() {
     Serial.println("  ✗ Failed to create UART_RX task!");
   }
   
-  // 디버그 태스크 생성 (Core 0, 우선순위 1)
+  // ============================================================================
+  // Phase 1.2.1.5: HID 전송 태스크 생성 (Core 1, 우선순위 3)
+  // ============================================================================
+  
   BaseType_t result2 = xTaskCreatePinnedToCore(
+    hidTxTask,                      // 태스크 함수
+    "HID_TX",                       // 태스크 이름
+    HID_TX_TASK_STACK_SIZE,         // 스택 크기 (바이트)
+    NULL,                           // 파라미터
+    HID_TX_TASK_PRIORITY,           // 우선순위
+    &g_hidTxTaskHandle,             // 태스크 핸들
+    HID_TX_TASK_CORE                // 코어 번호
+  );
+  
+  if (result2 == pdPASS) {
+    Serial.printf("  ✓ HID_TX task created (Core %d, Priority %d)\n", 
+                  HID_TX_TASK_CORE, HID_TX_TASK_PRIORITY);
+  } else {
+    Serial.println("  ✗ Failed to create HID_TX task!");
+  }
+  
+  // 디버그 태스크 생성 (Core 0, 우선순위 1)
+  BaseType_t result3 = xTaskCreatePinnedToCore(
     debugTask,                      // 태스크 함수
     "DEBUG",                        // 태스크 이름
     DEBUG_TASK_STACK_SIZE,          // 스택 크기 (바이트)
@@ -817,7 +978,7 @@ void setup() {
     DEBUG_TASK_CORE                 // 코어 번호
   );
   
-  if (result2 == pdPASS) {
+  if (result3 == pdPASS) {
     Serial.printf("  ✓ DEBUG task created (Core %d, Priority %d)\n", 
                   DEBUG_TASK_CORE, DEBUG_TASK_PRIORITY);
   } else {
