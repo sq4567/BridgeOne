@@ -37,7 +37,7 @@ internal class Program
         {
             Log.Information("==============================================");
             Log.Information("BridgeOne Windows Server 시작");
-            Log.Information("Version: 1.0.0 (Phase 1.2.3.2)");
+            Log.Information("Version: 1.0.0 (Phase 1.2.3.3)");
             Log.Information("==============================================");
 
             // 시스템 정보 로깅
@@ -67,10 +67,53 @@ internal class Program
             
             Log.Information("HID 장치 관리자 초기화 완료");
             
-            // 장치 감지 대기 (10초간 테스트)
-            Log.Information("ESP32-S3 장치를 감지 중입니다. 10초 후 종료됩니다...");
-            Log.Information("테스트를 위해 ESP32-S3를 USB에 연결하거나 분리해보세요.");
-            await Task.Delay(10000);
+            // Raw Input 핸들러 초기화
+            using var rawInputHandler = new RawInputHandler();
+            
+            // Raw Input 이벤트 핸들러 등록
+            rawInputHandler.MouseInputReceived += (sender, e) =>
+            {
+                // 마우스 이동만 로깅 (버튼 이벤트는 별도)
+                if (e.DeltaX != 0 || e.DeltaY != 0)
+                {
+                    Log.Debug("Raw Input 마우스 이동: ({DeltaX}, {DeltaY})", e.DeltaX, e.DeltaY);
+                }
+                
+                // 버튼 이벤트 로깅
+                if (e.ButtonFlags != 0)
+                {
+                    Log.Information("Raw Input 마우스 버튼: Flags=0x{Flags:X4}", e.ButtonFlags);
+                }
+                
+                // 휠 이벤트 로깅
+                if ((e.ButtonFlags & 0x0400) != 0) // RI_MOUSE_WHEEL
+                {
+                    Log.Information("Raw Input 마우스 휠: Delta={Delta}", e.WheelDelta);
+                }
+            };
+            
+            rawInputHandler.KeyboardInputReceived += (sender, e) =>
+            {
+                Log.Information("Raw Input 키보드: VKey=0x{VKey:X2}, ScanCode=0x{ScanCode:X2}, {State}",
+                    e.VirtualKey, e.ScanCode, e.IsKeyDown ? "Down" : "Up");
+            };
+            
+            // Raw Input 핸들러 시작
+            if (!rawInputHandler.Start())
+            {
+                Log.Error("Raw Input 핸들러 시작 실패");
+                return;
+            }
+            
+            Log.Information("Raw Input 핸들러 시작 완료");
+            
+            // 장치 감지 및 입력 수신 대기 (30초간 테스트)
+            Log.Information("========================================");
+            Log.Information("ESP32-S3 장치를 감지 중입니다.");
+            Log.Information("테스트: ESP32-S3를 연결하고 HID 마우스/키보드 입력을 보내보세요.");
+            Log.Information("30초 후 자동 종료됩니다...");
+            Log.Information("========================================");
+            await Task.Delay(30000);
             
             // 현재 연결된 장치 목록 출력
             var connectedDevices = hidDeviceManager.GetConnectedDevices();
@@ -84,6 +127,9 @@ internal class Program
                     device.DevicePath);
             }
             Log.Information("========================================");
+            
+            // Raw Input 핸들러 중지
+            rawInputHandler.Stop();
             
             // HID 장치 관리자 중지
             hidDeviceManager.Stop();
