@@ -5,6 +5,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Windows 전용 애플리케이션이므로 플랫폼 호환성 경고 비활성화 -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,6 +20,9 @@
     
     <!-- Serial/CDC Communication -->
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+    
+    <!-- WMI for Device Enumeration -->
+    <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>
 
 </Project>

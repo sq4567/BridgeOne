@@ -37,7 +37,7 @@ internal class Program
         {
             Log.Information("==============================================");
             Log.Information("BridgeOne Windows Server 시작");
-            Log.Information("Version: 1.0.0 (Phase 1.2.3.4)");
+            Log.Information("Version: 1.0.0 (Phase 1.2.3.5)");
             Log.Information("==============================================");
 
             // 시스템 정보 로깅
@@ -131,13 +131,93 @@ internal class Program
             
             Log.Information("Raw Input 핸들러 시작 완료");
             
-            // 장치 감지 및 입력 수신 대기 (30초간 테스트)
+            // ========================================
+            // Phase 1.2.3.5: Vendor CDC 통신 초기화
+            // ========================================
+            Log.Information("========================================");
+            Log.Information("Phase 1.2.3.5: Vendor CDC 통신 초기화");
+            Log.Information("========================================");
+            
+            // VendorCdcManager 초기화
+            using var vendorCdcManager = new VendorCdcManager();
+            
+            // JSON 응답 수신 이벤트 핸들러 등록
+            vendorCdcManager.JsonResponseReceived += (sender, e) =>
+            {
+                try
+                {
+                    // 명령 타입 확인
+                    if (e.JsonData.TryGetProperty("command", out var commandElement))
+                    {
+                        string command = commandElement.GetString() ?? "UNKNOWN";
+                        Log.Information("CDC 응답 수신: {Command}", command);
+                        
+                        // 데이터 출력 (있는 경우)
+                        if (e.JsonData.TryGetProperty("data", out var dataElement))
+                        {
+                            Log.Debug("응답 데이터: {Data}", dataElement.ToString());
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "JSON 응답 처리 중 오류 발생");
+                }
+            };
+            
+            // 연결 상태 변경 이벤트 핸들러 등록
+            vendorCdcManager.ConnectionStateChanged += (sender, isConnected) =>
+            {
+                if (isConnected)
+                    Log.Information("CDC 연결됨: {PortName}", vendorCdcManager.PortName);
+                else
+                    Log.Warning("CDC 연결 해제됨");
+            };
+            
+            // ESP32-S3 CDC 장치 연결 시도
+            if (vendorCdcManager.Connect())
+            {
+                Log.Information("========================================");
+                Log.Information("CDC 연결 성공!");
+                Log.Information("PING 명령 전송 테스트를 시작합니다...");
+                Log.Information("========================================");
+                
+                // PING 명령 전송 테스트 (5회)
+                for (int i = 1; i <= 5; i++)
+                {
+                    Log.Information("PING 명령 전송 #{Count}...", i);
+                    
+                    if (vendorCdcManager.SendJsonCommand("PING", new { sequence = i }))
+                    {
+                        Log.Debug("PING #{Count} 전송 성공", i);
+                    }
+                    else
+                    {
+                        Log.Error("PING #{Count} 전송 실패", i);
+                    }
+                    
+                    await Task.Delay(2000); // 2초 대기
+                }
+                
+                Log.Information("========================================");
+                Log.Information("PING 테스트 완료");
+                Log.Information("========================================");
+            }
+            else
+            {
+                Log.Warning("========================================");
+                Log.Warning("CDC 연결 실패!");
+                Log.Warning("ESP32-S3 장치가 연결되어 있는지 확인하세요.");
+                Log.Warning("========================================");
+            }
+            
+            // 장치 감지 및 입력 수신 대기 (추가 20초)
             Log.Information("========================================");
             Log.Information("ESP32-S3 장치를 감지 중입니다.");
             Log.Information("테스트: ESP32-S3를 연결하고 HID 마우스/키보드 입력을 보내보세요.");
-            Log.Information("30초 후 자동 종료됩니다...");
+            Log.Information("20초 후 자동 종료됩니다...");
             Log.Information("========================================");
-            await Task.Delay(30000);
+            await Task.Delay(20000);
             
             // 현재 연결된 장치 목록 출력
             var connectedDevices = hidDeviceManager.GetConnectedDevices();

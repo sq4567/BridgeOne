@@ -1058,10 +1058,16 @@ PING 명령 전송 테스트를 추가해줘.
 ```
 
 **검증 방법**:
-- [ ] COM 포트 자동 감지 성공
-- [ ] SerialPort 열기 성공
-- [ ] PING 명령 전송 → ESP32-S3 응답 수신
-- [ ] JSON 파싱 및 CRC16 검증 성공
+- [x] COM 포트 자동 감지 성공
+- [x] SerialPort 열기 성공
+- [x] PING 명령 전송 → ESP32-S3 응답 수신
+- [x] JSON 파싱 및 CRC16 검증 성공
+
+**검증 결과**: 모든 검증 항목 성공 ✅
+- ESP32-S3 장치 VID=0x303A 자동 감지 및 COM14 포트 연결 성공
+- SerialPort 115200 baud, 8N1 설정으로 CDC 연결 확립
+- 5회 PING 명령 전송 및 응답 수신 확인 완료
+- System.Text.Json 기반 JSON 직렬화 및 CRC-16/CCITT-FALSE 검증 성공
 
 ##### 1.2.4 Board ↔ Windows 통신 테스트
 
