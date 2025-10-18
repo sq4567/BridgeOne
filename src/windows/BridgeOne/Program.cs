@@ -37,7 +37,7 @@ internal class Program
         {
             Log.Information("==============================================");
             Log.Information("BridgeOne Windows Server 시작");
-            Log.Information("Version: 1.0.0 (Phase 1.2.3.3)");
+            Log.Information("Version: 1.0.0 (Phase 1.2.3.4)");
             Log.Information("==============================================");
 
             // 시스템 정보 로깅
@@ -67,35 +67,59 @@ internal class Program
             
             Log.Information("HID 장치 관리자 초기화 완료");
             
+            // Input Simulator 초기화
+            var inputSimulator = new InputSimulator();
+            Log.Information("Input Simulator 초기화 완료");
+            
             // Raw Input 핸들러 초기화
             using var rawInputHandler = new RawInputHandler();
             
-            // Raw Input 이벤트 핸들러 등록
+            // Raw Input 이벤트 핸들러 등록 → InputSimulator로 연결
             rawInputHandler.MouseInputReceived += (sender, e) =>
             {
-                // 마우스 이동만 로깅 (버튼 이벤트는 별도)
+                // 마우스 이동
                 if (e.DeltaX != 0 || e.DeltaY != 0)
                 {
-                    Log.Debug("Raw Input 마우스 이동: ({DeltaX}, {DeltaY})", e.DeltaX, e.DeltaY);
+                    inputSimulator.SimulateMouseMove(e.DeltaX, e.DeltaY);
                 }
                 
-                // 버튼 이벤트 로깅
-                if (e.ButtonFlags != 0)
+                // 마우스 버튼 클릭
+                if ((e.ButtonFlags & 0x0001) != 0) // RI_MOUSE_LEFT_BUTTON_DOWN
                 {
-                    Log.Information("Raw Input 마우스 버튼: Flags=0x{Flags:X4}", e.ButtonFlags);
+                    inputSimulator.SimulateMouseClick(InputSimulator.MouseButton.Left, true);
+                }
+                if ((e.ButtonFlags & 0x0002) != 0) // RI_MOUSE_LEFT_BUTTON_UP
+                {
+                    inputSimulator.SimulateMouseClick(InputSimulator.MouseButton.Left, false);
+                }
+                if ((e.ButtonFlags & 0x0004) != 0) // RI_MOUSE_RIGHT_BUTTON_DOWN
+                {
+                    inputSimulator.SimulateMouseClick(InputSimulator.MouseButton.Right, true);
+                }
+                if ((e.ButtonFlags & 0x0008) != 0) // RI_MOUSE_RIGHT_BUTTON_UP
+                {
+                    inputSimulator.SimulateMouseClick(InputSimulator.MouseButton.Right, false);
+                }
+                if ((e.ButtonFlags & 0x0020) != 0) // RI_MOUSE_MIDDLE_BUTTON_DOWN
+                {
+                    inputSimulator.SimulateMouseClick(InputSimulator.MouseButton.Middle, true);
+                }
+                if ((e.ButtonFlags & 0x0040) != 0) // RI_MOUSE_MIDDLE_BUTTON_UP
+                {
+                    inputSimulator.SimulateMouseClick(InputSimulator.MouseButton.Middle, false);
                 }
                 
-                // 휠 이벤트 로깅
+                // 휠 이벤트
                 if ((e.ButtonFlags & 0x0400) != 0) // RI_MOUSE_WHEEL
                 {
-                    Log.Information("Raw Input 마우스 휠: Delta={Delta}", e.WheelDelta);
+                    inputSimulator.SimulateMouseWheel(e.WheelDelta);
                 }
             };
             
             rawInputHandler.KeyboardInputReceived += (sender, e) =>
             {
-                Log.Information("Raw Input 키보드: VKey=0x{VKey:X2}, ScanCode=0x{ScanCode:X2}, {State}",
-                    e.VirtualKey, e.ScanCode, e.IsKeyDown ? "Down" : "Up");
+                // 키보드 입력
+                inputSimulator.SimulateKeyPress(e.VirtualKey, e.IsKeyDown);
             };
             
             // Raw Input 핸들러 시작
