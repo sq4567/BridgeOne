@@ -1,13 +1,17 @@
 /**
  * @file main.cpp
- * @brief Phase 1.1.2.5: FreeRTOS 태스크 구조 구현
- * @details UART 수신 및 디버그 출력을 별도 태스크로 분리
+ * @brief Phase 1.2.1.1: Arduino USB HID 라이브러리 초기화
+ * @details ESP32-S3 Arduino HID 라이브러리 설정 및 USB 복합 장치 구성
+ * @note Phase 1.1.2.5 코드 기반 위에 USB HID 기능 추가
+ * @note USB.begin() 제외 - ARDUINO_USB_CDC_ON_BOOT=1로 이미 자동 시작됨
  */
 
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
+#include "USBHIDMouse.h"
+#include "USBHIDKeyboard.h"
 
 // ============================================================================
 // BridgeFrame 구조체 정의
@@ -35,6 +39,10 @@ static_assert(sizeof(BridgeFrame) == 8, "BridgeFrame must be exactly 8 bytes!");
 // ============================================================================
 // 전역 변수
 // ============================================================================
+
+// USB HID 객체 (Phase 1.2.1.1에서 추가)
+USBHIDMouse Mouse;
+USBHIDKeyboard Keyboard;
 
 // 프레임 수신 버퍼
 BridgeFrame g_rxFrame;
@@ -238,24 +246,62 @@ void debugTask(void* pvParameters) {
  * @brief 시스템 초기화 및 FreeRTOS 태스크 생성
  * 
  * Arduino setup() 함수에서는 다음을 수행합니다:
- * 1. USB CDC 디버그 시리얼 초기화
- * 2. UART2 초기화 (1Mbps, 8N1)
- * 3. BridgeFrame 구조체 크기 검증
- * 4. FreeRTOS 태스크 생성 (UART 수신, 디버그)
+ * 1. USB CDC 디버그 시리얼 초기화 (먼저 초기화하여 bootloop 방지)
+ * 2. USB HID 초기화 (Mouse, Keyboard) - Phase 1.2.1.1
+ * 3. USB 복합 장치 시작 - Phase 1.2.1.1
+ * 4. UART2 초기화 (1Mbps, 8N1)
+ * 5. BridgeFrame 구조체 크기 검증
+ * 6. FreeRTOS 태스크 생성 (UART 수신, 디버그)
  */
 void setup() {
+  // ============================================================================
+  // 디버그 시리얼 초기화 (USB CDC) - 먼저 초기화
+  // ============================================================================
+  
   // USB CDC 초기화 (디버그용)
+  // platformio.ini에서 ARDUINO_USB_CDC_ON_BOOT=1로 설정되어 있으므로
+  // Serial은 USB CDC를 통해 출력됩니다.
   Serial.begin(115200);
-  delay(1500);  // USB enumeration 안정화 대기
+  delay(2000);  // CDC 안정화 대기 (bootloop 방지)
+  
+  // ============================================================================
+  // Phase 1.2.1.1: USB HID 초기화
+  // ============================================================================
+  
+  // 참고: ARDUINO_USB_CDC_ON_BOOT=1 설정으로 USB는 이미 자동 시작됨
+  // USB.begin()을 호출하면 재열거로 인한 bootloop 발생
+  
+  // USB HID 마우스 초기화
+  Mouse.begin();
+  
+  // USB HID 키보드 초기화
+  Keyboard.begin();
+  
+  // HID 장치 등록 안정화 대기
+  delay(500);
   
   Serial.println();
   Serial.println("========================================");
   Serial.println("  BridgeOne ESP32-S3 Board");
-  Serial.println("  Phase 1.1.2.5: FreeRTOS Task Structure");
+  Serial.println("  Phase 1.2.1.1: USB HID Initialization");
   Serial.println("========================================");
   Serial.println();
   
+  // ============================================================================
+  // USB HID 초기화 확인
+  // ============================================================================
+  
+  Serial.println("[USB HID] Initialization Status:");
+  Serial.println("  ✓ USB HID Mouse initialized");
+  Serial.println("  ✓ USB HID Keyboard initialized");
+  Serial.println("  ⓘ USB already started by CDC_ON_BOOT=1 (no USB.begin() call)");
+  Serial.println("  ⓘ Device will be enumerated as HID Mouse + Keyboard + CDC");
+  Serial.println();
+  
+  // ============================================================================
   // BridgeFrame 검증
+  // ============================================================================
+  
   Serial.println("[BridgeFrame] Structure Verification:");
   Serial.printf("  - Size: %d bytes (expected: 8 bytes)\n", sizeof(BridgeFrame));
   if (sizeof(BridgeFrame) == 8) {

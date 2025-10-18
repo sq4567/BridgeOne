@@ -11,6 +11,15 @@ updated: "2025-10-08"
 
 **개요**: 이 가이드는 Cursor 바이브 코딩을 활용하여 BridgeOne 프로젝트를 체계적으로 개발하기 위한 실무 중심 체크리스트입니다.
 
+## ⚠️ 전체 프로젝트 공통 주의사항
+
+### ESP32-S3 USB 초기화 관련
+**중요**: `ARDUINO_USB_CDC_ON_BOOT=1` 설정 사용 시 USB.begin() 호출 금지!
+- ❌ **하지 말 것**: `USB.begin()` 호출
+- ✅ **해야 할 것**: `Mouse.begin()`, `Keyboard.begin()` 등 개별 인터페이스만 초기화
+- **이유**: USB가 부팅 시 이미 자동 시작되므로, `USB.begin()` 재호출 시 USB 재열거 충돌로 bootloop 발생
+- **영향 범위**: Phase 1.2.1.1, 1.2.1.2, 1.2.1.3 모두 해당
+
 ## Phase별 개발 체크리스트
 
 ### Phase 1: 점진적 통신 구축 및 검증
@@ -453,12 +462,16 @@ TouchInputProcessor.kt 클래스를 작성해:
 **예상 시간**: 30-40분
 **참조**: `@src/board/BridgeOne/platformio.ini` (TinyUSB 설정 이미 완료)
 
+**⚠️ 중요: USB.begin() 호출 금지!**
+- `ARDUINO_USB_CDC_ON_BOOT=1` 설정으로 USB는 부팅 시 자동 시작됨
+- `USB.begin()`을 호출하면 USB 재열거(re-enumeration) 충돌로 **bootloop 발생**
+- **Mouse.begin()과 Keyboard.begin()만 호출**하여 HID 인터페이스를 기존 USB에 추가
+
 **바이브 코딩 프롬프트**:
 ```
 @src/board/BridgeOne/src/main.cpp 에 USB HID 초기화를 추가해:
 
-1. Arduino HID 라이브러리 포함:
-   #include "USB.h"
+1. Arduino HID 라이브러리 포함 (USB.h는 불필요):
    #include "USBHIDMouse.h"
    #include "USBHIDKeyboard.h"
 
@@ -466,30 +479,36 @@ TouchInputProcessor.kt 클래스를 작성해:
    USBHIDMouse Mouse;
    USBHIDKeyboard Keyboard;
 
-3. setup() 함수에 USB 초기화:
-   - Mouse.begin()
-   - Keyboard.begin()
-   - USB.begin()
-   - 50ms delay (USB 안정화)
-   - 초기화 성공 메시지 출력
+3. setup() 함수에 USB 초기화 (순서 중요!):
+   a. Serial.begin(115200) 먼저 호출
+   b. delay(2000) - CDC 안정화
+   c. Mouse.begin()
+   d. Keyboard.begin()
+   e. delay(500) - HID 등록 안정화
+   f. 초기화 성공 메시지 출력
 
-4. USB 연결 상태 확인 함수 추가:
-   bool isUsbConnected() { return USB.isConnected(); }
+4. ⚠️ 주의사항:
+   - USB.begin() 호출 금지! (이미 CDC_ON_BOOT=1로 자동 시작됨)
+   - Serial.begin()을 HID 초기화보다 먼저 호출
+   - 충분한 delay로 각 단계 안정화
 
 @src/board/BridgeOne/platformio.ini 의 TinyUSB 설정이 이미 활성화되어 있으니 그대로 사용해.
 ```
 
 **검증 방법**:
-- [ ] 빌드 성공 확인
-- [ ] Windows PC 연결 시 HID 마우스/키보드 자동 인식
-- [ ] 장치 관리자에서 "HID-compliant mouse" 표시
-- [ ] 시리얼 모니터에 USB 초기화 메시지 출력
+- [x] 빌드 성공 확인
+- [x] Windows PC 연결 시 HID 마우스/키보드 자동 인식
+- [x] 장치 관리자에서 "HID-compliant mouse" 표시
+- [x] 시리얼 모니터에 USB 초기화 메시지 출력
+- [x] bootloop 없이 정상 부팅 확인
 
 ###### 1.2.1.2 BridgeFrame → HID 마우스 변환 구현
 
 **구현 목표**: BridgeFrame을 HID 마우스 리포트로 변환
 **예상 시간**: 40-50분
 **참조**: `@docs/Board/esp32s3-code-implementation-guide.md` §3.1
+
+**⚠️ 주의**: 이미 초기화된 Mouse 객체 사용 (재초기화 금지)
 
 **바이브 코딩 프롬프트**:
 ```
@@ -510,6 +529,7 @@ TouchInputProcessor.kt 클래스를 작성해:
 
 4. 40ms 디바운싱 적용 (lastMouseUpdate 타임스탬프)
 
+⚠️ Mouse 객체는 Phase 1.2.1.1에서 이미 초기화됨 - 재초기화하지 말 것!
 이전 버튼 상태를 전역 변수로 저장해서 변화 감지해줘.
 ```
 
@@ -524,6 +544,8 @@ TouchInputProcessor.kt 클래스를 작성해:
 **구현 목표**: BridgeFrame을 HID 키보드 리포트로 변환
 **예상 시간**: 40-50분
 **참조**: `@docs/Board/esp32s3-code-implementation-guide.md` §3.2
+
+**⚠️ 주의**: 이미 초기화된 Keyboard 객체 사용 (재초기화 금지)
 
 **바이브 코딩 프롬프트**:
 ```
@@ -543,6 +565,7 @@ TouchInputProcessor.kt 클래스를 작성해:
 
 4. 키 입력 안정성을 위해 30ms 간격 유지
 
+⚠️ Keyboard 객체는 Phase 1.2.1.1에서 이미 초기화됨 - 재초기화하지 말 것!
 모디파이어와 일반 키를 동시에 처리할 수 있도록 해줘.
 ```
 
