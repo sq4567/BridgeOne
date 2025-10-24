@@ -407,7 +407,7 @@ updated: "2025-10-20"
 **목표**: BridgeOne Board 펌웨어 프로젝트 생성 및 ESP32-S3 타겟 지정
 
 **세부 목표**:
-1. `src/board/` 디렉터리 내에서 프로젝트 생성 (기존 `BridgeOne/` 디렉터리 있으면 백업)
+1. `src/board/` 디렉터리 내에서 프로젝트 생성
 2. `idf.py create-project bridgeone_board` 실행 (프로젝트명은 소문자, 언더스코어 조합)
 3. `idf.py set-target esp32s3` 실행 (ESP32-S3 타겟 지정)
 4. CMakeLists.txt 확인 (프로젝트명 "bridgeone_board")
@@ -436,12 +436,12 @@ idf.py set-target esp32s3
 - `docs/board/esp32s3-code-implementation-guide.md` §3.1 ESP-IDF 프로젝트 구조
 
 **검증**:
-- [ ] `idf.py set-target esp32s3` 실행 성공 (오류 없음)
-- [ ] `sdkconfig` 파일 생성 및 ESP32-S3 타겟 설정 확인
+- [x] `idf.py set-target esp32s3` 실행 성공 (오류 없음)
+- [x] `sdkconfig` 파일 생성 및 ESP32-S3 타겟 설정 확인
   - 파일 위치: `{프로젝트}/sdkconfig`
-- [ ] `CMakeLists.txt`에 `project(bridgeone_board)` 존재
-- [ ] `main/CMakeLists.txt`에 main.c 등록 확인
-- [ ] 프로젝트 디렉터리 구조 정확히 생성됨:
+- [x] `CMakeLists.txt`에 `project(bridgeone_board)` 존재
+- [x] `main/CMakeLists.txt`에 main.c 등록 확인
+- [x] 프로젝트 디렉터리 구조 정확히 생성됨:
   ```
   bridgeone_board/
   ├── CMakeLists.txt
@@ -451,7 +451,7 @@ idf.py set-target esp32s3
   │   └── main.c
   └── build/ (이 단계에서는 생성되지 않음, 다음 Phase에서 생성)
   ```
-- [ ] 프로젝트 루트 경로: `src/board/bridgeone_board/`
+- [x] 프로젝트 루트 경로: `src/board/bridgeone_board/`
 
 ---
 
