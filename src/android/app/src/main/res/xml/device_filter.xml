@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ESP32-S3 USB Serial Device Filter (VID: 0x303A - Espressif) -->
+    <usb-device vendor-id="0x303A" product-id="0x1001" />
+    <usb-device vendor-id="0x303A" product-id="0x8108" />
+</resources>

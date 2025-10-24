@@ -110,11 +110,11 @@ updated: "2025-10-20"
 - `docs/android/technical-specification-app.md` §1.1.2 연결 관리 요구사항
 
 **검증**:
-- [ ] Manifest Merger 오류 없음
-- [ ] 앱 설치 시 권한 요청 대화상자 표시 확인
-- [ ] 앱 아이콘이 런처에 "BridgeOne"으로 표시됨
-- [ ] USB 장치 연결 시 앱 선택 대화상자에 BridgeOne 표시됨
-- [ ] Portrait 모드 강제 적용 확인
+- [x] Manifest Merger 오류 없음
+- [x] 앱 설치 시 권한 요청 대화상자 표시 확인
+- [x] 앱 아이콘이 런처에 "BridgeOne"으로 표시됨
+- [x] USB 장치 연결 시 앱 선택 대화상자에 BridgeOne 표시됨
+- [x] Portrait 모드 강제 적용 확인
 
 ---
 
