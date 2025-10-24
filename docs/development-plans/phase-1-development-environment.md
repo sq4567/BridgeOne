@@ -195,6 +195,62 @@ updated: "2025-10-20"
 
 ---
 
+#### Phase 1.1.6: 런처 아이콘 변경
+
+**목표**: BridgeOne 앱의 기본 런처 아이콘을 BridgeOne 로고 기반 커스텀 아이콘으로 변경
+
+**유저 사전 작업** (LLM 실행 전 필수):
+1. 디자인 가이드 검토: `docs/bridgeone-logo-concepts.md` 파일 확인
+2. 다음 중 하나의 방법으로 launcher icon 변경:
+   
+   **방법 A: Android Studio Image Asset Studio 사용 (권장)**
+   - Android Studio에서 `app/src/main/res/` 우클릭
+   - "New" → "Image Asset" 선택
+   - Asset type: "Launcher Icons (Adaptive and Legacy)" 선택
+   - Source asset으로 `resources/ico/` 디렉터리의 BridgeOne 아이콘 이미지 파일 선택
+   - Foreground, Background 설정 (로고 디자인에 맞게)
+   - "Next" → "Finish"
+   
+   **방법 B: 수동으로 XML 파일 편집**
+   - `app/src/main/res/drawable/ic_launcher_foreground.xml` 파일 수동 편집
+   - `app/src/main/res/drawable/ic_launcher_background.xml` 파일 수동 편집 (배경색: `#121212`)
+   - BridgeOne 로고 벡터 또는 컬러를 반영하여 작성
+   
+   **방법 C: Vector Drawable 변환**
+   - PNG/SVG 형식의 로고를 Vector Drawable로 변환
+   - `resources/svg/Logo.svg`를 참고하여 XML 벡터 생성
+   - `ic_launcher_foreground.xml`에 적용
+
+3. Android Studio에서 "Build" → "Clean Project" 후 "Rebuild Project" 실행
+4. 에뮬레이터 또는 실제 기기에서 앱 언인스톨 후 재설치
+
+**LLM 검증 작업**:
+1. `app/src/main/res/drawable/ic_launcher_foreground.xml` 파일 확인
+2. `app/src/main/res/drawable/ic_launcher_background.xml` 파일 확인
+3. `app/src/main/AndroidManifest.xml`에서 icon 설정 확인
+4. Adaptive Icon 설정 정상 여부 확인
+5. 빌드 결과 검증
+
+**참조 문서 및 섹션**:
+- `docs/bridgeone-logo-concepts.md` (로고 개념 및 디자인 원칙)
+- `docs/android/design-guide-app.md` §색상 시스템
+- `resources/ico/` (기존 아이콘 리소스)
+- `resources/svg/Logo.svg` (로고 벡터 파일)
+- Android Developer: [App Icons](https://developer.android.com/training/multiscreen/screendensities#provide-density-specific-versions)
+- Android Developer: [Create App Icons with Image Asset Studio](https://developer.android.com/studio/write/image-asset-studio)
+
+**검증**:
+- [ ] `app/src/main/res/drawable/ic_launcher_foreground.xml` 파일이 존재하고 BridgeOne 로고를 반영함
+- [ ] `app/src/main/res/drawable/ic_launcher_background.xml` 파일이 존재하고 테마 배경색 (`#121212`)이 설정됨
+- [ ] `AndroidManifest.xml`에 `android:icon="@drawable/ic_launcher"` (또는 `@mipmap/ic_launcher`) 설정됨
+- [ ] Adaptive Icon 지원 확인 (API 26+): `AndroidManifest.xml`에 `android:roundIcon` 속성 존재
+- [ ] 빌드 성공 (gradle 빌드 오류 없음)
+- [ ] 에뮬레이터/실제 기기의 런처 화면에서 업데이트된 BridgeOne 아이콘 표시됨
+- [ ] 다양한 DPI 설정(mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi)에서 아이콘이 명확하게 표시됨
+- [ ] Compose Preview 또는 AS Layout Preview에서 앱 아이콘 미리보기 정상 표시
+
+---
+
 ## Phase 1.2: Board (ESP32-S3) 개발환경 구축
 
 #### Phase 1.2.1: ESP-IDF 설치 검증 및 프로젝트 생성 준비

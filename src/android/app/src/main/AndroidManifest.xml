@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.USB_PERMISSION" />
     <uses-feature
         android:name="android.hardware.usb.host"
-        android:required="true" />
+        android:required="false" />
 
     <!-- 진동 피드백 권한 -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -21,7 +21,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.BridgeOne">
         
-        <uses-library android:name="android.hardware.usb" />
+        <uses-library
+            android:name="android.hardware.usb"
+            android:required="false" />
         
         <activity
             android:name=".MainActivity"
