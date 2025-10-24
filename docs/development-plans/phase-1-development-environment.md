@@ -86,11 +86,11 @@ updated: "2025-10-20"
 - `docs/android/technical-specification-app.md` §2.1.1 Jetpack Compose 기반 설계
 
 **검증**:
-- [ ] Gradle 동기화 성공 (모든 의존성 다운로드 완료)
-- [ ] `libs.versions.toml`에 모든 버전이 명확히 정의됨
-- [ ] USB Serial 라이브러리가 External Libraries에 표시됨
-- [ ] Compose Preview 기능 정상 동작 확인
-- [ ] 빌드 시 Java 버전 관련 오류 없음
+- [x] Gradle 동기화 성공 (모든 의존성 다운로드 완료)
+- [x] `libs.versions.toml`에 모든 버전이 명확히 정의됨
+- [x] USB Serial 라이브러리가 External Libraries에 표시됨
+- [x] Compose Preview 기능 정상 동작 확인
+- [x] 빌드 시 Java 버전 관련 오류 없음
 
 ---
 
