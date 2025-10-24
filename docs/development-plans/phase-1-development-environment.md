@@ -185,13 +185,13 @@ updated: "2025-10-20"
 - `docs/android/technical-specification-app.md` §2.1.1 Jetpack Compose 기반 설계
 
 **검증**:
-- [ ] 에뮬레이터/실제 기기에서 "BridgeOne - Hello World" 텍스트가 화면 중앙에 표시됨
-- [ ] 텍스트가 Pretendard 폰트로 정확히 렌더링됨 (시스템 폰트와 구분됨)
-- [ ] 다크 테마가 적용되어 배경이 검은색(`#121212`)임
-- [ ] 테스트 아이콘(drawable)이 정상 표시됨
-- [ ] Compose Preview에서 UI가 정확히 미리보기됨 (폰트 및 아이콘 포함)
-- [ ] 시스템 테마 변경 시 앱 테마도 자동 전환됨
-- [ ] 빌드 시 Compose 및 리소스 관련 경고나 오류 없음
+- [x] 에뮬레이터/실제 기기에서 "BridgeOne - Hello World" 텍스트가 화면 중앙에 표시됨
+- [x] 텍스트가 Pretendard 폰트로 정확히 렌더링됨 (시스템 폰트와 구분됨)
+- [x] 다크 테마가 적용되어 배경이 검은색(`#121212`)임
+- [x] 테스트 아이콘(drawable)이 정상 표시됨
+- [x] Compose Preview에서 UI가 정확히 미리보기됨 (폰트 및 아이콘 포함)
+- [x] 시스템 테마 변경 시 앱 테마도 자동 전환됨
+- [x] 빌드 시 Compose 및 리소스 관련 경고나 오류 없음
 
 ---
 
@@ -535,80 +535,4 @@ Get-WmiObject Win32_PnPDevice | Where-Object {$_.Description -match "HID|COM"} |
 **유저 사전 작업** (LLM 실행 전 필수):
 1. Visual Studio 2022에서 "새 프로젝트 만들기"
 2. 템플릿: "WPF 앱(.NET)" 선택
-3. 프로젝트명: "BridgeOne.Server", 위치: `{workspace}/src/windows/BridgeOne/`, Framework: ".NET 8.0"
-
-**LLM 검증 작업**:
-1. `src/windows/BridgeOne/` 디렉터리 존재 확인
-2. `BridgeOne.Server.csproj` 파일 읽기 (`<TargetFramework>net8.0-windows</TargetFramework>` 확인)
-3. XAML 파일 존재 확인
-
-**참조 문서 및 섹션**:
-- `docs/windows/technical-specification-server.md` §10.1 라이브러리 선정 배경
-
-**검증**:
-- [ ] `BridgeOne.Server.csproj` 파일 존재
-- [ ] `.csproj`에 `<TargetFramework>net8.0-windows</TargetFramework>` 존재
-- [ ] `App.xaml`, `MainWindow.xaml` 파일 존재
-- [ ] 프로젝트 구조가 표준 WPF 구조를 따름
-- [ ] 솔루션 파일(`.sln`) 존재
-- [ ] 모든 검증 통과 시 "WPF 프로젝트가 정상적으로 생성되었습니다" 메시지 출력
-
----
-
-#### Phase 1.3.3: WPF UI 라이브러리 NuGet 패키지 설치
-
-**목표**: WPF UI (lepoco/wpfui) 라이브러리 설치 및 Fluent Design 기반 설정
-
-**세부 목표**:
-1. NuGet에서 `WPF-UI` 패키지 설치 (3.x 이상)
-2. `App.xaml`에 리소스 딕셔너리 추가
-3. `MainWindow.xaml`을 `<ui:FluentWindow>`로 변경
-4. Mica 배경 효과 설정
-
-**참조 문서 및 섹션**:
-- `docs/windows/technical-specification-server.md` §10.2.1 아키텍처 설계
-
-**검증**:
-- [ ] `.csproj`에 `<PackageReference Include="WPF-UI" />` 존재
-- [ ] `App.xaml`에 `<ui:ThemesDictionary Theme="Dark" />` 존재
-- [ ] `MainWindow.xaml`이 `<ui:FluentWindow>` 사용
-- [ ] 빌드 시 WPF-UI 관련 오류 없음
-- [ ] NuGet 패키지 복원 성공
-
----
-
-#### Phase 1.3.4: Hello World UI 및 Fluent Design 테마 확인
-
-**목표**: WPF UI 기반 Hello World 화면 구성 및 Fluent Design 정상 동작 확인
-
-**세부 목표**:
-1. `MainWindow.xaml`에 UI 추가 (TitleBar, TextBlock, Button)
-2. `SystemThemeWatcher` 연동
-3. 윈도우 크기 1200x800, 중앙 배치
-
-**참조 문서 및 섹션**:
-- `docs/windows/technical-specification-server.md` §10.2.2 Fluent Design System 구현
-
-**검증**:
-- [ ] 빌드 성공
-- [ ] 실행 시 윈도우가 중앙에 1200x800 크기로 표시
-- [ ] 타이틀바에 "BridgeOne Server" 표시
-- [ ] "BridgeOne Server - Hello World" 텍스트 표시
-- [ ] 버튼이 Fluent Design 스타일로 렌더링
-- [ ] 시스템 테마 변경 시 앱 테마 자동 전환
-
-## Phase 1 핵심 성과
-
-- 각 플랫폼별 프로젝트 구성 및 Hello World 빌드 성공
-- 각 Phase 완료 즉시 빌드 및 실행 검증 완료
-- 디버깅 환경 정상 동작 확인
-
----
-
-## 다음 단계
-
-Phase 1 완료 후 Phase 2: 통신 안정화로 진행
-
-**Phase 2 목표**: Android ↔ Board ↔ Windows 간 HID/CDC 통신 완전 안정화
-**개발 기간**: 5-6주
-**핵심 목표**: HID 키보드/마우스 입력 + Vendor CDC JSON 쌍방향 통신 완벽 검증
+3. 프로젝트명: "BridgeOne.Server", 위치: `
