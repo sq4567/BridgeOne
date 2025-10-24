@@ -62,12 +62,12 @@ updated: "2025-10-20"
 - `docs/technical-specification.md` §4.1 Android 플랫폼 개요
 
 **검증**:
-- [ ] `src/android/` 디렉터리가 존재함
-- [ ] `src/android/app/build.gradle.kts` 파일이 존재하고 Compose BOM 의존성 포함됨
-- [ ] `minSdk = 24`, `targetSdk = 34` 설정 확인
-- [ ] `MainActivity.kt` 파일이 `com.bridgeone.app` 패키지에 존재함
-- [ ] `AndroidManifest.xml`에 MainActivity가 등록되어 있음
-- [ ] 프로젝트 구조가 표준 Android 프로젝트 구조(`app/src/main/java/`)를 따름
+- [x] `src/android/` 디렉터리가 존재함
+- [x] `src/android/app/build.gradle.kts` 파일이 존재하고 Compose BOM 의존성 포함됨
+- [x] `minSdk = 24`, `targetSdk = 34` 설정 확인
+- [x] `MainActivity.kt` 파일이 `com.bridgeone.app` 패키지에 존재함
+- [x] `AndroidManifest.xml`에 MainActivity가 등록되어 있음
+- [x] 프로젝트 구조가 표준 Android 프로젝트 구조(`app/src/main/java/`)를 따름
 
 ---
 
