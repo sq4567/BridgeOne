@@ -338,43 +338,67 @@ updated: "2025-10-20"
 
 #### Phase 1.2.1: ESP-IDF 설치 검증 및 프로젝트 생성 준비
 
-**목표**: 유저가 수동으로 설치한 ESP-IDF 개발환경의 정상 설치 여부를 검증
+**목표**: 유저가 설치한 ESP-IDF 개발환경의 정상 설치 여부를 검증
 
 **유저 사전 작업** (LLM 실행 전 필수):
-1. ESP-IDF Windows Installer 다운로드 및 설치 (v5.5 이상 권장)
-   - 다운로드: https://github.com/espressif/esp-idf/releases
-   - 최신 안정 버전 권장 (v5.5 이상, TinyUSB Composite 안정성)
-2. 설치 경로: `C:\Espressif\esp-idf` (기본값 권장, 다른 경로 선택 시 경로 메모)
-3. ESP-IDF Tools 자동 설치 선택 (CMake, Ninja, Python 등 체크박스 선택)
-4. 설치 완료 후 PowerShell 재시작
-5. PowerShell에서 `C:\Espressif\esp-idf\export.ps1` 실행하여 환경변수 로드
-   ```powershell
-   # PowerShell 실행 정책 임시 변경 (필요시)
-   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+1. ESP-IDF Tools Installer 다운로드 및 설치
+   - 다운로드: https://dl.espressif.com/dl/esp-idf/?idf=stable (Online Installer 권장)
+   - 온라인 설치 프로그램이 매우 작으며, 설치 중 필요한 종속성만 다운로드함
+   
+2. 설치 경로 선택 (중요한 제약 사항)
+   - **권장 경로**: `%userprofile%\Desktop\esp-idf` 또는 `%userprofile%\esp`
+   - **피해야 할 것**:
+     - 90자 이상의 긴 경로
+     - 공백(space) 포함 경로
+     - 특수문자 또는 한글 포함 경로
+   - 예: ❌ `C:\Program Files\...` (공백 포함), ✅ `C:\Users\YourName\esp-idf`, ✅ `C:\Espressif`
 
-   # ESP-IDF 환경 활성화
-   C:\Espressif\esp-idf\export.ps1
-   ```
+3. 설치 중 옵션 선택
+   - 기본 설정 유지 (CMake, Ninja, Python, OpenOCD 모두 포함)
+   - 설치 완료 후 다음 중 하나 선택:
+     - **"Run ESP-IDF PowerShell Environment"** (PowerShell 사용 권장)
+     - 또는 **"Run ESP-IDF Command Prompt (cmd.exe)"**
+   - 환경변수는 설치 프로그램이 자동으로 설정함 (수동 설정 불필요)
+
+4. 설치 완료 확인
+   - 설치 프로그램이 자동으로 ESP-IDF 환경을 실행한 터미널(PowerShell 또는 CMD) 창이 나타남
+   - 이 터미널 창에서 모든 도구(idf.py, cmake, ninja, python 등)를 사용 가능
 
 **LLM 검증 작업**:
-1. PowerShell에서 `idf.py --version` 명령 실행 (버전 확인)
-2. `$env:IDF_PATH` 환경변수 확인 (설치 경로 확인)
-3. 설치 경로 물리적 존재 확인: `Test-Path "C:\Espressif\esp-idf"`
-4. CMake, Ninja, Python 버전 확인
-5. ESP-IDF 필수 도구 설치 상태 점검 (esptool.py 등)
-6. TinyUSB 컴포넌트 availability 확인
+1. 사용자가 설치한 환경에서 다음 명령어를 순차적으로 실행하고 결과 확인:
+   - `idf.py --version`: ESP-IDF 버전 확인
+   - `$env:IDF_PATH` (PowerShell) 또는 `echo %IDF_PATH%` (CMD): 설치 경로 확인
+   - `cmake --version`: CMake 버전 확인 (3.16 이상)
+   - `ninja --version`: Ninja 버전 확인
+   - `python --version`: Python 버전 확인 (3.9 이상 권장)
+   - `esptool.py --version`: esptool 도구 확인
+
+2. 환경변수 및 경로 검증:
+   - IDF_PATH 환경변수가 올바른 설치 디렉터리를 가리키는지 확인
+   - 설치 경로에 공백이나 특수문자가 없는지 확인
+
+3. 필수 컴포넌트 확인:
+   - `%IDF_PATH%\tools\` 디렉터리에 python, cmake, ninja 등이 존재하는지 확인
 
 **참조 문서 및 섹션**:
+- Espressif 공식 가이드: [Standard Setup of Toolchain for Windows](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/windows-setup.html)
 - `docs/board/esp32s3-code-implementation-guide.md` §7.1 ESP-IDF 설치 및 환경 설정
 
 **검증**:
-- [ ] `idf.py --version` 실행 시 5.1.0 이상 버전 출력
-  - 예상 결과: `ESP-IDF v5.5` 또는 유사
-- [ ] `$env:IDF_PATH` 환경변수 출력 결과가 설치 경로 (예: `C:\Espressif\esp-idf`)
-- [ ] ESP-IDF 설치 경로 존재 확인: `C:\Espressif\esp-idf\export.ps1` 파일 존재
-- [ ] `cmake --version` 3.16 이상, `ninja --version`, `python --version` 3.8 이상 확인
-- [ ] `esptool.py --version` 실행 성공 (ESP-IDF 도구 체인 완성)
-- [ ] 모든 검증 통과 시 "ESP-IDF 개발환경이 정상적으로 설치되었습니다" 메시지 출력
+- [x] `idf.py --version` 실행 시 5.1.0 이상 버전 출력 확인
+  - 확인 결과: `ESP-IDF v5.5.1-dirty` ✅
+- [x] `$env:IDF_PATH` 또는 `%IDF_PATH%` 환경변수가 설치 경로를 올바르게 가리킴 확인
+  - 확인 결과: `C:\Espressif\frameworks\esp-idf-v5.5.1` ✅
+- [x] `cmake --version` 3.16 이상 확인
+  - 확인 결과: cmake version 3.30.2 ✅
+- [x] `ninja --version` 설치 확인 (버전 출력)
+  - 확인 결과: 1.12.1 ✅
+- [x] `python --version` 3.9 이상 확인
+  - 확인 결과: Python 3.11.2 ✅
+- [x] `esptool.py --version` 실행 성공 (ESP-IDF 도구 체인 완성)
+  - 확인 결과: esptool.py v4.10.0 ✅
+- [x] 모든 검증 통과 시 "ESP-IDF 개발환경이 정상적으로 설치되었습니다" 메시지 출력
+  - ✅ **ESP-IDF 개발환경이 정상적으로 설치되었습니다**
 
 ---
 
@@ -519,159 +543,134 @@ idf.py reconfigure
 
 ---
 
-#### Phase 1.2.4: Hello World 빌드 및 ESP32-S3 플래싱
+#### Phase 1.2.4: 빌드 환경 검증 및 하드웨어 통합 테스트
 
-**목표**: 기본 Hello World 펌웨어 빌드 및 ESP32-S3-DevkitC-1에 플래싱
+**목표**: 빌드 시스템이 정상 작동하고, 펌웨어를 ESP32-S3에 성공적으로 플래싱한 후 USB Composite 디바이스가 Windows에서 인식되는지 최종 확인
 
 **세부 목표**:
-1. `main/main.c`에 Hello World 코드 작성 (ESP_LOGI 사용)
-2. `idf.py build` 실행하여 펌웨어 컴파일
-3. USB 연결 후 `idf.py -p COMx flash` 실행 (동적 포트 감지)
-4. `idf.py -p COMx monitor` 실행하여 시리얼 로그 확인
+1. 빌드 환경 정상 작동 검증 (최소 스켈레톤 코드로 빌드 성공 확인)
+2. ESP32-S3에 펌웨어 플래싱 및 정상 부팅 확인
+3. USB Composite 디바이스가 Windows에서 정상 인식되는지 확인
 
-**main.c 코드 예시**:
+**유저 사전 작업** (LLM 실행 전 필수):
+1. USB-C 케이블로 ESP32-S3-DevkitC-1을 PC에 연결
+
+**LLM 검증 작업**:
+1. 빌드 환경 테스트 (최소 스켈레톤 main.c 작성 및 빌드)
+2. COM 포트 자동 감지
+3. 펌웨어 플래싱
+4. 시리얼 모니터로 정상 실행 확인
+5. Windows Device Manager에서 USB 디바이스 인식 확인
+
+**참조 문서**:
+- `docs/board/esp32s3-code-implementation-guide.md` §7 빌드, 플래시, 모니터링
+- `docs/board/esp32s3-code-implementation-guide.md` §1.3 USB Composite 디바이스 설계
+
+---
+
+**Step 1: 최소 스켈레톤 main.c 작성**
+
+프로젝트 디렉터리의 `main/main.c` 파일을 다음과 같이 생성/수정하세요:
+
 ```c
 #include <stdio.h>
-#include "esp_log.h"
-#include "esp_system.h"
-
-static const char* TAG = "BridgeOne";
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 void app_main(void) {
-    ESP_LOGI(TAG, "====================================");
-    ESP_LOGI(TAG, "BridgeOne Board - Hello World!");
-    ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
-    ESP_LOGI(TAG, "Free heap: %ld bytes", esp_get_free_heap_size());
-    ESP_LOGI(TAG, "====================================");
-
-    // 무한 루프 (향후 UART/USB 핸들러 추가)
+    // 빌드 환경 검증용 최소 코드
+    // 실제 기능 구현은 Phase 2 이후에서 수행합니다
     while (1) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
 ```
 
-**실행 단계**:
-```powershell
-# 1. main.c 파일 편집 (위 코드 사용)
+**Step 2: 빌드 실행**
 
-# 2. 프로젝트 빌드
+```powershell
+# 1. 프로젝트 디렉터리로 이동 (필요시)
+cd "F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\bridgeone_board"
+
+# 2. 전체 빌드 (최초)
 idf.py build
 
-# 3. 빌드 결과 확인
-# 기대 결과: "build/bridgeone_board.bin" 생성
+# 또는 증분 빌드 (이전 빌드 기반)
+idf.py build
+```
 
-# 4. ESP32-S3 DevKit USB 연결 (Micro-USB-C)
-# (이 단계에서 일시 중지, 사용자가 보드 연결 대기)
+**Step 3: 플래싱 및 검증**
 
-# 5. 연결된 COM 포트 자동 감지 및 플래싱
+```powershell
+# 1. COM 포트 자동 감지
 $comPort = (Get-WmiObject Win32_SerialPort | Where-Object {$_.Description -match "USB"} | Select-Object -First 1).DeviceID
+
 if ($comPort) {
     Write-Host "감지된 COM 포트: $comPort"
+    
+    # 2. 펌웨어 플래싱
     idf.py -p $comPort flash
+    
+    # 3. 시리얼 모니터 시작 (Ctrl+C로 종료)
+    idf.py -p $comPort monitor
 } else {
     Write-Host "USB 포트를 자동 감지하지 못했습니다. Device Manager에서 확인하세요."
 }
 
-# (또는 수동으로 COM 포트 지정)
-# idf.py -p COM3 flash  # (실제 포트번호로 변경)
-
-# 6. 플래시 완료 후 시리얼 모니터 시작
-idf.py -p $comPort monitor
-# (또는 수동: idf.py -p COM3 monitor)
+# (또는 수동 COM 포트 지정)
+# idf.py -p COM3 flash
+# idf.py -p COM3 monitor
 ```
 
-**참조 문서 및 섹션**:
-- `docs/board/esp32s3-code-implementation-guide.md` §7.3 빌드, 플래시, 모니터링
+**Step 4: Windows Device Manager 확인**
 
-**검증**:
-- [ ] `idf.py build` 실행 성공 (오류 없음)
-- [ ] `build/` 디렉터리에 `bridgeone_board.bin` 생성됨
-- [ ] 플래싱 성공 ("Hash of data verified" 메시지 표시)
-- [ ] 시리얼 모니터에 "BridgeOne Board - Hello World!" 로그 출력
-- [ ] ESP32-S3 정상 동작 확인 (보드의 LED 점멸 또는 로그 출력 지속)
+플래싱 완료 후, Windows Device Manager에서 다음을 확인하세요:
 
----
-
-#### Phase 1.2.4.1: USB 복합 디바이스 인식 확인
-
-**목표**: USB Composite 디바이스가 Windows에서 정상 인식되는지 확인
-
-**세부 목표**:
-1. Device Manager에서 ESP32-S3 Composite 디바이스 확인
-2. 3개의 인터페이스(Keyboard, Mouse, CDC) 표시 확인
-3. VID/PID 정보 기록 (향후 디버깅용)
-
-**실행 단계**:
 ```powershell
-# 1. Device Manager 열기
+# Device Manager 열기
 devmgmt.msc
 
-# (또는 PowerShell로 직접 조회)
-Get-WmiObject Win32_PnPDevice | Where-Object {$_.Description -match "HID|COM"} | Select-Object Description, DeviceID
+# 또는 PowerShell로 HID/COM 디바이스 조회
+Get-PnpDevice | Where-Object {$_.Description -match "HID|COM"} | Format-Table FriendlyName, Status
 ```
 
-**Device Manager 확인 항목**:
-1. **Human Interface Devices** 섹션:
-   - ✅ "BridgeOne USB Keyboard" 또는 "USB Input Device"
-   - ✅ "BridgeOne USB Mouse" 또는 "USB Input Device"
+**검증 체크리스트**:
+- [ ] `idf.py build` 실행 성공 ("BUILD SUCCESSFUL" 메시지 표시)
+- [ ] `build/` 디렉터리에 `bridgeone_board.bin` 파일 생성됨
+- [ ] `idf.py -p COMx flash` 실행 성공 ("Hash of data verified" 메시지 표시)
+- [ ] 시리얼 모니터가 정상 시작 (115200 보드 레이트, 연속 모니터링)
+- [ ] Windows Device Manager에서 HID 디바이스 최소 2개 확인:
+  - ✅ "USB Input Device" (키보드) 또는 "BridgeOne USB Keyboard"
+  - ✅ "USB Input Device" (마우스) 또는 "BridgeOne USB Mouse"
+- [ ] Windows Device Manager에서 COM 포트 1개 확인:
+  - ✅ "USB-to-UART Bridge (COMx)" 또는 유사 항목
+- [ ] 모든 디바이스에 드라이버 오류 없음 (노란색 느낌표 미표시)
+- [ ] 빌드 로그에 ERROR 없음 (WARNING은 허용)
 
-2. **Ports** 섹션:
-   - ✅ "USB-to-UART Bridge (COMx)" 또는 유사 항목
+**에러 및 트러블슈팅**:
 
-3. **오류 확인**:
-   - ❌ 노란색 느낌표(!) 또는 "Unknown Device" 없음
-   - ❌ 드라이버 오류 없음
+| 증상 | 원인 | 해결 방법 |
+|------|------|---------|
+| **"Build failed"** | 컴파일 오류, CMakeLists.txt 오류, 또는 ESP-IDF 도구 부재 | 1. `idf.py fullclean` 실행 후 재빌드<br>2. `idf.py reconfigure` 실행<br>3. Phase 1.2.1 도구 체인 재확인<br>4. Phase 1.2.3 TinyUSB 설정 재확인 |
+| **"CMake not found"** | ESP-IDF 환경 미로드 | 1. PowerShell 재시작<br>2. `C:\Espressif\esp-idf\export.ps1` 재실행<br>3. `cmake --version` 확인 |
+| **"Failed to open COM port"** | COM 포트가 다른 프로그램에서 사용 중 | 1. 다른 시리얼 프로그램 모두 종료<br>2. Device Manager에서 포트 재확인<br>3. 플래싱 재시도 |
+| **"No suitable COM port found"** | USB 케이블 미연결 또는 드라이버 부재 | 1. USB 케이블 재연결<br>2. Device Manager에서 포트 수동 확인<br>3. Espressif CH340/CP210x 드라이버 설치 |
+| **플래싱 후 시리얼 로그 미표시** | 대역폭 설정 오류 또는 부트로더 오류 | 1. `idf.py -p COMx monitor -b 115200` 실행<br>2. 보드 리셋 버튼 누름<br>3. `idf.py -p COMx erase_flash` 후 재플래싱 |
+| **USB 디바이스 미인식** | TinyUSB 설정 누락 (Phase 1.2.3) | 1. Phase 1.2.3 확인: `sdkconfig`에 `CONFIG_TINYUSB=y` 존재 여부<br>2. Windows Update 실행 (HID/COM 드라이버 최신화)<br>3. `idf.py fullclean` 후 완전 재빌드 |
+| **Device Manager에서 "Unknown Device"** | USB 드라이버 부재 | 1. 디바이스 우클릭 → "Update driver"<br>2. "Browse my computer for driver software" 선택<br>3. Windows 기본 드라이버 사용<br>4. 보드 재연결 |
 
-**참조 문서 및 섹션**:
-- `docs/board/esp32s3-code-implementation-guide.md` §0.1 USB Composite 디바이스 구성
+**완료 기준**:
+- ✅ 빌드 성공 및 바이너리 생성
+- ✅ 플래싱 성공 및 보드 정상 부팅
+- ✅ Windows Device Manager에서 USB 디바이스 3개(키보드, 마우스, COM 포트) 모두 인식
+- ✅ 모든 디바이스에 드라이버 오류 없음
 
-**검증**:
-- [ ] Device Manager에서 "BridgeOne" 또는 "USB Composite" 디바이스 표시
-- [ ] 최소 2개 이상의 HID 인터페이스 표시 (Keyboard, Mouse)
-- [ ] 1개의 CDC/COM 포트 표시
-- [ ] 모든 인터페이스에 드라이버 오류 없음
-- [ ] VID/PID 기록:
-  - Keyboard: `VID_XXXX&PID_XXXX`
-  - Mouse: `VID_XXXX&PID_XXXX`
-  - COM Port: `VID_XXXX&PID_XXXX`
+**중요 사항**:
+- 이 Phase는 **개발환경 검증**만 수행합니다.
+- 실제 USB 데이터 통신, HID 입력 처리, Board-App 통신 구현은 **Phase 2 (Communication Stabilization)** 이후에서 수행됩니다.
+- Phase 1.2.3에서 설정한 TinyUSB 구성이 올바르게 작동하는지 확인하는 최종 검증 단계입니다.
 
 ---
 
 ## Phase 1.3: Windows 서버 개발환경 구축
 
-#### Phase 1.3.1: .NET 8 SDK 및 Visual Studio 설치 검증
-
-**목표**: 유저가 수동으로 설치한 .NET 8 SDK 및 Visual Studio 2022의 정상 설치 여부를 검증
-
-**유저 사전 작업** (LLM 실행 전 필수):
-1. .NET 8 SDK (LTS) 다운로드 및 설치
-2. Visual Studio 2022 설치 (Workload: ".NET desktop development", 컴포넌트: "WPF", ".NET 8.0 Runtime")
-3. 시스템 재시작 (권장)
-
-**LLM 검증 작업**:
-1. PowerShell에서 `dotnet --version` 실행
-2. `dotnet --list-sdks` 명령으로 SDK 목록 확인
-3. Visual Studio 설치 경로 확인
-4. WPF 템플릿 사용 가능 확인
-
-**참조 문서 및 섹션**:
-- `docs/windows/technical-specification-server.md` §2.2 기술 스택 선택 원칙
-
-**검증**:
-- [ ] `dotnet --version` 실행 시 8.0.x 출력
-- [ ] `dotnet --list-sdks`에 .NET 8.0.x 표시
-- [ ] Visual Studio 2022 설치 경로 존재
-- [ ] `dotnet new wpf --help` 실행 성공
-- [ ] 모든 검증 통과 시 ".NET 8 개발환경이 정상적으로 설치되었습니다" 메시지 출력
-
----
-
-#### Phase 1.3.2: WPF 프로젝트 생성 및 기본 구조 검증
-
-**목표**: 유저가 수동으로 생성한 WPF 프로젝트의 구조와 설정을 검증
-
-**유저 사전 작업** (LLM 실행 전 필수):
-1. Visual Studio 2022에서 "새 프로젝트 만들기"
-2. 템플릿: "WPF 앱(.NET)" 선택
-3. 프로젝트명: "BridgeOne.Server", 위치: `
