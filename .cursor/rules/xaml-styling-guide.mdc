@@ -1,0 +1,236 @@
+---
+globs: "*.xaml"
+description: XAML styling patterns and component usage based on Fluent Design System
+---
+
+# BridgeOne Windows Server XAML Styling Guide
+
+## Theme Setup Requirements
+
+**Application Resources** (App.xaml):
+```xml
+<Application.Resources>
+    <ui:ThemesDictionary Theme="Dark" />
+    <ui:ControlsDictionary />
+</Application.Resources>
+```
+
+**Window Configuration**:
+```xml
+<ui:FluentWindow x:Class="BridgeOne.Views.MainWindow"
+                 WindowBackdropType="Mica"
+                 ExtendsContentIntoTitleBar="True">
+```
+
+## Color System Implementation
+
+### Semantic Color Usage
+Based on [styleframe-server.md](mdc:docs/styleframe-server.md) §3.2:
+
+```xml
+<!-- Connection Status Colors -->
+<SolidColorBrush x:Key="ConnectedBrush" Color="#10B981" />      <!-- Green-500 -->
+<SolidColorBrush x:Key="ConnectingBrush" Color="#F59E0B" />     <!-- Amber-500 -->
+<SolidColorBrush x:Key="DisconnectedBrush" Color="#6B7280" />   <!-- Gray-500 -->
+<SolidColorBrush x:Key="ErrorBrush" Color="#EF4444" />          <!-- Red-500 -->
+
+<!-- Macro Category Colors -->
+<SolidColorBrush x:Key="ApplicationCategoryBrush" Color="#8B5CF6" /> <!-- Purple-500 -->
+<SolidColorBrush x:Key="SystemCategoryBrush" Color="#06B6D4" />       <!-- Cyan-500 -->
+<SolidColorBrush x:Key="GamingCategoryBrush" Color="#F97316" />        <!-- Orange-500 -->
+<SolidColorBrush x:Key="CustomCategoryBrush" Color="#84CC16" />        <!-- Lime-500 -->
+```
+
+### System Colors
+```xml
+<!-- Use dynamic system accent color -->
+<SolidColorBrush x:Key="SystemAccentBrush" Color="{DynamicResource SystemAccentColor}" />
+```
+
+## Typography Hierarchy
+
+**REQUIRED Usage Patterns**:
+```xml
+<!-- Page Titles -->
+<ui:TextBlock FontTypography="TitleLarge" Text="Macro Manager" />
+
+<!-- Section Headers -->
+<ui:TextBlock FontTypography="Title" Text="Connection Status" />
+
+<!-- Strong Emphasis -->
+<ui:TextBlock FontTypography="BodyStrong" Text="Samsung Galaxy S23 Ultra" />
+
+<!-- Regular Content -->
+<ui:TextBlock FontTypography="Body" Text="Connected successfully with advanced features enabled." />
+
+<!-- Metadata/Timestamps -->
+<ui:TextBlock FontTypography="Caption" Text="Last updated: 2 minutes ago" />
+```
+
+## Icon System Standards
+
+### Icon Sizing Rules
+```xml
+<!-- Button Icons -->
+<ui:SymbolIcon Symbol="Connected24" FontSize="16" />
+
+<!-- Section Headers -->
+<ui:SymbolIcon Symbol="Settings24" FontSize="20" />
+
+<!-- Feature Cards -->
+<ui:SymbolIcon Symbol="Apps24" FontSize="24" />
+
+<!-- Hero Elements -->
+<ui:SymbolIcon Symbol="Home32" FontSize="32" />
+```
+
+### Required Server Icons
+```xml
+<!-- Connection States -->
+Symbol="Connected24"        <!-- Connected status -->
+Symbol="Disconnected24"     <!-- Disconnected status -->
+Symbol="Wifi124"            <!-- Network status -->
+
+<!-- Macro Management -->
+Symbol="Play24"             <!-- Execute macro -->
+Symbol="Stop24"             <!-- Stop execution -->
+Symbol="Edit24"             <!-- Edit macro -->
+Symbol="Record24"           <!-- Record macro -->
+
+<!-- Categories -->
+Symbol="Apps24"             <!-- Application category -->
+Symbol="Settings24"         <!-- System category -->
+Symbol="Games24"            <!-- Gaming category -->
+Symbol="Wrench24"           <!-- Custom category -->
+```
+
+## Layout System Requirements
+
+### Standard Spacing
+```xml
+<!-- Card Layout -->
+<ui:Card Margin="8" Padding="16">
+    <StackPanel Spacing="12">
+        <!-- Content with consistent 12px spacing -->
+    </StackPanel>
+</ui:Card>
+```
+
+### Grid Definitions
+```xml
+<!-- Main Layout Structure -->
+<Grid>
+    <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="280" />    <!-- Sidebar -->
+        <ColumnDefinition Width="*" />      <!-- Main Content -->
+    </Grid.ColumnDefinitions>
+</Grid>
+```
+
+## Required Component Patterns
+
+### Connection Status Card
+```xml
+<ui:Card>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />   <!-- Status Icon -->
+            <ColumnDefinition Width="*" />      <!-- Connection Info -->
+            <ColumnDefinition Width="Auto" />   <!-- Action Button -->
+        </Grid.ColumnDefinitions>
+        
+        <ui:SymbolIcon Grid.Column="0" Symbol="Connected24" 
+                       Foreground="{StaticResource ConnectedBrush}" />
+        <StackPanel Grid.Column="1">
+            <ui:TextBlock FontTypography="BodyStrong" Text="Connected to Android Device" />
+            <ui:TextBlock FontTypography="Caption" Text="Device info and latency" />
+        </StackPanel>
+        <ui:Button Grid.Column="2" Content="Disconnect" />
+    </Grid>
+</ui:Card>
+```
+
+### Macro List Item
+```xml
+<ui:Card Margin="0,4">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />   <!-- Category Indicator -->
+            <ColumnDefinition Width="*" />      <!-- Macro Info -->
+            <ColumnDefinition Width="Auto" />   <!-- Actions -->
+        </Grid.ColumnDefinitions>
+        
+        <!-- Category Color Bar -->
+        <Rectangle Width="4" Height="32" 
+                   Fill="{StaticResource ApplicationCategoryBrush}" />
+        
+        <!-- Macro Information -->
+        <StackPanel Grid.Column="1">
+            <ui:TextBlock FontTypography="BodyStrong" Text="Macro Name" />
+            <ui:TextBlock FontTypography="Caption" Text="Description • Modified date" />
+        </StackPanel>
+        
+        <!-- Action Buttons -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+            <ui:Button Icon="{ui:SymbolIcon Play24}" />
+            <ui:Button Icon="{ui:SymbolIcon Edit24}" />
+        </StackPanel>
+    </Grid>
+</ui:Card>
+```
+
+## Animation Standards
+
+### State Transitions
+```xml
+<ui:Card>
+    <VisualStateManager.VisualStateGroups>
+        <VisualStateGroup x:Name="ConnectionStates">
+            <VisualState x:Name="Connected">
+                <Storyboard>
+                    <ColorAnimation Duration="0:0:0.3" To="#10B981" />
+                </Storyboard>
+            </VisualState>
+        </VisualStateGroup>
+    </VisualStateManager.VisualStateGroups>
+</ui:Card>
+```
+
+### Timing Standards
+- **Fast**: 150ms (hover effects)
+- **Normal**: 300ms (page transitions)  
+- **Slow**: 500ms (complex layout changes)
+
+## Accessibility Requirements
+
+### AutomationProperties
+```xml
+<ui:Button Content="Connect"
+           AutomationProperties.Name="Connect to Android device"
+           AutomationProperties.HelpText="Establishes connection with paired Android device" />
+```
+
+### Focus Management
+- All interactive elements must be keyboard accessible
+- Logical tab order required
+- Clear focus indicators mandatory
+
+## Navigation Structure
+
+### Main Navigation
+```xml
+<ui:NavigationView>
+    <ui:NavigationView.MenuItems>
+        <ui:NavigationViewItem Content="Dashboard" Icon="{ui:SymbolIcon Home24}" />
+        <ui:NavigationViewItem Content="Macro Manager" Icon="{ui:SymbolIcon Apps24}" />
+        <ui:NavigationViewItem Content="Settings" Icon="{ui:SymbolIcon Settings24}" />
+    </ui:NavigationView.MenuItems>
+</ui:NavigationView>
+```
+
+## Validation Rules
+
+- **NEVER** use hardcoded colors - always use resource references
+- **ALWAYS** use ui: prefixed controls from WPF UI library
+- **REQUIRED** proper spacing using standardized values (4, 8, 16, 24, 32, 48px)
+- **MANDATORY** AutomationProperties for all interactive elements

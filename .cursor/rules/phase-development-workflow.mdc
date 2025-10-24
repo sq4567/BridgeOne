@@ -1,0 +1,153 @@
+---
+alwaysApply: true
+description: BridgeOne 프로젝트 페이즈별 개발 진행 및 검증 워크플로우 가이드
+---
+
+# Phase 개발 진행 워크플로우
+
+## Phase 구조 이해
+
+각 Phase는 [development-plan.md](mdc:docs/development-plan.md) 또는 `docs/development-plans/` 디렉터리의 상세 문서에 정의되어 있습니다.
+
+### Phase 명명 규칙
+
+- **Phase X**: 최상위 Phase (예: Phase 1, Phase 2)
+- **Phase X.Y**: 중간 Phase (예: Phase 1.1, Phase 2.3)
+- **Phase X.Y.Z**: 하위 Phase (예: Phase 1.1.1, Phase 2.1.5)
+- **Phase X.통합검증**: 통합 검증이 필요한 경우 (예외적)
+
+### Phase 문서 위치
+
+- Phase 1: [phase-1-development-environment.md](mdc:docs/development-plans/phase-1-development-environment.md)
+- Phase 2: [phase-2-communication-stabilization.md](mdc:docs/development-plans/phase-2-communication-stabilization.md)
+- 전체 개요: [development-plan.md](mdc:docs/development-plan.md)
+
+## Phase 진행 절차
+
+### 1. Phase 선택 및 문서 읽기
+
+각 Phase를 시작하기 전 다음 정보를 확인:
+
+- **목표**: Phase의 핵심 목표
+- **세부 목표**: 구현해야 할 구체적 기능들
+- **유저 사전 작업**: LLM 실행 전 사용자가 수행해야 할 작업
+- **LLM 검증 작업**: AI가 수행할 작업
+- **참조 문서**: 관련 기술 문서
+- **검증**: 완료 조건 체크리스트
+
+### 2. 유저 사전 작업 확인
+
+Phase 문서에 "유저 사전 작업"이 명시된 경우:
+- 사용자에게 명확히 안내
+- 작업 완료 여부 확인 요청
+- 완료 후 진행
+
+### 3. LLM 작업 수행
+
+다음 순서로 작업:
+1. 검증 작업 실행 (파일 존재, 설정 확인 등)
+2. 구현 파일 생성/수정
+3. 참조 문서 확인
+4. 검증 체크리스트 확인
+
+### 4. 검증 수행
+
+각 Phase의 "검증" 섹션에 있는 체크리스트 항목들을 순차적으로 확인하고 체크:
+
+```markdown
+- [ ] 항목 1 확인
+- [ ] 항목 2 확인
+- [ ] 항목 3 확인
+```
+
+**체크리스트 체크 절차**:
+1. 각 검증 항목에 대해 실제로 확인 작업 수행
+2. 확인 완료 시 해당 Phase 문서에서 체크리스트를 `- [ ]`에서 `- [x]`로 변경
+3. 모든 체크리스트 항목을 `- [x]`로 변경한 후 Phase 완료 처리
+
+**중요**: 
+- 모든 체크리스트 항목이 체크(`- [x]`)되어야 Phase 완료로 간주합니다.
+- 체크리스트는 Phase 문서에 직접 표시하므로 실제로 파일을 수정해야 합니다.
+
+### 5. Phase 완료 문서화
+
+Phase 완료 시:
+- 검증 결과 요약 제공
+- 커밋 메시지 제안 (커밋은 사용자가 직접 수행)
+- 다음 Phase로 진행 가능 여부 확인
+
+**중요**: 
+- LLM은 커밋을 직접 수행하지 않습니다. 커밋은 사용자가 직접 수행합니다.
+- LLM은 검증 결과 요약만 수행합니다.
+
+## Phase 진행 예시
+
+### Phase 1.1.1 진행 순서
+
+1. **문서 확인**: [phase-1-development-environment.md](mdc:docs/development-plans/phase-1-development-environment.md) §Phase 1.1.1 읽기
+2. **유저 사전 작업 안내**: Android Studio 프로젝트 생성 요청
+3. **검증 작업**: 
+   - `src/android/` 디렉터리 존재 확인
+   - `app/build.gradle.kts` 파일 읽기
+   - 필수 설정 검증
+4. **검증 체크리스트 확인 및 체크**:
+   - [x] `src/android/` 디렉터리 존재 ✓ (실제 확인 후 체크)
+   - [x] Compose BOM 의존성 포함 ✓ (파일 확인 후 체크)
+   - [x] `minSdk = 21`, `targetSdk = 34` 설정 확인 ✓ (설정 확인 후 체크)
+   - ...
+5. **Phase 문서에 체크리스트 업데이트**: 모든 `- [ ]`를 `- [x]`로 변경
+6. **검증 결과 요약 및 커밋 메시지 제안**
+7. **사용자가 커밋 수행 후 Phase 완료**
+
+## 검증 전략
+
+### 기본 원칙
+- 각 하위 Phase 개발 완료 즉시 해당 내용을 바로 검증
+- 예외: 여러 하위 Phase를 모아서 통합 검증이 더 효율적인 경우에만 별도 통합 검증 Phase 추가
+
+### 검증 방법
+- 코드 검증: 파일 존재, 설정 확인, 빌드 성공
+- 런타임 검증: 앱 실행, 기능 동작 확인
+- 통합 검증: End-to-End 테스트
+- 성능 검증: 지연시간, 처리량 측정
+
+## Phase 문서 작성 원칙
+
+사용자 지정: Phase 문서 작성 시 다음 구조를 따르세요:
+
+```markdown
+#### Phase X.Y.Z: Phase 제목
+
+**목표**: Phase의 핵심 목표 설명
+
+**유저 사전 작업** (LLM 실행 전 필수):
+1. 작업 1
+2. 작업 2
+
+**LLM 검증 작업**:
+1. 검증 항목 1
+2. 검증 항목 2
+
+**참조 문서 및 섹션**:
+- 참조 문서 섹션 1
+- 참조 문서 섹션 2
+
+**검증**:
+- [ ] 검증 항목 1
+- [ ] 검증 항목 2
+```
+
+## 다음 Phase로 진행
+
+Phase 완료 후:
+1. 현재 Phase의 검증 체크리스트 모두 완료 확인
+2. 핵심 성과 문서화
+3. 다음 Phase 문서 확인
+4. 연속 진행 가능 여부 판단
+
+## 참고사항
+
+- Phase 순서를 엄격히 준수하세요
+- 각 Phase는 독립적으로 검증 가능해야 합니다
+- 통합 검증 Phase는 명시된 경우에만 사용합니다
+- 검증 실패 시 원인 분석 후 재시도

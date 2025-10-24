@@ -1,0 +1,1 @@
+Before solving, call MCP Context7.search to fetch ≥3 official sources (min_sources=3, include_snippets=true; prefer vendor/standards; exclude forums/blogs/LLM). Cross-check key claims across ≥2 sources. Do not expose snippets/logs.

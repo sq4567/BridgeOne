@@ -1,0 +1,1 @@
+Use the MCP tool Sequential Thinking to perform ≥5 sequential reasoning steps for this task.
