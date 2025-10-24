@@ -1,4 +1,4 @@
----
+﻿---
 title: "BridgeOne Phase 1: 개발환경 설정"
 description: "BridgeOne 프로젝트 Phase 1 - Android, ESP32-S3, Windows 서버 개발환경 구축 및 초기 설정 (1-2주)"
 tags: ["android", "esp32-s3", "devkitc-1", "windows", "development", "environment", "setup", "vibe-coding"]
@@ -533,13 +533,13 @@ idf.py reconfigure
 - `docs/board/esp32s3-code-implementation-guide.md` §0 USB Composite 디바이스 설계 계약 (프로토콜 명세)
 
 **검증**:
-- [ ] `sdkconfig` 파일에 `CONFIG_TINYUSB=y` 존재
-- [ ] `sdkconfig`에 `CONFIG_TINYUSB_HID_ENABLED=y`, `CONFIG_TINYUSB_CDC_ENABLED=y` 존재
-- [ ] `CONFIG_UART_ISR_IN_IRAM=y`, `CONFIG_FREERTOS_HZ=1000` 확인
-- [ ] `CONFIG_TINYUSB_HID_COUNT=2` (Keyboard + Mouse)
-- [ ] `CONFIG_TINYUSB_CDC_COUNT=1` (Vendor CDC)
-- [ ] `sdkconfig.defaults`에 모든 설정 백업됨
-- [ ] `idf.py reconfigure` 실행 성공 (오류 없음)
+- [x] `sdkconfig` 파일에 `CONFIG_TINYUSB=y` 존재
+- [x] `sdkconfig`에 `CONFIG_TINYUSB_HID_ENABLED=y`, `CONFIG_TINYUSB_CDC_ENABLED=y` 존재
+- [x] `CONFIG_UART_ISR_IN_IRAM=y`, `CONFIG_FREERTOS_HZ=1000` 확인
+- [x] `CONFIG_TINYUSB_HID_COUNT=2` (Keyboard + Mouse)
+- [x] `CONFIG_TINYUSB_CDC_COUNT=1` (Vendor CDC)
+- [x] `sdkconfig.defaults`에 모든 설정 백업됨
+- [x] `idf.py reconfigure` 실행 성공 (오류 없음)
 
 ---
 
