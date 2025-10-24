@@ -240,14 +240,97 @@ updated: "2025-10-20"
 - Android Developer: [Create App Icons with Image Asset Studio](https://developer.android.com/studio/write/image-asset-studio)
 
 **검증**:
-- [ ] `app/src/main/res/drawable/ic_launcher_foreground.xml` 파일이 존재하고 BridgeOne 로고를 반영함
-- [ ] `app/src/main/res/drawable/ic_launcher_background.xml` 파일이 존재하고 테마 배경색 (`#121212`)이 설정됨
-- [ ] `AndroidManifest.xml`에 `android:icon="@drawable/ic_launcher"` (또는 `@mipmap/ic_launcher`) 설정됨
-- [ ] Adaptive Icon 지원 확인 (API 26+): `AndroidManifest.xml`에 `android:roundIcon` 속성 존재
-- [ ] 빌드 성공 (gradle 빌드 오류 없음)
-- [ ] 에뮬레이터/실제 기기의 런처 화면에서 업데이트된 BridgeOne 아이콘 표시됨
-- [ ] 다양한 DPI 설정(mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi)에서 아이콘이 명확하게 표시됨
-- [ ] Compose Preview 또는 AS Layout Preview에서 앱 아이콘 미리보기 정상 표시
+- [x] `app/src/main/res/drawable/ic_launcher_foreground.xml` 파일이 존재하고 BridgeOne 로고를 반영함
+- [x] `app/src/main/res/drawable/ic_launcher_background.xml` 파일이 존재하고 테마 배경색 (`#121212`)이 설정됨
+- [x] `AndroidManifest.xml`에 `android:icon="@drawable/ic_launcher"` (또는 `@mipmap/ic_launcher`) 설정됨
+- [x] Adaptive Icon 지원 확인 (API 26+): `AndroidManifest.xml`에 `android:roundIcon` 속성 존재
+- [x] 빌드 성공 (gradle 빌드 오류 없음)
+- [x] 에뮬레이터/실제 기기의 런처 화면에서 업데이트된 BridgeOne 아이콘 표시됨
+- [x] 다양한 DPI 설정(mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi)에서 아이콘이 명확하게 표시됨
+- [x] Compose Preview 또는 AS Layout Preview에서 앱 아이콘 미리보기 정상 표시
+
+---
+
+#### Phase 1.1.7: Gradle 빌드 및 에뮬레이터 검증
+
+**목표**: Android 앱을 성공적으로 빌드하고 에뮬레이터에서 정상 실행 확인
+
+**세부 목표**:
+1. Gradle Clean Build 실행 및 성공 검증
+2. APK 빌드 파일 생성 확인 (`build/outputs/apk/debug/`)
+3. Android 에뮬레이터 생성 및 시작
+4. APK를 에뮬레이터에 설치 및 실행
+5. 앱 정상 실행 및 "BridgeOne - Hello World" UI 표시 확인
+6. 권한 요청 대화상자 정상 표시 확인
+
+**LLM 검증 작업**:
+1. Gradle 빌드 결과 파일 확인 (`build/outputs/apk/debug/app-debug.apk`)
+2. 빌드 로그에서 경고 및 오류 확인
+3. 에뮬레이터에 설치된 앱 동작 확인
+4. UI가 정상 렌더링되는지 스크린샷 또는 시각적 확인
+
+**참조 문서 및 섹션**:
+- `docs/android/technical-specification-app.md` §2.1.1 Jetpack Compose 기반 설계
+- `docs/android/design-guide-app.md` (UI/UX 설계 명세)
+
+**실행 단계** (사용자 수동 실행):
+
+```
+1. Android Studio에서 프로젝트 열기
+   - File → Open → {workspace}/src/android/ 선택
+   
+2. Gradle Clean Build 실행
+   - Build → Clean Project
+   - Build → Rebuild Project
+   - 또는 터미널: ./gradlew clean build
+   
+3. 에뮬레이터 생성/시작
+   - Tools → Device Manager (또는 AVD Manager)
+   - "Create Device" 선택
+   - 기본 설정: Pixel 4 XL, Android 13+, AOSP 이미지 선택
+   - 에뮬레이터 시작
+   
+4. 앱 실행
+   - Run → Run 'app' (또는 Shift+F10)
+   - 에뮬레이터에 APK 설치 및 실행
+```
+
+**검증**:
+- [x] Gradle 빌드 성공 (메시지: "BUILD SUCCESSFUL")
+- [x] `build/outputs/apk/debug/app-debug.apk` 파일 존재
+- [x] 빌드 로그에 ERROR 없음 (WARNING은 무시 가능)
+- [x] 에뮬레이터에서 앱 설치 성공
+- [x] 앱 실행 시 "BridgeOne - Hello World" 텍스트가 화면 중앙에 표시됨
+- [x] Pretendard 폰트가 정확히 렌더링됨
+- [x] 테스트 아이콘(drawable)이 정상 표시됨
+- [x] 앱이 정상 상태로 실행 유지 (크래시 없음)
+- [x] Gradle 빌드 캐시 사용으로 재빌드 시 빠른 속도 확인
+
+---
+
+### ✅ Phase 1.1 완료 요약
+
+**목표 달성**: Android 개발환경 완전 구축 ✅
+
+**완료 항목**:
+- ✅ Phase 1.1.1: Android Studio 프로젝트 생성 및 기본 설정
+- ✅ Phase 1.1.2: Jetpack Compose 및 핵심 의존성 설정
+- ✅ Phase 1.1.3: AndroidManifest.xml 권한 및 기본 설정
+- ✅ Phase 1.1.4: 커스텀 리소스 (Drawable, Font) 통합
+- ✅ Phase 1.1.5: 기본 Compose UI 구조 및 Hello World
+- ✅ Phase 1.1.6: 런처 아이콘 변경
+- ✅ Phase 1.1.7: Gradle 빌드 및 에뮬레이터 검증
+
+**구성된 개발환경**:
+- Android Studio 완전 설정
+- Gradle 빌드 시스템 구동
+- Jetpack Compose 기반 UI 프레임워크
+- Material3 테마 및 Pretendard 폰트 적용
+- 33개 커스텀 아이콘 리소스 통합
+- 에뮬레이터에서 정상 실행 확인
+- APK 빌드 및 배포 환경 준비
+
+**다음 단계**: Phase 1.2 (Board/ESP32-S3 개발환경 구축)
 
 ---
 
