@@ -151,15 +151,15 @@ updated: "2025-10-20"
 - `resources/font/` 디렉터리 (소스 폰트 파일)
 
 **검증**:
-- [ ] `app/src/main/res/drawable/` 디렉터리에 33개 아이콘 파일 모두 존재
-- [ ] `app/src/main/res/font/` 디렉터리에 9개 Pretendard 폰트 파일 모두 존재
-- [ ] `app/src/main/res/font/pretendard.xml` Font Family 파일 생성됨
-- [ ] Android Studio에서 drawable 리소스 미리보기 정상 표시 (Vector Asset Studio)
-- [ ] Kotlin 코드에서 `R.drawable.ic_touchpad` 등 리소스 ID 정상 인식됨
-- [ ] Kotlin 코드에서 `R.font.pretendard` 또는 `R.font.pretendard_medium` 등 폰트 리소스 정상 인식됨
-- [ ] 빌드 시 리소스 관련 오류 없음
-- [ ] Compose Preview에서 `painterResource(R.drawable.ic_touchpad)` 정상 렌더링됨
-- [ ] Compose에서 `FontFamily(Font(R.font.pretendard_medium))` 정상 적용됨
+- [x] `app/src/main/res/drawable/` 디렉터리에 33개 아이콘 파일 모두 존재
+- [x] `app/src/main/res/font/` 디렉터리에 9개 Pretendard 폰트 파일 모두 존재
+- [x] `app/src/main/res/font/pretendard.xml` Font Family 파일 생성됨
+- [x] Android Studio에서 drawable 리소스 미리보기 정상 표시 (Vector Asset Studio)
+- [x] Kotlin 코드에서 `R.drawable.ic_touchpad` 등 리소스 ID 정상 인식됨
+- [x] Kotlin 코드에서 `R.font.pretendard` 또는 `R.font.pretendard_medium` 등 폰트 리소스 정상 인식됨
+- [x] 빌드 시 리소스 관련 오류 없음
+- [x] Compose Preview에서 `painterResource(R.drawable.ic_touchpad)` 정상 렌더링됨
+- [x] Compose에서 `FontFamily(Font(R.font.pretendard_medium))` 정상 적용됨
 
 ---
 
