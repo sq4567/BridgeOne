@@ -734,14 +734,14 @@ Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table Frie
 - `docs/technical-specification.md` §3 시스템 아키텍처
 
 **검증**:
-- [ ] `src/windows/BridgeOne/` 디렉터리가 존재함
-- [ ] `BridgeOne.csproj` 파일이 존재하고 `<TargetFramework>net8.0-windows</TargetFramework>` 설정됨
-- [ ] `<OutputType>WinExe</OutputType>` 설정 확인
-- [ ] `<UseWPF>true</UseWPF>` 설정 확인
-- [ ] `App.xaml` 및 `App.xaml.cs` 파일이 존재함
-- [ ] `MainWindow.xaml` 및 `MainWindow.xaml.cs` 파일이 존재함
-- [ ] 솔루션 파일 `BridgeOne.sln`이 프로젝트 루트에 존재함
-- [ ] 프로젝트 구조가 표준 WPF 프로젝트 구조를 따름 (Properties, bin, obj 디렉터리)
+- [x] `src/windows/BridgeOne/` 디렉터리가 존재함
+- [x] `BridgeOne.csproj` 파일이 존재하고 `<TargetFramework>net8.0-windows</TargetFramework>` 설정됨
+- [x] `<OutputType>WinExe</OutputType>` 설정 확인
+- [x] `<UseWPF>true</UseWPF>` 설정 확인
+- [x] `App.xaml` 및 `App.xaml.cs` 파일이 존재함
+- [x] `MainWindow.xaml` 및 `MainWindow.xaml.cs` 파일이 존재함
+- [x] 솔루션 파일 `BridgeOne.sln`이 프로젝트 루트에 존재함
+- [x] 프로젝트 구조가 표준 WPF 프로젝트 구조를 따름 (Properties, bin, obj 디렉터리)
 
 ---
 
