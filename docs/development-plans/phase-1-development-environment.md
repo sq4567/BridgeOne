@@ -750,7 +750,7 @@ Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table Frie
 **목표**: WPF UI (lepoco/wpfui) 라이브러리 및 필수 NuGet 패키지 추가 및 버전 관리 설정
 
 **세부 목표**:
-1. WPF UI NuGet 패키지 설치 (권장 버전: 3.0.0 이상)
+1. WPF UI NuGet 패키지 설치
 2. 추가 필수 패키지 설치:
    - `System.Text.Json` (JSON 처리)
    - `CommunityToolkit.Mvvm` (MVVM 패턴 지원)
@@ -764,7 +764,7 @@ Visual Studio 2022에서:
 1. 솔루션 탐색기에서 "BridgeOne" 프로젝트 우클릭
 2. "NuGet 패키지 관리..." 선택
 3. "찾아보기" 탭에서 다음 패키지 검색 및 설치:
-   - WPF-UI (또는 Wpf.Ui) - 최신 안정 버전 (3.0.0+)
+   - WPF-UI (또는 Wpf.Ui) - 최신 안정 버전 (4.0.0+)
    - System.Text.Json - 최신 안정 버전
    - CommunityToolkit.Mvvm - 최신 안정 버전
    - Microsoft.Extensions.DependencyInjection - 최신 안정 버전
@@ -777,12 +777,17 @@ Visual Studio 2022에서:
 - `docs/windows/design-guide-server.md` §1.3 Windows 11 Fluent Design 적용
 
 **검증**:
-- [ ] NuGet 패키지 복원 성공 (모든 의존성 다운로드 완료)
-- [ ] `BridgeOne.csproj` 파일에 `<PackageReference Include="WPF-UI" Version="3.x.x" />` 또는 유사 항목 존재
-- [ ] `System.Text.Json`, `CommunityToolkit.Mvvm`, `Microsoft.Extensions.DependencyInjection` 패키지 참조 확인
-- [ ] Visual Studio "참조" 노드에서 설치된 패키지 확인 가능
-- [ ] 빌드 시 NuGet 패키지 관련 오류 없음
-- [ ] 패키지 복원 로그에 ERROR 없음 (WARNING은 무시 가능)
+- [x] NuGet 패키지 복원 성공 (모든 의존성 다운로드 완료)
+- [x] `BridgeOne.csproj` 파일에 `<PackageReference Include="WPF-UI" Version="4.0.3" />` 또는 유사 항목 존재
+- [x] `System.Text.Json`, `CommunityToolkit.Mvvm`, `Microsoft.Extensions.DependencyInjection` 패키지 참조 확인
+- [x] Visual Studio "참조" 노드에서 설치된 패키지 확인 가능
+- [x] 빌드 시 NuGet 패키지 관련 오류 없음
+- [x] 패키지 복원 로그에 ERROR 없음 (WARNING은 무시 가능)
+
+**계획 대비 변경사항**:
+- **WPF-UI 버전 상향**: v3.0.0+ → v4.0.3
+  - **이유**: 최신 버전인 v4.0.3이 보안 패치, 버그 수정, 성능 최적화, Windows 11 Fluent Design 최신 사항을 포함하고 있어, 프로젝트의 안정성과 효율성을 높이기 위해 최신 버전 적용
+  - **영향**: 더 많은 기능과 개선사항을 활용 가능하며, 장기 유지보수 측면에서 유리
 
 ---
 

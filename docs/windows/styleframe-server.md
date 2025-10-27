@@ -2,9 +2,9 @@
 title: "BridgeOne Windows 서버 스타일프레임"
 description: "Windows 서버 프로그램의 시각적 디자인 시스템 및 UI 컴포넌트 스타일 가이드"
 tags: ["windows-server", "fluent-design", "wpf-ui", "style", "components"]
-version: "v0.2"
+version: "v0.7"
 owner: "Chatterbones"
-updated: "2025-09-19"
+updated: "2025-10-27"
 note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값으로, 확정된 고정값이 아님"
 ---
 
@@ -825,5 +825,3 @@ Phase 6 (텍스트 등장): 600ms
 - 현재 테마 상태 조회 (Dark/Light)
 - 테마 전환 로직: Dark ↔ Light
 - 애플리케이션 테마 관리자를 통한 적용
-
-> **참고**: 구체적인 구현 방법, API 사용법, 코드 예제는 `.cursor/rules/` 디렉터리의 구현 가이드 문서를 참조하세요.
