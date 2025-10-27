@@ -996,15 +996,15 @@ namespace BridgeOne
 ```
 
 **검증**:
-- [ ] 솔루션 빌드 성공 (메시지: "빌드: 1개 성공..." 표시)
-- [ ] `bin/Debug/net8.0-windows/BridgeOne.exe` 파일 존재
-- [ ] 빌드 로그에 ERROR 없음 (WARNING은 무시 가능)
-- [ ] 애플리케이션 실행 시 "BridgeOne - Hello World" 텍스트가 창 중앙에 표시됨
-- [ ] Fluent Design 스타일이 정확히 적용됨 (다크 테마, Mica 배경)
-- [ ] 창 조작 기능 정상 동작 (최소화, 최대화, 닫기 버튼)
-- [ ] 애플리케이션이 정상 상태로 실행 유지 (크래시 없음)
-- [ ] Visual Studio 출력 창에 실행 관련 오류 없음
-- [ ] 빌드 캐시 사용으로 재빌드 시 빠른 속도 확인 (증분 빌드 작동)
+- [x] 솔루션 빌드 성공 (메시지: "빌드: 1개 성공..." 표시)
+- [x] `bin/Debug/net8.0-windows/BridgeOne.exe` 파일 존재
+- [x] 빌드 로그에 ERROR 없음 (WARNING은 무시 가능)
+- [x] 애플리케이션 실행 시 "BridgeOne - Hello World" 텍스트가 창 중앙에 표시됨
+- [x] Fluent Design 스타일이 정확히 적용됨 (다크 테마, Mica 배경)
+- [x] 창 조작 기능 정상 동작 (최소화, 최대화, 닫기 버튼)
+- [x] 애플리케이션이 정상 상태로 실행 유지 (크래시 없음)
+- [x] Visual Studio 출력 창에 실행 관련 오류 없음
+- [x] 빌드 캐시 사용으로 재빌드 시 빠른 속도 확인 (증분 빌드 작동)
 
 ---
 

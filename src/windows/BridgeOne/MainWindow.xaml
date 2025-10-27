@@ -7,13 +7,118 @@
                 xmlns:local="clr-namespace:BridgeOne"
                 mc:Ignorable="d"
                 Title="BridgeOne" Height="450" Width="800"
-                WindowStartupLocation="CenterScreen">
-    <Grid>
-        <TextBlock Text="BridgeOne - Hello World"
-                   FontSize="28"
-                   FontWeight="SemiBold"
-                   Foreground="#FFFFFF"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center" />
-    </Grid>
+                WindowStartupLocation="CenterScreen"
+                ExtendsContentIntoTitleBar="True"
+                WindowBackdropType="Mica">
+    <DockPanel Background="Transparent">
+        <!-- 커스텀 타이틀 바 -->
+        <Grid DockPanel.Dock="Top" Height="40" Background="Transparent" MouseDown="TitleBar_MouseDown">
+            <!-- 타이틀 텍스트 -->
+            <TextBlock Text="BridgeOne"
+                       FontSize="14"
+                       FontWeight="SemiBold"
+                       Foreground="#FFFFFF"
+                       VerticalAlignment="Center"
+                       Margin="12,0,0,0" />
+            
+            <!-- 버튼 영역 -->
+            <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal" Margin="0,0,8,0">
+                <!-- 최소화 버튼 -->
+                <Button Name="MinimizeButton" 
+                        Width="40" Height="40" 
+                        Background="Transparent" 
+                        BorderThickness="0"
+                        Click="MinimizeButton_Click"
+                        Cursor="Hand">
+                    <TextBlock Text="−" FontSize="18" Foreground="#FFFFFF" FontWeight="Bold" />
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#1A1A1A" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                
+                <!-- 최대화 버튼 -->
+                <Button Name="MaximizeButton" 
+                        Width="40" Height="40" 
+                        Background="Transparent" 
+                        BorderThickness="0"
+                        Click="MaximizeButton_Click"
+                        Cursor="Hand"
+                        Margin="4,0,0,0">
+                    <TextBlock Name="MaximizeIcon" Text="☐" FontSize="14" Foreground="#FFFFFF" FontWeight="Bold" />
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#1A1A1A" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                
+                <!-- 종료 버튼 -->
+                <Button Name="CloseButton" 
+                        Width="40" Height="40" 
+                        Background="Transparent" 
+                        BorderThickness="0"
+                        Click="CloseButton_Click"
+                        Cursor="Hand"
+                        Margin="4,0,0,0">
+                    <TextBlock Text="✕" FontSize="16" Foreground="#FFFFFF" FontWeight="Bold" />
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#C60000" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </StackPanel>
+        </Grid>
+        
+        <!-- 메인 컨텐츠 영역 -->
+        <Grid Background="Transparent">
+            <TextBlock Text="BridgeOne - Hello World"
+                       FontSize="28"
+                       FontWeight="SemiBold"
+                       Foreground="#FFFFFF"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+        </Grid>
+    </DockPanel>
 </ui:FluentWindow>
