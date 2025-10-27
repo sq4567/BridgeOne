@@ -663,21 +663,21 @@ Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table Frie
 ```
 
 **검증 체크리스트**:
-- [ ] `idf.py build` 실행 성공 ("BUILD SUCCESSFUL" 메시지 표시)
-- [ ] `build/` 디렉터리에 `BridgeOne.bin` 파일 생성됨
-- [ ] Build 로그에서 Flash 크기 16MB로 인식됨 ("Detected flash size: 16MB")
-- [ ] Build 로그에서 PSRAM 활성화 확인 ("PSRAM initialized, size: 8MB")
-- [ ] `idf.py -p COMx flash` 실행 성공 ("Hash of data verified" 메시지 표시)
-- [ ] 시리얼 모니터가 정상 시작 (115200 보드 레이트, 연속 모니터링)
-- [ ] 시리얼 로그에서 "BridgeOne Board - Environment Setup Complete" 메시지 확인
-- [ ] 시리얼 로그에서 "ESP32-S3-N16R8: 16MB Flash, 8MB PSRAM" 메시지 확인
-- [ ] Windows Device Manager에서 HID 디바이스 최소 2개 확인:
+- [x] `idf.py build` 실행 성공 ("BUILD SUCCESSFUL" 메시지 표시)
+- [x] `build/` 디렉터리에 `BridgeOne.bin` 파일 생성됨
+- [x] Build 로그에서 Flash 크기 16MB로 인식됨 ("Detected flash size: 16MB")
+- [x] Build 로그에서 PSRAM 활성화 확인 ("PSRAM initialized, size: 8MB")
+- [x] `idf.py -p COMx flash` 실행 성공 ("Hash of data verified" 메시지 표시)
+- [x] 시리얼 모니터가 정상 시작 (115200 보드 레이트, 연속 모니터링)
+- [x] 시리얼 로그에서 "BridgeOne Board - Environment Setup Complete" 메시지 확인
+- [x] 시리얼 로그에서 "ESP32-S3-N16R8: 16MB Flash, 8MB PSRAM" 메시지 확인
+- [x] Windows Device Manager에서 HID 디바이스 최소 2개 확인:
   - ✅ "USB Input Device" (키보드) 또는 "BridgeOne USB Keyboard"
   - ✅ "USB Input Device" (마우스) 또는 "BridgeOne USB Mouse"
-- [ ] Windows Device Manager에서 COM 포트 1개 확인:
+- [x] Windows Device Manager에서 COM 포트 1개 확인:
   - ✅ "USB-to-UART Bridge (COMx)" 또는 유사 항목
-- [ ] 모든 디바이스에 드라이버 오류 없음 (노란색 느낌표 미표시)
-- [ ] 빌드 로그에 ERROR 없음 (WARNING은 허용)
+- [x] 모든 디바이스에 드라이버 오류 없음 (노란색 느낌표 미 표시)
+- [x] 빌드 로그에 ERROR 없음 (WARNING은 허용)
 
 **에러 및 트러블슈팅**:
 
