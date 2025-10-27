@@ -912,15 +912,15 @@ namespace BridgeOne
 - `resources/ico/` 디렉터리 (소스 아이콘 파일)
 
 **검증**:
-- [ ] `src/windows/BridgeOne/Resources/` 디렉터리가 존재함
-- [ ] `Resources/BridgeOne-Connecting.ico` 파일 존재
-- [ ] `Resources/BridgeOne-Disconnected.ico` 파일 존재
-- [ ] `Resources/BridgeOne-Error.ico` 파일 존재
-- [ ] `Resources/BridgeOne-Success.ico` 파일 존재
-- [ ] `BridgeOne.csproj`에 `<Resource Include="Resources\BridgeOne-*.ico" />` 항목 존재
-- [ ] 각 아이콘 파일이 멀티 해상도 .ico 형식임 (16x16, 32x32, 48x48, 256x256)
-- [ ] Visual Studio 솔루션 탐색기에서 "Resources" 폴더 및 아이콘 파일 표시됨
-- [ ] 빌드 시 리소스 관련 오류 없음
+- [x] `src/windows/BridgeOne/Resources/` 디렉터리가 존재함
+- [x] `Resources/BridgeOne-Connecting.ico` 파일 존재
+- [x] `Resources/BridgeOne-Disconnected.ico` 파일 존재
+- [x] `Resources/BridgeOne-Error.ico` 파일 존재
+- [x] `Resources/BridgeOne-Success.ico` 파일 존재
+- [x] `BridgeOne.csproj`에 `<Resource Include="Resources\BridgeOne-*.ico" />` 항목 존재
+- [x] 각 아이콘 파일이 멀티 해상도 .ico 형식임 (16x16, 32x32, 48x48, 256x256)
+- [x] Visual Studio 솔루션 탐색기에서 "Resources" 폴더 및 아이콘 파일 표시됨
+- [x] 빌드 시 리소스 관련 오류 없음
 
 ---
 

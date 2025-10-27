@@ -15,4 +15,11 @@
     <PackageReference Include="WPF-UI" Version="4.0.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Resource Include="Resources\BridgeOne-Connecting.ico" />
+    <Resource Include="Resources\BridgeOne-Disconnected.ico" />
+    <Resource Include="Resources\BridgeOne-Error.ico" />
+    <Resource Include="Resources\BridgeOne-Success.ico" />
+  </ItemGroup>
+
 </Project>
