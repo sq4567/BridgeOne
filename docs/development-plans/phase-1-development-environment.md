@@ -869,14 +869,14 @@ namespace BridgeOne
 - `docs/windows/design-guide-server.md` §2 색상 시스템
 
 **검증**:
-- [ ] 프로젝트 빌드 성공 (오류 없음)
-- [ ] 애플리케이션 실행 시 "BridgeOne - Hello World" 텍스트가 창 중앙에 표시됨
-- [ ] 다크 테마가 적용되어 배경이 어두운 색상임
-- [ ] Mica 배경 효과가 적용됨 (Windows 11에서 반투명 배경 확인)
-- [ ] SystemThemeWatcher가 정상 작동함 (Windows 테마 변경 시 앱 테마도 변경)
-- [ ] 창 제목이 "BridgeOne"으로 표시됨
-- [ ] Fluent Design 스타일이 적용됨 (모던한 Windows 11 룩앤필)
-- [ ] 빌드 시 XAML 파싱 오류 없음
+- [x] 프로젝트 빌드 성공 (오류 없음)
+- [x] 애플리케이션 실행 시 "BridgeOne - Hello World" 텍스트가 창 중앙에 표시됨
+- [x] 다크 테마가 적용되어 배경이 어두운 색상임
+- [x] Mica 배경 효과가 적용됨 (Windows 11에서 반투명 배경 확인)
+- [x] 다크 테마로 고정되어 있음 (시스템 테마 변경과 무관하게 다크 모드 유지)
+- [x] 창 제목이 "BridgeOne"으로 표시됨
+- [x] Fluent Design 스타일이 적용됨 (모던한 Windows 11 룩앤필)
+- [x] 빌드 시 XAML 파싱 오류 없음
 
 ---
 
