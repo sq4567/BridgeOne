@@ -408,9 +408,9 @@ updated: "2025-10-20"
 
 **세부 목표**:
 1. `src/board/` 디렉터리 내에서 프로젝트 생성 (기존 `BridgeOne/` 디렉터리 있으면 백업)
-2. `idf.py create-project bridgeone_board` 실행 (프로젝트명은 소문자, 언더스코어 조합)
+2. `idf.py create-project BridgeOne` 실행
 3. `idf.py set-target esp32s3` 실행 (ESP32-S3 타겟 지정)
-4. CMakeLists.txt 확인 (프로젝트명 "bridgeone_board")
+4. CMakeLists.txt 확인 (프로젝트명 "BridgeOne")
 5. 프로젝트 디렉터리 구조 검증
 
 **실행 단계**:
@@ -423,10 +423,10 @@ if (Test-Path "BridgeOne") {
 }
 
 # 2. 프로젝트 생성 (자동으로 BridgeOne 디렉터리 생성)
-idf.py create-project bridgeone_board
+idf.py create-project BridgeOne
 
 # 3. 프로젝트 디렉터리 진입
-cd "bridgeone_board"
+cd "BridgeOne"
 
 # 4. ESP32-S3 타겟 설정
 idf.py set-target esp32s3
@@ -439,11 +439,11 @@ idf.py set-target esp32s3
 - [ ] `idf.py set-target esp32s3` 실행 성공 (오류 없음)
 - [ ] `sdkconfig` 파일 생성 및 ESP32-S3 타겟 설정 확인
   - 파일 위치: `{프로젝트}/sdkconfig`
-- [ ] `CMakeLists.txt`에 `project(bridgeone_board)` 존재
+- [ ] `CMakeLists.txt`에 `project(BridgeOne)` 존재
 - [ ] `main/CMakeLists.txt`에 main.c 등록 확인
 - [ ] 프로젝트 디렉터리 구조 정확히 생성됨:
   ```
-  bridgeone_board/
+  BridgeOne/
   ├── CMakeLists.txt
   ├── sdkconfig
   ├── main/
@@ -451,7 +451,7 @@ idf.py set-target esp32s3
   │   └── main.c
   └── build/ (이 단계에서는 생성되지 않음, 다음 Phase에서 생성)
   ```
-- [ ] 프로젝트 루트 경로: `src/board/bridgeone_board/`
+- [ ] 프로젝트 루트 경로: `src/board/BridgeOne/`
 
 ---
 
@@ -460,73 +460,97 @@ idf.py set-target esp32s3
 **목표**: ESP-IDF 설정 파일(sdkconfig)에 TinyUSB 및 필수 컴포넌트 활성화
 
 **세부 목표**:
-1. `sdkconfig.defaults` 파일 생성 및 설정 추가 (TinyUSB, HID, CDC, UART ISR, FreeRTOS)
-2. `idf.py reconfigure` 실행하여 설정 적용
-3. 선택적으로 `idf.py menuconfig`로 UI를 통해 추가 커스터마이징 가능
+1. `sdkconfig.defaults` 파일 생성 및 설정 추가 (TinyUSB, HID, CDC, UART ISR, FreeRTOS, PSRAM, Flash)
+2. ESP32-S3-N16R8 하드웨어 스펙에 맞게 16MB Flash 및 8MB Octal PSRAM 활성화
+3. 커스텀 파티션 테이블 `partitions.csv` 파일 생성
+4. `idf.py reconfigure` 실행하여 설정 적용
+5. 선택적으로 `idf.py menuconfig`로 UI를 통해 추가 커스터마이징 가능
 
 **설정 파일 생성**:
-프로젝트 루트(`src/board/bridgeone_board/`)에 `sdkconfig.defaults` 파일 생성:
+프로젝트 루트(`src/board/BridgeOne/`)에 `sdkconfig.defaults` 파일 생성:
 
-```ini
-# TinyUSB Composite 디바이스 설정
+**실행 단계**:
+```powershell
+# 1. 프로젝트 디렉터리로 이동
+cd "F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\BridgeOne"
+
+# 2. sdkconfig.defaults 파일 생성
+$sdkconfigContent = @"
+# TinyUSB Composite Device Configuration
 CONFIG_TINYUSB=y
 CONFIG_TINYUSB_HID_ENABLED=y
 CONFIG_TINYUSB_CDC_ENABLED=y
 CONFIG_TINYUSB_DEVICE_ENABLED=y
 
-# USB 버스 전원 모드 선택
-# (참고: ESP32-S3 DevKit은 USB 버스에서 전원 공급받으므로 BUS_POWERED 권장)
+# USB Bus Power Mode (ESP32-S3 DevKit powered via USB)
 CONFIG_TINYUSB_DEVICE_BUS_POWERED=y
 
-# HID 버퍼 설정 (BridgeOne 8바이트 프레임 처리)
+# HID Buffer Settings (BridgeOne 8-byte frame processing)
 CONFIG_TINYUSB_HID_COUNT=2
 CONFIG_TINYUSB_HID_BUFSIZE=64
 
-# CDC 버퍼 설정 (Vendor CDC 메시지 프레임 처리)
+# CDC Buffer Settings (Vendor CDC message frame processing)
 CONFIG_TINYUSB_CDC_COUNT=1
 CONFIG_TINYUSB_CDC_RX_BUFSIZE=512
 CONFIG_TINYUSB_CDC_TX_BUFSIZE=512
 
-# UART 최적화 (빠른 응답성)
+# UART Optimization (Fast responsiveness)
 CONFIG_UART_ISR_IN_IRAM=y
 
-# FreeRTOS 설정 (1ms Tick rate → 1000Hz, 듀얼 코어 활용)
+# FreeRTOS Configuration (1ms Tick rate -> 1000Hz, Dual-core enabled)
 CONFIG_FREERTOS_HZ=1000
 CONFIG_FREERTOS_UNICORE=n
 
-# 메모리 최적화 (크기 우선, PSRAM 활용)
+# Memory Optimization (Size priority, PSRAM enabled)
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
-CONFIG_SPIRAM_MODE_OCT=y
 
-# 플래시 설정 (ESP32-S3-DevkitC-1-N16R8: 16MB Flash)
-CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# PSRAM Configuration (ESP32-S3-N16R8: 8MB Octal PSRAM)
+CONFIG_ESP32S3_SPIRAM_SUPPORT=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+
+# Flash Configuration (ESP32-S3-DevkitC-1-N16R8: 16MB Flash)
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# 로깅 레벨 설정 (개발: DEBUG, 프로덕션: INFO)
+# Logging Level (Development: DEBUG, Production: INFO)
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
-# 주변기기 비활성화 (불필요한 전력 소비 방지)
+# Disable Unused Peripherals (Power saving)
 CONFIG_ESP_WIFI_ENABLED=n
 CONFIG_BT_ENABLED=n
-```
-
-**실행 단계**:
-```powershell
-# 1. 프로젝트 디렉터리 내 sdkconfig.defaults 생성 (위 내용 붙여넣기)
-# (편집기로 파일 생성 또는 PowerShell에서)
-$sdkconfigContent = @"
-CONFIG_TINYUSB=y
-# ... 위 설정값 ...
 "@
-Set-Content -Path "sdkconfig.defaults" -Value $sdkconfigContent
+Set-Content -Path "sdkconfig.defaults" -Value $sdkconfigContent -Encoding UTF8
 
-# 2. 설정 적용
+# 3. partitions.csv 파일 생성 (16MB Flash 활용)
+$partitionsContent = @"
+# Name,   Type, SubType, Offset,  Size, Flags
+nvs,      data, nvs,     0x9000,  0x6000,
+phy_init, data, phy,     0xf000,  0x1000,
+factory,  app,  factory, 0x10000, 3M,
+storage,  data, spiffs,  ,        12M,
+"@
+Set-Content -Path "partitions.csv" -Value $partitionsContent -Encoding UTF8
+
+# 4. 설정 적용
 idf.py reconfigure
 
 # (또는 UI 기반 수동 설정)
 # idf.py menuconfig
 ```
+
+**파티션 테이블 설명** (`partitions.csv`):
+- **nvs** (24KB): Non-Volatile Storage - WiFi/Bluetooth 설정 등 저장 (현재 미사용이지만 시스템 예약)
+- **phy_init** (4KB): RF PHY 초기화 데이터
+- **factory** (3MB): 펌웨어 바이너리 저장 공간 (OTA 미사용 시 충분한 크기)
+- **storage** (12MB): SPIFFS 파일 시스템 - 향후 설정 파일, 로그 등 저장 가능
+
+**참고**: 16MB Flash 중 약 15MB만 사용 가능 (부트로더 및 파티션 테이블 등 시스템 영역 제외)
 
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §7.2 프로젝트 설정 (sdkconfig)
@@ -538,7 +562,11 @@ idf.py reconfigure
 - [ ] `CONFIG_UART_ISR_IN_IRAM=y`, `CONFIG_FREERTOS_HZ=1000` 확인
 - [ ] `CONFIG_TINYUSB_HID_COUNT=2` (Keyboard + Mouse)
 - [ ] `CONFIG_TINYUSB_CDC_COUNT=1` (Vendor CDC)
-- [ ] `sdkconfig.defaults`에 모든 설정 백업됨
+- [ ] `CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y` 확인 (16MB Flash 활성화)
+- [ ] `CONFIG_SPIRAM=y`, `CONFIG_SPIRAM_MODE_OCT=y` 확인 (8MB PSRAM 활성화)
+- [ ] `CONFIG_SPIRAM_USE_MALLOC=y` 확인 (PSRAM을 힙 메모리로 사용)
+- [ ] `partitions.csv` 파일 생성됨 (nvs, phy_init, factory, storage 파티션 정의)
+- [ ] `sdkconfig.defaults`에 모든 설정 백업됨 (인코딩 UTF-8)
 - [ ] `idf.py reconfigure` 실행 성공 (오류 없음)
 
 ---
@@ -578,8 +606,11 @@ idf.py reconfigure
 #include "freertos/task.h"
 
 void app_main(void) {
-    // 빌드 환경 검증용 최소 코드
-    // 실제 기능 구현은 Phase 2 이후에서 수행합니다
+    // Build environment verification minimal code
+    // Actual feature implementation will be done in Phase 2 and later
+    printf("BridgeOne Board - Environment Setup Complete\n");
+    printf("ESP32-S3-N16R8: 16MB Flash, 8MB PSRAM\n");
+    
     while (1) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
@@ -589,13 +620,8 @@ void app_main(void) {
 **Step 2: 빌드 실행**
 
 ```powershell
-# 1. 프로젝트 디렉터리로 이동 (필요시)
-cd "F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\bridgeone_board"
-
-# 2. 전체 빌드 (최초)
-idf.py build
-
-# 또는 증분 빌드 (이전 빌드 기반)
+C:\Espressif\frameworks\esp-idf-v5.5.1\export.ps1
+cd "F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\BridgeOne"
 idf.py build
 ```
 
@@ -627,18 +653,18 @@ if ($comPort) {
 플래싱 완료 후, Windows Device Manager에서 다음을 확인하세요:
 
 ```powershell
-# Device Manager 열기
-devmgmt.msc
-
-# 또는 PowerShell로 HID/COM 디바이스 조회
-Get-PnpDevice | Where-Object {$_.Description -match "HID|COM"} | Format-Table FriendlyName, Status
+Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table FriendlyName, Status, DeviceID
 ```
 
 **검증 체크리스트**:
 - [ ] `idf.py build` 실행 성공 ("BUILD SUCCESSFUL" 메시지 표시)
-- [ ] `build/` 디렉터리에 `bridgeone_board.bin` 파일 생성됨
+- [ ] `build/` 디렉터리에 `BridgeOne.bin` 파일 생성됨
+- [ ] Build 로그에서 Flash 크기 16MB로 인식됨 ("Detected flash size: 16MB")
+- [ ] Build 로그에서 PSRAM 활성화 확인 ("PSRAM initialized, size: 8MB")
 - [ ] `idf.py -p COMx flash` 실행 성공 ("Hash of data verified" 메시지 표시)
 - [ ] 시리얼 모니터가 정상 시작 (115200 보드 레이트, 연속 모니터링)
+- [ ] 시리얼 로그에서 "BridgeOne Board - Environment Setup Complete" 메시지 확인
+- [ ] 시리얼 로그에서 "ESP32-S3-N16R8: 16MB Flash, 8MB PSRAM" 메시지 확인
 - [ ] Windows Device Manager에서 HID 디바이스 최소 2개 확인:
   - ✅ "USB Input Device" (키보드) 또는 "BridgeOne USB Keyboard"
   - ✅ "USB Input Device" (마우스) 또는 "BridgeOne USB Mouse"
