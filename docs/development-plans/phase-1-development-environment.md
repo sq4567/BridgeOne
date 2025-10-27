@@ -475,10 +475,12 @@ idf.py set-target esp32s3
 
 **실행 단계**:
 ```powershell
-# 1. 프로젝트 디렉터리로 이동
+C:\Espressif\frameworks\esp-idf-v5.5.1\export.ps1
+
+# 2. 프로젝트 디렉터리로 이동
 cd "F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\BridgeOne"
 
-# 2. sdkconfig.defaults 파일 생성
+# 3. sdkconfig.defaults 파일 생성
 $sdkconfigContent = @"
 # TinyUSB Composite Device Configuration
 CONFIG_TINYUSB=y
@@ -531,7 +533,7 @@ CONFIG_BT_ENABLED=n
 "@
 Set-Content -Path "sdkconfig.defaults" -Value $sdkconfigContent -Encoding UTF8
 
-# 3. partitions.csv 파일 생성 (16MB Flash 활용)
+# 4. partitions.csv 파일 생성 (16MB Flash 활용)
 $partitionsContent = @"
 # Name,   Type, SubType, Offset,  Size, Flags
 nvs,      data, nvs,     0x9000,  0x6000,
@@ -541,7 +543,7 @@ storage,  data, spiffs,  ,        12M,
 "@
 Set-Content -Path "partitions.csv" -Value $partitionsContent -Encoding UTF8
 
-# 4. 설정 적용
+# 5. 설정 적용
 idf.py reconfigure
 
 # (또는 UI 기반 수동 설정)
@@ -561,17 +563,17 @@ idf.py reconfigure
 - `docs/board/esp32s3-code-implementation-guide.md` §0 USB Composite 디바이스 설계 계약 (프로토콜 명세)
 
 **검증**:
-- [ ] `sdkconfig` 파일에 `CONFIG_TINYUSB=y` 존재
-- [ ] `sdkconfig`에 `CONFIG_TINYUSB_HID_ENABLED=y`, `CONFIG_TINYUSB_CDC_ENABLED=y` 존재
-- [ ] `CONFIG_UART_ISR_IN_IRAM=y`, `CONFIG_FREERTOS_HZ=1000` 확인
-- [ ] `CONFIG_TINYUSB_HID_COUNT=2` (Keyboard + Mouse)
-- [ ] `CONFIG_TINYUSB_CDC_COUNT=1` (Vendor CDC)
-- [ ] `CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y` 확인 (16MB Flash 활성화)
-- [ ] `CONFIG_SPIRAM=y`, `CONFIG_SPIRAM_MODE_OCT=y` 확인 (8MB PSRAM 활성화)
-- [ ] `CONFIG_SPIRAM_USE_MALLOC=y` 확인 (PSRAM을 힙 메모리로 사용)
-- [ ] `partitions.csv` 파일 생성됨 (nvs, phy_init, factory, storage 파티션 정의)
-- [ ] `sdkconfig.defaults`에 모든 설정 백업됨 (인코딩 UTF-8)
-- [ ] `idf.py reconfigure` 실행 성공 (오류 없음)
+- [x] `sdkconfig` 파일에 `CONFIG_TINYUSB=y` 존재
+- [x] `sdkconfig`에 `CONFIG_TINYUSB_HID_ENABLED=y`, `CONFIG_TINYUSB_CDC_ENABLED=y` 존재
+- [x] `CONFIG_UART_ISR_IN_IRAM=y`, `CONFIG_FREERTOS_HZ=1000` 확인
+- [x] `CONFIG_TINYUSB_HID_COUNT=2` (Keyboard + Mouse)
+- [x] `CONFIG_TINYUSB_CDC_COUNT=1` (Vendor CDC)
+- [x] `CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y` 확인 (16MB Flash 활성화)
+- [x] `CONFIG_SPIRAM=y`, `CONFIG_SPIRAM_MODE_OCT=y` 확인 (8MB PSRAM 활성화)
+- [x] `CONFIG_SPIRAM_USE_MALLOC=y` 확인 (PSRAM을 힙 메모리로 사용)
+- [x] `partitions.csv` 파일 생성됨 (nvs, phy_init, factory, storage 파티션 정의)
+- [x] `sdkconfig.defaults`에 모든 설정 백업됨 (인코딩 UTF-8)
+- [x] `idf.py reconfigure` 실행 성공 (오류 없음)
 
 ---
 
