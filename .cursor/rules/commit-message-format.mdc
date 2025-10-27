@@ -1,8 +1,7 @@
 ---
-alwaysApply: true
 description: "커밋 메시지 작성 가이드라인 - 페이즈 번호 포함 한글 제목 사용"
+alwaysApply: false
 ---
-
 # 커밋 메시지 작성 가이드라인
 
 ## 제목 작성 규칙
