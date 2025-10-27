@@ -951,13 +951,13 @@ namespace BridgeOne
 - Microsoft Docs: [Application Icon (.NET)](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/)
 
 **검증**:
-- [ ] `BridgeOne.csproj` 파일에 `<ApplicationIcon>Resources\BridgeOne-Success.ico</ApplicationIcon>` 존재
-- [ ] 빌드 성공 (아이콘 관련 오류 없음)
-- [ ] `bin/Debug/net8.0-windows/BridgeOne.exe` 파일이 생성됨
-- [ ] 실행 파일을 Windows 탐색기에서 확인 시 BridgeOne 아이콘 표시됨
-- [ ] 작업 표시줄에 앱 실행 시 BridgeOne 아이콘 표시됨
-- [ ] Alt+Tab 전환 시 BridgeOne 아이콘 표시됨
-- [ ] 아이콘이 다양한 크기(16x16, 32x32, 48x48, 256x256)에서 명확하게 표시됨
+- [x] `BridgeOne.csproj` 파일에 `<ApplicationIcon>Resources\BridgeOne-Success.ico</ApplicationIcon>` 존재
+- [x] 빌드 성공 (아이콘 관련 오류 없음)
+- [x] `bin/Debug/net8.0-windows/BridgeOne.exe` 파일이 생성됨
+- [x] 실행 파일을 Windows 탐색기에서 확인 시 BridgeOne 아이콘 표시됨
+- [x] 작업 표시줄에 앱 실행 시 BridgeOne 아이콘 표시됨
+- [x] Alt+Tab 전환 시 BridgeOne 아이콘 표시됨
+- [x] 아이콘이 다양한 크기(16x16, 32x32, 48x48, 256x256)에서 명확하게 표시됨
 
 ---
 
