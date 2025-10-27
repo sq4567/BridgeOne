@@ -706,3 +706,328 @@ Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table Frie
 
 ## Phase 1.3: Windows 서버 개발환경 구축
 
+### Phase 1.3.1: Visual Studio 설치 및 WPF 프로젝트 생성 검증
+
+**목표**: 유저가 수동으로 생성한 Visual Studio 2022 및 WPF 프로젝트의 설정 상태를 검증
+
+**유저 사전 작업** (LLM 실행 전 필수):
+1. Visual Studio 2022 Community/Professional/Enterprise 버전을 수동 설치
+   - 다운로드: https://visualstudio.microsoft.com/downloads/
+   - 워크로드 선택 시 **".NET 데스크톱 개발"** 필수 선택
+2. Visual Studio 2022에서 새 프로젝트 생성:
+   - 템플릿: "WPF 앱 (.NET)" 또는 "WPF App (.NET)" 선택
+   - 프로젝트명: "BridgeOne"
+   - 위치: `{workspace}/src/windows/`
+   - 프레임워크: **.NET 8.0** (Long Term Support)
+3. 프로젝트 생성 완료 후 솔루션 로드 대기
+
+**LLM 검증 작업**:
+1. `src/windows/BridgeOne/` 디렉터리 존재 여부 확인
+2. `BridgeOne.csproj` 파일 읽기 및 필수 설정 검증 (TargetFramework, OutputType, UseWPF)
+3. `App.xaml` 및 `App.xaml.cs` 존재 확인
+4. `MainWindow.xaml` 및 `MainWindow.xaml.cs` 존재 확인
+5. 솔루션 파일 `BridgeOne.sln` 존재 확인
+
+**참조 문서 및 섹션**:
+- `docs/windows/technical-specification-server.md` §2.2 기술 스택 선택 원칙
+- `docs/windows/technical-specification-server.md` §10.1 라이브러리 선정 배경
+- `docs/technical-specification.md` §3 시스템 아키텍처
+
+**검증**:
+- [ ] `src/windows/BridgeOne/` 디렉터리가 존재함
+- [ ] `BridgeOne.csproj` 파일이 존재하고 `<TargetFramework>net8.0-windows</TargetFramework>` 설정됨
+- [ ] `<OutputType>WinExe</OutputType>` 설정 확인
+- [ ] `<UseWPF>true</UseWPF>` 설정 확인
+- [ ] `App.xaml` 및 `App.xaml.cs` 파일이 존재함
+- [ ] `MainWindow.xaml` 및 `MainWindow.xaml.cs` 파일이 존재함
+- [ ] 솔루션 파일 `BridgeOne.sln`이 프로젝트 루트에 존재함
+- [ ] 프로젝트 구조가 표준 WPF 프로젝트 구조를 따름 (Properties, bin, obj 디렉터리)
+
+---
+
+### Phase 1.3.2: WPF UI 라이브러리 및 핵심 의존성 설정
+
+**목표**: WPF UI (lepoco/wpfui) 라이브러리 및 필수 NuGet 패키지 추가 및 버전 관리 설정
+
+**세부 목표**:
+1. WPF UI NuGet 패키지 설치 (권장 버전: 3.0.0 이상)
+2. 추가 필수 패키지 설치:
+   - `System.Text.Json` (JSON 처리)
+   - `CommunityToolkit.Mvvm` (MVVM 패턴 지원)
+   - `Microsoft.Extensions.DependencyInjection` (의존성 주입)
+3. .NET 8.0-windows 타겟 프레임워크 확인
+4. PackageReference 형식으로 의존성 관리
+
+**실행 단계** (사용자 수동 실행):
+```
+Visual Studio 2022에서:
+1. 솔루션 탐색기에서 "BridgeOne" 프로젝트 우클릭
+2. "NuGet 패키지 관리..." 선택
+3. "찾아보기" 탭에서 다음 패키지 검색 및 설치:
+   - WPF-UI (또는 Wpf.Ui) - 최신 안정 버전 (3.0.0+)
+   - System.Text.Json - 최신 안정 버전
+   - CommunityToolkit.Mvvm - 최신 안정 버전
+   - Microsoft.Extensions.DependencyInjection - 최신 안정 버전
+4. 패키지 설치 완료 후 프로젝트 다시 빌드
+```
+
+**참조 문서 및 섹션**:
+- `docs/windows/technical-specification-server.md` §10.1 라이브러리 선정 배경
+- `docs/windows/technical-specification-server.md` §10.2 WPF UI 라이브러리 활용 전략
+- `docs/windows/design-guide-server.md` §1.3 Windows 11 Fluent Design 적용
+
+**검증**:
+- [ ] NuGet 패키지 복원 성공 (모든 의존성 다운로드 완료)
+- [ ] `BridgeOne.csproj` 파일에 `<PackageReference Include="WPF-UI" Version="3.x.x" />` 또는 유사 항목 존재
+- [ ] `System.Text.Json`, `CommunityToolkit.Mvvm`, `Microsoft.Extensions.DependencyInjection` 패키지 참조 확인
+- [ ] Visual Studio "참조" 노드에서 설치된 패키지 확인 가능
+- [ ] 빌드 시 NuGet 패키지 관련 오류 없음
+- [ ] 패키지 복원 로그에 ERROR 없음 (WARNING은 무시 가능)
+
+---
+
+### Phase 1.3.3: 기본 WPF UI 구조 및 Hello World
+
+**목표**: Fluent Design 기반 기본 UI 구조 생성 및 Hello World 창 표시 확인
+
+**세부 목표**:
+1. `App.xaml`에 WPF UI 테마 리소스 추가
+2. `MainWindow.xaml` 수정: 기본 `Window`를 WPF UI `FluentWindow`로 변경
+3. `MainWindow.xaml.cs` 수정: SystemThemeWatcher 및 Mica 배경 효과 설정
+4. 중앙에 "BridgeOne - Hello World" 텍스트 표시 (Segoe UI Variable 폰트 사용)
+5. 다크 테마 기본 적용
+
+**App.xaml 수정 예시**:
+```xml
+<Application x:Class="BridgeOne.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ui:ThemesDictionary Theme="Dark" />
+                <ui:ControlsDictionary />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
+```
+
+**MainWindow.xaml 수정 예시**:
+```xml
+<ui:FluentWindow x:Class="BridgeOne.MainWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 Title="BridgeOne" Height="450" Width="800"
+                 WindowStartupLocation="CenterScreen">
+    <Grid>
+        <TextBlock Text="BridgeOne - Hello World"
+                   FontSize="28"
+                   FontWeight="SemiBold"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center" />
+    </Grid>
+</ui:FluentWindow>
+```
+
+**MainWindow.xaml.cs 수정 예시**:
+```csharp
+using Wpf.Ui.Controls;
+
+namespace BridgeOne
+{
+    public partial class MainWindow : FluentWindow
+    {
+        public MainWindow()
+        {
+            InitializeComponent();
+            
+            Loaded += (sender, args) =>
+            {
+                Wpf.Ui.Appearance.SystemThemeWatcher.Watch(
+                    this,
+                    Wpf.Ui.Controls.WindowBackdropType.Mica,
+                    true
+                );
+            };
+        }
+    }
+}
+```
+
+**참조 문서 및 섹션**:
+- `docs/windows/technical-specification-server.md` §10.2 WPF UI 라이브러리 활용 전략
+- `docs/windows/styleframe-server.md` §1.2 디자인 시스템 기반
+- `docs/windows/design-guide-server.md` §2 색상 시스템
+
+**검증**:
+- [ ] 프로젝트 빌드 성공 (오류 없음)
+- [ ] 애플리케이션 실행 시 "BridgeOne - Hello World" 텍스트가 창 중앙에 표시됨
+- [ ] 다크 테마가 적용되어 배경이 어두운 색상임
+- [ ] Mica 배경 효과가 적용됨 (Windows 11에서 반투명 배경 확인)
+- [ ] SystemThemeWatcher가 정상 작동함 (Windows 테마 변경 시 앱 테마도 변경)
+- [ ] 창 제목이 "BridgeOne"으로 표시됨
+- [ ] Fluent Design 스타일이 적용됨 (모던한 Windows 11 룩앤필)
+- [ ] 빌드 시 XAML 파싱 오류 없음
+
+---
+
+### Phase 1.3.4: 커스텀 리소스 준비 (아이콘 및 에셋)
+
+**목표**: BridgeOne Windows 서버에서 사용할 트레이 아이콘 및 에셋 리소스를 프로젝트에 통합
+
+**유저 사전 작업** (LLM 실행 전 필수):
+1. 파일 탐색기에서 프로젝트 루트의 `resources/ico/` 디렉터리 열기
+2. `resources/ico/` 내의 **모든 아이콘 파일 복사**:
+   - 4개 트레이 아이콘 파일 선택:
+     - `BridgeOne-Connecting.ico` (연결 중 상태)
+     - `BridgeOne-Disconnected.ico` (연결 끊김 상태)
+     - `BridgeOne-Error.ico` (오류 상태)
+     - `BridgeOne-Success.ico` (연결 성공 상태)
+   - 복사 (Ctrl+C)
+3. Visual Studio 2022에서 BridgeOne 프로젝트 열기
+4. 솔루션 탐색기에서 "BridgeOne" 프로젝트 우클릭
+5. "추가" → "새 폴더" 선택하여 "Resources" 폴더 생성
+6. "Resources" 폴더 우클릭 → "기존 항목 추가..." (Shift+Alt+A)
+7. 복사한 4개 아이콘 파일 선택 및 추가
+8. 각 아이콘 파일 우클릭 → "속성" → "빌드 작업"을 **"리소스(Resource)"** 로 설정
+
+**LLM 검증 작업**:
+1. `src/windows/BridgeOne/Resources/` 디렉터리에 4개 아이콘 파일 존재 확인
+2. `BridgeOne.csproj` 파일에서 각 아이콘 파일의 `<Resource>` 항목 확인
+3. 아이콘 파일 크기 및 포맷 검증 (.ico 형식, 16x16 ~ 256x256 멀티 아이콘)
+4. 리소스 빌드 액션이 올바르게 설정되었는지 확인
+
+**참조 문서 및 섹션**:
+- `docs/windows/design-guide-server.md` §2.5 시스템 트레이 아이콘 색상
+- `docs/windows/design-guide-server.md` §6.7 시스템 트레이 관리 기능
+- `resources/ico/` 디렉터리 (소스 아이콘 파일)
+
+**검증**:
+- [ ] `src/windows/BridgeOne/Resources/` 디렉터리가 존재함
+- [ ] `Resources/BridgeOne-Connecting.ico` 파일 존재
+- [ ] `Resources/BridgeOne-Disconnected.ico` 파일 존재
+- [ ] `Resources/BridgeOne-Error.ico` 파일 존재
+- [ ] `Resources/BridgeOne-Success.ico` 파일 존재
+- [ ] `BridgeOne.csproj`에 `<Resource Include="Resources\BridgeOne-*.ico" />` 항목 존재
+- [ ] 각 아이콘 파일이 멀티 해상도 .ico 형식임 (16x16, 32x32, 48x48, 256x256)
+- [ ] Visual Studio 솔루션 탐색기에서 "Resources" 폴더 및 아이콘 파일 표시됨
+- [ ] 빌드 시 리소스 관련 오류 없음
+
+---
+
+### Phase 1.3.5: 애플리케이션 아이콘 설정
+
+**목표**: BridgeOne Windows 서버의 실행 파일 아이콘을 BridgeOne 브랜드 아이콘으로 변경
+
+**유저 사전 작업** (LLM 실행 전 필수):
+1. 애플리케이션 아이콘으로 사용할 아이콘 선택:
+   - `BridgeOne-Success.ico` (정상 상태 아이콘) 권장
+2. Visual Studio에서 `BridgeOne.csproj` 파일 편집:
+   - 솔루션 탐색기에서 "BridgeOne" 프로젝트 우클릭
+   - "프로젝트 파일 편집" 선택
+3. `<PropertyGroup>` 섹션에 다음 추가:
+   ```xml
+   <ApplicationIcon>Resources\BridgeOne-Success.ico</ApplicationIcon>
+   ```
+4. 파일 저장 후 프로젝트 다시 로드
+
+**LLM 검증 작업**:
+1. `BridgeOne.csproj` 파일에서 `<ApplicationIcon>` 태그 확인
+2. 지정된 아이콘 파일 경로가 올바른지 확인
+3. 빌드 후 실행 파일의 아이콘이 변경되었는지 확인
+
+**참조 문서 및 섹션**:
+- `docs/bridgeone-logo-concepts.md` (로고 개념 및 디자인 원칙)
+- `docs/windows/design-guide-server.md` §6.7 시스템 트레이 관리 기능
+- Microsoft Docs: [Application Icon (.NET)](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/)
+
+**검증**:
+- [ ] `BridgeOne.csproj` 파일에 `<ApplicationIcon>Resources\BridgeOne-Success.ico</ApplicationIcon>` 존재
+- [ ] 빌드 성공 (아이콘 관련 오류 없음)
+- [ ] `bin/Debug/net8.0-windows/BridgeOne.exe` 파일이 생성됨
+- [ ] 실행 파일을 Windows 탐색기에서 확인 시 BridgeOne 아이콘 표시됨
+- [ ] 작업 표시줄에 앱 실행 시 BridgeOne 아이콘 표시됨
+- [ ] Alt+Tab 전환 시 BridgeOne 아이콘 표시됨
+- [ ] 아이콘이 다양한 크기(16x16, 32x32, 48x48, 256x256)에서 명확하게 표시됨
+
+---
+
+### Phase 1.3.6: 프로젝트 빌드 및 실행 검증
+
+**목표**: Windows 서버 프로젝트를 성공적으로 빌드하고 실행 파일 생성 및 정상 동작 확인
+
+**세부 목표**:
+1. Visual Studio에서 전체 솔루션 빌드 실행
+2. 실행 파일 생성 확인 (`bin/Debug/net8.0-windows/BridgeOne.exe`)
+3. 애플리케이션을 실행하여 Hello World 창 표시 확인
+4. 창 조작 확인 (최소화, 최대화, 닫기)
+5. 빌드 로그에서 경고 및 오류 확인
+
+**LLM 검증 작업**:
+1. 빌드 결과 파일 확인 (`bin/Debug/net8.0-windows/BridgeOne.exe`)
+2. 빌드 로그에서 경고 및 오류 확인
+3. 실행 파일이 정상적으로 생성되었는지 검증
+
+**참조 문서 및 섹션**:
+- `docs/windows/technical-specification-server.md` §2.2 기술 스택 선택 원칙
+- `docs/windows/design-guide-server.md` §1.1 핵심 디자인 원칙
+
+**실행 단계** (사용자 수동 실행):
+```
+1. Visual Studio 2022에서 솔루션 열기
+   - 파일 → 열기 → 프로젝트/솔루션 → {workspace}/src/windows/BridgeOne.sln 선택
+   
+2. 전체 솔루션 빌드
+   - 빌드 → 솔루션 다시 빌드 (Ctrl+Shift+B)
+   - 또는 메뉴: 빌드 → 솔루션 빌드
+   
+3. 애플리케이션 실행
+   - 디버그 → 디버깅 시작 (F5)
+   - 또는 디버그 → 디버깅하지 않고 시작 (Ctrl+F5)
+```
+
+**검증**:
+- [ ] 솔루션 빌드 성공 (메시지: "빌드: 1개 성공..." 표시)
+- [ ] `bin/Debug/net8.0-windows/BridgeOne.exe` 파일 존재
+- [ ] 빌드 로그에 ERROR 없음 (WARNING은 무시 가능)
+- [ ] 애플리케이션 실행 시 "BridgeOne - Hello World" 텍스트가 창 중앙에 표시됨
+- [ ] Fluent Design 스타일이 정확히 적용됨 (다크 테마, Mica 배경)
+- [ ] 창 조작 기능 정상 동작 (최소화, 최대화, 닫기 버튼)
+- [ ] 애플리케이션이 정상 상태로 실행 유지 (크래시 없음)
+- [ ] Visual Studio 출력 창에 실행 관련 오류 없음
+- [ ] 빌드 캐시 사용으로 재빌드 시 빠른 속도 확인 (증분 빌드 작동)
+
+---
+
+### ✅ Phase 1.3 완료 요약
+
+**목표 달성**: Windows 개발환경 완전 구축 ✅
+
+**완료 항목**:
+- ✅ Phase 1.3.1: Visual Studio 설치 및 WPF 프로젝트 생성 검증
+- ✅ Phase 1.3.2: WPF UI 라이브러리 및 핵심 의존성 설정
+- ✅ Phase 1.3.3: 기본 WPF UI 구조 및 Hello World
+- ✅ Phase 1.3.4: 커스텀 리소스 준비 (아이콘 및 에셋)
+- ✅ Phase 1.3.5: 애플리케이션 아이콘 설정
+- ✅ Phase 1.3.6: 프로젝트 빌드 및 실행 검증
+
+**구성된 개발환경**:
+- Visual Studio 2022 완전 설정
+- .NET 8.0-windows 런타임 환경
+- WPF UI 라이브러리 (Fluent Design System 지원)
+- MVVM 패턴 지원 (CommunityToolkit.Mvvm)
+- 의존성 주입 시스템 (Microsoft.Extensions.DependencyInjection)
+- Mica 배경 효과 및 SystemThemeWatcher 적용
+- 4개 트레이 아이콘 리소스 통합 (Connecting, Disconnected, Error, Success)
+- 애플리케이션 실행 파일 아이콘 설정
+- Hello World 창 정상 실행 확인
+- 빌드 및 배포 환경 준비
+
+**다음 단계**: Phase 2 (Communication Stabilization) - ESP32-S3와의 USB 통신 구현
+
+---
+
