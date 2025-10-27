@@ -412,6 +412,7 @@ updated: "2025-10-20"
 3. `idf.py set-target esp32s3` 실행 (ESP32-S3 타겟 지정)
 4. CMakeLists.txt 확인 (프로젝트명 "BridgeOne")
 5. 프로젝트 디렉터리 구조 검증
+6. TinyUSB 컴포넌트 의존성 추가
 
 **실행 단계**:
 ```powershell
@@ -453,6 +454,8 @@ idf.py set-target esp32s3
   - ✓ build 디렉터리 생성됨
 - [x] 프로젝트 루트 경로: `src/board/BridgeOne/`
   - ✓ 올바른 경로에서 프로젝트 생성 확인
+- [x] `main/CMakeLists.txt`에 TinyUSB 컴포넌트 의존성 추가
+  - ✓ `idf_component_register()`에 `REQUIRES tinyusb` 추가 확인
 
 ---
 
