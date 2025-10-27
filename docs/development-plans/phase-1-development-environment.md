@@ -37,7 +37,7 @@ updated: "2025-10-20"
 
 ## Phase 1.1: Android 개발환경 구축
 
-#### Phase 1.1.1: Android Studio 설치 및 프로젝트 생성 검증
+### Phase 1.1.1: Android Studio 설치 및 프로젝트 생성 검증
 
 **목표**: 유저가 수동으로 생성한 Android Studio 프로젝트의 설정 상태를 검증
 
@@ -71,7 +71,7 @@ updated: "2025-10-20"
 
 ---
 
-#### Phase 1.1.2: Jetpack Compose 및 핵심 의존성 설정
+### Phase 1.1.2: Jetpack Compose 및 핵심 의존성 설정
 
 **목표**: Compose, USB Serial, 기타 필수 라이브러리 의존성 추가 및 버전 관리 설정
 
@@ -94,7 +94,7 @@ updated: "2025-10-20"
 
 ---
 
-#### Phase 1.1.3: AndroidManifest.xml 권한 및 기본 설정
+### Phase 1.1.3: AndroidManifest.xml 권한 및 기본 설정
 
 **목표**: USB 통신 및 앱 실행에 필요한 모든 권한과 기본 설정 구성
 
@@ -118,7 +118,7 @@ updated: "2025-10-20"
 
 ---
 
-#### Phase 1.1.4: 커스텀 리소스 준비 (Drawable 및 Font)
+### Phase 1.1.4: 커스텀 리소스 준비 (Drawable 및 Font)
 
 **목표**: BridgeOne 앱에서 사용할 커스텀 아이콘(drawable)과 폰트(font) 리소스를 프로젝트에 통합
 
@@ -163,7 +163,7 @@ updated: "2025-10-20"
 
 ---
 
-#### Phase 1.1.5: 기본 Compose UI 구조 및 Hello World
+### Phase 1.1.5: 기본 Compose UI 구조 및 Hello World
 
 **목표**: Compose 기반 기본 UI 구조 생성, 커스텀 폰트 적용 및 정상 렌더링 확인
 
@@ -195,7 +195,7 @@ updated: "2025-10-20"
 
 ---
 
-#### Phase 1.1.6: 런처 아이콘 변경
+### Phase 1.1.6: 런처 아이콘 변경
 
 **목표**: BridgeOne 앱의 기본 런처 아이콘을 BridgeOne 로고 기반 커스텀 아이콘으로 변경
 
@@ -251,7 +251,7 @@ updated: "2025-10-20"
 
 ---
 
-#### Phase 1.1.7: Gradle 빌드 및 에뮬레이터 검증
+### Phase 1.1.7: Gradle 빌드 및 에뮬레이터 검증
 
 **목표**: Android 앱을 성공적으로 빌드하고 에뮬레이터에서 정상 실행 확인
 
@@ -336,7 +336,7 @@ updated: "2025-10-20"
 
 ## Phase 1.2: Board (ESP32-S3) 개발환경 구축
 
-#### Phase 1.2.1: ESP-IDF 설치 검증 및 프로젝트 생성 준비
+### Phase 1.2.1: ESP-IDF 설치 검증 및 프로젝트 생성 준비
 
 **목표**: 유저가 설치한 ESP-IDF 개발환경의 정상 설치 여부를 검증
 
@@ -402,7 +402,7 @@ updated: "2025-10-20"
 
 ---
 
-#### Phase 1.2.2: ESP32-S3 프로젝트 생성 및 타겟 설정
+### Phase 1.2.2: ESP32-S3 프로젝트 생성 및 타겟 설정
 
 **목표**: BridgeOne Board 펌웨어 프로젝트 생성 및 ESP32-S3 타겟 지정
 
@@ -415,20 +415,13 @@ updated: "2025-10-20"
 
 **실행 단계**:
 ```powershell
-# 1. 프로젝트 디렉터리 탐색 및 기존 백업 (있을 경우)
-cd "F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board"
-if (Test-Path "BridgeOne") {
-    Rename-Item -Path "BridgeOne" -NewName "BridgeOne.backup.$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-    Write-Host "기존 BridgeOne 디렉터리를 백업했습니다."
-}
-
-# 2. 프로젝트 생성 (자동으로 BridgeOne 디렉터리 생성)
+# 1. 프로젝트 생성 (자동으로 BridgeOne 디렉터리 생성)
 idf.py create-project BridgeOne
 
-# 3. 프로젝트 디렉터리 진입
+# 2. 프로젝트 디렉터리 진입
 cd "BridgeOne"
 
-# 4. ESP32-S3 타겟 설정
+# 3. ESP32-S3 타겟 설정
 idf.py set-target esp32s3
 ```
 
@@ -436,26 +429,34 @@ idf.py set-target esp32s3
 - `docs/board/esp32s3-code-implementation-guide.md` §3.1 ESP-IDF 프로젝트 구조
 
 **검증**:
-- [ ] `idf.py set-target esp32s3` 실행 성공 (오류 없음)
-- [ ] `sdkconfig` 파일 생성 및 ESP32-S3 타겟 설정 확인
+- [x] `idf.py set-target esp32s3` 실행 성공 (오류 없음)
+- [x] `sdkconfig` 파일 생성 및 ESP32-S3 타겟 설정 확인
   - 파일 위치: `{프로젝트}/sdkconfig`
-- [ ] `CMakeLists.txt`에 `project(BridgeOne)` 존재
-- [ ] `main/CMakeLists.txt`에 main.c 등록 확인
-- [ ] 프로젝트 디렉터리 구조 정확히 생성됨:
+  - ✓ sdkconfig 파일 생성 확인 (ESP-IDF 5.5.1 설정)
+  - ✓ ESP32-S3 타겟 관련 설정 확인 (CONFIG_SOC_* 항목들)
+- [x] `CMakeLists.txt`에 `project(BridgeOne)` 존재
+  - ✓ 루트 CMakeLists.txt에서 project(BridgeOne) 확인
+- [x] `main/CMakeLists.txt`에 main.c 등록 확인
+  - ✓ idf_component_register()에 "BridgeOne.c" 등록 확인
+  - ✓ INCLUDE_DIRS "." 설정 확인
+- [x] 프로젝트 디렉터리 구조 정확히 생성됨:
   ```
   BridgeOne/
   ├── CMakeLists.txt
   ├── sdkconfig
   ├── main/
   │   ├── CMakeLists.txt
-  │   └── main.c
-  └── build/ (이 단계에서는 생성되지 않음, 다음 Phase에서 생성)
+  │   └── BridgeOne.c
+  └── build/ (CMake 설정 후 생성됨)
   ```
-- [ ] 프로젝트 루트 경로: `src/board/BridgeOne/`
+  - ✓ 모든 파일 확인됨
+  - ✓ build 디렉터리 생성됨
+- [x] 프로젝트 루트 경로: `src/board/BridgeOne/`
+  - ✓ 올바른 경로에서 프로젝트 생성 확인
 
 ---
 
-#### Phase 1.2.3: sdkconfig 기본 설정 및 TinyUSB 활성화
+### Phase 1.2.3: sdkconfig 기본 설정 및 TinyUSB 활성화
 
 **목표**: ESP-IDF 설정 파일(sdkconfig)에 TinyUSB 및 필수 컴포넌트 활성화
 
@@ -571,7 +572,7 @@ idf.py reconfigure
 
 ---
 
-#### Phase 1.2.4: 빌드 환경 검증 및 하드웨어 통합 테스트
+### Phase 1.2.4: 빌드 환경 검증 및 하드웨어 통합 테스트
 
 **목표**: 빌드 시스템이 정상 작동하고, 펌웨어를 ESP32-S3에 성공적으로 플래싱한 후 USB Composite 디바이스가 Windows에서 인식되는지 최종 확인
 
