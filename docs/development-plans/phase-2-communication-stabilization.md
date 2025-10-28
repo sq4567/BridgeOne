@@ -77,7 +77,6 @@ updated: "2025-10-27"
 6. Endpoint 번호 할당 및 VID/PID 설정
 
 **참조 문서 및 섹션**:
-- `docs/board/esp32s3-code-implementation-guide.md` §3.7 참고 구현: esp32-cdc-keyboard 프로젝트 분석
 - `docs/board/esp32s3-code-implementation-guide.md` §1.3 USB Composite 디바이스 설계 계약
 - `docs/board/esp32s3-code-implementation-guide.md` §3.3 TinyUSB Composite 디바이스 구현
 - `docs/technical-specification.md` §2.3.1 ESP32-S3-DevkitC-1-N16R8
@@ -88,7 +87,7 @@ updated: "2025-10-27"
 - [ ] USB Configuration Descriptor에 Interface 0 (HID Keyboard), Interface 1 (HID Mouse) 정의됨
 - [ ] HID Boot Keyboard Report Descriptor 8바이트 구조 정의됨 (modifiers + reserved + keyCodes[6])
 - [ ] HID Boot Mouse Report Descriptor 4바이트 구조 정의됨 (buttons + deltaX + deltaY + wheel)
-- [ ] Endpoint 번호 할당 (EPNUM_HID_KB=0x83, EPNUM_HID_MOUSE=0x84)
+- [ ] Endpoint 번호 할당 (EPNUM_HID_KB=0x81, EPNUM_HID_MOUSE=0x82)
 - [ ] VID/PID 설정 (`sdkconfig.defaults`에 VID=0x303A 또는 0x1209 설정)
 - [ ] `tud_hid_get_report_cb()` 함수 구현 (Keyboard/Mouse 인스턴스 구분)
 - [ ] `tud_hid_set_report_cb()` 함수 구현 (Keyboard LED 처리)
@@ -110,6 +109,8 @@ updated: "2025-10-27"
 
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §1.3 USB Composite 디바이스 설계 계약
+- `docs/board/esp32s3-code-implementation-guide.md` §3.3.1 ESP-IDF 프로젝트 설정
+- `docs/board/esp32s3-code-implementation-guide.md` §1.3.3 BridgeOne UART 프로토콜 (고정)
 - TinyUSB 공식 문서: Device Descriptor, Configuration Descriptor 명세
 
 **검증**:
@@ -119,7 +120,7 @@ updated: "2025-10-27"
 - [ ] USB Device Descriptor 배열 정의됨 (`tusb_desc_device[]`)
 - [ ] USB Configuration Descriptor에 2개 Interface 정의됨
 - [ ] String Descriptor 정의됨 (3개 이상: Language, Manufacturer, Product, Serial)
-- [ ] Endpoint 번호 예약됨 (EPNUM_HID_KB=0x83, EPNUM_HID_MOUSE=0x84)
+- [ ] Endpoint 번호 예약됨 (EPNUM_HID_KB=0x81, EPNUM_HID_MOUSE=0x82)
 - [ ] `idf.py build` 성공
 
 ---
@@ -153,6 +154,8 @@ updated: "2025-10-27"
 - [ ] 각 Report Descriptor 크기 정확함 (Keyboard: 63바이트, Mouse: 52바이트 예상)
 - [ ] Report ID 없음 (Boot mode: Report ID 제외)
 - [ ] `idf.py build` 성공
+- [ ] Keyboard Report Descriptor에 Modifier, Reserved, Key Codes 필드 포함 확인
+- [ ] Mouse Report Descriptor에 Buttons, X/Y, Wheel 필드 포함 확인
 
 ---
 
@@ -356,6 +359,7 @@ updated: "2025-10-27"
 - `docs/board/esp32s3-code-implementation-guide.md` §3.5 FreeRTOS 태스크 구조
 - `docs/board/esp32s3-code-implementation-guide.md` §3.6 데이터 플로우 설계
 - `docs/board/esp32s3-code-implementation-guide.md` §4.2 USB HID 모듈 구현
+- `docs/board/esp32s3-code-implementation-guide.md` §3.3.4 app_main() 초기화 순서
 
 **검증**:
 - [ ] `main.c`의 `app_main()` 함수에서 `tud_init(BOARD_TUD_RHPORT)` 호출

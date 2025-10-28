@@ -460,14 +460,69 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 
 ### 3.3 TinyUSB Composite 디바이스 구현
 
-**TinyUSB 디스크립터 설정 요구사항**:
-ESP-IDF의 TinyUSB 스택을 사용하여 §0에 정의된 불변 규칙을 준수하는 Composite 디바이스를 구성해야 합니다.
+ESP-IDF의 TinyUSB 스택을 사용하여 §1.3에 정의된 불변 규칙을 준수하는 Composite 디바이스를 구성합니다.
 
-**usb_descriptors.c 구조 예시**:
+#### 3.3.1 ESP-IDF 프로젝트 설정
+
+**CMakeLists.txt 구성**:
+```cmake
+# main/CMakeLists.txt
+idf_component_register(
+    SRCS "main.c" "usb_descriptors.c" "uart_handler.c" "hid_handler.c"
+    INCLUDE_DIRS "."
+    REQUIRES tinyusb esp_timer driver
+)
+```
+
+**sdkconfig 주요 설정** (menuconfig 또는 직접 편집):
+```ini
+# USB OTG 활성화
+CONFIG_USB_OTG_SUPPORTED=y
+
+# TinyUSB 스택 활성화
+CONFIG_TINYUSB=y
+CONFIG_TINYUSB_CDC_ENABLED=y
+CONFIG_TINYUSB_HID_ENABLED=y
+
+# 디바이스 스택 활성화
+CONFIG_TINYUSB_DEVICE_ENABLED=y
+CONFIG_TINYUSB_HOST_ENABLED=n
+
+# 버퍼 크기 설정
+CONFIG_TINYUSB_CDC_RX_BUFSIZE=512
+CONFIG_TINYUSB_CDC_TX_BUFSIZE=512
+```
+
+**Compile Definitions** (자동 설정됨):
 ```c
+// ESP-IDF TinyUSB 컴포넌트가 자동으로 정의
+#define CFG_TUSB_MCU OPT_MCU_ESP32S3
+#define CFG_TUSB_OS OPT_OS_FREERTOS
+#define CFG_TUD_ENABLED 1
+```
+
+#### 3.3.2 TinyUSB 디스크립터 설정
+
+**엔드포인트 번호 및 버퍼 크기 정의**:
+```c
+// usb_descriptors.c
 #include "tusb.h"
 
-// §1.5.1의 인터페이스 순서 고정 준수
+// 엔드포인트 번호 정의 (ESP32-S3는 최대 6개 IN/OUT EP 지원)
+#define EPNUM_HID_KB      0x81  // IN EP1: Keyboard
+#define EPNUM_HID_MOUSE   0x82  // IN EP2: Mouse
+#define EPNUM_CDC_NOTIF   0x83  // IN EP3: CDC Notification
+#define EPNUM_CDC_OUT     0x04  // OUT EP4: CDC Data Out
+#define EPNUM_CDC_IN      0x84  // IN EP4: CDC Data In
+
+// 버퍼 크기 (64바이트는 Full Speed USB 기본값)
+#define CFG_TUD_HID_EP_BUFSIZE  64
+#define CFG_TUD_CDC_EP_BUFSIZE  64
+```
+
+**인터페이스 번호 및 Configuration Descriptor**:
+```c
+// §1.3.1의 인터페이스 순서 고정 준수
 enum {
     ITF_NUM_HID_KEYBOARD = 0,  // Interface 0: HID Boot Keyboard
     ITF_NUM_HID_MOUSE    = 1,  // Interface 1: HID Boot Mouse
@@ -476,73 +531,207 @@ enum {
     ITF_NUM_TOTAL
 };
 
+// Configuration Descriptor 총 길이 계산
+#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN * 2 + TUD_CDC_DESC_LEN)
+
 // Configuration Descriptor
 uint8_t const desc_configuration[] = {
     // Configuration: 4 interfaces
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, TOTAL_LEN, 
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 
                           TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 500),
     
-    // Interface 0: HID Boot Keyboard (§1.5.2 리포트 구조 준수)
+    // Interface 0: HID Boot Keyboard (§1.3.2 리포트 구조 준수)
     TUD_HID_DESCRIPTOR(ITF_NUM_HID_KEYBOARD, 0, HID_ITF_PROTOCOL_KEYBOARD,
                        sizeof(desc_hid_keyboard_report), EPNUM_HID_KB, 
                        CFG_TUD_HID_EP_BUFSIZE, 1),
     
-    // Interface 1: HID Boot Mouse (§1.5.2 리포트 구조 준수)
+    // Interface 1: HID Boot Mouse (§1.3.2 리포트 구조 준수)
     TUD_HID_DESCRIPTOR(ITF_NUM_HID_MOUSE, 0, HID_ITF_PROTOCOL_MOUSE,
                        sizeof(desc_hid_mouse_report), EPNUM_HID_MOUSE,
                        CFG_TUD_HID_EP_BUFSIZE, 1),
     
-    // Interface 2/3: CDC-ACM (§1.5.4 메시지 프로토콜 준수)
+    // Interface 2/3: CDC-ACM (§1.3.4 메시지 프로토콜 준수)
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_COMM, 4, EPNUM_CDC_NOTIF,
-                       8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64)
+                       8, EPNUM_CDC_OUT, EPNUM_CDC_IN, CFG_TUD_CDC_EP_BUFSIZE)
 };
 
-// HID Boot Keyboard Report Descriptor (§1.5.2 준수)
+// HID Boot Keyboard Report Descriptor (§1.3.2 준수 - 8바이트 고정)
 uint8_t const desc_hid_keyboard_report[] = {
     HID_USAGE_PAGE(HID_USAGE_PAGE_DESKTOP),
     HID_USAGE(HID_USAGE_DESKTOP_KEYBOARD),
     HID_COLLECTION(HID_COLLECTION_APPLICATION),
-        // 8바이트 Boot Keyboard 리포트 구조
-        // [0] Modifiers, [1] Reserved, [2-7] Key Codes
+        // Modifier Keys (Ctrl, Shift, Alt, GUI)
+        HID_USAGE_PAGE(HID_USAGE_PAGE_KEYBOARD),
+        HID_USAGE_MIN(0xE0), HID_USAGE_MAX(0xE7),
+        HID_LOGICAL_MIN(0), HID_LOGICAL_MAX(1),
+        HID_REPORT_COUNT(8), HID_REPORT_SIZE(1),
+        HID_INPUT(HID_DATA | HID_VARIABLE | HID_ABSOLUTE),
+        
+        // Reserved Byte
+        HID_REPORT_COUNT(1), HID_REPORT_SIZE(8),
+        HID_INPUT(HID_CONSTANT),
+        
+        // Key Codes (6 keys)
+        HID_REPORT_COUNT(6), HID_REPORT_SIZE(8),
+        HID_LOGICAL_MIN(0), HID_LOGICAL_MAX(101),
+        HID_USAGE_MIN(0), HID_USAGE_MAX(101),
+        HID_INPUT(HID_DATA | HID_ARRAY),
     HID_COLLECTION_END
 };
 
-// HID Boot Mouse Report Descriptor (§1.5.2 준수)
+// HID Boot Mouse Report Descriptor (§1.3.2 준수 - 4바이트 고정)
 uint8_t const desc_hid_mouse_report[] = {
     HID_USAGE_PAGE(HID_USAGE_PAGE_DESKTOP),
     HID_USAGE(HID_USAGE_DESKTOP_MOUSE),
     HID_COLLECTION(HID_COLLECTION_APPLICATION),
-        // 4바이트 Boot Mouse 리포트 구조
-        // [0] Buttons, [1] X, [2] Y, [3] Wheel
+        HID_USAGE(HID_USAGE_DESKTOP_POINTER),
+        HID_COLLECTION(HID_COLLECTION_PHYSICAL),
+            // Buttons (3 bits: Left, Right, Middle)
+            HID_USAGE_PAGE(HID_USAGE_PAGE_BUTTON),
+            HID_USAGE_MIN(1), HID_USAGE_MAX(3),
+            HID_LOGICAL_MIN(0), HID_LOGICAL_MAX(1),
+            HID_REPORT_COUNT(3), HID_REPORT_SIZE(1),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_ABSOLUTE),
+            
+            // Padding (5 bits)
+            HID_REPORT_COUNT(1), HID_REPORT_SIZE(5),
+            HID_INPUT(HID_CONSTANT),
+            
+            // X, Y (relative)
+            HID_USAGE_PAGE(HID_USAGE_PAGE_DESKTOP),
+            HID_USAGE(HID_USAGE_DESKTOP_X), HID_USAGE(HID_USAGE_DESKTOP_Y),
+            HID_LOGICAL_MIN(-127), HID_LOGICAL_MAX(127),
+            HID_REPORT_COUNT(2), HID_REPORT_SIZE(8),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_RELATIVE),
+            
+            // Wheel (relative)
+            HID_USAGE(HID_USAGE_DESKTOP_WHEEL),
+            HID_LOGICAL_MIN(-127), HID_LOGICAL_MAX(127),
+            HID_REPORT_COUNT(1), HID_REPORT_SIZE(8),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_RELATIVE),
+        HID_COLLECTION_END,
     HID_COLLECTION_END
 };
 ```
 
-**TinyUSB 콜백 구현 요구사항**:
+#### 3.3.3 TinyUSB 콜백 구현
+
+**HID Get Report 콜백** (호스트가 HID 리포트 요청 시):
 ```c
-// HID Get Report 콜백
+static uint8_t last_kb_report[8] = {0};
+static uint8_t last_mouse_report[4] = {0};
+
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
                                 hid_report_type_t report_type,
                                 uint8_t* buffer, uint16_t reqlen) {
-    // Keyboard/Mouse 인스턴스 구분 처리
-    if (instance == ITF_NUM_HID_KEYBOARD) {
-        return handleKeyboardGetReport(buffer, reqlen);
-    } else if (instance == ITF_NUM_HID_MOUSE) {
-        return handleMouseGetReport(buffer, reqlen);
+    if (report_type != HID_REPORT_TYPE_INPUT) {
+        return 0;  // Feature/Output 리포트는 미지원
     }
+    
+    // Keyboard 인스턴스
+    if (instance == ITF_NUM_HID_KEYBOARD) {
+        if (reqlen >= 8) {
+            memcpy(buffer, last_kb_report, 8);
+            return 8;
+        }
+    }
+    // Mouse 인스턴스
+    else if (instance == ITF_NUM_HID_MOUSE) {
+        if (reqlen >= 4) {
+            memcpy(buffer, last_mouse_report, 4);
+            return 4;
+        }
+    }
+    
     return 0;
 }
+```
 
-// CDC Line Coding 콜백
+**CDC Line Coding 콜백** (호스트가 시리얼 설정 변경 시):
+```c
 void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* coding) {
-    // Vendor CDC 설정 적용 (§1.5.4 프로토콜 유지)
+    // Vendor CDC는 실제 UART 설정과 무관 (가상 포트)
+    // Windows/Linux에서 자동으로 호출되므로 무시해도 무방
+    ESP_LOGI("CDC", "Line coding: baudrate=%lu, databits=%u, parity=%u, stopbits=%u",
+             coding->bit_rate, coding->data_bits, coding->parity, coding->stop_bits);
+}
+```
+
+**CDC RX 콜백** (Windows에서 JSON 명령 수신 시):
+```c
+#define CDC_RX_BUFFER_SIZE 512
+static uint8_t cdc_rx_buffer[CDC_RX_BUFFER_SIZE];
+
+void tud_cdc_rx_cb(uint8_t itf) {
+    if (itf != ITF_NUM_CDC_COMM) return;
+    
+    uint32_t count = tud_cdc_n_available(itf);
+    if (count == 0) return;
+    
+    // 버퍼 오버플로우 방지
+    if (count > CDC_RX_BUFFER_SIZE) {
+        ESP_LOGW("CDC", "RX overflow: %lu > %d", count, CDC_RX_BUFFER_SIZE);
+        tud_cdc_n_read_flush(itf);  // 버퍼 비우기
+        return;
+    }
+    
+    uint32_t read_count = tud_cdc_n_read(itf, cdc_rx_buffer, count);
+    
+    // §1.3.4 VendorCDCFrame 파싱 (바이트 단위 처리)
+    for (uint32_t i = 0; i < read_count; i++) {
+        VendorCDCFrame* frame = NULL;
+        if (parseVendorCDCFrameByte(cdc_rx_buffer[i], &frame)) {
+            // 프레임 추출 성공 → JSON 명령 처리
+            handleVendorCDCCommand(frame);
+        }
+    }
+}
+```
+
+#### 3.3.4 app_main() 초기화 순서
+
+**ESP-IDF 진입점 및 TinyUSB 초기화**:
+```c
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "tusb.h"
+
+static const char* TAG = "BridgeOne";
+
+void app_main(void) {
+    ESP_LOGI(TAG, "BridgeOne USB Bridge Initializing...");
+    
+    // 1. TinyUSB 스택 초기화
+    ESP_ERROR_CHECK(tud_init(BOARD_TUD_RHPORT));
+    ESP_LOGI(TAG, "TinyUSB device stack initialized");
+    
+    // 2. UART 초기화 (Android 통신)
+    uart_config_t uart_config = {
+        .baud_rate = 1000000,  // 1Mbps
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    };
+    ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &uart_config));
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 1024, 1024, 0, NULL, 0));
+    ESP_LOGI(TAG, "UART initialized (1Mbps)");
+    
+    // 3. FreeRTOS 태스크 생성 (§3.5 참조)
+    xTaskCreatePinnedToCore(uart_task, "UART", 4096, NULL, 10, NULL, 0);
+    xTaskCreatePinnedToCore(hid_task, "HID", 4096, NULL, 9, NULL, 0);
+    xTaskCreatePinnedToCore(cdc_task, "CDC", 4096, NULL, 8, NULL, 1);
+    xTaskCreatePinnedToCore(usb_task, "USB", 4096, NULL, 5, NULL, 1);
+    
+    ESP_LOGI(TAG, "All tasks created, BridgeOne ready");
 }
 
-// CDC RX 콜백
-void tud_cdc_rx_cb(uint8_t itf) {
-    // Windows 서버로부터 수신한 JSON 명령 처리
-    if (itf == ITF_NUM_CDC_COMM) {
-        handleVendorCDCReceive();
+// USB 장치 태스크 (TinyUSB 이벤트 처리)
+void usb_task(void* param) {
+    while (1) {
+        tud_task();  // TinyUSB 이벤트 폴링 (non-blocking)
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 ```
