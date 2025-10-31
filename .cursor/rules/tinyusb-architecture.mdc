@@ -2,9 +2,9 @@
 title: "TinyUSB 아키텍처 및 빌드 설정"
 description: "ESP-IDF 환경에서 TinyUSB의 기본 아키텍처, 컴포넌트 구조, CMake 및 sdkconfig를 포함한 빌드 설정 가이드"
 tags: ["tinyusb", "esp-idf", "architecture", "build", "cmake", "sdkconfig"]
-version: "v1.0"
+version: "v1.1"
 owner: "Chatterbones"
-updated: "2025-10-31"
+updated: "2025-01-27"
 framework: "ESP-IDF + TinyUSB"
 references: ["Context7:/hathach/tinyusb", "Context7:/espressif/tinyusb", "Context7:/espressif/esp-idf"]
 ---
@@ -27,7 +27,7 @@ TinyUSB는 다음과 같은 계층화된 구조로 설계되었습니다. 각 �
 ├──────────────────────────────────────┤
 │   Class Drivers (HID, CDC, MSC...)   │ ← tud_hid_*(), tud_cdc_*() API 제공
 ├──────────────────────────────────────┤
-│   Device Stack (usbd.c, usbd_control)│ ← tud_task(), tud_init() 코어 API
+│   Device Stack (usbd.c, usbd_control)│ ← tud_task(), tud_init()/tuh_init() 코어 API
 ├──────────────────────────────────────┤
 │   DCD (Device Controller Driver)     │ ← dcd_dwc2.c (ESP32-S3)
 ├──────────────────────────────────────┤
@@ -37,7 +37,8 @@ TinyUSB는 다음과 같은 계층화된 구조로 설계되었습니다. 각 �
 
 **핵심 원칙**:
 - **Application Layer**: USB 디스크립터 콜백(`usb_descriptors.c`)과 비즈니스 로직을 구현합니다.
-- **Device Stack**: `tud_task()`를 FreeRTOS 태스크에서 주기적으로 호출하여 USB 이벤트를 처리해야 합니다.
+- **Device Stack**: `tud_task()`를 FreeRTOS 태스크에서 주기적으로 호출하여 USB 이벤트를 처리해야 합니다. 초기화는 `tud_init(rhport)`로 수행하며, `tud_inited()`로 초기화 상태를 확인할 수 있습니다.
+- **Host Stack**: 호스트 기능이 필요한 경우 `tuh_init(rhport)` 및 `tuh_task()`를 사용합니다.
 - **DCD (Device Controller Driver)**: ESP-IDF 컴포넌트(`espressif__tinyusb`)가 ESP32-S3의 Synopsys DWC2 드라이버를 자동으로 포함하므로 직접 제어할 필요가 없습니다.
 
 ### 1.2. ESP-IDF 컴포넌트 구조
@@ -132,3 +133,69 @@ CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
 - **모듈성**: 각 기능(HID, CDC)은 `sdkconfig`에서 활성화/비활성화할 수 있어야 합니다.
 - **식별성**: 커스텀 VID/PID를 사용하여 호스트 OS에서 디바이스를 명확하게 식별하도록 합니다.
 - **안정성**: 개발 중에는 디버그 레벨을 높여 문제를 조기에 발견하고, 프로덕션 단계에서는 레벨을 낮춰 성능을 확보합니다. 태스크 워치독을 사용하여 태스크 멈춤(Stall) 현상을 감지합니다.
+
+---
+
+## 3. TinyUSB 초기화 및 해제 API
+
+### 3.1. Device Stack 초기화
+
+TinyUSB는 Device와 Host 스택을 분리하여 초기화합니다. ESP32-S3는 단일 USB 포트를 사용하므로 `rhport`는 항상 `0`입니다.
+
+```c
+// main.c
+#include "tusb.h"
+
+void app_main(void) {
+    // TinyUSB Device Stack 초기화
+    // ESP32-S3는 USB 포트 0 사용
+    if (!tud_init(0)) {
+        ESP_LOGE("MAIN", "TinyUSB device init failed");
+        abort();
+    }
+    
+    // 초기화 상태 확인 (선택 사항)
+    if (tud_inited()) {
+        ESP_LOGI("MAIN", "TinyUSB device stack initialized");
+    }
+    
+    // ... 태스크 생성 및 기타 초기화 ...
+}
+```
+
+**Context7 정보 (Trust Score 9.7)**: `tusb_init()` API가 `tud_init(rhport)`와 `tuh_init(rhport)`로 분리되었습니다. Device 스택만 필요한 경우 `tud_init()`만 호출하면 됩니다. `tud_inited()`로 초기화 상태를 확인할 수 있습니다.
+
+### 3.2. Device Stack 해제
+
+디바이스를 동적으로 재초기화하거나 리소스를 해제해야 할 때 `tud_deinit()`을 사용합니다.
+
+```c
+// 디바이스 스택 해제 (선택 사항)
+void cleanup_usb_device(void) {
+    if (tud_inited()) {
+        tud_deinit();
+        ESP_LOGI("MAIN", "TinyUSB device stack deinitialized");
+    }
+}
+```
+
+**Context7 정보 (Trust Score 9.7)**: `tud_deinit()`은 클래스 드라이버도 함께 해제합니다. 호출 후 다시 `tud_init()`을 호출하여 재초기화할 수 있습니다.
+
+### 3.3. Host Stack 초기화 (참고)
+
+BridgeOne 프로젝트는 Device 전용이지만, 향후 확장을 위해 Host Stack 초기화 방법을 기술합니다.
+
+```c
+// Host Stack 초기화 (현재 프로젝트에서는 사용하지 않음)
+if (!tuh_init(0)) {
+    ESP_LOGE("MAIN", "TinyUSB host init failed");
+}
+
+// Host 태스크는 별도 태스크에서 호출
+void host_task(void* param) {
+    while (1) {
+        tuh_task(); // Host 이벤트 처리
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+```

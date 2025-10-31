@@ -2,11 +2,11 @@
 title: "TinyUSB HID 구현 규칙"
 description: "ESP-IDF에서 TinyUSB를 사용한 HID 키보드 및 마우스 구현 패턴, 리포트 전송 API, 콜백 함수 처리 방법을 정의합니다."
 tags: ["tinyusb", "esp-idf", "hid", "keyboard", "mouse"]
-version: "v1.0"
+version: "v1.1"
 owner: "Chatterbones"
-updated: "2025-10-31"
+updated: "2025-01-27"
 framework: "ESP-IDF + TinyUSB"
-references: ["Context7:/hathach/tinyusb", "mdc:./tinyusb-descriptors.mdc"]
+references: ["Context7:/hathach/tinyusb", "mdc:./tinyusb-descriptors.mdc", "mdc:./tinyusb-power-management.mdc"]
 ---
 
 # TinyUSB HID 구현 규칙
@@ -191,3 +191,34 @@ void tud_hid_report_complete_cb(uint8_t instance, uint8_t const* report, uint16_
     }
 }
 ```
+
+---
+
+## 3. 저전력 모드 진입 전 상태 확인
+
+FreeRTOS 태스크가 CPU를 점유하지 않을 때 WFI(Wait For Interrupt)와 같은 저전력 모드로 진입하여 전력 소모를 줄일 수 있습니다. 하지만 처리해야 할 USB 이벤트가 남아있는 상태에서 저전력 모드로 진입하면 통신 오류가 발생할 수 있습니다.
+
+### 3.1. `tud_task_event_ready()`
+
+**역할**: TinyUSB 이벤트 큐에 처리해야 할 이벤트가 있는지 확인합니다. 저전력 모드로 진입하기 직전에 이 함수를 호출하여 `false`를 반환하는지 확인해야 합니다.
+
+```c
+// usb_task 또는 저전력 관리 태스크
+#include "esp_sleep.h"
+
+void low_power_task(void* param) {
+    while (1) {
+        // 다른 태스크들이 모두 대기 상태인지 확인
+        // ...
+
+        // 처리할 USB 이벤트가 없는지 최종 확인
+        if (!tud_task_event_ready()) {
+            esp_light_sleep_start();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+```
+
+**Context7 정보 (Trust Score 9.7)**: `tud_task_event_ready()`는 OSAL 큐가 비어있는지 확인하는 래퍼(wrapper) 함수입니다. 이 함수는 FreeRTOS와 같은 RTOS 환경에서만 사용 가능하며(`CFG_TUSB_OS`가 `OPT_OS_NONE`이 아닐 때), 저전력 모드 전환의 안정성을 크게 향상시킵니다. 자세한 내용은 `mdc:./tinyusb-power-management.mdc`를 참조하십시오.

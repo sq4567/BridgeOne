@@ -1,10 +1,10 @@
 ---
 title: "TinyUSB 디스크립터 구현 규칙"
 description: "ESP-IDF 환경에서 TinyUSB 복합 디바이스(HID+CDC)를 위한 필수 USB 디스크립터(Device, Configuration, HID Report, String) 구현 가이드"
-tags: ["tinyusb", "esp-idf", "usb", "descriptor", "hid", "cdc"]
-version: "v1.0"
+tags: ["tinyusb", "esp-idf", "usb", "descriptor", "hid", "cdc", "bos"]
+version: "v1.1"
 owner: "Chatterbones"
-updated: "2025-10-31"
+updated: "2025-01-27"
 framework: "ESP-IDF + TinyUSB"
 references: ["Context7:/hathach/tinyusb", "mdc:./tinyusb-architecture.mdc"]
 ---
@@ -23,6 +23,10 @@ TinyUSB는 효율적인 코드 크기를 위해 일부 콜백 함수를 약한 �
 - `tud_descriptor_configuration_cb()`
 - `tud_descriptor_string_cb()`
 - `tud_hid_descriptor_report_cb()` (HID 사용 시)
+
+**선택적이지만 권장되는 콜백**:
+- `tud_descriptor_bos_cb()`: USB 2.1 이상 호환성 및 WebUSB/WinUSB 등 고급 기능을 위해 필요합니다.
+- `tud_descriptor_device_qualifier_cb()`: 디바이스가 High-speed(480Mbps)를 지원하고 Full-speed(12Mbps)로도 동작해야 할 때 필요합니다. (ESP32-S3는 Full-speed만 지원하므로 이 프로젝트에서는 불필요)
 
 ---
 
@@ -221,3 +225,50 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
 }
 ```
 **Context7 정보 (Trust Score 9.7)**: `tud_descriptor_string_cb`는 `langid` 인자를 포함하도록 변경되었습니다. 다국어 지원이 필요 없는 경우 이 인자를 무시할 수 있으나, 콜백 함수의 시그니처는 반드시 `(uint8_t index, uint16_t langid)`를 따라야 합니다.
+
+---
+
+## 6. BOS Descriptor (`tud_descriptor_bos_cb`) (선택 사항)
+
+**역할**: 디바이스의 추가적인 기능(Capability)을 호스트에 알립니다. 특히 WebUSB나 Microsoft OS 2.0 Descriptors (WinUSB)와 같은 고급 기능을 사용할 때 필수적입니다.
+
+```c
+// usb_descriptors.c
+
+// Microsoft OS 2.0 Descriptors를 위한 BOS Capability Descriptor
+#define BOS_TOTAL_LEN      (TUD_BOS_DESC_LEN + TUD_BOS_WEBUSB_DESC_LEN + TUD_BOS_MICROSOFT_OS_DESC_LEN)
+
+uint8_t const desc_bos[] = {
+    // BOS Descriptor
+    TUD_BOS_DESCRIPTOR(BOS_TOTAL_LEN, 2), // 2개의 capability descriptors
+
+    // WebUSB (랜딩 페이지 URL 지정)
+    TUD_BOS_WEBUSB_DESCRIPTOR(VENDOR_REQUEST_WEBUSB, 1),
+
+    // Microsoft OS 2.0 Descriptors (WinUSB 자동 드라이버 설치)
+    TUD_BOS_MS_OS_20_DESCRIPTOR(MS_OS_20_DESC_LEN, VENDOR_REQUEST_MICROSOFT)
+};
+
+uint8_t const* tud_descriptor_bos_cb(void) {
+    return desc_bos;
+}
+```
+
+**설계 원칙**:
+- **확장성**: BOS 디스크립터를 통해 표준 USB 클래스 외의 독자적인 기능을 추가할 수 있습니다.
+- **자동화**: Windows에서 WinUSB 드라이버를 자동으로 설치하도록 유도하여 사용자 편의성을 높일 수 있습니다.
+- **Context7 정보 (Trust Score 9.7)**: BOS 디스크립터는 USB 2.1 사양부터 필수로 요구됩니다. `tud_descriptor_bos_cb` 콜백을 구현하지 않으면 TinyUSB가 기본 스텁(stub)을 제공하지만, WebUSB 등의 기능을 사용하려면 반드시 직접 구현해야 합니다.
+
+## 7. Device Qualifier Descriptor (`tud_descriptor_device_qualifier_cb`) (참고)
+
+**역할**: High-speed(HS)를 지원하는 디바이스가 Full-speed(FS) 포트에 연결되었을 때, FS 모드에서의 동작 방식을 설명하는 디스크립터입니다.
+
+**구현 여부**:
+- **ESP32-S3는 USB 1.1 Full-speed(12Mbps)만 지원**하므로, 이 디스크립터를 구현할 필요가 없습니다. High-speed(480Mbps)를 지원하는 다른 MCU를 사용할 경우에만 필요합니다.
+
+```c
+// ESP32-S3에서는 구현 불필요
+// uint8_t const* tud_descriptor_device_qualifier_cb(void) {
+//     return NULL;
+// }
+```

@@ -2,9 +2,9 @@
 title: "TinyUSB CDC-ACM 구현 규칙"
 description: "ESP-IDF에서 TinyUSB를 사용하여 가상 시리얼 포트(CDC-ACM)를 구현하는 패턴을 정의합니다. 데이터 수신 콜백, 라인 상태 관리, 송수신 API 사용법을 포함합니다."
 tags: ["tinyusb", "esp-idf", "cdc", "vcp", "serial"]
-version: "v1.0"
+version: "v1.1"
 owner: "Chatterbones"
-updated: "2025-10-31"
+updated: "2025-01-27"
 framework: "ESP-IDF + TinyUSB"
 references: ["Context7:/hathach/tinyusb", "mdc:./tinyusb-descriptors.mdc"]
 ---
@@ -87,6 +87,29 @@ void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* coding) {
 }
 ```
 
+### 1.4. `tud_cdc_tx_complete_cb()` (전송 완료)
+
+**역할**: `tud_cdc_n_write()`로 버퍼에 쓴 데이터의 전송이 완료되었을 때 호출됩니다. 대용량 데이터를 스트리밍할 때 흐름 제어(Flow Control)를 구현하는 데 유용합니다.
+
+```c
+void tud_cdc_tx_complete_cb(uint8_t itf) {
+    (void)itf;
+    ESP_LOGD(TAG, "CDC TX transfer complete");
+    // 예: 세마포어를 release하여 다음 데이터 전송을 허용
+}
+```
+
+### 1.5. `tud_cdc_send_break_cb()` (BREAK 신호 수신)
+
+**역할**: 호스트가 BREAK 신호를 요청했을 때 호출됩니다. (예: `dtr=false`, `rts=true` 상태에서 `duration_ms > 0`인 `SendBreak` 요청)
+
+```c
+void tud_cdc_send_break_cb(uint8_t itf, uint16_t duration_ms) {
+    (void)itf;
+    ESP_LOGI(TAG, "CDC received BREAK signal, duration %u ms", duration_ms);
+}
+```
+
 ---
 
 ## 2. CDC 데이터 송신 API
@@ -133,4 +156,23 @@ bool send_cdc_string(const char* str) {
     return true;
 }
 ```
-**Context7 정보 (Trust Score 9.1)**: `tud_cdc_n_write()`는 데이터를 내부 TX FIFO에 복사할 뿐, 실제 전송을 보장하지 않습니다. 즉각적인 전송이 필요할 경우, 반드시 `tud_cdc_n_write_flush()`를 호출해야 합니다. 대량의 데이터를 보낼 때는 버퍼 공간을 확인하고 여러 번에 나누어 쓰는 것이 안정적입니다. `tud_cdc_configure_fifo()`를 사용하면 USB 연결이 끊겨도 TX/RX 버퍼를 유지할 수 있습니다.
+**Context7 정보 (Trust Score 9.1)**: `tud_cdc_n_write()`는 데이터를 내부 TX FIFO에 복사할 뿐, 실제 전송을 보장하지 않습니다. 즉각적인 전송이 필요할 경우, 반드시 `tud_cdc_n_write_flush()`를 호출해야 합니다. 대량의 데이터를 보낼 때는 버퍼 공간을 확인하고 여러 번에 나누어 쓰는 것이 안정적입니다.
+
+---
+
+## 3. 고급 기능: 버퍼 관리
+
+### 3.1. `tud_cdc_configure_fifo()` (버퍼 유지)
+
+**역할**: USB 연결이 끊겨도 RX/TX FIFO 버퍼를 유지하도록 설정합니다. 기본적으로는 연결이 끊기면 버퍼가 초기화됩니다. 이 함수를 사용하면 재연결 시 데이터 손실을 방지할 수 있습니다.
+
+```c
+// main.c 또는 cdc_handler.c 초기화 함수
+
+void configure_persistent_cdc_fifo(void) {
+    // true로 설정 시 연결이 끊겨도 버퍼가 유지됨
+    tud_cdc_configure_fifo(true);
+}
+```
+
+**Context7 정보 (Trust Score 9.1)**: 이 기능은 `tud_cdc_n_write()`가 내부 TX FIFO에 데이터를 복사하는 방식과 관련이 깊습니다. 버퍼 유지를 활성화하면, 호스트가 연결되지 않은 상태에서도 `tud_cdc_n_write()`로 데이터를 쌓아두고, 연결 시점에 전송할 수 있습니다.
