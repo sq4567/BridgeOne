@@ -598,10 +598,10 @@ idf.py reconfigure
 - Phase 1.2.3 (sdkconfig.defaults 설정 단계)
 
 **검증**:
-- [ ] `src/board/BridgeOne/sdkconfig.defaults` 파일에 `CONFIG_TINYUSB_HID_COUNT=2` 포함됨
-- [ ] `src/board/BridgeOne/sdkconfig` 파일에서 `CONFIG_TINYUSB_HID_COUNT` 값 확인
-- [ ] 필요시 `idf.py menuconfig` 또는 `idf.py reconfigure` 실행
-- [ ] 최종 `sdkconfig` 파일에 `CONFIG_TINYUSB_HID_COUNT=2` 반영됨
+- [x] `src/board/BridgeOne/sdkconfig.defaults` 파일에 `CONFIG_TINYUSB_HID_COUNT=2` 포함됨
+- [x] `src/board/BridgeOne/sdkconfig` 파일에서 `CONFIG_TINYUSB_HID_COUNT` 값 확인
+- [x] 필요시 `idf.py menuconfig` 또는 `idf.py reconfigure` 실행
+- [x] 최종 `sdkconfig` 파일에 `CONFIG_TINYUSB_HID_COUNT=2` 반영됨
 
 ---
 
