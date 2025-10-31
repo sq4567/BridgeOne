@@ -2,6 +2,7 @@ idf_component_register(
     SRCS 
         "BridgeOne.c"
         "usb_descriptors.c"
+        "hid_handler.c"
     INCLUDE_DIRS "."
     REQUIRES 
         tinyusb

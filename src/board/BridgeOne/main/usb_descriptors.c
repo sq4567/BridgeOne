@@ -113,41 +113,18 @@ uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance) {
  * 
  * 호스트가 현재 HID 리포트 상태를 요청할 때 호출됨
  * 
- * 참고: 이는 Phase 2.1.1.2에서 완전히 구현될 예정이며,
- * 지금은 스켈레톤 구현만 제공합니다.
+ * 참고: 이는 hid_handler.c에서 구현됩니다.
  */
-uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
-                                hid_report_type_t report_type,
-                                uint8_t* buffer, uint16_t reqlen) {
-    (void)instance;
-    (void)report_id;
-    (void)report_type;
-    (void)buffer;
-    (void)reqlen;
-    
-    // Phase 2.1.1.2에서 구현
-    return 0;
-}
+// 함수 구현은 hid_handler.c로 이동됨
 
 /**
  * HID Set Report 콜백 함수
  * 
  * 호스트가 HID 디바이스의 상태를 설정할 때 호출됨 (예: LED)
  * 
- * 참고: 이는 Phase 2.1.1.2에서 완전히 구현될 예정이며,
- * 지금은 스켈레톤 구현만 제공합니다.
+ * 참고: 이는 hid_handler.c에서 구현됩니다.
  */
-void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
-                            hid_report_type_t report_type,
-                            uint8_t const* buffer, uint16_t bufsize) {
-    (void)instance;
-    (void)report_id;
-    (void)report_type;
-    (void)buffer;
-    (void)bufsize;
-    
-    // Phase 2.1.1.2에서 구현
-}
+// 함수 구현은 hid_handler.c로 이동됨
 
 // ==================== 3. Configuration Descriptor ====================
 /**

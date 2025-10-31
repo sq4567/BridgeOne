@@ -264,16 +264,45 @@ updated: "2025-10-27"
 - `.cursor/rules/tinyusb-hid-implementation.mdc` - HID 키보드/마우스 구현 패턴 및 콜백 처리 가이드
 
 **검증**:
-- [ ] `tud_hid_get_report_cb()` 함수 구현됨
-- [ ] `tud_hid_set_report_cb()` 함수 구현됨
-- [ ] **`tud_descriptor_string_cb()` 콜백 반환 타입이 `const uint16_t*`로 구현됨**
-- [ ] Instance 0 (Keyboard)에 대한 분기 처리 확인
-- [ ] Instance 1 (Mouse)에 대한 분기 처리 확인
-- [ ] LED 상태 버퍼 선언됨 (`hid_keyboard_led_status`)
-- [ ] 함수 서명과 TinyUSB 요구사항 일치
-- [ ] **Helper 함수 선언됨 (`hid_update_report_state()`, `hid_get_keyboard_led_status()`)**
-- [ ] **`class/hid/hid.h` 헤더 파일 include 확인**
-- [ ] `idf.py build` 성공 (컴파일 오류 없음)
+- [x] `tud_hid_get_report_cb()` 함수 구현됨
+- [x] `tud_hid_set_report_cb()` 함수 구현됨
+- [x] **`tud_descriptor_string_cb()` 콜백 반환 타입이 `const uint16_t*`로 구현됨**
+- [x] Instance 0 (Keyboard)에 대한 분기 처리 확인
+- [x] Instance 1 (Mouse)에 대한 분기 처리 확인
+- [x] LED 상태 버퍼 선언됨 (`hid_keyboard_led_status`)
+- [x] 함수 서명과 TinyUSB 요구사항 일치
+- [x] **Helper 함수 선언됨 (`hid_update_report_state()`, `hid_get_keyboard_led_status()`)**
+- [x] **`class/hid/hid.h` 헤더 파일 include 확인**
+- [x] `idf.py build` 성공 (컴파일 오류 없음)
+
+**🔄 변경사항 분석 및 이유**:
+
+**1. HID 리포트 구조체 재정의 방지**
+   - **원래 계획**: `hid_handler.h`에서 `hid_keyboard_report_t`, `hid_mouse_report_t` 새로 정의
+   - **실제 구현**: TinyUSB 헤더(`class/hid/hid.h`)에서 이미 정의된 구조체 사용
+   - **변경 이유**: 중복 정의 시 컴파일 오류 발생. TinyUSB에서 제공하는 타입을 재사용하는 것이 모범 사례
+   - **영향**: 빌드 성공, 타입 충돌 제거, 향후 유지보수 용이
+
+**2. 구조체 필드명 수정 (중요)**
+   - **원래 계획**: `modifiers`, `keyCodes`, `deltaX`, `deltaY` 사용
+   - **실제 TinyUSB**: `modifier` (단수), `keycode` (단수), `x`, `y` 사용
+   - **변경 이유**: TinyUSB 공식 헤더(`hid.h` 라인 360, 301)의 정의와 일치 필요
+   - **영향**: Phase 2.1.2의 `bridge_frame_t` 구조체 필드명 수정 필수
+   - **참고**: TinyUSB 공식 문서 미흡으로 인해 초기 계획과 실제 구현 불일치
+
+**3. 콜백 함수 구현 위치 변경**
+   - **원래 계획**: `usb_descriptors.c`에서 스켈레톤 구현 후 완전 구현은 Phase 2.1.1.2
+   - **실제 구현**: `hid_handler.c`에서 완전 구현 (스켈레톤이 아님)
+   - **변경 이유**: 
+     - 관심사의 분리 원칙 (Separation of Concerns): USB 디스크립터 로직과 HID 핸들러 로직 분리
+     - 테스트 용이성: hid_handler 단위 테스트 가능
+     - 코드 재사용성: 다른 프로젝트에서 hid_handler.c 재사용 가능
+   - **영향**: 유지보수성 향상, 모듈화 강화
+
+**4. Helper 함수 스켈레톤 제공**
+   - **상태**: `hid_update_report_state()`, `hid_get_keyboard_led_status()` 스켈레톤 제공
+   - **이유**: Phase 2.1.2에서 UART 처리 후 완전 구현 예정
+   - **영향**: Phase 2.1.2 진행 시 함수 시그니처 변경 불필요
 
 ---
 
@@ -312,12 +341,12 @@ updated: "2025-10-27"
 2. `bridge_frame_t` 구조체 정의 (8바이트)
    - seq: 1바이트 (시퀀스 번호)
    - buttons: 1바이트 (마우스 버튼 비트)
-   - deltaX: 1바이트 (X축 이동값, signed)
-   - deltaY: 1바이트 (Y축 이동값, signed)
+   - x: 1바이트 (X축 이동값, signed)
+   - y: 1바이트 (Y축 이동값, signed)
    - wheel: 1바이트 (휠 값, signed)
-   - modifiers: 1바이트 (키보드 modifier 키)
-   - keyCode1: 1바이트 (첫 번째 키코드)
-   - keyCode2: 1바이트 (두 번째 키코드)
+   - modifier: 1바이트 (키보드 modifier 키)
+   - keycode1: 1바이트 (첫 번째 키코드)
+   - keycode2: 1바이트 (두 번째 키코드)
 3. UART 상수 정의 (UART_NUM_0, 1Mbps, 8N1)
 4. `uart_handler.c` 파일 작성
 5. UART 초기화 함수 구현 (`uart_init()`)
@@ -342,13 +371,19 @@ updated: "2025-10-27"
 - [ ] `src/board/BridgeOne/main/uart_handler.h` 파일 생성됨
 - [ ] `src/board/BridgeOne/main/uart_handler.c` 파일 생성됨
 - [ ] `bridge_frame_t` 구조체 정의됨 (정확히 8바이트)
-- [ ] 모든 필드 타입 정확함 (seq, buttons, deltaX/Y/wheel, modifiers, keyCode1/2)
+- [ ] 모든 필드 타입 정확함 (seq, buttons, x/y/wheel, modifier, keycode1/2)
 - [ ] UART 설정 상수 정의됨 (UART_NUM_0, BAUDRATE=1000000)
 - [ ] `uart_init()` 함수 구현됨
   - [ ] **`gpio_set_direction()` 또는 `uart_set_pin()` 호출 없음 (내장 USB-to-UART 사용)**
   - [ ] `uart_param_config()` 호출 (1Mbps, 8N1)
   - [ ] `uart_driver_install()` 호출 (버퍼 크기 할당)
 - [ ] `idf.py build` 성공
+
+**⚠️ Phase 2.1.1.3 변경사항 영향**:
+- **구조체 필드명 수정 필수**: Phase 2.1.1.3에서 HID 콜백 함수 구현 시 TinyUSB 실제 필드명(`modifier`, `keycode`, `x`, `y`)이 발견되었음
+  - `bridge_frame_t` 필드: `modifiers` → `modifier`, `keyCodes` → `keycode1`/`keycode2`, `deltaX` → `x`, `deltaY` → `y`
+  - 영향: Phase 2.1.2.3의 `processBridgeFrame()` 함수에서 필드명 매핑 시 실제 필드명 사용 필수
+- **주의**: bridge_frame_t는 UART 프로토콜 정의이므로 필드 순서와 크기 변경 불가. 필드명만 수정.
 
 ---
 
@@ -429,12 +464,18 @@ updated: "2025-10-27"
 - [ ] `processBridgeFrame()` 함수 구현됨
 - [ ] Keyboard/Mouse 필드 분리 로직 구현
 - [ ] Phase 2.1.1.3에서 구현한 `hid_update_report_state()` 함수 활용 확인
-- [ ] `sendKeyboardReport()` 함수 구현됨 (modifiers, keyCode1/2 포함)
-- [ ] `sendMouseReport()` 함수 구현됨 (buttons, deltaX/Y, wheel 포함)
+- [ ] `sendKeyboardReport()` 함수 구현됨 (modifiers, keycode1/2 포함)
+- [ ] `sendMouseReport()` 함수 구현됨 (buttons, x/y, wheel 포함)
 - [ ] `tud_hid_n_report()` 호출 (Instance 구분)
 - [ ] 에러 처리 (USB 연결 해제 시)
 - [ ] 디버그 로그 출력 (리포트 전송 정보)
 - [ ] `idf.py build` 성공
+
+**⚠️ Phase 2.1.1.3 및 2.1.2.1 변경사항 영향**:
+- **필드명 매핑 필수**: `processBridgeFrame()` 구현 시 실제 필드명 적용
+  - `bridge_frame_t.modifier` → `hid_keyboard_report_t.modifier`
+  - `bridge_frame_t.x` → `hid_mouse_report_t.x`
+  - `bridge_frame_t.y` → `hid_mouse_report_t.y`
 
 ---
 
