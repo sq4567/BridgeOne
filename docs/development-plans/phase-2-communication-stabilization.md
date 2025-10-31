@@ -93,7 +93,11 @@ updated: "2025-10-27"
 2. VID/PID 상수 정의 (VID: 0x303A 또는 0x1209)
 3. USB Device Descriptor 정의
 4. USB Configuration Descriptor 정의 (Interface 0: Keyboard, Interface 1: Mouse)
+   - **주의**: CDC 인터페이스는 제외 (Phase 2.2에서 추가 예정)
+   - HID Descriptor (9 bytes)를 Configuration Descriptor에 포함 (USB HID 인터페이스 완전 정의에 필수)
+   - Configuration Descriptor 총 길이: 50 bytes (2개 interface + 2개 endpoint)
 5. String Descriptor 정의 (Manufacturer, Product, Serial Number)
+   - 향후 CDC 추가 시 재사용 가능하도록 미리 정의
 6. `usb_descriptors.c` 파일 생성 및 기본 구조 작성
 
 **참조 문서 및 섹션**:
@@ -109,35 +113,12 @@ updated: "2025-10-27"
 - [x] VID=0x303A (또는 0x1209) 정의됨
 - [x] USB Device Descriptor 배열 정의됨 (`tusb_desc_device[]`)
 - [x] USB Configuration Descriptor에 2개 Interface 정의됨 (HID Keyboard + Mouse)
+- [x] **HID Descriptor (9 bytes)가 Configuration Descriptor에 포함됨**
+- [x] **CDC 인터페이스는 제외됨 (Phase 2.2에서 추가 예정)**
+- [x] **Configuration Descriptor 총 길이: 50 bytes 확인**
 - [x] String Descriptor 정의됨 (3개 이상: Language, Manufacturer, Product, Serial)
 - [x] Endpoint 번호 예약됨 (EPNUM_HID_KB=0x81, EPNUM_HID_MOUSE=0x82)
 - [x] `idf.py build` 성공 (CMakeLists.txt 업데이트하여 컴파일 가능 상태)
-
-**구현 변경 사항 및 이유**:
-
-기존 계획 대비 다음과 같이 변경되었습니다:
-
-1. **HID Descriptor 포함**
-   - 계획: "기본 구조만" (자세히 명시 안 됨)
-   - 실제: HID Descriptor (9 bytes)를 Configuration Descriptor에 포함
-   - **변경 이유**: 
-     - USB HID 인터페이스를 완전히 정의하려면 HID Descriptor가 필수
-     - TinyUSB의 표준 hid_composite 예제에서도 HID Descriptor를 Configuration에 포함
-     - Configuration Descriptor 총 길이 계산에 필요
-
-2. **CDC는 제외**
-   - 원래 의도: Phase 2.1.1.1은 HID만 구현
-   - 재정의: Configuration Descriptor를 2개 인터페이스만으로 제한
-   - **변경 이유**:
-     - CDC 인터페이스는 향후 Phase에서 개발할 예정
-     - 현재 Phase의 목표는 "HID Boot Keyboard + Mouse" 정의
-     - 설계 계약의 4개 인터페이스는 참고만 하되, 단계적으로 구현
-
-**설계 원칙 준수 확인**:
-- ✅ HID Keyboard/Mouse 인터페이스만 정의 (Phase 목표 준수)
-- ✅ CDC 인터페이스는 제외 (향후 개발)
-- ✅ Configuration Descriptor 총 길이: 50 bytes (2개 interface + 2개 endpoint)
-- ✅ String Descriptor는 미리 정의 (향후 CDC 추가 시 활용)
 
 ---
 
@@ -156,6 +137,10 @@ updated: "2025-10-27"
    - Y axis (1바이트)
    - Wheel (1바이트)
 3. Report Descriptor 크기 및 배치 검증
+   - **주의**: 표준 호환성을 위해 USB HID Specification v1.1.1의 모든 필수 Item을 포함해야 함
+   - 실제 측정 크기: Keyboard 65바이트, Mouse 74바이트
+4. Configuration Descriptor의 `wDescriptorLength` 필드를 실제 크기로 설정
+   - Keyboard: `0x41` (65), Mouse: `0x4A` (74)
 
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §3.3 TinyUSB Composite 디바이스 구현
@@ -170,41 +155,11 @@ updated: "2025-10-27"
 - [x] `tusb_desc_hid_report_keyboard[]` 배열 정의됨
 - [x] `tusb_desc_hid_report_mouse[]` 배열 정의됨
 - [x] 각 Report Descriptor 크기 정확함 (Keyboard: 65바이트, Mouse: 74바이트 측정)
+- [x] **Configuration Descriptor의 `wDescriptorLength` 필드가 실제 크기로 설정됨 (Keyboard: 0x41, Mouse: 0x4A)**
 - [x] Report ID 없음 (Boot mode: Report ID 제외)
 - [x] `idf.py build` 성공
 - [x] Keyboard Report Descriptor에 Modifier, Reserved, Key Codes 필드 포함 확인
 - [x] Mouse Report Descriptor에 Buttons, X/Y, Wheel 필드 포함 확인
-
-**변경 사항 (기존 계획 대비)**:
-
-원래 계획에서는 HID Report Descriptor 크기를 다음과 같이 예상했습니다:
-- Keyboard: 63바이트 (예상)
-- Mouse: 52바이트 (예상)
-
-실제 구현 결과:
-- Keyboard: 65바이트 (측정)
-- Mouse: 74바이트 (측정)
-
-**변경 이유**:
-1. **HID Report Descriptor Item 수 증가**: 
-   - USB HID Specification v1.1.1에 정의된 모든 필수 Item을 포함
-   - Usage Page, Usage, Collection, Report Size, Report Count, Logical Min/Max 등 세부 설정 포함
-   - 예상 크기는 최소 크기 기준이었으나, 표준 스펙 완전 준수 시 더 큼
-
-2. **표준 호환성 우선**:
-   - BIOS/UEFI와의 호환성 보장
-   - Windows/Linux/macOS 드라이버 자동 인식 보장
-   - 정확한 HID Item 정의로 호스트 OS의 정확한 해석 가능
-
-3. **Configuration Descriptor 업데이트**:
-   - HID Descriptor의 wDescriptorLength 필드를 실제 크기로 설정
-   - Keyboard: 0x41 (65), Mouse: 0x4A (74)
-   - 호스트가 Report Descriptor 전체를 올바르게 읽을 수 있도록 함
-
-**미치는 영향**:
-- Endpoint 버퍼 크기 무변경 (여전히 64바이트로 충분)
-- USB 대역폭 사용량 무시할 수준의 증가 (초기 Enumeration 시에만 영향)
-- 성능 영향 없음 (Report Data는 여전히 8/4바이트)
 
 ---
 
@@ -218,8 +173,17 @@ updated: "2025-10-27"
    - 각 인스턴스에 대한 리포트 전송 준비
 2. `tud_hid_set_report_cb()` 함수 구현
    - Keyboard LED 상태 처리 (Caps Lock, Num Lock, Scroll Lock)
-3. HID 리포트 메모리 할당 및 초기화
-4. Endpoint 핸들링 기본 구조 작성
+3. `tud_descriptor_string_cb()` 콜백 구현
+   - **주의**: TinyUSB v0.19.0~1 요구사항에 따라 반환 타입을 `const uint16_t*`로 사용
+4. HID 리포트 메모리 할당 및 초기화
+5. Endpoint 핸들링 기본 구조 작성
+6. Helper 함수 추가 구현
+   - `hid_update_report_state()`: UART 수신 후 리포트 상태 업데이트용
+   - `hid_get_keyboard_led_status()`: Keyboard LED 상태 조회용
+7. **주의사항**:
+   - `class/hid/hid.h` 헤더 파일을 include해야 `HID_REPORT_TYPE_*` 매크로 사용 가능
+   - `espressif/esp_tinyusb` managed component 사용 시 Kconfig 심볼은 `CONFIG_TINYUSB_*` prefix를 사용
+   - Kconfig 설정 파일 (`sdkconfig.defaults`)은 크로스 플랫폼 호환성을 위해 영문 주석만 사용 (UTF-8)
 
 **참조 문서 및 섹션**:
 - TinyUSB 문서: `tud_hid_get_report_cb()`, `tud_hid_set_report_cb()` 구현
@@ -229,67 +193,18 @@ updated: "2025-10-27"
 **검증**:
 - [x] `tud_hid_get_report_cb()` 함수 구현됨
 - [x] `tud_hid_set_report_cb()` 함수 구현됨
+- [x] **`tud_descriptor_string_cb()` 콜백 반환 타입이 `const uint16_t*`로 구현됨**
 - [x] Instance 0 (Keyboard)에 대한 분기 처리 확인
 - [x] Instance 1 (Mouse)에 대한 분기 처리 확인
 - [x] LED 상태 버퍼 선언됨 (`hid_keyboard_led_status`)
 - [x] 함수 서명과 TinyUSB 요구사항 일치
+- [x] **Helper 함수 선언됨 (`hid_update_report_state()`, `hid_get_keyboard_led_status()`)**
+- [x] **`class/hid/hid.h` 헤더 파일 include 확인**
 - [x] `idf.py build` 성공 (컴파일 오류 없음)
-
-**변경 사항 (기존 계획 대비)**:
-
-#### 1. TinyUSB Header 파일 Include 추가
-- **계획**: 문서에서 명시하지 않음
-- **실제 구현**: `#include "class/hid/hid.h"` 추가
-- **변경 이유**: 
-  - `HID_REPORT_TYPE_INPUT`, `HID_REPORT_TYPE_OUTPUT` 등 HID 관련 매크로 정의를 위해 필수
-  - TinyUSB managed component에서 제공하는 공식 헤더 파일 사용으로 코드 안정성 및 호환성 향상
-  - HID 콜백 함수에서 Report Type을 검증하기 위해 필요
-
-#### 2. String Descriptor 반환 타입 수정
-- **계획**: `const uint8_t* tud_descriptor_string_cb()` 사용
-- **실제 구현**: `const uint16_t* tud_descriptor_string_cb()` 사용 (TinyUSB v0.19.0~1 요구사항)
-- **변경 이유**:
-  - TinyUSB 공식 디바이스 스택에서는 String Descriptor callback의 반환 타입이 `const uint16_t*`로 정의됨
-  - managed component 사용 시 TinyUSB의 정확한 버전 (0.19.0~1)을 따라야 함
-  - 타입 충돌 컴파일 에러 해결 (`conflicting types for 'tud_descriptor_string_cb'`)
-
-#### 3. Kconfig 설정 심볼 변경
-- **계획**: `CONFIG_TINYUSB_DEVICE_*` prefix 사용
-- **실제 구현**: `CONFIG_TINYUSB_*` prefix 사용
-- **변경 이유**:
-  - ESP-IDF v5.5.1의 built-in `usb` component는 `CONFIG_TINYUSB_DEVICE_*` prefix를 사용
-  - managed component `espressif/esp_tinyusb` 사용 시 `CONFIG_TINYUSB_*` prefix를 사용 (다른 Kconfig 네임스페이스)
-  - 프로젝트에서 managed component 기반 `espressif/esp_tinyusb (1.7.6~2)` 및 `espressif/tinyusb (0.19.0~1)` 자동 다운로드
-  - sdkconfig 파서가 올바른 심볼을 인식하도록 수정
-
-#### 4. 파일 인코딩 문제 해결
-- **계획**: 한글 주석 포함 가능 가정
-- **실제 구현**: sdkconfig.defaults 파일을 UTF-8 영문 주석으로만 작성
-- **변경 이유**:
-  - Python의 kconfgen 모듈이 시스템 기본 인코딩(cp949)으로 파일을 읽으면서 UTF-8 한글 주석 처리 실패
-  - `UnicodeDecodeError: 'cp949' codec can't decode byte 0xec` 에러 발생
-  - Kconfig 설정 파일은 영문 주석만 사용하는 것이 크로스 플랫폼 호환성 보장
-  - 일반 코드 파일에는 한글 주석 유지 가능 (컴파일러 인코딩 설정 차이)
-
-#### 5. Helper 함수 추가 구현
-- **계획**: 기본 구조만 제시
-- **실제 구현**: 다음 함수 추가 구현
-  - `hid_update_report_state()`: UART 수신 후 리포트 상태 업데이트용 헬퍼 함수
-  - `hid_get_keyboard_led_status()`: Keyboard LED 상태 조회용 헬퍼 함수
-- **변경 이유**:
-  - Phase 2.1.2에서 UART 태스크가 HID 리포트 상태를 업데이트해야 하므로 공개 인터페이스 제공 필요
-  - 캡슐화 원칙을 따르면서 상태 접근을 제어하기 위한 구조
-
-**설계 원칙 준수 확인**:
-- ✅ TinyUSB 공식 헤더 파일 사용으로 코드 안정성 보장
-- ✅ managed component 버전 요구사항 정확히 반영
-- ✅ Kconfig 심볼 일치로 빌드 성공
-- ✅ 파일 인코딩 통일로 크로스 플랫폼 호환성 보장
-- ✅ `idf.py build` 완전 성공 (컴파일 및 링크 에러 없음)
 
 ---
 
-### Phase 2.1.2: ESP32-S3 UART → HID 변환 로직 구현
+#### Phase 2.1.2: ESP32-S3 UART → HID 변환 로직 구현
 
 **목표**: UART에서 수신한 8바이트 프레임을 HID 리포트로 변환하여 전송
 
@@ -333,18 +248,12 @@ updated: "2025-10-27"
 3. UART 상수 정의 (UART_NUM_0, 1Mbps, 8N1)
 4. `uart_handler.c` 파일 작성
 5. UART 초기화 함수 구현 (`uart_init()`)
+   - **주의**: ESP32-S3-DevkitC-1은 내장 USB-to-UART 브릿지(U0TXD: GPIO43, U0RXD: GPIO44)를 사용하므로 `uart_set_pin()` 또는 `gpio_set_direction()` 호출 불필요
 
 **참조 문서 및 섹션**:
 - `docs/technical-specification.md` §2.1 UART 통신 (Android ↔ ESP32-S3)
 - `docs/board/esp32s3-code-implementation-guide.md` §1.3.3 BridgeOne UART 프로토콜 (고정)
 - ESP-IDF 문서: UART Driver
-
-#### Phase 2.1.2.1 변경 사항 및 이유
-
-**내장 USB-to-UART 사용 (gpio_set_direction 생략)**:
-- **기존 계획**: gpio_set_direction() 호출을 통한 GPIO 핀 설정
-- **변경 이유**: ESP32-S3-DevkitC-1은 내장 USB-to-UART 브릿지를 지원하므로, GPIO 43(U0TXD), GPIO 44(U0RXD)가 자동으로 할당됩니다. 따라서 uart_set_pin() 또는 gpio_set_direction() 호출이 불필요합니다.
-- **문서 참조**: docs/board/esp32s3-code-implementation-guide.md §1.2 하드웨어 사양, §4.1 UART 통신 모듈 구현 (ESP-IDF)
 
 **검증**:
 - [x] `src/board/BridgeOne/main/uart_handler.h` 파일 생성됨
@@ -353,9 +262,9 @@ updated: "2025-10-27"
 - [x] 모든 필드 타입 정확함 (seq, buttons, deltaX/Y/wheel, modifiers, keyCode1/2)
 - [x] UART 설정 상수 정의됨 (UART_NUM_0, BAUDRATE=1000000)
 - [x] `uart_init()` 함수 구현됨
-  - [x] gpio_set_direction() 호출 - **변경**: 내장 USB-to-UART 사용으로 자동 설정됨
-  - [x] uart_param_config() 호출 (1Mbps, 8N1)
-  - [x] uart_driver_install() 호출 (버퍼 크기 할당)
+  - [x] **`gpio_set_direction()` 또는 `uart_set_pin()` 호출 없음 (내장 USB-to-UART 사용)**
+  - [x] `uart_param_config()` 호출 (1Mbps, 8N1)
+  - [x] `uart_driver_install()` 호출 (버퍼 크기 할당)
 - [x] `idf.py build` 성공
 
 ---
@@ -366,49 +275,35 @@ updated: "2025-10-27"
 
 **세부 목표**:
 1. UART 수신 태스크 함수 구현 (`uart_task()`)
-   - 8바이트 프레임 수신
-   - 타임아웃 처리
-   - 순번 검증
-   - 프레임 큐 전송
+   - 8바이트 프레임 수신 (`uart_read_bytes` 사용, 100ms 타임아웃)
+   - **오류 처리**: 수신 바이트 수에 따라 오류(`len < 0`), 타임아웃(`len == 0`), 불완전 수신(`len != 8`) 분기 처리 및 로깅
+   - 프레임 큐 전송 (`xQueueSend`)
 2. 순번 검증 함수 구현 (`validateSequenceNumber()`)
    - 예상 시퀀스 번호와 비교
    - 순환 처리 (0~255)
-   - 프레임 손실 감지
-3. 프레임 검증 로직 (크기, 체크섬 등)
-4. 에러 처리 및 로그 출력
+   - 프레임 손실 감지 및 로그 출력
+3. 프레임 유효성 검증 함수 구현 (`validateBridgeFrame()`)
+   - 프레임 크기(8바이트) 및 `buttons` 필드 범위(0x00~0x07) 검증
+   - 순번 검증과 유효성 검증을 분리하여 명확한 오류 진단
+4. **주의사항**:
+   - `uart_handler.h`에 `extern QueueHandle_t frame_queue;` 선언 추가 (의존성 역전 원칙)
 
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §4.1 UART 통신 모듈 구현 (ESP-IDF)
 - ESP-IDF 문서: FreeRTOS Task 생성 및 관리
 
-**변경 사항**:
-
-1. **추가 구현**: `validateBridgeFrame()` 함수
-   - **계획**: "프레임 검증 로직 (크기, 체크섬 등)"만 명시
-   - **실제**: `validateBridgeFrame()` 함수를 별도로 구현하여 프레임 크기 및 buttons 필드 범위를 검증
-   - **이유**: 순번 검증(`validateSequenceNumber`)과 범위 검증을 분리하여 더 명확한 오류 진단 및 로깅이 가능합니다. 주니어 개발자가 각 검증 단계를 독립적으로 이해하고 디버깅할 수 있습니다.
-
-2. **extern 선언 추가**: `frame_queue` 외부 참조
-   - **계획**: "FreeRTOS 큐에 프레임 전송"만 명시
-   - **실제**: `extern QueueHandle_t frame_queue;` 선언 추가
-   - **이유**: UART 핸들러 모듈은 큐 생성 책임이 없고 큐 사용만 담당해야 합니다. app_main()에서 큐를 생성하여 의존성 역전 원칙(Inversion of Control)을 준수합니다.
-
-3. **상세한 오류 처리**: 수신 바이트 수별 분기 처리
-   - **계획**: "예외 상황 처리 (수신 오류, 타임아웃)"만 명시
-   - **실제**: `len < 0` (오류), `len == 0` (타임아웃), `len != 8` (불완전 수신) 각각 다른 로그 메시지 출력
-   - **이유**: Windows 개발에서 배운 "오류 메시지가 문제 해결의 열쇠" 원칙을 적용했습니다. 각 상황에 맞는 명확한 로그가 시스템 진단을 용이하게 합니다.
-
 **검증**:
 - [x] `uart_task()` 함수 구현됨 ✓ (src/board/BridgeOne/main/uart_handler.c)
 - [x] `uart_read_bytes()` 호출로 8바이트 수신 로직 구현됨 ✓ (pdMS_TO_TICKS(100) 타임아웃 포함)
 - [x] 타임아웃 설정됨 (100ms) ✓
+- [x] **수신 바이트 수에 따른 상세한 오류 처리 로직 구현됨** ✓ (len < 0, len == 0, len != 8 확인)
 - [x] `validateSequenceNumber()` 함수 구현됨 ✓ (src/board/BridgeOne/main/uart_handler.c)
 - [x] 시퀀스 번호 순환 처리 (0→255→0) ✓ ((seq + 1) & 0xFF)
 - [x] 프레임 손실 감지 및 로그 출력 ✓ (ESP_LOGW로 패킷 손실 수 출력)
-- [x] 예외 상황 처리 (수신 오류, 타임아웃) ✓ (len < 0, len == 0 확인)
-- [x] FreeRTOS 큐에 프레임 전송 (`xQueueSend()`) ✓
-- [x] 디버그 로그 출력 (수신한 프레임 정보) ✓ (DEBUG_FRAME_VERBOSE 매크로)
 - [x] `validateBridgeFrame()` 프레임 범위 검증 함수 구현됨 ✓ (buttons 0x00~0x07, 크기 8바이트)
+- [x] FreeRTOS 큐에 프레임 전송 (`xQueueSend()`) ✓
+- [x] **`uart_handler.h`에 `extern QueueHandle_t frame_queue` 선언 포함됨** ✓
+- [x] 디버그 로그 출력 (수신한 프레임 정보) ✓ (DEBUG_FRAME_VERBOSE 매크로)
 - [x] `idf.py build` 성공 ✓
 
 ---
@@ -525,34 +420,23 @@ updated: "2025-10-27"
 **목표**: TinyUSB 및 UART 초기화, 큐 생성 구현
 
 **세부 목표**:
-1. TinyUSB 초기화 (`tud_init(BOARD_TUD_RHPORT)`)
+1. TinyUSB 초기화 (`tusb_init` API 사용)
+   - **주의**: `tud_init()` 대신 ESP-IDF 프레임워크 권장 API인 `tusb_init(BOARD_TUD_RHPORT, &dev_init)` 사용
+   - `tusb_rhport_init_t` 구조체를 통해 TUSB_ROLE_DEVICE, TUSB_SPEED_FULL 설정
 2. UART 초기화 호출 (`uart_init()`)
 3. 프레임 큐 생성 (`xQueueCreate()`)
 4. 로그 메시지 출력
+5. **주의사항**:
+   - BridgeOne은 특정 보드 기능(LED, 버튼)에 의존하지 않으므로, BSP 의존성을 제거하고 `board_init()` 및 `board_init_after_tusb()` 함수 호출을 생략
+   - `bsp/board_api.h` 헤더를 제거하고 `tusb.h`와 ESP-IDF 표준 헤더만 사용하여 의존성 최소화
 
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §3.3.4 app_main() 초기화 순서
 
-**구현 변경 사항**:
-기존 개발 계획과 다르게 구현된 부분들:
-
-1. **TinyUSB 초기화 API 변경**
-   - 계획: `tud_init(BOARD_TUD_RHPORT)` 호출
-   - 실제: `tusb_init(BOARD_TUD_RHPORT, &dev_init)` 호출 (tusb_rhport_init_t 구조체 사용)
-   - 이유: ESP-IDF v5.5.1의 표준 TinyUSB 통합 API. tud_init()은 저수준 API이며, tusb_init()이 프레임워크에서 권장하는 초기화 방식입니다. 이를 통해 롤 (TUSB_ROLE_DEVICE) 및 속도 (TUSB_SPEED_AUTO) 설정이 가능하여 더 안정적인 초기화를 제공합니다.
-
-2. **보드 초기화 함수 제거**
-   - 계획: `board_init()` 및 `board_init_after_tusb()` 호출 포함
-   - 실제: 두 함수 모두 제거
-   - 이유: `bsp/board_api.h` 헤더가 ESP-IDF 빌드 시스템에서 자동으로 include되지 않아 컴파일 오류 발생. BridgeOne은 특정 보드 기능(LED, 버튼 등)에 의존하지 않으므로, 복잡한 BSP 의존성 대신 TinyUSB 코어 초기화만 수행하는 것이 더 간결하고 유지보수하기 쉽습니다.
-
-3. **헤더 의존성 정리**
-   - 계획: `bsp/board_api.h` include
-   - 실제: 제거
-   - 이유: TinyUSB 컴포넌트 include 경로 문제로 빌드 실패. 대신 `tusb.h`와 ESP-IDF 표준 헤더만 사용하여 의존성을 최소화했습니다.
-
 **검증**:
 - [x] `main.c`에서 `tusb_init(BOARD_TUD_RHPORT, &dev_init)` 호출
+- [x] **`board_init()` 및 `board_init_after_tusb()` 함수 호출 없음**
+- [x] **`bsp/board_api.h` 헤더 include 없음**
 - [x] `uart_init()` 호출 확인
 - [x] `frame_queue = xQueueCreate(32, sizeof(bridge_frame_t))` 호출
 - [x] 초기화 로그 메시지 출력 (ESP_LOGI)
