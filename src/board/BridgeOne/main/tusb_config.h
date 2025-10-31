@@ -30,6 +30,7 @@ extern "C" {
  * BridgeOne은 USB 디바이스로만 동작하므로 Device 모드만 필요
  */
 #define CFG_TUD_ENABLED 1
+#define CFG_TUSB_RHPORT0_MODE    OPT_MODE_DEVICE
 
 // ==================== Device Configuration ====================
 /**

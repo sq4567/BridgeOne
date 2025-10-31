@@ -196,16 +196,39 @@ updated: "2025-10-27"
 - **tusb_config.h 명시적 생성**: Phase 2.1.2.2 UART 수신 시 TinyUSB 설정이 올바르게 적용되려면 `tusb_config.h`의 버퍼 크기, FreeRTOS 통합 설정이 필수
 
 **검증**:
-- [ ] HID Report Descriptor for Keyboard 정의됨 (8바이트 구조)
-- [ ] HID Report Descriptor for Mouse 정의됨 (4바이트 구조)
-- [ ] `tusb_desc_hid_report_keyboard[]` 배열 정의됨
-- [ ] `tusb_desc_hid_report_mouse[]` 배열 정의됨
-- [ ] 각 Report Descriptor 크기 정확함 (Keyboard: 65바이트, Mouse: 74바이트 측정)
-- [ ] **Configuration Descriptor의 `wDescriptorLength` 필드가 실제 크기로 설정됨 (Keyboard: 0x41, Mouse: 0x4A)**
-- [ ] Report ID 없음 (Boot mode: Report ID 제외)
-- [ ] `idf.py build` 성공
-- [ ] Keyboard Report Descriptor에 Modifier, Reserved, Key Codes 필드 포함 확인
-- [ ] Mouse Report Descriptor에 Buttons, X/Y, Wheel 필드 포함 확인
+- [x] HID Report Descriptor for Keyboard 정의됨 (8바이트 구조)
+- [x] HID Report Descriptor for Mouse 정의됨 (4바이트 구조)
+- [x] `tusb_desc_hid_report_keyboard[]` 배열 정의됨
+- [x] `tusb_desc_hid_report_mouse[]` 배열 정의됨
+- [x] 각 Report Descriptor 크기 정확함 (Keyboard: 65바이트, Mouse: 74바이트 측정)
+- [x] **Configuration Descriptor의 `wDescriptorLength` 필드가 실제 크기로 설정됨 (Keyboard: 0x41, Mouse: 0x4A)**
+- [x] Report ID 없음 (Boot mode: Report ID 제외)
+- [x] `idf.py build` 성공
+- [x] Keyboard Report Descriptor에 Modifier, Reserved, Key Codes 필드 포함 확인
+- [x] Mouse Report Descriptor에 Buttons, X/Y, Wheel 필드 포함 확인
+
+**개발 과정 변경 사항 (Changes - Phase 2.1.1.2)**:
+
+1. **Report ID 제거 (Boot Protocol 준수)**
+   - 계획: `HID_REPORT_ID(1)`, `HID_REPORT_ID(2)` 포함
+   - 변경: `TUD_HID_REPORT_DESC_KEYBOARD()`, `TUD_HID_REPORT_DESC_MOUSE()` (Report ID 제외)
+   - 이유: 요구사항 "Report ID 없음 (Boot mode)" 준수 및 BIOS/UEFI 호환성
+
+2. **tusb_config.h 심볼 추가**
+   - 계획: tusb_config.h 생성만으로 충분
+   - 변경: `CFG_TUSB_RHPORT0_MODE OPT_MODE_DEVICE` 명시적 정의
+   - 이유: TinyUSB 정적 검증 오류 해결 (_Static_assert 빌드 실패)
+
+3. **Report Descriptor 크기 자동 계산**
+   - 계획: `0x41`, `0x4A` 하드코딩
+   - 변경: `sizeof(desc_hid_keyboard_report)`, `sizeof(desc_hid_mouse_report)` 사용
+   - 이유: 유지보수성 강화 및 타입 안정성
+
+**후속 Phase 영향 분석**:
+
+- **Phase 2.1.1.3 (콜백 함수)**: 영향 없음. Report ID 제거는 `tud_hid_get_report_cb()`, `tud_hid_set_report_cb()` 로직에 영향을 주지 않음 (Instance 기반 구분)
+- **Phase 2.1.2.3 (HID 리포트 전송)**: **영향 있음** - Report ID를 포함한 `tud_hid_n_report()` 호출 시 Report ID 파라미터를 0으로 설정하거나 보내지 않아야 함 (Boot Protocol에서 Report ID 불필요)
+- **Phase 2.2 (CDC 구현)**: 영향 없음. HID와 독립적인 인터페이스
 
 ---
 
@@ -385,10 +408,10 @@ updated: "2025-10-27"
    - `sendMouseReport()` 호출
 5. `sendKeyboardReport()` 함수 구현
    - HID Keyboard 리포트 작성 (8바이트)
-   - `tud_hid_n_report()` 호출 (Instance 0)
+   - `tud_hid_n_report()` 호출 (Instance 0, Report ID: 0 - Boot Protocol)
 6. `sendMouseReport()` 함수 구현
    - HID Mouse 리포트 작성 (4바이트)
-   - `tud_hid_n_report()` 호출 (Instance 1)
+   - `tud_hid_n_report()` 호출 (Instance 1, Report ID: 0 - Boot Protocol)
 
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §4.2 USB HID 모듈 구현 (ESP-IDF TinyUSB)

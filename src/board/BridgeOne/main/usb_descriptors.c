@@ -71,7 +71,7 @@ uint8_t const* tud_descriptor_device_cb(void) {
  * TUD_HID_REPORT_DESC_KEYBOARD 매크로: Boot Protocol 표준 준수
  */
 uint8_t const desc_hid_keyboard_report[] = {
-    TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(1))
+    TUD_HID_REPORT_DESC_KEYBOARD()
 };
 
 /**
@@ -86,7 +86,7 @@ uint8_t const desc_hid_keyboard_report[] = {
  * TUD_HID_REPORT_DESC_MOUSE 매크로: Boot Protocol 표준 준수
  */
 uint8_t const desc_hid_mouse_report[] = {
-    TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(2))
+    TUD_HID_REPORT_DESC_MOUSE()
 };
 
 /**

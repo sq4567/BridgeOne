@@ -50,6 +50,9 @@ void usb_task(void* param) {
 void app_main(void) {
     ESP_LOGI(TAG, "BridgeOne Board - USB Composite Device Initialization");
     
+    // TinyUSB 디바이스 스택 초기화
+    tusb_init();
+    
     // ==================== 1. TinyUSB 디바이스 스택 초기화 ====================
     // RHPORT: USB OTG 포트 지정 (ESP32-S3는 RHPORT 0만 지원)
     // 이 함수가 호출되면:
