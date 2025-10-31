@@ -190,6 +190,11 @@ updated: "2025-10-27"
 - `.cursor/rules/tinyusb-descriptors.mdc` - USB 디스크립터 구현 가이드
 - `.cursor/rules/tinyusb-hid-implementation.mdc` - HID 키보드/마우스 구현 패턴 가이드
 
+**⚠️ Phase 2.1.1.1에서의 변경사항 영향**:
+- **Typedef 제거**: Phase 2.1.2.3에서 HID 리포트 전송 시 TinyUSB의 공식 타입(`hid_keyboard_report_t`, `hid_mouse_report_t`)을 직접 사용해야 함 (중복 정의 방지)
+- **tusb_desc_device_t 타입 변경**: Phase 2.1.1.1에서 `usb_descriptors.c`의 디바이스 디스크립터 선언이 이미 `tusb_desc_device_t` 구조체로 정의됨. 이 변경은 콜백 함수의 타입 안정성을 높임
+- **tusb_config.h 명시적 생성**: Phase 2.1.2.2 UART 수신 시 TinyUSB 설정이 올바르게 적용되려면 `tusb_config.h`의 버퍼 크기, FreeRTOS 통합 설정이 필수
+
 **검증**:
 - [ ] HID Report Descriptor for Keyboard 정의됨 (8바이트 구조)
 - [ ] HID Report Descriptor for Mouse 정의됨 (4바이트 구조)
@@ -225,6 +230,10 @@ updated: "2025-10-27"
    - `class/hid/hid.h` 헤더 파일을 include해야 `HID_REPORT_TYPE_*` 매크로 사용 가능
    - `espressif/esp_tinyusb` managed component 사용 시 Kconfig 심볼은 `CONFIG_TINYUSB_*` prefix를 사용
    - Kconfig 설정 파일 (`sdkconfig.defaults`)은 크로스 플랫폼 호환성을 위해 영문 주석만 사용 (UTF-8)
+
+**⚠️ Phase 2.1.1.1에서의 변경사항 영향**:
+- **콜백 함수 시그니처 일관성**: 디바이스 디스크립터 타입이 `tusb_desc_device_t`로 변경되었으므로, 이 콜백 함수들의 반환 타입도 TinyUSB 공식 타입과 완전히 일치해야 함 (타입 캐스팅 오류 방지)
+- **스켈레톤 구현**: Phase 2.1.1.1의 변경사항에 따라 이 Phase는 **스켈레톤 구현만 제공**. 완전한 구현은 Phase 2.1.1.2로 연기됨 (HID Report Descriptor 정의 후 완성)
 
 **참조 문서 및 섹션**:
 - TinyUSB 문서: `tud_hid_get_report_cb()`, `tud_hid_set_report_cb()` 구현
@@ -290,6 +299,16 @@ updated: "2025-10-27"
 4. `uart_handler.c` 파일 작성
 5. UART 초기화 함수 구현 (`uart_init()`)
    - **주의**: ESP32-S3-DevkitC-1은 내장 USB-to-UART 브릿지(U0TXD: GPIO43, U0RXD: GPIO44)를 사용하므로 `uart_set_pin()` 또는 `gpio_set_direction()` 호출 불필요
+
+**⚠️ Phase 2.1.1.1에서의 변경사항 영향**:
+- **tusb_config.h 명시적 생성 필수**: Phase 2.1.1.1에서 `main/tusb_config.h` 파일이 명시적으로 생성되어야 함. 이 파일에는 다음이 포함되어야 함:
+  - `CFG_TUSB_RHPORT0_MODE = OPT_MODE_DEVICE` (Device 모드)
+  - `CFG_TUD_HID = 2` (HID 2개 인스턴스: Keyboard, Mouse)
+  - `CFG_TUD_HID_EP_BUFSIZE = 64` (HID 리포트 버퍼)
+  - `CFG_TUSB_OS = OPT_OS_FREERTOS` (FreeRTOS 통합)
+  - 기타 UART, CDC 설정 (선택적)
+- **TinyUSB 의존성 추가**: Phase 2.1.1.1에서 `managed_components/espressif__tinyusb/CMakeLists.txt`에 `main` 컴포넌트가 `PRIV_REQUIRES`에 추가되어야 함
+- **BridgeFrame 구조체의 의존성**: UART 수신 태스크(Phase 2.1.2.2)에서 이 구조체를 사용하므로, 정확한 8바이트 크기 정의 필수
 
 **참조 문서 및 섹션**:
 - `docs/technical-specification.md` §2.1 UART 통신 (Android ↔ ESP32-S3)
@@ -470,6 +489,10 @@ updated: "2025-10-27"
 5. **주의사항**:
    - BridgeOne은 특정 보드 기능(LED, 버튼)에 의존하지 않으므로, BSP 의존성을 제거하고 `board_init()` 및 `board_init_after_tusb()` 함수 호출을 생략
    - `bsp/board_api.h` 헤더를 제거하고 `tusb.h`와 ESP-IDF 표준 헤더만 사용하여 의존성 최소화
+
+**⚠️ Phase 2.1.1.1에서의 변경사항 영향**:
+- **RHPORT 상수값 하드코딩**: Phase 2.1.1.1에서 `BOARD_TUD_RHPORT` 매크로 대신 직접 `0`으로 지정됨. 따라서 이 Phase에서도 `tusb_init(0, &dev_init)` 형태로 호출해야 함 (ESP32-S3는 USB OTG 포트가 1개만 지원)
+- **tusb_config.h 필수 존재**: Phase 2.1.1.1에서 생성된 `main/tusb_config.h` 파일이 TinyUSB 스택 초기화 시 자동으로 include되어야 함. 이 파일이 없으면 빌드 오류 발생
 
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §3.3.4 app_main() 초기화 순서
@@ -1281,6 +1304,35 @@ updated: "2025-10-27"
   - sdkconfig에 `CONFIG_TINYUSB_CDC_ENABLED=y` 설정 추가 필요
   - **참고**: `.cursor/rules/tinyusb-cdc-implementation.mdc` 참조 - CDC-ACM 가상 시리얼 포트 구현 패턴 가이드
   - **참고**: `.cursor/rules/tinyusb-descriptors.mdc` 참조 - 복합 디바이스 디스크립터 업데이트 가이드
+
+---
+
+### Phase 2.2 시작 전 점검사항
+
+Phase 2.2 (Vendor CDC 통신)를 시작하기 전에 다음을 확인하십시오:
+
+1. **Phase 2.1 변경사항이 모든 구현에 반영되었는가?**
+   - tusb_config.h 파일 생성 확인
+   - TinyUSB 의존성 추가 확인
+   - Typedef 제거 확인
+   - RHPORT 0으로 하드코딩 확인
+
+2. **tusb_config.h 업데이트 필요**:
+   ```c
+   // Phase 2.2 시작 시 추가해야 할 설정
+   #define CFG_TUD_CDC 1              // CDC 클래스 활성화
+   #define CFG_TUD_CDC_RX_BUFSIZE 256  // CDC 수신 버퍼
+   #define CFG_TUD_CDC_TX_BUFSIZE 256  // CDC 송신 버퍼
+   ```
+
+3. **USB Configuration Descriptor 업데이트 필수**:
+   - Phase 2.1에서 구성된 Descriptor는 HID만 포함
+   - CDC Interface 2, 3 추가 필요
+   - Endpoint 0x83 (CDC Notification), 0x04/0x84 (CDC Data) 할당
+
+4. **CMakeLists.txt 확인**:
+   - CDC 콜백 함수를 포함할 새로운 모듈 (예: `cdc_handler.c`) 준비
+   - 기존 TinyUSB 의존성 설정 유지
 
 ---
 
