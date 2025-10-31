@@ -108,17 +108,17 @@ updated: "2025-10-27"
 - `.cursor/rules/tinyusb-descriptors.mdc` - TinyUSB 복합 디바이스 USB 디스크립터 구현 가이드
 
 **검증**:
-- [x] `src/board/BridgeOne/main/usb_descriptors.h` 파일 생성됨
-- [x] `src/board/BridgeOne/main/usb_descriptors.c` 파일 생성됨
-- [x] VID=0x303A (또는 0x1209) 정의됨
-- [x] USB Device Descriptor 배열 정의됨 (`tusb_desc_device[]`)
-- [x] USB Configuration Descriptor에 2개 Interface 정의됨 (HID Keyboard + Mouse)
-- [x] **HID Descriptor (9 bytes)가 Configuration Descriptor에 포함됨**
-- [x] **CDC 인터페이스는 제외됨 (Phase 2.2에서 추가 예정)**
-- [x] **Configuration Descriptor 총 길이: 50 bytes 확인**
-- [x] String Descriptor 정의됨 (3개 이상: Language, Manufacturer, Product, Serial)
-- [x] Endpoint 번호 예약됨 (EPNUM_HID_KB=0x81, EPNUM_HID_MOUSE=0x82)
-- [x] `idf.py build` 성공 (CMakeLists.txt 업데이트하여 컴파일 가능 상태)
+- [ ] `src/board/BridgeOne/main/usb_descriptors.h` 파일 생성됨
+- [ ] `src/board/BridgeOne/main/usb_descriptors.c` 파일 생성됨
+- [ ] VID=0x303A (또는 0x1209) 정의됨
+- [ ] USB Device Descriptor 배열 정의됨 (`tusb_desc_device[]`)
+- [ ] USB Configuration Descriptor에 2개 Interface 정의됨 (HID Keyboard + Mouse)
+- [ ] **HID Descriptor (9 bytes)가 Configuration Descriptor에 포함됨**
+- [ ] **CDC 인터페이스는 제외됨 (Phase 2.2에서 추가 예정)**
+- [ ] **Configuration Descriptor 총 길이: 50 bytes 확인**
+- [ ] String Descriptor 정의됨 (3개 이상: Language, Manufacturer, Product, Serial)
+- [ ] Endpoint 번호 예약됨 (EPNUM_HID_KB=0x81, EPNUM_HID_MOUSE=0x82)
+- [ ] `idf.py build` 성공 (CMakeLists.txt 업데이트하여 컴파일 가능 상태)
 
 ---
 
@@ -150,16 +150,16 @@ updated: "2025-10-27"
 - `.cursor/rules/tinyusb-hid-implementation.mdc` - HID 키보드/마우스 구현 패턴 가이드
 
 **검증**:
-- [x] HID Report Descriptor for Keyboard 정의됨 (8바이트 구조)
-- [x] HID Report Descriptor for Mouse 정의됨 (4바이트 구조)
-- [x] `tusb_desc_hid_report_keyboard[]` 배열 정의됨
-- [x] `tusb_desc_hid_report_mouse[]` 배열 정의됨
-- [x] 각 Report Descriptor 크기 정확함 (Keyboard: 65바이트, Mouse: 74바이트 측정)
-- [x] **Configuration Descriptor의 `wDescriptorLength` 필드가 실제 크기로 설정됨 (Keyboard: 0x41, Mouse: 0x4A)**
-- [x] Report ID 없음 (Boot mode: Report ID 제외)
-- [x] `idf.py build` 성공
-- [x] Keyboard Report Descriptor에 Modifier, Reserved, Key Codes 필드 포함 확인
-- [x] Mouse Report Descriptor에 Buttons, X/Y, Wheel 필드 포함 확인
+- [ ] HID Report Descriptor for Keyboard 정의됨 (8바이트 구조)
+- [ ] HID Report Descriptor for Mouse 정의됨 (4바이트 구조)
+- [ ] `tusb_desc_hid_report_keyboard[]` 배열 정의됨
+- [ ] `tusb_desc_hid_report_mouse[]` 배열 정의됨
+- [ ] 각 Report Descriptor 크기 정확함 (Keyboard: 65바이트, Mouse: 74바이트 측정)
+- [ ] **Configuration Descriptor의 `wDescriptorLength` 필드가 실제 크기로 설정됨 (Keyboard: 0x41, Mouse: 0x4A)**
+- [ ] Report ID 없음 (Boot mode: Report ID 제외)
+- [ ] `idf.py build` 성공
+- [ ] Keyboard Report Descriptor에 Modifier, Reserved, Key Codes 필드 포함 확인
+- [ ] Mouse Report Descriptor에 Buttons, X/Y, Wheel 필드 포함 확인
 
 ---
 
@@ -191,16 +191,16 @@ updated: "2025-10-27"
 - `.cursor/rules/tinyusb-hid-implementation.mdc` - HID 키보드/마우스 구현 패턴 및 콜백 처리 가이드
 
 **검증**:
-- [x] `tud_hid_get_report_cb()` 함수 구현됨
-- [x] `tud_hid_set_report_cb()` 함수 구현됨
-- [x] **`tud_descriptor_string_cb()` 콜백 반환 타입이 `const uint16_t*`로 구현됨**
-- [x] Instance 0 (Keyboard)에 대한 분기 처리 확인
-- [x] Instance 1 (Mouse)에 대한 분기 처리 확인
-- [x] LED 상태 버퍼 선언됨 (`hid_keyboard_led_status`)
-- [x] 함수 서명과 TinyUSB 요구사항 일치
-- [x] **Helper 함수 선언됨 (`hid_update_report_state()`, `hid_get_keyboard_led_status()`)**
-- [x] **`class/hid/hid.h` 헤더 파일 include 확인**
-- [x] `idf.py build` 성공 (컴파일 오류 없음)
+- [ ] `tud_hid_get_report_cb()` 함수 구현됨
+- [ ] `tud_hid_set_report_cb()` 함수 구현됨
+- [ ] **`tud_descriptor_string_cb()` 콜백 반환 타입이 `const uint16_t*`로 구현됨**
+- [ ] Instance 0 (Keyboard)에 대한 분기 처리 확인
+- [ ] Instance 1 (Mouse)에 대한 분기 처리 확인
+- [ ] LED 상태 버퍼 선언됨 (`hid_keyboard_led_status`)
+- [ ] 함수 서명과 TinyUSB 요구사항 일치
+- [ ] **Helper 함수 선언됨 (`hid_update_report_state()`, `hid_get_keyboard_led_status()`)**
+- [ ] **`class/hid/hid.h` 헤더 파일 include 확인**
+- [ ] `idf.py build` 성공 (컴파일 오류 없음)
 
 ---
 
@@ -256,16 +256,16 @@ updated: "2025-10-27"
 - ESP-IDF 문서: UART Driver
 
 **검증**:
-- [x] `src/board/BridgeOne/main/uart_handler.h` 파일 생성됨
-- [x] `src/board/BridgeOne/main/uart_handler.c` 파일 생성됨
-- [x] `bridge_frame_t` 구조체 정의됨 (정확히 8바이트)
-- [x] 모든 필드 타입 정확함 (seq, buttons, deltaX/Y/wheel, modifiers, keyCode1/2)
-- [x] UART 설정 상수 정의됨 (UART_NUM_0, BAUDRATE=1000000)
-- [x] `uart_init()` 함수 구현됨
-  - [x] **`gpio_set_direction()` 또는 `uart_set_pin()` 호출 없음 (내장 USB-to-UART 사용)**
-  - [x] `uart_param_config()` 호출 (1Mbps, 8N1)
-  - [x] `uart_driver_install()` 호출 (버퍼 크기 할당)
-- [x] `idf.py build` 성공
+- [ ] `src/board/BridgeOne/main/uart_handler.h` 파일 생성됨
+- [ ] `src/board/BridgeOne/main/uart_handler.c` 파일 생성됨
+- [ ] `bridge_frame_t` 구조체 정의됨 (정확히 8바이트)
+- [ ] 모든 필드 타입 정확함 (seq, buttons, deltaX/Y/wheel, modifiers, keyCode1/2)
+- [ ] UART 설정 상수 정의됨 (UART_NUM_0, BAUDRATE=1000000)
+- [ ] `uart_init()` 함수 구현됨
+  - [ ] **`gpio_set_direction()` 또는 `uart_set_pin()` 호출 없음 (내장 USB-to-UART 사용)**
+  - [ ] `uart_param_config()` 호출 (1Mbps, 8N1)
+  - [ ] `uart_driver_install()` 호출 (버퍼 크기 할당)
+- [ ] `idf.py build` 성공
 
 ---
 
@@ -293,18 +293,18 @@ updated: "2025-10-27"
 - ESP-IDF 문서: FreeRTOS Task 생성 및 관리
 
 **검증**:
-- [x] `uart_task()` 함수 구현됨 ✓ (src/board/BridgeOne/main/uart_handler.c)
-- [x] `uart_read_bytes()` 호출로 8바이트 수신 로직 구현됨 ✓ (pdMS_TO_TICKS(100) 타임아웃 포함)
-- [x] 타임아웃 설정됨 (100ms) ✓
-- [x] **수신 바이트 수에 따른 상세한 오류 처리 로직 구현됨** ✓ (len < 0, len == 0, len != 8 확인)
-- [x] `validateSequenceNumber()` 함수 구현됨 ✓ (src/board/BridgeOne/main/uart_handler.c)
-- [x] 시퀀스 번호 순환 처리 (0→255→0) ✓ ((seq + 1) & 0xFF)
-- [x] 프레임 손실 감지 및 로그 출력 ✓ (ESP_LOGW로 패킷 손실 수 출력)
-- [x] `validateBridgeFrame()` 프레임 범위 검증 함수 구현됨 ✓ (buttons 0x00~0x07, 크기 8바이트)
-- [x] FreeRTOS 큐에 프레임 전송 (`xQueueSend()`) ✓
-- [x] **`uart_handler.h`에 `extern QueueHandle_t frame_queue` 선언 포함됨** ✓
-- [x] 디버그 로그 출력 (수신한 프레임 정보) ✓ (DEBUG_FRAME_VERBOSE 매크로)
-- [x] `idf.py build` 성공 ✓
+- [ ] `uart_task()` 함수 구현됨 ✓ (src/board/BridgeOne/main/uart_handler.c)
+- [ ] `uart_read_bytes()` 호출로 8바이트 수신 로직 구현됨 ✓ (pdMS_TO_TICKS(100) 타임아웃 포함)
+- [ ] 타임아웃 설정됨 (100ms) ✓
+- [ ] **수신 바이트 수에 따른 상세한 오류 처리 로직 구현됨** ✓ (len < 0, len == 0, len != 8 확인)
+- [ ] `validateSequenceNumber()` 함수 구현됨 ✓ (src/board/BridgeOne/main/uart_handler.c)
+- [ ] 시퀀스 번호 순환 처리 (0→255→0) ✓ ((seq + 1) & 0xFF)
+- [ ] 프레임 손실 감지 및 로그 출력 ✓ (ESP_LOGW로 패킷 손실 수 출력)
+- [ ] `validateBridgeFrame()` 프레임 범위 검증 함수 구현됨 ✓ (buttons 0x00~0x07, 크기 8바이트)
+- [ ] FreeRTOS 큐에 프레임 전송 (`xQueueSend()`) ✓
+- [ ] **`uart_handler.h`에 `extern QueueHandle_t frame_queue` 선언 포함됨** ✓
+- [ ] 디버그 로그 출력 (수신한 프레임 정보) ✓ (DEBUG_FRAME_VERBOSE 매크로)
+- [ ] `idf.py build` 성공 ✓
 
 ---
 
@@ -339,19 +339,19 @@ updated: "2025-10-27"
 - `.cursor/rules/tinyusb-freertos-integration.mdc` - HID 태스크 설계 및 큐 동기화 가이드
 
 **검증**:
-- [x] `src/board/BridgeOne/main/hid_handler.h` 파일 생성됨
-- [x] `src/board/BridgeOne/main/hid_handler.c` 파일 생성됨
-- [x] `hid_task()` 함수 구현됨
-- [x] `xQueueReceive()` 호출로 프레임 수신
-- [x] `processBridgeFrame()` 함수 구현됨
-- [x] Keyboard/Mouse 필드 분리 로직 구현
-- [x] Phase 2.1.1.3에서 구현한 `hid_update_report_state()` 함수 활용 확인
-- [x] `sendKeyboardReport()` 함수 구현됨 (modifiers, keyCode1/2 포함)
-- [x] `sendMouseReport()` 함수 구현됨 (buttons, deltaX/Y, wheel 포함)
-- [x] `tud_hid_n_report()` 호출 (Instance 구분)
-- [x] 에러 처리 (USB 연결 해제 시)
-- [x] 디버그 로그 출력 (리포트 전송 정보)
-- [x] `idf.py build` 성공
+- [ ] `src/board/BridgeOne/main/hid_handler.h` 파일 생성됨
+- [ ] `src/board/BridgeOne/main/hid_handler.c` 파일 생성됨
+- [ ] `hid_task()` 함수 구현됨
+- [ ] `xQueueReceive()` 호출로 프레임 수신
+- [ ] `processBridgeFrame()` 함수 구현됨
+- [ ] Keyboard/Mouse 필드 분리 로직 구현
+- [ ] Phase 2.1.1.3에서 구현한 `hid_update_report_state()` 함수 활용 확인
+- [ ] `sendKeyboardReport()` 함수 구현됨 (modifiers, keyCode1/2 포함)
+- [ ] `sendMouseReport()` 함수 구현됨 (buttons, deltaX/Y, wheel 포함)
+- [ ] `tud_hid_n_report()` 호출 (Instance 구분)
+- [ ] 에러 처리 (USB 연결 해제 시)
+- [ ] 디버그 로그 출력 (리포트 전송 정보)
+- [ ] `idf.py build` 성공
 
 ---
 
@@ -383,17 +383,17 @@ updated: "2025-10-27"
 - `.cursor/rules/tinyusb-architecture.mdc` - 모듈 책임 분리 및 아키텍처 설계 원칙
 
 **검증**:
-- [x] `src/board/BridgeOne/main/usb_descriptors.c` 중복 함수 제거됨
-- [x] `src/board/BridgeOne/main/usb_descriptors.h` 중복 선언 제거됨
-- [x] `src/board/BridgeOne/main/hid_handler.c` 통합 구현 완료
-- [x] `src/board/BridgeOne/main/hid_handler.h` 모든 함수 선언 추가됨
-- [x] `src/board/BridgeOne/main/uart_handler.h` frame_queue extern 선언 추가됨
-- [x] `src/board/BridgeOne/main/uart_handler.c` 중복 선언 제거됨
-- [x] HID 인터페이스 번호 상수 통합됨 (ITF_NUM_HID_KEYBOARD, ITF_NUM_HID_MOUSE)
-- [x] 누락된 헤더 파일 추가됨 (<string.h>, class/hid/hid.h)
-- [x] Linter 오류 없음 (모든 .c/.h 파일 검증)
-- [x] 모듈 책임 분리 명확화 (각 모듈의 역할 문서화)
-- [x] `idf.py build` 성공
+- [ ] `src/board/BridgeOne/main/usb_descriptors.c` 중복 함수 제거됨
+- [ ] `src/board/BridgeOne/main/usb_descriptors.h` 중복 선언 제거됨
+- [ ] `src/board/BridgeOne/main/hid_handler.c` 통합 구현 완료
+- [ ] `src/board/BridgeOne/main/hid_handler.h` 모든 함수 선언 추가됨
+- [ ] `src/board/BridgeOne/main/uart_handler.h` frame_queue extern 선언 추가됨
+- [ ] `src/board/BridgeOne/main/uart_handler.c` 중복 선언 제거됨
+- [ ] HID 인터페이스 번호 상수 통합됨 (ITF_NUM_HID_KEYBOARD, ITF_NUM_HID_MOUSE)
+- [ ] 누락된 헤더 파일 추가됨 (<string.h>, class/hid/hid.h)
+- [ ] Linter 오류 없음 (모든 .c/.h 파일 검증)
+- [ ] 모듈 책임 분리 명확화 (각 모듈의 역할 문서화)
+- [ ] `idf.py build` 성공
 
 ---
 
@@ -434,13 +434,13 @@ updated: "2025-10-27"
 - `docs/board/esp32s3-code-implementation-guide.md` §3.3.4 app_main() 초기화 순서
 
 **검증**:
-- [x] `main.c`에서 `tusb_init(BOARD_TUD_RHPORT, &dev_init)` 호출
-- [x] **`board_init()` 및 `board_init_after_tusb()` 함수 호출 없음**
-- [x] **`bsp/board_api.h` 헤더 include 없음**
-- [x] `uart_init()` 호출 확인
-- [x] `frame_queue = xQueueCreate(32, sizeof(bridge_frame_t))` 호출
-- [x] 초기화 로그 메시지 출력 (ESP_LOGI)
-- [x] `idf.py build` 성공
+- [ ] `main.c`에서 `tusb_init(BOARD_TUD_RHPORT, &dev_init)` 호출
+- [ ] **`board_init()` 및 `board_init_after_tusb()` 함수 호출 없음**
+- [ ] **`bsp/board_api.h` 헤더 include 없음**
+- [ ] `uart_init()` 호출 확인
+- [ ] `frame_queue = xQueueCreate(32, sizeof(bridge_frame_t))` 호출
+- [ ] 초기화 로그 메시지 출력 (ESP_LOGI)
+- [ ] `idf.py build` 성공
 
 ---
 
