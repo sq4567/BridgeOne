@@ -577,7 +577,35 @@ idf.py reconfigure
 
 ---
 
-### Phase 1.2.4: 빌드 환경 검증 및 하드웨어 통합 테스트
+### Phase 1.2.4: sdkconfig TinyUSB HID 설정 검증
+
+**목표**: `sdkconfig.defaults` 파일에 정의된 TinyUSB HID 설정이 실제 `sdkconfig` 파일에 올바르게 적용되었는지 검증
+
+**세부 목표**:
+1. `sdkconfig.defaults` 파일의 `CONFIG_TINYUSB_HID_COUNT=2` 설정 확인
+2. `sdkconfig` 파일의 현재 HID 설정 상태 확인
+3. 필요시 `idf.py menuconfig`를 사용하여 설정 적용
+4. 최종 `sdkconfig` 파일에 `CONFIG_TINYUSB_HID_COUNT=2` 반영 확인
+
+**LLM 검증 작업**:
+1. `src/board/BridgeOne/sdkconfig.defaults` 파일에서 `CONFIG_TINYUSB_HID_COUNT=2` 설정 확인
+2. `src/board/BridgeOne/sdkconfig` 파일에서 현재 `CONFIG_TINYUSB_HID_COUNT` 값 확인
+3. 값이 0으로 설정되어 있으면 `idf.py menuconfig`로 수정
+4. 최종 확인: `sdkconfig`에 `CONFIG_TINYUSB_HID_COUNT=2` 설정됨
+
+**참조 문서 및 섹션**:
+- `docs/board/esp32s3-code-implementation-guide.md` §7.2 프로젝트 설정 (sdkconfig)
+- Phase 1.2.3 (sdkconfig.defaults 설정 단계)
+
+**검증**:
+- [ ] `src/board/BridgeOne/sdkconfig.defaults` 파일에 `CONFIG_TINYUSB_HID_COUNT=2` 포함됨
+- [ ] `src/board/BridgeOne/sdkconfig` 파일에서 `CONFIG_TINYUSB_HID_COUNT` 값 확인
+- [ ] 필요시 `idf.py menuconfig` 또는 `idf.py reconfigure` 실행
+- [ ] 최종 `sdkconfig` 파일에 `CONFIG_TINYUSB_HID_COUNT=2` 반영됨
+
+---
+
+### Phase 1.2.5: 빌드 환경 검증 및 하드웨어 통합 테스트
 
 **목표**: 빌드 시스템이 정상 작동하고, 펌웨어를 ESP32-S3에 성공적으로 플래싱한 후 USB Composite 디바이스가 Windows에서 인식되는지 최종 확인
 
@@ -597,8 +625,8 @@ idf.py reconfigure
 5. Windows Device Manager에서 USB 디바이스 인식 확인
 
 **참조 문서**:
-- `docs/board/esp32s3-code-implementation-guide.md` §7 빌드, 플래시, 모니터링
-- `docs/board/esp32s3-code-implementation-guide.md` §1.3 USB Composite 디바이스 설계
+|- `docs/board/esp32s3-code-implementation-guide.md` §7 빌드, 플래시, 모니터링
+|- `docs/board/esp32s3-code-implementation-guide.md` §1.3 USB Composite 디바이스 설계
 
 ---
 
@@ -663,21 +691,21 @@ Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table Frie
 ```
 
 **검증 체크리스트**:
-- [x] `idf.py build` 실행 성공 ("BUILD SUCCESSFUL" 메시지 표시)
-- [x] `build/` 디렉터리에 `BridgeOne.bin` 파일 생성됨
-- [x] Build 로그에서 Flash 크기 16MB로 인식됨 ("Detected flash size: 16MB")
-- [x] Build 로그에서 PSRAM 활성화 확인 ("PSRAM initialized, size: 8MB")
-- [x] `idf.py -p COMx flash` 실행 성공 ("Hash of data verified" 메시지 표시)
-- [x] 시리얼 모니터가 정상 시작 (115200 보드 레이트, 연속 모니터링)
-- [x] 시리얼 로그에서 "BridgeOne Board - Environment Setup Complete" 메시지 확인
-- [x] 시리얼 로그에서 "ESP32-S3-N16R8: 16MB Flash, 8MB PSRAM" 메시지 확인
-- [x] Windows Device Manager에서 HID 디바이스 최소 2개 확인:
+- [ ] `idf.py build` 실행 성공 ("BUILD SUCCESSFUL" 메시지 표시)
+- [ ] `build/` 디렉터리에 `BridgeOne.bin` 파일 생성됨
+- [ ] Build 로그에서 Flash 크기 16MB로 인식됨 ("Detected flash size: 16MB")
+- [ ] Build 로그에서 PSRAM 활성화 확인 ("PSRAM initialized, size: 8MB")
+- [ ] `idf.py -p COMx flash` 실행 성공 ("Hash of data verified" 메시지 표시)
+- [ ] 시리얼 모니터가 정상 시작 (115200 보드 레이트, 연속 모니터링)
+- [ ] 시리얼 로그에서 "BridgeOne Board - Environment Setup Complete" 메시지 확인
+- [ ] 시리얼 로그에서 "ESP32-S3-N16R8: 16MB Flash, 8MB PSRAM" 메시지 확인
+- [ ] Windows Device Manager에서 HID 디바이스 최소 2개 확인:
   - ✅ "USB Input Device" (키보드) 또는 "BridgeOne USB Keyboard"
   - ✅ "USB Input Device" (마우스) 또는 "BridgeOne USB Mouse"
-- [x] Windows Device Manager에서 COM 포트 1개 확인:
+- [ ] Windows Device Manager에서 COM 포트 1개 확인:
   - ✅ "USB-to-UART Bridge (COMx)" 또는 유사 항목
-- [x] 모든 디바이스에 드라이버 오류 없음 (노란색 느낌표 미 표시)
-- [x] 빌드 로그에 ERROR 없음 (WARNING은 허용)
+- [ ] 모든 디바이스에 드라이버 오류 없음 (노란색 느낌표 미 표시)
+- [ ] 빌드 로그에 ERROR 없음 (WARNING은 허용)
 
 **에러 및 트러블슈팅**:
 
@@ -688,7 +716,7 @@ Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table Frie
 | **"Failed to open COM port"** | COM 포트가 다른 프로그램에서 사용 중 | 1. 다른 시리얼 프로그램 모두 종료<br>2. Device Manager에서 포트 재확인<br>3. 플래싱 재시도 |
 | **"No suitable COM port found"** | USB 케이블 미연결 또는 드라이버 부재 | 1. USB 케이블 재연결<br>2. Device Manager에서 포트 수동 확인<br>3. Espressif CH340/CP210x 드라이버 설치 |
 | **플래싱 후 시리얼 로그 미표시** | 대역폭 설정 오류 또는 부트로더 오류 | 1. `idf.py -p COMx monitor -b 115200` 실행<br>2. 보드 리셋 버튼 누름<br>3. `idf.py -p COMx erase_flash` 후 재플래싱 |
-| **USB 디바이스 미인식** | TinyUSB 설정 누락 (Phase 1.2.3) | 1. Phase 1.2.3 확인: `sdkconfig`에 `CONFIG_TINYUSB=y` 존재 여부<br>2. Windows Update 실행 (HID/COM 드라이버 최신화)<br>3. `idf.py fullclean` 후 완전 재빌드 |
+| **USB 디바이스 미인식** | TinyUSB 설정 누락 (Phase 1.2.3/1.2.4) | 1. Phase 1.2.3 확인: `sdkconfig.defaults`에 `CONFIG_TINYUSB_HID_COUNT=2` 포함 여부<br>2. Phase 1.2.4 확인: `sdkconfig`에 `CONFIG_TINYUSB_HID_COUNT=2` 설정됨<br>3. Windows Update 실행 (HID/COM 드라이버 최신화)<br>4. `idf.py fullclean` 후 완전 재빌드 |
 | **Device Manager에서 "Unknown Device"** | USB 드라이버 부재 | 1. 디바이스 우클릭 → "Update driver"<br>2. "Browse my computer for driver software" 선택<br>3. Windows 기본 드라이버 사용<br>4. 보드 재연결 |
 
 **완료 기준**:
@@ -700,7 +728,7 @@ Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table Frie
 **중요 사항**:
 - 이 Phase는 **개발환경 검증**만 수행합니다.
 - 실제 USB 데이터 통신, HID 입력 처리, Board-App 통신 구현은 **Phase 2 (Communication Stabilization)** 이후에서 수행됩니다.
-- Phase 1.2.3에서 설정한 TinyUSB 구성이 올바르게 작동하는지 확인하는 최종 검증 단계입니다.
+- Phase 1.2.3에서 설정한 TinyUSB 구성이 Phase 1.2.4에서 검증되고, Phase 1.2.5에서 최종 확인되는 단계입니다.
 
 ---
 
