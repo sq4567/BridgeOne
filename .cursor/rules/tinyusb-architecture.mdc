@@ -1,0 +1,134 @@
+---
+title: "TinyUSB 아키텍처 및 빌드 설정"
+description: "ESP-IDF 환경에서 TinyUSB의 기본 아키텍처, 컴포넌트 구조, CMake 및 sdkconfig를 포함한 빌드 설정 가이드"
+tags: ["tinyusb", "esp-idf", "architecture", "build", "cmake", "sdkconfig"]
+version: "v1.0"
+owner: "Chatterbones"
+updated: "2025-10-31"
+framework: "ESP-IDF + TinyUSB"
+references: ["Context7:/hathach/tinyusb", "Context7:/espressif/tinyusb", "Context7:/espressif/esp-idf"]
+---
+
+# TinyUSB 아키텍처 및 빌드 설정
+
+> **규칙 목적**: ESP-IDF 환경에서 TinyUSB를 통합하고 빌드하기 위한 표준 아키텍처 이해 및 필수 설정 방법을 정의합니다. 이 규칙은 프로젝트의 일관된 빌드 환경을 보장합니다.
+
+---
+
+## 1. ESP-IDF TinyUSB 통합 아키텍처
+
+### 1.1. TinyUSB 계층 구조
+
+TinyUSB는 다음과 같은 계층화된 구조로 설계되었습니다. 각 레이어는 명확한 역할을 수행하며, 애플리케이션 개발자는 주로 최상위 레이어와 상호작용합니다.
+
+```
+┌──────────────────────────────────────┐
+│   Application (main.c, handlers)     │ ← 비즈니스 로직 구현
+├──────────────────────────────────────┤
+│   Class Drivers (HID, CDC, MSC...)   │ ← tud_hid_*(), tud_cdc_*() API 제공
+├──────────────────────────────────────┤
+│   Device Stack (usbd.c, usbd_control)│ ← tud_task(), tud_init() 코어 API
+├──────────────────────────────────────┤
+│   DCD (Device Controller Driver)     │ ← dcd_dwc2.c (ESP32-S3)
+├──────────────────────────────────────┤
+│   Hardware (USB OTG Peripheral)      │
+└──────────────────────────────────────┘
+```
+
+**핵심 원칙**:
+- **Application Layer**: USB 디스크립터 콜백(`usb_descriptors.c`)과 비즈니스 로직을 구현합니다.
+- **Device Stack**: `tud_task()`를 FreeRTOS 태스크에서 주기적으로 호출하여 USB 이벤트를 처리해야 합니다.
+- **DCD (Device Controller Driver)**: ESP-IDF 컴포넌트(`espressif__tinyusb`)가 ESP32-S3의 Synopsys DWC2 드라이버를 자동으로 포함하므로 직접 제어할 필요가 없습니다.
+
+### 1.2. ESP-IDF 컴포넌트 구조
+
+ESP-IDF에서 TinyUSB는 관리 컴포넌트(`managed_components`)로 제공됩니다. 프로젝트 구조는 다음과 같이 구성되어야 합니다.
+
+```
+src/board/BridgeOne/
+├── main/
+│   ├── main.c               # tud_init(), 태스크 생성
+│   ├── usb_descriptors.c    # ★ 필수: 디스크립터 콜백 구현
+│   ├── hid_handler.c        # HID 리포트 전송 로직
+│   ├── uart_handler.c       # UART 수신 로직
+│   └── CMakeLists.txt       # 컴포넌트 등록 및 의존성 정의
+├── managed_components/
+│   └── espressif__tinyusb/  # 'idf.py reconfigure' 실행 시 자동 설치
+└── sdkconfig                # CONFIG_TINYUSB_* 설정
+```
+
+**중요**: `usb_descriptors.c` 파일은 TinyUSB 라이브러리가 약한 심볼(weak symbol)을 제공하지 않으므로, **반드시 애플리케이션 코드에서 직접 구현**해야 합니다.
+
+---
+
+## 2. 빌드 시스템 설정
+
+### 2.1. CMakeLists.txt 구성
+
+`main/CMakeLists.txt` 파일은 TinyUSB 컴포넌트를 사용하기 위한 필수 설정을 포함해야 합니다.
+
+**`main/CMakeLists.txt` (필수 구성)**:
+```cmake
+# idf_component_register: ESP-IDF 빌드 시스템에 현재 디렉토리를 컴포넌트로 등록
+# SRCS: 컴파일할 소스 파일 목록. usb_descriptors.c는 필수.
+# INCLUDE_DIRS: 헤더 파일 검색 경로.
+# REQUIRES: 이 컴포넌트가 의존하는 다른 컴포넌트 목록.
+idf_component_register(
+    SRCS
+        "main.c"
+        "usb_descriptors.c"    # ★ 필수: 디스크립터 콜백
+        "hid_handler.c"
+        "uart_handler.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        espressif__tinyusb     # ★ TinyUSB 컴포넌트 의존성
+        driver                 # UART 등 하드웨어 드라이버
+)
+```
+
+**Context7 정보 (Trust Score 9.1)**: `espressif/tinyusb` 컴포넌트는 `idf_component.yml` 파일을 통해 버전 관리가 가능하며, `idf.py reconfigure` 명령어로 자동으로 다운로드 및 통합됩니다.
+
+### 2.2. sdkconfig 필수 설정
+
+`sdkconfig` 파일 또는 `menuconfig`를 통해 TinyUSB 관련 설정을 활성화해야 합니다.
+
+**`idf.py menuconfig` 경로**: `Component config → TinyUSB Stack`
+
+```ini
+# --- TinyUSB 기본 설정 ---
+# TinyUSB 스택 전체 활성화
+CONFIG_TINYUSB_ENABLED=y
+
+# --- Device Stack 설정 ---
+# USB 디바이스 기능 활성화
+CONFIG_TINYUSB_DEVICE_ENABLED=y
+
+# --- Class Driver 설정 ---
+# HID 클래스 활성화 및 인터페이스 개수 설정 (Keyboard + Mouse = 2)
+CONFIG_TINYUSB_HID_ENABLED=y
+CONFIG_TINYUSB_HID_COUNT=2
+
+# CDC 클래스 활성화
+CONFIG_TINYUSB_CDC_ENABLED=y
+CONFIG_TINYUSB_CDC_COUNT=1
+
+# --- USB 디스크립터 설정 ---
+# 커스텀 VID/PID 사용 설정
+CONFIG_TINYUSB_DESC_USE_ESPRESSIF_VID=n
+CONFIG_TINYUSB_DESC_CUSTOM_VID=0x303A    # Espressif VID (예시)
+CONFIG_TINYUSB_DESC_CUSTOM_PID=0x4001    # BridgeOne 고유 PID
+
+# --- 디버깅 설정 (개발 단계에서 권장) ---
+# 로그 레벨: 0=None, 1=Error, 2=Warning, 3=Info
+CONFIG_TINYUSB_DEBUG_LEVEL=2
+
+# --- FreeRTOS 통합 설정 ---
+# 태스크 워치독 활성화 (권장)
+CONFIG_ESP_TASK_WDT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+```
+
+**설계 원칙**:
+- **모듈성**: 각 기능(HID, CDC)은 `sdkconfig`에서 활성화/비활성화할 수 있어야 합니다.
+- **식별성**: 커스텀 VID/PID를 사용하여 호스트 OS에서 디바이스를 명확하게 식별하도록 합니다.
+- **안정성**: 개발 중에는 디버그 레벨을 높여 문제를 조기에 발견하고, 프로덕션 단계에서는 레벨을 낮춰 성능을 확보합니다. 태스크 워치독을 사용하여 태스크 멈춤(Stall) 현상을 감지합니다.

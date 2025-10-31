@@ -1,0 +1,164 @@
+---
+title: "TinyUSB FreeRTOS 통합 규칙"
+description: "ESP-IDF 환경에서 TinyUSB와 FreeRTOS를 통합하는 표준 패턴을 정의합니다. 태스크 설계, 큐를 이용한 동기화, 초기화 순서, 멀티코어 활용 방안을 포함합니다."
+tags: ["tinyusb", "esp-idf", "freertos", "rtos", "task", "queue"]
+version: "v1.0"
+owner: "Chatterbones"
+updated: "2025-10-31"
+framework: "ESP-IDF + TinyUSB"
+references: ["Context7:/espressif/esp-idf", "mdc:./tinyusb-hid-implementation.mdc"]
+---
+
+# TinyUSB FreeRTOS 통합 규칙
+
+> **규칙 목적**: 실시간 운영체제(FreeRTOS) 환경에서 TinyUSB 스택과 애플리케이션 로직(UART, HID)을 안정적으로 통합하기 위한 태스크 설계, 동기화, 초기화 패턴을 수립합니다.
+
+---
+
+## 1. FreeRTOS 태스크 설계
+
+기능별로 태스크를 분리하여 시스템의 응답성과 안정성을 높입니다. 각 태스크는 명확한 단일 책임을 가집니다.
+
+### 1.1. 태스크 구조 및 역할
+
+| 태스크 이름 | 역할 | 실행 코어 | 우선순위 | 블로킹 방식 |
+| :--- | :--- | :--- | :--- | :--- |
+| `usb_task` | `tud_task()`를 주기적으로 호출하여 USB 이벤트 처리 | Core 1 | 5 (낮음) | `taskYIELD()` |
+| `hid_task` | 큐에서 BridgeFrame을 수신하여 HID 리포트로 변환/전송 | Core 0 | 9 (중간) | `xQueueReceive` |
+| `uart_task` | UART 포트에서 BridgeFrame 수신 및 검증 후 큐로 전송 | Core 0 | 10 (높음) | `uart_read_bytes` |
+
+**설계 원칙**:
+- **Core Affinity**: `usb_task`는 다른 I/O 처리와 분리하기 위해 Core 1에 할당합니다. 실시간성이 중요한 `uart_task`와 `hid_task`는 Core 0에 할당합니다.
+- **Priority**: UART 데이터 수신이 가장 중요하므로 `uart_task`에 가장 높은 우선순위를 부여합니다. `usb_task`는 블로킹되지 않으므로 가장 낮은 우선순위를 가집니다.
+- **분리된 책임**: 각 태스크는 자신의 역할(USB 이벤트, HID 전송, UART 수신)에만 집중하여 코드의 복잡도를 낮춥니다.
+
+### 1.2. `usb_task` 구현
+
+`tud_task()`는 USB 이벤트를 처리하는 TinyUSB의 핵심 함수이며, 주기적으로 반드시 호출되어야 합니다.
+
+```c
+// main.c
+void usb_task(void* param) {
+    (void)param;
+    while (1) {
+        // TinyUSB Device Stack의 이벤트 처리기
+        tud_task();
+        // 다른 태스크에 CPU 제어권을 양보.
+        // tud_task()는 논블로킹 함수이므로 vTaskDelay 대신 taskYIELD 사용.
+        taskYIELD();
+    }
+}
+```
+
+### 1.3. `hid_task` 및 `uart_task` 구현
+
+이 두 태스크는 FreeRTOS 큐를 통해 통신합니다. (자세한 내용은 2. 태스크 간 동기화 참조)
+
+```c
+// hid_handler.c
+void hid_task(void* param) {
+    bridge_frame_t frame;
+    while (1) {
+        // 큐에서 프레임을 수신할 때까지 블로킹 (100ms 타임아웃)
+        if (xQueueReceive(frame_queue, &frame, pdMS_TO_TICKS(100))) {
+            process_bridge_frame(&frame); // HID 리포트 변환 및 전송
+        }
+        esp_task_wdt_reset(); // 워치독 리셋
+    }
+}
+
+// uart_handler.c
+void uart_task(void* param) {
+    bridge_frame_t frame;
+    while (1) {
+        // UART에서 프레임 수신
+        if (receive_uart_frame(&frame)) {
+            // 큐가 꽉 찼으면 대기 없이 실패 처리 (프레임 드롭)
+            if (xQueueSend(frame_queue, &frame, 0) != pdTRUE) {
+                ESP_LOGW(TAG, "Frame queue full, dropping frame");
+            }
+        }
+        esp_task_wdt_reset(); // 워치독 리셋
+    }
+}
+```
+
+---
+
+## 2. 태스크 간 동기화 (FreeRTOS 큐)
+
+태스크 간 데이터 전달은 데이터 손실과 경쟁 상태를 방지하기 위해 반드시 FreeRTOS 큐를 사용해야 합니다.
+
+**Context7 정보 (Trust Score 9.1)**: ESP-IDF FreeRTOS에서 큐는 스레드 안전(thread-safe)을 보장하는 가장 기본적인 IPC(Inter-Process Communication) 메커니즘입니다. `xQueueCreate`로 생성하고 `xQueueSend`/`xQueueReceive`로 데이터를 주고받습니다. ISR에서 사용할 경우 `FromISR` 버전의 함수를 사용해야 합니다.
+
+### 2.1. 큐 생성 및 초기화
+
+큐는 관련 태스크들이 생성되기 전에 `app_main`에서 생성되어야 합니다.
+
+```c
+// main.c
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+
+// 전역 큐 핸들
+QueueHandle_t frame_queue = NULL;
+
+void app_main(void) {
+    // ... (초기화 코드)
+
+    // 32개의 bridge_frame_t를 저장할 수 있는 큐 생성
+    frame_queue = xQueueCreate(32, sizeof(bridge_frame_t));
+    if (frame_queue == NULL) {
+        ESP_LOGE("MAIN", "Failed to create frame queue");
+        abort(); // 큐 생성 실패는 심각한 오류
+    }
+
+    // ... (태스크 생성 코드)
+}
+```
+
+### 2.2. 데이터 흐름
+
+`UART 수신` → `uart_task` → `xQueueSend` → `[frame_queue]` → `xQueueReceive` → `hid_task` → `HID 리포트 전송`
+
+---
+
+## 3. 초기화 순서 및 `app_main` 패턴
+
+시스템 안정성을 위해 `app_main` 내의 초기화 순서는 매우 중요합니다.
+
+**올바른 초기화 순서**:
+1.  **하드웨어 초기화** (UART 등)
+2.  **TinyUSB 초기화** (`tud_init`)
+3.  **FreeRTOS IPC 초기화** (큐, 세마포어 등)
+4.  **애플리케이션 태스크 생성** (`xTaskCreatePinnedToCore`)
+
+```c
+// main.c
+
+void app_main(void) {
+    ESP_LOGI("MAIN", "BridgeOne firmware starting...");
+
+    // 1. 하드웨어 초기화
+    uart_init(); // uart_handler.c에서 정의
+
+    // 2. TinyUSB 초기화
+    #define BOARD_TUD_RHPORT 0 // ESP32-S3는 포트 0 사용
+    if (!tud_init(BOARD_TUD_RHPORT)) {
+        ESP_LOGE("MAIN", "TinyUSB init failed");
+        abort();
+    }
+
+    // 3. FreeRTOS 큐 생성
+    frame_queue = xQueueCreate(32, sizeof(bridge_frame_t));
+    // ... (null 체크) ...
+
+    // 4. 태스크 생성 (멀티코어 핀 설정)
+    xTaskCreatePinnedToCore(uart_task, "UART", 4096, NULL, 10, NULL, 0);
+    xTaskCreatePinnedToCore(hid_task, "HID", 4096, NULL, 9, NULL, 0);
+    xTaskCreatePinnedToCore(usb_task, "USB", 4096, NULL, 5, NULL, 1);
+    
+    ESP_LOGI("MAIN", "Initialization complete");
+}
+```
+**`xTaskCreatePinnedToCore`**: 태스크를 특정 CPU 코어(0 또는 1)에 고정하여 실행시키는 함수입니다. 이는 캐시 효율성을 높이고, 실시간 작업과 백그라운드 작업을 분리하여 시스템 성능을 예측 가능하게 만듭니다.

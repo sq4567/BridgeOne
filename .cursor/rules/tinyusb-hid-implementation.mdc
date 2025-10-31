@@ -1,0 +1,193 @@
+---
+title: "TinyUSB HID 구현 규칙"
+description: "ESP-IDF에서 TinyUSB를 사용한 HID 키보드 및 마우스 구현 패턴, 리포트 전송 API, 콜백 함수 처리 방법을 정의합니다."
+tags: ["tinyusb", "esp-idf", "hid", "keyboard", "mouse"]
+version: "v1.0"
+owner: "Chatterbones"
+updated: "2025-10-31"
+framework: "ESP-IDF + TinyUSB"
+references: ["Context7:/hathach/tinyusb", "mdc:./tinyusb-descriptors.mdc"]
+---
+
+# TinyUSB HID 구현 규칙
+
+> **규칙 목적**: UART를 통해 수신된 데이터를 USB HID Keyboard 및 Mouse 리포트로 변환하고 전송하는 표준화된 방법을 제공하여, 안정적이고 예측 가능한 입력 장치 동작을 보장합니다.
+
+---
+
+## 1. HID 리포트 전송 API
+
+### 1.1. 리포트 구조체 정의
+
+전송할 데이터는 `tud_hid_descriptor_report_cb`에서 정의한 HID Report Descriptor와 정확히 일치하는 구조체로 정의해야 합니다.
+
+```c
+// hid_handler.h 또는 hid_handler.c
+
+#include <stdint.h>
+
+// Boot Protocol Keyboard Report (8바이트)
+typedef struct __attribute__((packed)) {
+    uint8_t modifiers;   // [0] Ctrl, Shift, Alt, GUI 비트마스크
+    uint8_t reserved;    // [1] 0x00으로 고정
+    uint8_t keyCodes[6]; // [2-7] 동시 입력 가능한 키 코드 (6-Key Rollover)
+} hid_keyboard_report_t;
+
+// Boot Protocol Mouse Report (4바이트)
+typedef struct __attribute__((packed)) {
+    uint8_t buttons;  // [0] bit0=Left, bit1=Right, bit2=Middle
+    int8_t  deltaX;   // [1] X축 상대 이동량 (-127 ~ 127)
+    int8_t  deltaY;   // [2] Y축 상대 이동량 (-127 ~ 127)
+    int8_t  wheel;    // [3] 휠 스크롤량 (-127 ~ 127)
+} hid_mouse_report_t;
+```
+**`__attribute__((packed))`**: 컴파일러가 구조체에 패딩 바이트를 추가하지 않도록 하여, USB로 전송될 데이터의 크기와 레이아웃을 정확히 제어합니다.
+
+### 1.2. API 사용 패턴
+
+리포트 전송은 `tud_hid_n_ready()`로 전송 가능 상태를 확인한 후, `tud_hid_n_report()`로 실제 데이터를 전송하는 2단계 프로세스를 따릅니다.
+
+```c
+// hid_handler.c
+#include "tusb.h"
+#include "esp_log.h"
+
+static const char* TAG = "HID_HANDLER";
+
+/**
+ * @brief Keyboard HID 리포트를 전송합니다.
+ *
+ * @param report 전송할 키보드 리포트 데이터
+ * @return true 전송 성공
+ * @return false 전송 실패 (USB 미연결 또는 버퍼 풀)
+ */
+bool send_keyboard_report(hid_keyboard_report_t* report) {
+    uint8_t instance = ITF_NUM_HID_KEYBOARD;
+
+    // 1. USB가 마운트되었고, 이전 전송이 완료되었는지 확인
+    if (!tud_hid_n_ready(instance)) {
+        ESP_LOGW(TAG, "Keyboard not ready");
+        return false;
+    }
+
+    // 2. 리포트 전송
+    // report_id=1, len=sizeof(report)
+    if (!tud_hid_n_report(instance, 1, report, sizeof(hid_keyboard_report_t))) {
+        ESP_LOGE(TAG, "Failed to send keyboard report");
+        return false;
+    }
+
+    ESP_LOGD(TAG, "Keyboard report sent");
+    return true;
+}
+
+/**
+ * @brief Mouse HID 리포트를 전송합니다.
+ *
+ * @param report 전송할 마우스 리포트 데이터
+ * @return true 전송 성공
+ * @return false 전송 실패
+ */
+bool send_mouse_report(hid_mouse_report_t* report) {
+    uint8_t instance = ITF_NUM_HID_MOUSE;
+
+    if (!tud_hid_n_ready(instance)) {
+        ESP_LOGW(TAG, "Mouse not ready");
+        return false;
+    }
+
+    // report_id=2, len=sizeof(report)
+    if (!tud_hid_n_report(instance, 2, report, sizeof(hid_mouse_report_t))) {
+        ESP_LOGE(TAG, "Failed to send mouse report");
+        return false;
+    }
+    
+    ESP_LOGD(TAG, "Mouse report sent");
+    return true;
+}
+```
+
+**Context7 정보 (Trust Score 9.7)**: `tud_hid_n_report()`의 `instance` 파라미터는 Configuration Descriptor에 정의된 HID 인터페이스의 순서(`ITF_NUM_HID_KEYBOARD`, `ITF_NUM_HID_MOUSE`)와 정확히 일치해야 합니다. `report_id`는 Report Descriptor에서 정의한 ID와 일치해야 하며, 0이 아닌 값을 사용하는 것이 여러 리포트 타입을 구분하는 데 유리합니다.
+
+---
+
+## 2. HID 콜백 함수 구현
+
+HID 콜백은 호스트로부터의 요청을 처리하기 위해 필요하며, `usb_descriptors.c` 또는 별도의 `hid_handler.c`에 구현할 수 있습니다.
+
+### 2.1. `tud_hid_get_report_cb()` (선택적이지만 권장)
+
+**역할**: 호스트가 `GET_REPORT` 요청을 보낼 때, 디바이스의 현재 리포트 상태(예: 마지막으로 보낸 키 상태)를 반환합니다.
+
+```c
+// 마지막으로 전송된 리포트 상태를 저장할 전역 변수
+static hid_keyboard_report_t last_kb_report = {0};
+static hid_mouse_report_t last_mouse_report = {0};
+
+// send_keyboard_report, send_mouse_report 함수 내에서 전송 직전 last_kb_report, last_mouse_report 업데이트 필요
+
+uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen) {
+    // Input Report 요청만 처리
+    if (report_type != HID_REPORT_TYPE_INPUT) {
+        return 0;
+    }
+
+    if (instance == ITF_NUM_HID_KEYBOARD && report_id == 1) {
+        uint16_t len = (reqlen < sizeof(last_kb_report)) ? reqlen : sizeof(last_kb_report);
+        memcpy(buffer, &last_kb_report, len);
+        return len;
+    } else if (instance == ITF_NUM_HID_MOUSE && report_id == 2) {
+        uint16_t len = (reqlen < sizeof(last_mouse_report)) ? reqlen : sizeof(last_mouse_report);
+        memcpy(buffer, &last_mouse_report, len);
+        return len;
+    }
+
+    return 0;
+}
+```
+
+### 2.2. `tud_hid_set_report_cb()` (키보드 LED 처리)
+
+**역할**: 호스트가 `SET_REPORT` 요청을 보낼 때 호출됩니다. 주로 키보드의 LED 상태(Num Lock, Caps Lock, Scroll Lock)를 수신하는 데 사용됩니다.
+
+```c
+void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize) {
+    (void)report_id;
+
+    // Keyboard 인스턴스의 Output Report만 처리
+    if (instance == ITF_NUM_HID_KEYBOARD && report_type == HID_REPORT_TYPE_OUTPUT) {
+        if (bufsize >= 1) {
+            // buffer[0]은 LED 상태 비트마스크
+            // bit 0: Num Lock
+            // bit 1: Caps Lock
+            // bit 2: Scroll Lock
+            uint8_t leds = buffer[0];
+            ESP_LOGI(TAG, "Keyboard LEDs: NumLock=%d, CapsLock=%d, ScrollLock=%d",
+                     (leds & KEYBOARD_LED_NUMLOCK) ? 1 : 0,
+                     (leds & KEYBOARD_LED_CAPSLOCK) ? 1 : 0,
+                     (leds & KEYBOARD_LED_SCROLLLOCK) ? 1 : 0);
+            
+            // TODO: 실제 GPIO를 제어하여 LED를 켜고 끄는 로직 구현 (선택 사항)
+        }
+    }
+}
+```
+
+### 2.3. `tud_hid_report_complete_cb()` (선택 사항)
+
+**역할**: `tud_hid_n_report()`로 요청한 리포트 전송이 완료되었을 때 호출됩니다. 전송 완료 후 특정 동작(예: 세마포어 해제)이 필요할 때 유용합니다.
+
+**Context7 정보 (Trust Score 9.7)**: 콜백의 `len` 파라미터 타입이 `uint8_t`에서 `uint16_t`로 변경되었습니다. 이전 버전을 사용하는 경우 주의가 필요합니다.
+
+```c
+void tud_hid_report_complete_cb(uint8_t instance, uint8_t const* report, uint16_t len) {
+    (void)report;
+    (void)len;
+    
+    if (instance == ITF_NUM_HID_KEYBOARD) {
+        ESP_LOGD(TAG, "Keyboard report transfer complete");
+    } else if (instance == ITF_NUM_HID_MOUSE) {
+        ESP_LOGD(TAG, "Mouse report transfer complete");
+    }
+}
+```

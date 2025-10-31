@@ -1,0 +1,136 @@
+---
+title: "TinyUSB CDC-ACM 구현 규칙"
+description: "ESP-IDF에서 TinyUSB를 사용하여 가상 시리얼 포트(CDC-ACM)를 구현하는 패턴을 정의합니다. 데이터 수신 콜백, 라인 상태 관리, 송수신 API 사용법을 포함합니다."
+tags: ["tinyusb", "esp-idf", "cdc", "vcp", "serial"]
+version: "v1.0"
+owner: "Chatterbones"
+updated: "2025-10-31"
+framework: "ESP-IDF + TinyUSB"
+references: ["Context7:/hathach/tinyusb", "mdc:./tinyusb-descriptors.mdc"]
+---
+
+# TinyUSB CDC-ACM 구현 규칙
+
+> **규칙 목적**: Windows 및 기타 호스트 OS와의 양방향 통신을 위해 가상 COM 포트(VCP)를 구현하는 표준화된 방법을 제공합니다. 안정적인 데이터 수신, 송신 및 연결 상태 관리를 보장합니다.
+
+---
+
+## 1. CDC 콜백 함수 구현
+
+CDC 콜백은 호스트와의 상호작용(데이터 수신, 연결 상태 변경 등)을 처리하기 위해 필수적입니다. 이 함수들은 `usb_descriptors.c` 또는 별도의 핸들러 파일에 구현할 수 있습니다.
+
+### 1.1. `tud_cdc_rx_cb()` (데이터 수신)
+
+**역할**: 호스트가 CDC 포트로 데이터를 전송했을 때 가장 먼저 호출되는 핵심 콜백입니다. 수신 버퍼에서 데이터를 읽어와 처리하는 로직을 포함해야 합니다.
+
+```c
+// cdc_handler.c 또는 usb_descriptors.c
+
+#include "tusb.h"
+#include "esp_log.h"
+
+#define CDC_RX_BUFFER_SIZE 512
+static uint8_t cdc_rx_buffer[CDC_RX_BUFFER_SIZE];
+static const char* TAG = "CDC_HANDLER";
+
+void tud_cdc_rx_cb(uint8_t itf) {
+    // BridgeOne은 단일 CDC 인터페이스만 사용하므로 itf는 항상 ITF_NUM_CDC_COMM
+    if (!tud_cdc_n_available(itf)) {
+        return;
+    }
+
+    uint32_t count = tud_cdc_n_read(itf, cdc_rx_buffer, sizeof(cdc_rx_buffer));
+    
+    ESP_LOGI(TAG, "CDC RX: Received %lu bytes", count);
+    
+    // 수신된 데이터를 16진수로 로그 출력 (디버깅용)
+    esp_log_buffer_hex(TAG, cdc_rx_buffer, count);
+    
+    // TODO: 수신된 데이터를 파싱하고 처리하는 로직 호출
+    // 예: for (int i=0; i<count; i++) { parse_vendor_frame(cdc_rx_buffer[i]); }
+}
+```
+
+**설계 원칙**:
+- **버퍼링**: `tud_cdc_n_read()`를 사용하여 TinyUSB의 내부 RX FIFO에서 애플리케이션 버퍼로 데이터를 가져옵니다.
+- **오버플로우 방지**: `cdc_rx_buffer` 크기보다 많은 데이터가 수신될 경우를 대비하여 `tud_cdc_n_read_flush()`를 호출하여 버퍼를 비우는 예외 처리를 고려할 수 있습니다.
+- **단일 책임**: 이 콜백 함수는 데이터 수신 및 전달에만 집중하고, 복잡한 데이터 파싱은 별도의 함수로 분리하는 것이 좋습니다.
+
+### 1.2. `tud_cdc_line_state_cb()` (연결 상태 변경)
+
+**역할**: 호스트가 시리얼 포트를 열거나 닫을 때(DTR/RTS 신호 변경) 호출됩니다. USB 연결 자체와는 별개로, 실제 통신 채널의 개시/종료를 감지하는 데 사용됩니다.
+
+```c
+void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
+    (void)itf;
+
+    if (dtr && rts) {
+        // 호스트가 시리얼 포트를 열었음 (예: PuTTY, Tera Term 연결)
+        ESP_LOGI(TAG, "Host connected to CDC");
+        // TODO: 연결 시 초기화 메시지 전송 등의 로직 구현
+    } else {
+        // 호스트가 시리얼 포트를 닫았음
+        ESP_LOGI(TAG, "Host disconnected from CDC");
+    }
+}
+```
+
+### 1.3. `tud_cdc_line_coding_cb()` (시리얼 설정 변경)
+
+**역할**: 호스트가 보드레이트, 패리티 등 시리얼 통신 설정을 변경할 때 호출됩니다. 가상 COM 포트에서는 이 설정이 실제 하드웨어에 영향을 주지 않으므로, 일반적으로 로그 출력 외에 특별한 처리는 필요하지 않습니다.
+
+```c
+void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* coding) {
+    (void)itf;
+    ESP_LOGI(TAG, "Line coding changed: baudrate=%lu, databits=%u, parity=%u, stopbits=%u",
+             coding->bit_rate, coding->data_bits, coding->parity, coding->stop_bits);
+}
+```
+
+---
+
+## 2. CDC 데이터 송신 API
+
+데이터 송신은 `tud_cdc_n_write()`로 데이터를 버퍼에 쓰고, `tud_cdc_n_write_flush()`로 실제 전송을 실행하는 방식으로 이루어집니다.
+
+```c
+// cdc_handler.c
+
+/**
+ * @brief CDC를 통해 호스트로 문자열 데이터를 전송합니다.
+ *
+ * @param str 전송할 null-terminated 문자열
+ * @return true 성공
+ * @return false 실패 (버퍼 풀)
+ */
+bool send_cdc_string(const char* str) {
+    uint8_t itf = ITF_NUM_CDC_COMM;
+    
+    // 1. USB가 연결되어 있는지 확인
+    if (!tud_cdc_n_connected(itf)) {
+        ESP_LOGW(TAG, "CDC not connected, cannot send data");
+        return false;
+    }
+
+    // 2. 송신 버퍼에 충분한 공간이 있는지 확인
+    size_t len = strlen(str);
+    if (tud_cdc_n_write_available(itf) < len) {
+        ESP_LOGW(TAG, "CDC TX buffer full");
+        return false; // 재시도 로직을 추가할 수 있음
+    }
+
+    // 3. 데이터를 송신 버퍼에 쓰기
+    uint32_t written = tud_cdc_n_write(itf, str, len);
+    if (written != len) {
+        ESP_LOGE(TAG, "CDC write failed: %lu/%zu bytes written", written, len);
+        return false;
+    }
+
+    // 4. 버퍼의 데이터를 호스트로 즉시 전송 (Flush)
+    tud_cdc_n_write_flush(itf);
+    
+    ESP_LOGI(TAG, "Sent %zu bytes to CDC: %s", len, str);
+    return true;
+}
+```
+**Context7 정보 (Trust Score 9.1)**: `tud_cdc_n_write()`는 데이터를 내부 TX FIFO에 복사할 뿐, 실제 전송을 보장하지 않습니다. 즉각적인 전송이 필요할 경우, 반드시 `tud_cdc_n_write_flush()`를 호출해야 합니다. 대량의 데이터를 보낼 때는 버퍼 공간을 확인하고 여러 번에 나누어 쓰는 것이 안정적입니다. `tud_cdc_configure_fifo()`를 사용하면 USB 연결이 끊겨도 TX/RX 버퍼를 유지할 수 있습니다.

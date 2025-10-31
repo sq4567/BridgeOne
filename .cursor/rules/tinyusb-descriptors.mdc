@@ -1,0 +1,223 @@
+---
+title: "TinyUSB 디스크립터 구현 규칙"
+description: "ESP-IDF 환경에서 TinyUSB 복합 디바이스(HID+CDC)를 위한 필수 USB 디스크립터(Device, Configuration, HID Report, String) 구현 가이드"
+tags: ["tinyusb", "esp-idf", "usb", "descriptor", "hid", "cdc"]
+version: "v1.0"
+owner: "Chatterbones"
+updated: "2025-10-31"
+framework: "ESP-IDF + TinyUSB"
+references: ["Context7:/hathach/tinyusb", "mdc:./tinyusb-architecture.mdc"]
+---
+
+# TinyUSB 디스크립터 구현 규칙
+
+> **규칙 목적**: `undefined reference` 빌드 오류를 방지하고, USB 호스트가 디바이스를 올바르게 인식하도록 필수 디스크립터 콜백 함수를 구현하는 표준 방법을 정의합니다.
+
+---
+
+## 1. 디스크립터 구현 개요
+
+TinyUSB는 효율적인 코드 크기를 위해 일부 콜백 함수를 약한 심볼(weak symbol)로 정의하지 않습니다. 따라서 **아래 4개의 콜백 함수는 애플리케이션(`usb_descriptors.c`)에서 반드시 구현해야 합니다.** 이를 누락하면 링크 시점에 `undefined reference` 오류가 발생합니다.
+
+- `tud_descriptor_device_cb()`
+- `tud_descriptor_configuration_cb()`
+- `tud_descriptor_string_cb()`
+- `tud_hid_descriptor_report_cb()` (HID 사용 시)
+
+---
+
+## 2. Device Descriptor (`tud_descriptor_device_cb`)
+
+**역할**: 디바이스의 기본 정보(VID/PID, 클래스, 버전)를 호스트에 제공합니다.
+
+```c
+// usb_descriptors.c
+
+#include "tusb.h"
+
+// 1. Device Descriptor 정의
+tusb_desc_device_t const desc_device = {
+    .bLength            = sizeof(tusb_desc_device_t),
+    .bDescriptorType    = TUSB_DESC_DEVICE,
+    .bcdUSB             = 0x0200,  // USB 2.0
+    // 복합 디바이스는 클래스를 0x00으로 설정하고 각 인터페이스에서 클래스 정의
+    .bDeviceClass       = 0x00,
+    .bDeviceSubClass    = 0x00,
+    .bDeviceProtocol    = 0x00,
+    .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
+
+    .idVendor           = 0x303A,  // Espressif VID
+    .idProduct          = 0x4001,  // BridgeOne PID
+    .bcdDevice          = 0x0100,  // 버전 1.0.0
+
+    .iManufacturer      = 0x01,    // String Descriptor 인덱스
+    .iProduct           = 0x02,
+    .iSerialNumber      = 0x03,
+
+    .bNumConfigurations = 0x01
+};
+
+// 2. TinyUSB 콜백 구현
+uint8_t const* tud_descriptor_device_cb(void) {
+    return (uint8_t const*)&desc_device;
+}
+```
+
+**설계 원칙**:
+- `bDeviceClass = 0x00`: 복합 디바이스(Composite Device)는 이 값을 `0x00`으로 설정하고, 각 인터페이스 디스크립터에서 개별 클래스(예: HID, CDC)를 정의해야 합니다.
+- `idVendor`/`idProduct`: 프로젝트 고유 ID를 사용하여 다른 USB 장치와의 충돌을 방지합니다.
+- `iManufacturer`, `iProduct`, `iSerialNumber`: `tud_descriptor_string_cb`에서 반환할 문자열 배열의 인덱스(1-based)를 가리킵니다.
+
+---
+
+## 3. Configuration Descriptor (`tud_descriptor_configuration_cb`)
+
+**역할**: 디바이스가 지원하는 인터페이스(Keyboard, Mouse, CDC)의 구성과 엔드포인트 정보를 정의합니다. 인터페이스 순서는 절대 변경해서는 안 됩니다.
+
+### 3.1. 인터페이스 및 엔드포인트 정의
+
+```c
+// usb_descriptors.c
+
+// 엔드포인트 번호 (방향 비트 포함: IN=0x80)
+// ESP32-S3는 최대 6개의 IN/OUT 엔드포인트 쌍을 지원합니다.
+#define EPNUM_HID_KB      0x81
+#define EPNUM_HID_MOUSE   0x82
+#define EPNUM_CDC_NOTIF   0x83
+#define EPNUM_CDC_OUT     0x04
+#define EPNUM_CDC_IN      0x84
+
+// 인터페이스 번호 (이 순서는 절대 변경 금지)
+enum {
+    ITF_NUM_HID_KEYBOARD = 0,
+    ITF_NUM_HID_MOUSE,
+    ITF_NUM_CDC_COMM,
+    ITF_NUM_CDC_DATA,
+    ITF_NUM_TOTAL
+};
+
+// Configuration Descriptor 전체 길이 계산
+#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN * 2 + TUD_CDC_DESC_LEN)
+```
+
+### 3.2. 디스크립터 배열 및 콜백 구현
+
+```c
+// usb_descriptors.c
+
+// HID Report Descriptor는 외부에서 참조 (다음 섹션에서 정의)
+extern uint8_t const desc_hid_keyboard_report[];
+extern uint8_t const desc_hid_mouse_report[];
+
+uint8_t const desc_configuration[] = {
+    // Config: 4개의 인터페이스, 500mA 전력 소모
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN,
+                          TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 500),
+
+    // Interface 0: HID Boot Keyboard
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID_KEYBOARD, 0, HID_ITF_PROTOCOL_KEYBOARD,
+                       sizeof(desc_hid_keyboard_report), EPNUM_HID_KB,
+                       CFG_TUD_HID_EP_BUFSIZE, 1), // 1ms 폴링 간격
+
+    // Interface 1: HID Boot Mouse
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID_MOUSE, 0, HID_ITF_PROTOCOL_MOUSE,
+                       sizeof(desc_hid_mouse_report), EPNUM_HID_MOUSE,
+                       CFG_TUD_HID_EP_BUFSIZE, 1),
+
+    // Interface 2 & 3: CDC-ACM
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_COMM, 4, EPNUM_CDC_NOTIF,
+                       8, EPNUM_CDC_OUT, EPNUM_CDC_IN, CFG_TUD_CDC_EP_BUFSIZE)
+};
+
+// TinyUSB 콜백 구현
+uint8_t const* tud_descriptor_configuration_cb(uint8_t index) {
+    (void)index; // 이 프로젝트는 단일 Configuration만 지원
+    return desc_configuration;
+}
+```
+
+**설계 원칙**:
+- **고정된 인터페이스 순서**: `Keyboard(0) → Mouse(1) → CDC(2,3)` 순서를 반드시 지켜야 호스트 드라이버가 올바르게 인식합니다.
+- **Boot Protocol**: `HID_ITF_PROTOCOL_KEYBOARD`/`MOUSE`를 사용하여 BIOS/UEFI 환경에서도 드라이버 없이 기본 입력을 지원합니다.
+- **전력 소모**: `TUD_CONFIG_DESCRIPTOR`의 마지막 인자를 `500`으로 설정하여 USB 포트에서 최대 500mA를 요청하도록 명시합니다.
+
+---
+
+## 4. HID Report Descriptor (`tud_hid_descriptor_report_cb`)
+
+**역할**: Keyboard와 Mouse가 주고받을 데이터(리포트)의 형식과 크기를 정의합니다.
+
+```c
+// usb_descriptors.c
+
+// Boot Keyboard Report Descriptor (8바이트)
+uint8_t const desc_hid_keyboard_report[] = {
+    TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(1)) // ID 1
+};
+
+// Boot Mouse Report Descriptor (4바이트)
+uint8_t const desc_hid_mouse_report[] = {
+    TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(2)) // ID 2
+};
+
+// TinyUSB 콜백 구현
+uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance) {
+    // 'instance'는 Configuration Descriptor에 정의된 HID 인터페이스 순서와 일치
+    if (instance == ITF_NUM_HID_KEYBOARD) {
+        return desc_hid_keyboard_report;
+    } else if (instance == ITF_NUM_HID_MOUSE) {
+        return desc_hid_mouse_report;
+    }
+    return NULL;
+}
+```
+**Context7 정보 (Trust Score 9.7)**: TinyUSB는 `TUD_HID_REPORT_DESC_KEYBOARD()` 및 `TUD_HID_REPORT_DESC_MOUSE()` 매크로를 제공하여 표준 Boot Protocol 호환 리포트 디스크립터를 쉽게 생성할 수 있습니다. 복잡한 커스텀 리포트가 아닌 이상 이 매크로 사용을 강력히 권장합니다.
+
+---
+
+## 5. String Descriptor (`tud_descriptor_string_cb`)
+
+**역할**: 디바이스의 제조사, 제품명, 시리얼 번호 등의 문자열 정보를 호스트에 제공합니다.
+
+```c
+// usb_descriptors.c
+
+// String Descriptor 배열
+char const* string_desc_arr[] = {
+    (const char[]){ 0x09, 0x04 },  // 0: Language ID (0x0409 = US English)
+    "Chatterbones",                 // 1: Manufacturer
+    "BridgeOne USB Bridge",         // 2: Product
+    "12345678",                     // 3: Serial Number
+    "BridgeOne CDC",                // 4: CDC Interface
+};
+
+// TinyUSB 콜백 구현
+uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
+    (void)langid; // 단일 언어만 지원
+
+    static uint16_t _desc_str[32];
+    uint8_t chr_count;
+
+    if (index == 0) { // Language ID
+        memcpy(&_desc_str[1], string_desc_arr[0], 2);
+        chr_count = 1;
+    } else {
+        if (index >= sizeof(string_desc_arr) / sizeof(string_desc_arr[0])) return NULL;
+
+        const char* str = string_desc_arr[index];
+        chr_count = strlen(str);
+        if (chr_count > 31) chr_count = 31;
+
+        // ASCII를 UTF-16LE로 변환
+        for (uint8_t i = 0; i < chr_count; i++) {
+            _desc_str[1 + i] = str[i];
+        }
+    }
+
+    // String Descriptor 헤더: (Type << 8) | (2 * char_count + 2)
+    _desc_str[0] = (TUSB_DESC_STRING << 8) | (2 * chr_count + 2);
+
+    return _desc_str;
+}
+```
+**Context7 정보 (Trust Score 9.7)**: `tud_descriptor_string_cb`는 `langid` 인자를 포함하도록 변경되었습니다. 다국어 지원이 필요 없는 경우 이 인자를 무시할 수 있으나, 콜백 함수의 시그니처는 반드시 `(uint8_t index, uint16_t langid)`를 따라야 합니다.
