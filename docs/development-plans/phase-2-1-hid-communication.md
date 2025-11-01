@@ -1,54 +1,13 @@
 ---
-title: "BridgeOne Phase 2: 통신 안정화"
-description: "BridgeOne 프로젝트 Phase 2 - Android ↔ Board ↔ Windows 간 HID/CDC 통신 완전 안정화 (5-6주)"
-tags: ["android", "esp32-s3", "devkitc-1", "windows", "communication", "hid", "cdc", "uart", "vibe-coding"]
+title: "BridgeOne Phase 2.1: HID 통신 구현"
+description: "BridgeOne 프로젝트 Phase 2.1 - HID 통신 경로 완전 구축 (2주)"
+tags: ["esp32-s3", "hid", "uart", "freertos", "tinyusb", "android", "windows"]
 version: "v1.0"
 owner: "Chatterbones"
-updated: "2025-10-27"
+updated: "2025-11-01"
 ---
 
-# BridgeOne Phase 2: 통신 안정화
-
-**개발 기간**: 5-6주
-
-**목표**: Android ↔ Board ↔ Windows 간 HID/CDC 통신 완전 안정화
-
-**검증 전략**: 각 Phase별 개별 검증 + 최종 통합 검증
-
-**핵심 목표**:
-- **기능 목표**: 
-  - Phase 2 전체: HID 키보드/마우스 입력 + Vendor CDC JSON 쌍방향 통신 완벽 검증
-  - Phase 2.1: HID Boot Keyboard + HID Boot Mouse 통신 경로 완전 구축
-  - Phase 2.2: Vendor CDC JSON 양방향 통신 경로 완전 구축
-- **디바이스 인식 검증**: `Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table FriendlyName, Status, DeviceID` PowerShell 명령어 실행 시 모든 ESP32-S3 디바이스 Status가 "OK"로 표시됨
-- **성능 목표**: 50ms 이하 지연시간, 0.1% 이하 프레임 손실률, 1000Hz 폴링 레이트 달성
-- **안정성 목표**: 4시간 연속 사용 무중단, 자동 재연결, USB 플러그 앤 플레이 지원
-- **호환성 목표**: Windows 10/11, Android 8.0+ 크로스 플랫폼 지원, BIOS/UEFI 부트 호환성
-- **사용성 목표**: USB 연결 즉시 자동 디바이스 인식, HID 기본 드라이버 활용으로 별도 드라이버 설치 불필요
-
-## Phase 구조 설계 원칙
-
-### 검증 전략
-
-- **기본 원칙**: 각 하위 Phase 개발 완료 즉시 해당 내용을 바로 검증
-- **예외**: 여러 하위 Phase를 모아서 통합 검증하는 게 더 효율적인 경우에만 별도 통합 검증 Phase 추가
-  - 예: Phase 2.5 - 전체 통신 경로 End-to-End 지연시간 검증
-  - 예: Phase 4.5 - PC 화면에서 실제 커서 이동 정확성 통합 테스트
-- 최종 Phase에서 전체 시스템 E2E 테스트 수행
-
-### Phase 명명 규칙
-
-- **Phase X.Y**: 구현 및 검증 하위 Phase (구현 완료 즉시 검증)
-- **Phase X.통합검증**: 통합 검증이 필요한 경우에만 추가 (예외적)
-
-### 바이브 코딩 활용 방침
-
-- 각 하위 Phase별 바이브 코딩 프롬프트는 별도 섹션에서 제공 예정
-- 본 문서는 전체 개발 로드맵의 큰 틀을 제시
-
----
-
-## Phase 2.1: HID 통신 개발
+# BridgeOne Phase 2.1: HID 통신 구현
 
 **개발 기간**: 2주
 
