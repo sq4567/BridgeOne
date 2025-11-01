@@ -7,6 +7,7 @@ import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.io.IOException
 
 /**
  * USB 직렬 통신을 관리하는 싱글톤 매니저.
@@ -150,4 +151,110 @@ object UsbSerialManager {
             false
         }
     }
+    
+    /**
+     * USB 직렬 포트를 엽니다 (1Mbps, 8N1 설정).
+     *
+     * 포트를 열기 전에 USB 권한이 확보되어야 합니다.
+     * 권한 미확보 시 Exception을 던집니다.
+     * 성공 시 _isConnected를 true로 설정합니다.
+     *
+     * **기술 정보**:
+     * - Baud Rate: 1,000,000 bps (1Mbps)
+     * - Data Bits: 8
+     * - Stop Bits: 1
+     * - Parity: None (0)
+     * - usb-serial-for-android 라이브러리의 UsbSerialPort.open() 및
+     *   setParameters() API 사용
+     *
+     * @param port 열 UsbSerialPort (일반적으로 findEsp32s3Device() 결과)
+     * @throws IOException USB 포트 열기 실패 시
+     * @throws SecurityException USB 권한 미확보 시
+     */
+    fun openPort(port: UsbSerialPort) {
+        try {
+            if (usbManager == null) {
+                throw IllegalStateException("UsbManager not initialized")
+            }
+            
+            // 권한 확인: UsbManager에서 해당 장치의 권한 확보 여부 검사
+            val hasPermission = usbManager!!.hasPermission(port.device)
+            if (!hasPermission) {
+                Log.e(TAG, "USB permission not granted for device: ${port.device.deviceName}")
+                throw SecurityException("USB permission not granted for device: ${port.device.deviceName}")
+            }
+            
+            Log.d(TAG, "Opening USB port: ${port.device.deviceName}")
+            
+            // 1. UsbDeviceConnection 획득 (usb-serial-for-android의 open()은 UsbDeviceConnection을 받음)
+            val usbConnection = usbManager!!.openDevice(port.device)
+            if (usbConnection == null) {
+                throw IOException("Failed to open USB device connection: ${port.device.deviceName}")
+            }
+            
+            // 2. 포트 열기 (usb-serial-for-android의 UsbSerialPort.open(UsbDeviceConnection))
+            port.open(usbConnection)
+            
+            // 3. 통신 파라미터 설정 - 1Mbps 8N1
+            // setParameters(baudrate, dataBits, stopBits, parity)
+            port.setParameters(
+                1000000,        // Baud rate: 1Mbps
+                8,              // Data bits: 8
+                1,              // Stop bits: 1
+                UsbSerialPort.PARITY_NONE               // Parity: None
+            )
+            
+            // 4. 포트 오픈 성공 - 상태 업데이트
+            usbPort = port
+            _isConnected.value = true
+            
+            Log.d(TAG, "USB port opened successfully: ${port.device.deviceName} (1Mbps 8N1)")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "USB permission error: ${e.message}")
+            _isConnected.value = false
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open USB port: ${e.message}", e)
+            _isConnected.value = false
+            throw IOException("Failed to open USB port: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * USB 직렬 포트를 닫습니다.
+     *
+     * 포트가 열려있는 경우 안전하게 닫고 리소스를 해제합니다.
+     * _isConnected를 false로 설정합니다.
+     * 포트가 이미 닫혀있는 경우 아무 작업도 수행하지 않습니다.
+     */
+    fun closePort() {
+        try {
+            if (usbPort == null) {
+                Log.d(TAG, "USB port is already closed")
+                _isConnected.value = false
+                return
+            }
+            
+            Log.d(TAG, "Closing USB port")
+            
+            // usb-serial-for-android의 UsbSerialPort.close()
+            usbPort!!.close()
+            
+            usbPort = null
+            _isConnected.value = false
+            
+            Log.d(TAG, "USB port closed successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing USB port: ${e.message}", e)
+            // 에러 발생해도 상태는 false로 설정
+            _isConnected.value = false
+        }
+    }
+    
+    /**
+     * USB 직렬 포트의 연결 상태를 반환합니다.
+     *
+     * @return 포트가 열려있고 연결되어 있으면 true, 아니면 false
+     */
+    fun isConnected(): Boolean = _isConnected.value
 }

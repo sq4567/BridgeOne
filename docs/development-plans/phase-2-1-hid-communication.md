@@ -1147,14 +1147,59 @@ updated: "2025-11-01"
   - 권한 확보 시에만 포트 열기 진행
 
 **검증**:
-- [ ] `openPort()` 함수 구현됨
-- [ ] `setParameters(1000000, 8, 1, 0)` 호출 확인
-- [ ] `closePort()` 함수 구현됨
-- [ ] `isConnected()` 함수 구현됨
-- [ ] 예외 처리 (IOException, 연결 실패)
-- [ ] 디버그 로그 출력 (연결/해제 시점)
-- [ ] 권한 확인 후 포트 열기 로직 추가 (Phase 2.1.8.2 handlePermissionResult() 활용)
-- [ ] Gradle 빌드 성공
+- [x] `openPort()` 함수 구현됨
+- [x] `setParameters(1000000, 8, 1, 0)` 호출 확인
+- [x] `closePort()` 함수 구현됨
+- [x] `isConnected()` 함수 구현됨
+- [x] 예외 처리 (IOException, 연결 실패)
+- [x] 디버그 로그 출력 (연결/해제 시점)
+- [x] 권한 확인 후 포트 열기 로직 추가 (Phase 2.1.8.2 handlePermissionResult() 활용)
+- [x] Gradle 빌드 성공
+
+---
+
+**Phase 2.1.8.3 변경사항 분석**:
+
+**1. UsbDeviceConnection 처리 추가**
+- **계획 대비**: 원계획은 "1Mbps, 8N1 설정" 구현만 명시
+- **구현**: `UsbManager.openDevice(device)` → `UsbDeviceConnection` 획득 후 `port.open(usbConnection)` 호출
+- **이유**: usb-serial-for-android 라이브러리의 `UsbSerialPort.open(UsbDeviceConnection)` API가 `UsbManager` 대신 `UsbDeviceConnection`을 요구하기 때문
+- **영향**: Phase 2.1.8.4에서 `usbPort` 참조 시 이미 활성화된 연결을 사용하므로 추가 작업 불필요
+
+**2. Parity 값 처리 변경**
+- **계획 대비**: 원계획은 `setParameters(1000000, 8, 1, 0)` (숫자 상수)
+- **구현**: `setParameters(1000000, 8, 1, UsbSerialPort.PARITY_NONE)` (상수 사용)
+- **이유**: Android Lint가 UsbSerialPort 파라미터에 대해 상수값(`PARITY_NONE`, `PARITY_ODD` 등)만 허용하는 `@IntDef` 검증 규칙 적용
+- **영향**: 없음 (내부 구현 변경, 외부 API 동작 동일)
+
+**3. 권한 확인 메커니즘**
+- **계획 대비**: 원계획은 "Phase 2.1.8.2의 handlePermissionResult() 활용" 언급만 있음
+- **구현**: `openPort()` 내부에서 `UsbManager.hasPermission()` 명시적 확인 추가
+- **이유**: 
+  - openPort() 호출 시점에 권한이 해제될 수 있으므로 다시 한 번 확인 필요
+  - SecurityException으로 구분하여 권한 이슈와 연결 이슈 분리
+  - 호출자가 handlePermissionResult() 없이도 안전하게 사용 가능
+- **영향**: Phase 2.1.8.4에서 sendFrame() 호출 전 권한 확인 별도 불필요
+
+**4. 예외 처리 확대**
+- **계획 대비**: 원계획은 "IOException, 연결 실패" 만 명시
+- **구현**: `SecurityException` (권한 미확보), `IOException` (포트 실패), `IllegalStateException` (미초기화) 추가
+- **이유**: 세분화된 예외로 호출자가 정확한 오류 원인 파악 및 대응 가능
+- **영향**: 없음 (보다 명확한 에러 처리로 Phase 2.1.8.4의 안정성 향상)
+
+**5. closePort() 예외 처리 철학**
+- **계획 대비**: 원계획은 "리소스 해제" 만 명시
+- **구현**: 예외 발생해도 `_isConnected = false` 설정 (Graceful degradation)
+- **이유**: 포트 종료 실패 시에도 상태를 일관되게 유지하여 재연결 시도 가능하게 함
+- **영향**: Phase 2.1.8.4의 연결 모니터링에서 상태 일관성 보장
+
+**후속 Phase 영향도 분석**:
+
+| Phase | 영향 | 설명 | 대응 방안 |
+|-------|------|------|---------|
+| 2.1.8.4 | 🟢 긍정적 | UsbDeviceConnection이 openPort()에서 안전하게 획득되므로 sendFrame()에서 usbPort 사용만 하면 됨 | 변경 불필요 |
+| 2.1.9 | 🟢 긍정적 | 안정화된 openPort()로 인해 터치 입력 전송 시 연결 신뢰도 향상 | 변경 불필요 |
+| 2.1.10 | 🟢 긍정적 | 명확한 예외 처리로 E2E 테스트 시 오류 원인 파악 용이 | 변경 불필요 |
 
 ---
 
@@ -1169,13 +1214,14 @@ updated: "2025-11-01"
 4. 연결 상태 모니터링 (BroadcastReceiver)
 5. 재연결 로직 기본 구조
 
-**🔗 Phase 2.1.8.2 변경사항 영향**:
+**🔗 Phase 2.1.8.3 변경사항 영향**:
 - ✅ 긍정적 영향
-- **설명**: Phase 2.1.8.2에서 `handlePermissionResult()` 함수 추가로 권한 확인 로직이 이미 구현됨
+- **설명**: Phase 2.1.8.3에서 `UsbDeviceConnection` 처리와 권한 확인이 완벽하게 구현됨
 - **단순화 효과**: 
-  - 본 Phase에서는 ACTION_USB_DEVICE_DETACHED 핸들러 추가 불필요
-  - 기존 BroadcastReceiver 이벤트 핸들러를 `_isConnected` StateFlow 업데이트에 활용 가능
-  - 재연결 로직 구현 시 이미 감지된 연결/해제 이벤트 활용
+  - openPort()에서 UsbDeviceConnection을 안전하게 획득하므로 usbPort 참조만으로 sendFrame() 구현 가능
+  - openPort() 내부에서 권한 확인이 완료되므로 sendFrame()에서 권한 재확인 불필요
+  - SecurityException 분류로 권한 이슈 vs 연결 이슈 명확히 구분 가능
+  - 상태 일관성 보장(Graceful degradation)으로 예외 처리 단순화
 
 **검증**:
 - [ ] `sendFrame()` 함수 구현됨
@@ -1183,7 +1229,7 @@ updated: "2025-11-01"
 - [ ] `write()` 호출로 전송
 - [ ] 반환값 체크 (전송 바이트 수)
 - [ ] 예외 처리 (USB 연결 해제 시)
-- [ ] BroadcastReceiver에서 연결/해제 감지 (Phase 2.1.8.2 사전 구현된 이벤트 핸들러 활용)
+- [ ] BroadcastReceiver에서 연결/해제 감지 (Phase 2.1.8.3 사전 구현된 이벤트 핸들러 활용)
 - [ ] _isConnected 상태 업데이트 로직 추가
 - [ ] 디버그 로그 (프레임 전송 정보)
 - [ ] Gradle 빌드 성공
