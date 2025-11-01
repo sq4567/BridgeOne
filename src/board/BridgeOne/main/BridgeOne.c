@@ -80,6 +80,19 @@ void app_main(void) {
     }
     ESP_LOGI(TAG, "UART initialized (1Mbps, 8N1)");
     
+    // ==================== 1.6. FreeRTOS 큐 생성 ====================
+    // UART 수신 태스크가 검증된 프레임을 이 큐에 전송합니다.
+    // - 큐 크기: UART_FRAME_QUEUE_SIZE (최대 10개 프레임 보관)
+    // - 각 아이템 크기: sizeof(bridge_frame_t) = 8 바이트
+    #define UART_FRAME_QUEUE_SIZE 10
+    frame_queue = xQueueCreate(UART_FRAME_QUEUE_SIZE, sizeof(bridge_frame_t));
+    if (frame_queue == NULL) {
+        ESP_LOGE(TAG, "Failed to create frame queue");
+        return;
+    }
+    ESP_LOGI(TAG, "Frame queue created (size=%d, item_size=%u bytes)",
+             UART_FRAME_QUEUE_SIZE, sizeof(bridge_frame_t));
+    
     // ==================== 2. 시스템 정보 로깅 ====================
     ESP_LOGI(TAG, "Hardware: ESP32-S3-DevkitC-1-N16R8");
     ESP_LOGI(TAG, "USB Descriptor: VID=0x%04X, PID=0x%04X", USB_VID, USB_PID);
@@ -88,6 +101,26 @@ void app_main(void) {
              EPNUM_HID_KB, EPNUM_HID_MOUSE, EPNUM_CDC_NOTIF, EPNUM_CDC_OUT, EPNUM_CDC_IN);
     
     // ==================== 3. FreeRTOS 태스크 생성 ====================
+    // UART 수신 태스크: Android로부터 마우스/키보드 입력 수신
+    // - 우선순위 6: USB 태스크(5)보다 높음 (실시간 통신 우선)
+    // - Core 0에서 실행: 통신 처리 전담
+    // - 스택 크기 3072 bytes: UART 수신 처리에 충분
+    BaseType_t uart_task_created = xTaskCreatePinnedToCore(
+        uart_task,          // 태스크 함수
+        "UART",             // 태스크 이름
+        3072,               // 스택 크기 (bytes)
+        NULL,               // 매개변수
+        6,                  // 우선순위 (USB 태스크보다 높음)
+        NULL,               // 생성된 태스크 핸들 (미사용)
+        0                   // Core 0에서 실행
+    );
+    
+    if (uart_task_created != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create UART task");
+        return;
+    }
+    ESP_LOGI(TAG, "UART task created (Core 0, Priority 6)");
+    
     // USB 태스크: TinyUSB 스택 폴링 담당
     // - 우선순위 5: 일반 우선순위 (높지 않음)
     // - Core 1에서 실행: 멀티코어 활용

@@ -458,18 +458,18 @@ updated: "2025-10-27"
 - ESP-IDF 문서: FreeRTOS Task 생성 및 관리
 
 **검증**:
-- [ ] `uart_task()` 함수 구현됨 ✓ (src/board/BridgeOne/main/uart_handler.c)
-- [ ] `uart_read_bytes()` 호출로 8바이트 수신 로직 구현됨 ✓ (pdMS_TO_TICKS(100) 타임아웃 포함)
-- [ ] 타임아웃 설정됨 (100ms) ✓
-- [ ] **수신 바이트 수에 따른 상세한 오류 처리 로직 구현됨** ✓ (len < 0, len == 0, len != 8 확인)
-- [ ] `validateSequenceNumber()` 함수 구현됨 ✓ (src/board/BridgeOne/main/uart_handler.c)
-- [ ] 시퀀스 번호 순환 처리 (0→255→0) ✓ ((seq + 1) & 0xFF)
-- [ ] 프레임 손실 감지 및 로그 출력 ✓ (ESP_LOGW로 패킷 손실 수 출력)
-- [ ] `validateBridgeFrame()` 프레임 범위 검증 함수 구현됨 ✓ (buttons 0x00~0x07, 크기 8바이트)
-- [ ] FreeRTOS 큐에 프레임 전송 (`xQueueSend()`) ✓
-- [ ] **`uart_handler.h`에 `extern QueueHandle_t frame_queue` 선언 포함됨** ✓
-- [ ] 디버그 로그 출력 (수신한 프레임 정보) ✓ (DEBUG_FRAME_VERBOSE 매크로)
-- [ ] `idf.py build` 성공 ✓
+- [x] `uart_task()` 함수 구현됨 ✓ (src/board/BridgeOne/main/uart_handler.c)
+- [x] `uart_read_bytes()` 호출로 8바이트 수신 로직 구현됨 ✓ (pdMS_TO_TICKS(100) 타임아웃 포함)
+- [x] 타임아웃 설정됨 (100ms) ✓
+- [x] **수신 바이트 수에 따른 상세한 오류 처리 로직 구현됨** ✓ (len < 0, len == 0, len != 8 확인)
+- [x] `validateSequenceNumber()` 함수 구현됨 ✓ (src/board/BridgeOne/main/uart_handler.c)
+- [x] 시퀀스 번호 순환 처리 (0→255→0) ✓ ((seq + 1) & 0xFF)
+- [x] 프레임 손실 감지 및 로그 출력 ✓ (ESP_LOGW로 패킷 손실 수 출력)
+- [x] `validateBridgeFrame()` 프레임 범위 검증 함수 구현됨 ✓ (buttons 0x00~0x07, 크기 8바이트)
+- [x] FreeRTOS 큐에 프레임 전송 (`xQueueSend()`) ✓
+- [x] **`uart_handler.h`에 `extern QueueHandle_t frame_queue` 선언 포함됨** ✓
+- [x] 디버그 로그 출력 (수신한 프레임 정보) ✓ (DEBUG_FRAME_VERBOSE 매크로)
+- [x] `idf.py build` 성공 ✓
 
 **⚠️ Phase 2.1.2.1에서의 변경사항 영향**:
 - **UART는 app_main()에서 이미 초기화됨**: 이 Phase에서는 uart_init()을 다시 호출할 필요 없음
@@ -479,6 +479,15 @@ updated: "2025-10-27"
   - app_main() 또는 uart_task()에서 xQueueCreate()로 frame_queue 생성 필수
   - 예: `frame_queue = xQueueCreate(UART_FRAME_QUEUE_SIZE, sizeof(bridge_frame_t));`
 - **CMakeLists.txt 의존성 설정 완료**: 이미 uart_handler.c가 SRCS에 추가되었으므로 추가 설정 불필요
+
+**✅ Phase 2.1.2.2 구현 완료**
+
+**📝 구현 변경사항 및 후속 Phase 영향**:
+- frame_queue 초기화: app_main() "1.6" 섹션에서 수행 (uart_init() 직후)
+- uart_task 생성: 실제 구현은 Phase 2.1.2.2에서 BridgeOne.c app_main()으로 이동 (Priority 6, Core 0)
+- 우선순위 조정: 원계획 Priority 10 → 실제 Priority 6 (USB 5보다 높게 조정)
+- 헤더 의존성: freertos/*.h, esp_task_wdt.h 추가 (컴파일 오류 해결)
+- **후속 변경 필요**: Phase 2.1.4.2 우선순위 값 변경, Phase 2.1.4.3 워치독 등록 추가, Phase 2.1.5.3 로그 검증 항목 추가
 
 ---
 

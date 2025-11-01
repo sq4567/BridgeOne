@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include "hal/uart_types.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 
 /**
  * UART 통신 설정 상수.
@@ -54,5 +56,23 @@ typedef struct {
  *   - 실패 시 0이 아닌 값 반환
  */
 int uart_init(void);
+
+/**
+ * UART 수신 태스크.
+ *
+ * UART에서 8바이트 프레임을 수신하고 검증하여 FreeRTOS 큐로 전송합니다.
+ * 프레임 유효성 검증 실패 시 해당 프레임은 폐기됩니다.
+ *
+ * @param param 미사용
+ */
+void uart_task(void* param);
+
+/**
+ * FreeRTOS 큐 핸들.
+ *
+ * uart_task()에서 검증된 프레임을 이 큐에 전송합니다.
+ * app_main()에서 xQueueCreate()로 초기화됨.
+ */
+extern QueueHandle_t frame_queue;
 
 #endif // UART_HANDLER_H
