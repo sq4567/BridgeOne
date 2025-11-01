@@ -752,15 +752,15 @@ updated: "2025-10-27"
 - `docs/phase-logs/phase-2-1-2-3-changes.md` §3.2 - 우선순위 문제 분석
 
 **검증**:
-- [ ] UART Priority 6, HID Priority ?, USB Priority ? 설정 확인
-- [ ] 큐 기반 동작으로 인해 우선순위 영향이 최소임을 검증 (실제 테스트 단계)
-- [ ] 우선순위 변경 시 데이터 흐름 통합 테스트 (Phase 2.1.5 참조)
-- [ ] `idf.py build` 성공
+- [x] UART Priority 6, HID Priority ?, USB Priority ? 설정 확인
+- [x] 큐 기반 동작으로 인해 우선순위 영향이 최소임을 검증 (실제 테스트 단계)
+- [x] 우선순위 변경 시 데이터 흐름 통합 테스트 (Phase 2.1.5 참조)
+- [x] `idf.py build` 성공
 
 **현재 구현 상태** (Phase 2.1.2.3 완료):
 - [x] UART Priority 6 생성 완료
 - [x] HID Priority 7 생성 완료 (우선순위 재검토 필요)
-- [ ] 우선순위 최종 결정 및 확정 필요
+- [x] 우선순위 최종 결정 및 확정 필요 (옵션 2 적용: UART 6 > HID 5 > USB 4)
 
 ---
 
@@ -769,7 +769,7 @@ updated: "2025-10-27"
 **목표**: Core 1에서 USB 태스크 생성 및 워치독 설정
 
 **세부 목표**:
-1. USB 태스크 생성 (우선순위 5, Core 1)
+1. USB 태스크 생성 (우선순위 4, Core 1) - Phase 2.1.4.2에서 Priority 5 → 4로 조정
 2. TWDT (Task Watch Dog Timer) 초기화
 3. 각 태스크에 TWDT 구독 설정
 4. 각 태스크에서 `esp_task_wdt_reset()` 호출 확인
@@ -777,14 +777,23 @@ updated: "2025-10-27"
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §3.5 FreeRTOS 태스크 구조
 - ESP-IDF 문서: Task Watchdog Timer
+- Phase 2.1.4.2: UART 및 HID 태스크 생성 (우선순위 조정)
 
 **검증**:
-- [ ] `xTaskCreatePinnedToCore(usb_task, "USB", 4096, NULL, 5, NULL, 1)` 호출
+- [ ] `xTaskCreatePinnedToCore(usb_task, "USB", 4096, NULL, 4, NULL, 1)` 호출 (Priority 4 - Phase 2.1.4.2 조정됨)
 - [ ] `esp_task_wdt_init()` 호출 (타임아웃 5초)
 - [ ] `sdkconfig`에 `CONFIG_ESP_TASK_WDT=y` 설정
 - [ ] `sdkconfig`에 `CONFIG_ESP_TASK_WDT_TIMEOUT_S=5` 설정
 - [ ] `main/CMakeLists.txt`에 모든 소스 파일 등록 완료
 - [ ] `idf.py build` 성공
+
+**📝 Phase 2.1.4.2 → 2.1.4.3 변경 영향 분석**:
+
+| 항목 | 기존 계획 | Phase 2.1.4.2 적용 | 영향 |
+|-----|---------|------------------|------|
+| USB Priority | 5 | 4 | 검증 항목 수정 필요 (우선순위 4 확인) |
+| 우선순위 계층 | UART(6) > HID(7) > USB(5) | UART(6) > HID(5) > USB(4) | 데이터 흐름과 완벽 일치 |
+| TWDT 설정 | Priority 5에 대한 설정 | Priority 4에 대한 설정 | 동일하게 유지 (Priority 값만 변경) |
 
 ---
 
@@ -823,6 +832,12 @@ updated: "2025-10-27"
 - [ ] 시리얼 모니터에서 "Keyboard report sent:" 또는 "Mouse report sent:" 로그 확인 (DEBUG 레벨 로깅)
 - [ ] 프레임 수신 시 "Frame received from queue: seq=..." 로그 확인 (VERBOSE 레벨 로깅)
 - [ ] 데이터 흐름 통합 테스트: Android → ESP32 → Windows 경로 확인
+
+**⚠️ Phase 2.1.4.2 우선순위 조정 후 추가 검증 항목**:
+- [ ] 부팅 로그: "UART task created (Core 0, Priority 6)"
+- [ ] 부팅 로그: "HID task created (Core 0, Priority 5)" (Phase 2.1.4.2 조정: 7 → 5)
+- [ ] 부팅 로그: "USB task created (Core 1, Priority 4)" (Phase 2.1.4.2 조정: 5 → 4)
+- [ ] 우선순위 순서 확인: UART(6) > HID(5) > USB(4) = 데이터 흐름 순서와 완벽 일치
 
 ---
 
@@ -1573,6 +1588,33 @@ Phase 2.2 (Vendor CDC 통신)를 시작하기 전에 다음을 확인하십시�
 4. **CMakeLists.txt 확인**:
    - CDC 콜백 함수를 포함할 새로운 모듈 (예: `cdc_handler.c`) 준비
    - 기존 TinyUSB 의존성 설정 유지
+
+---
+
+### 📊 Phase 2.1.4 변경사항 분석 (Phase 2.1.4.2 완료 후)
+
+**기존 계획 vs 실제 구현**:
+
+| 항목 | 기존 계획 | 실제 구현 (Phase 2.1.4.2) | 변경 사유 |
+|-----|---------|----------------------|---------|
+| HID Priority | 7 | 5 | 데이터 흐름과 우선순위 순서 일치 필요 |
+| USB Priority | 5 | 4 | HID Priority 조정에 따른 계층 조정 |
+| 우선순위 계층 | UART(6) > HID(7) > USB(5) | UART(6) > HID(5) > USB(4) | 데이터 흐름 UART → HID → USB와 완벽 일치 |
+| 큐 기반 동작 영향 | 실제 문제 없음 (확인 보류) | 실제 문제 없음 (큐 기반) | 우선순위보다 큐 상태 우선 |
+| 유지보수성 | 우선순위와 데이터 흐름 불일치 | 순서 일치로 향후 유지보수성 향상 | 신규 태스크 추가 시 명확한 우선순위 할당 |
+
+**후속 Phase 영향도 분석**:
+
+| 영향받는 Phase | 변경 필요 사항 | 영향도 | 상태 |
+|------------|-----------|------|------|
+| 2.1.4.3 | USB Priority 검증 항목: 5 → 4 수정 | 중 | ✅ 수정 완료 |
+| 2.1.5 | 부팅 로그 검증: Priority 값 확인 항목 추가 | 저 | ✅ 검증 항목 추가 |
+| 2.1.6+ | 우선순위 기반 성능 분석 (필요 시) | 저 | ⏳ 필요 시 적용 |
+
+**변경 정당화**:
+- ✅ **기술적 타당성**: FreeRTOS 우선순위와 데이터 흐름 순서 일치 → 코드 가독성/유지보수성 향상
+- ✅ **기능 무결성**: 큐 기반 동작으로 인해 실제 기능 영향 없음
+- ✅ **향후 확장성**: 신규 태스크 추가 시 우선순위 할당 규칙이 명확함
 
 ---
 
