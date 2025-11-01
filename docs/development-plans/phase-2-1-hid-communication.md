@@ -934,20 +934,20 @@ updated: "2025-11-01"
 4. Docstring 및 주석 추가
 
 **검증**:
-- [ ] `src/android/app/src/main/java/com/bridgeone/app/protocol/` 디렉터리 생성됨
-- [ ] `BridgeFrame.kt` 파일 생성됨
-- [ ] 데이터 클래스 선언됨 (data class)
-- [ ] 8개 필드 정의:
-  - [ ] seq: UByte (시퀀스 번호)
-  - [ ] buttons: UByte (마우스 버튼 비트)
-  - [ ] deltaX: Byte (X축 이동값)
-  - [ ] deltaY: Byte (Y축 이동값)
-  - [ ] wheel: Byte (휠 값)
-  - [ ] modifiers: UByte (키보드 modifier)
-  - [ ] keyCode1: UByte (첫 번째 키코드)
-  - [ ] keyCode2: UByte (두 번째 키코드)
-- [ ] Docstring 작성됨
-- [ ] Gradle 빌드 성공
+- [x] `src/android/app/src/main/java/com/bridgeone/app/protocol/` 디렉터리 생성됨
+- [x] `BridgeFrame.kt` 파일 생성됨
+- [x] 데이터 클래스 선언됨 (data class)
+- [x] 8개 필드 정의:
+  - [x] seq: UByte (시퀀스 번호)
+  - [x] buttons: UByte (마우스 버튼 비트)
+  - [x] deltaX: Byte (X축 이동값)
+  - [x] deltaY: Byte (Y축 이동값)
+  - [x] wheel: Byte (휠 값)
+  - [x] modifiers: UByte (키보드 modifier)
+  - [x] keyCode1: UByte (첫 번째 키코드)
+  - [x] keyCode2: UByte (두 번째 키코드)
+- [x] Docstring 작성됨
+- [x] Gradle 빌드 성공
 
 ---
 
