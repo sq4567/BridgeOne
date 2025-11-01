@@ -352,6 +352,23 @@ updated: "2025-10-27"
 5. UART 초기화 함수 구현 (`uart_init()`)
    - **주의**: ESP32-S3-DevkitC-1은 내장 USB-to-UART 브릿지(U0TXD: GPIO43, U0RXD: GPIO44)를 사용하므로 `uart_set_pin()` 또는 `gpio_set_direction()` 호출 불필요
 
+**참조 문서 및 섹션**:
+- `docs/technical-specification.md` §2.1 UART 통신 (Android ↔ ESP32-S3)
+- `docs/board/esp32s3-code-implementation-guide.md` §1.3.3 BridgeOne UART 프로토콜 (고정)
+- ESP-IDF 문서: UART Driver
+
+**검증**:
+- [x] `src/board/BridgeOne/main/uart_handler.h` 파일 생성됨
+- [x] `src/board/BridgeOne/main/uart_handler.c` 파일 생성됨
+- [x] `bridge_frame_t` 구조체 정의됨 (정확히 8바이트)
+- [x] 모든 필드 타입 정확함 (seq, buttons, x/y/wheel, modifier, keycode1/2)
+- [x] UART 설정 상수 정의됨 (UART_NUM_0, BAUDRATE=1000000)
+- [x] `uart_init()` 함수 구현됨
+  - [x] **`gpio_set_direction()` 또는 `uart_set_pin()` 호출 없음 (내장 USB-to-UART 사용)**
+  - [x] `uart_param_config()` 호출 (1Mbps, 8N1)
+  - [x] `uart_driver_install()` 호출 (버퍼 크기 할당)
+- [x] `idf.py build` 성공
+
 **⚠️ Phase 2.1.1.1에서의 변경사항 영향**:
 - **tusb_config.h 명시적 생성 필수**: Phase 2.1.1.1에서 `main/tusb_config.h` 파일이 명시적으로 생성되어야 함. 이 파일에는 다음이 포함되어야 함:
   - `CFG_TUSB_RHPORT0_MODE = OPT_MODE_DEVICE` (Device 모드)
@@ -362,28 +379,58 @@ updated: "2025-10-27"
 - **TinyUSB 의존성 추가**: Phase 2.1.1.1에서 `managed_components/espressif__tinyusb/CMakeLists.txt`에 `main` 컴포넌트가 `PRIV_REQUIRES`에 추가되어야 함
 - **BridgeFrame 구조체의 의존성**: UART 수신 태스크(Phase 2.1.2.2)에서 이 구조체를 사용하므로, 정확한 8바이트 크기 정의 필수
 
-**참조 문서 및 섹션**:
-- `docs/technical-specification.md` §2.1 UART 통신 (Android ↔ ESP32-S3)
-- `docs/board/esp32s3-code-implementation-guide.md` §1.3.3 BridgeOne UART 프로토콜 (고정)
-- ESP-IDF 문서: UART Driver
-
-**검증**:
-- [ ] `src/board/BridgeOne/main/uart_handler.h` 파일 생성됨
-- [ ] `src/board/BridgeOne/main/uart_handler.c` 파일 생성됨
-- [ ] `bridge_frame_t` 구조체 정의됨 (정확히 8바이트)
-- [ ] 모든 필드 타입 정확함 (seq, buttons, x/y/wheel, modifier, keycode1/2)
-- [ ] UART 설정 상수 정의됨 (UART_NUM_0, BAUDRATE=1000000)
-- [ ] `uart_init()` 함수 구현됨
-  - [ ] **`gpio_set_direction()` 또는 `uart_set_pin()` 호출 없음 (내장 USB-to-UART 사용)**
-  - [ ] `uart_param_config()` 호출 (1Mbps, 8N1)
-  - [ ] `uart_driver_install()` 호출 (버퍼 크기 할당)
-- [ ] `idf.py build` 성공
-
 **⚠️ Phase 2.1.1.3 변경사항 영향**:
 - **구조체 필드명 수정 필수**: Phase 2.1.1.3에서 HID 콜백 함수 구현 시 TinyUSB 실제 필드명(`modifier`, `keycode`, `x`, `y`)이 발견되었음
   - `bridge_frame_t` 필드: `modifiers` → `modifier`, `keyCodes` → `keycode1`/`keycode2`, `deltaX` → `x`, `deltaY` → `y`
   - 영향: Phase 2.1.2.3의 `processBridgeFrame()` 함수에서 필드명 매핑 시 실제 필드명 사용 필수
-- **주의**: bridge_frame_t는 UART 프로토콜 정의이므로 필드 순서와 크기 변경 불가. 필드명만 수정.
+- **주의**: bridge_frame_t는 UART 프로토콜 정의이므로 필드 순서와 크기 변경 불가. 필드명만 수정
+
+**📝 구현 변경사항 및 이유**:
+
+본 Phase에서 기존 개발 계획과 다르게 구현된 부분을 기록합니다.
+
+**1. BridgeOne.c에서 UART 초기화 호출 (새로 추가)**
+- **계획**: 개발 계획 문서에서는 UART 초기화 시점이 명시되지 않음
+- **실제 구현**: `app_main()`에서 TinyUSB 초기화(tud_init) 직후 UART 초기화 실행
+- **변경 이유**:
+  - UART는 Android와의 통신을 담당하는 핵심 채널이므로 시스템 부팅 초기에 초기화 필수
+  - TinyUSB(USB)와 UART는 독립적인 통신 채널이므로 순서는 중요하지 않지만, 명시적 초기화가 필요
+  - Phase 2.1.2.2에서 uart_task()가 UART에 접근할 때 이미 초기화된 상태 필요
+  - 초기화 오류를 app_main() 레벨에서 감지하여 시스템 부팅 실패 가능
+
+**2. CMakeLists.txt 의존성 명시적 추가**
+- **계획**: TinyUSB와 main 컴포넌트 간 의존성은 자동으로 해결될 것으로 가정했음
+- **실제 변경사항**:
+  1. `src/board/BridgeOne/main/CMakeLists.txt`에 `uart_handler.c` 명시적 추가
+  2. `managed_components/espressif__tinyusb/CMakeLists.txt`의 `PRIV_REQUIRES`에 `main` 추가
+- **변경 이유**:
+  - TinyUSB의 `tusb_option.h`가 `tusb_config.h`를 #include하는데, 이 파일은 main 컴포넌트에 위치
+  - ESP-IDF의 컴포넌트 시스템은 이러한 의존성을 명시적으로 선언해야 컴파일 시 올바른 인클루드 경로 설정
+  - 명시적 선언 없으면 "tusb_config.h: No such file or directory" 컴파일 오류 발생
+  - uart_handler.c도 CMakeLists.txt SRCS에 등록하지 않으면 컴파일되지 않음
+
+**⚠️ 후속 Phase에 미치는 영향 분석 및 수정**:
+
+**Phase 2.1.2.2 (UART 수신 태스크)에 미치는 영향**:
+- UART는 app_main()에서 이미 초기화되므로, uart_task()에서 추가 초기화 불필요
+  - uart_task()는 즉시 uart_read_bytes() 호출 가능
+  - uart_init()에 의존하는 코드 재작성 불필요
+- frame_queue는 uart_task() 또는 app_main()에서 별도로 생성/관리 필요
+  - uart_init()에서는 UART 드라이버 설정만 수행하고 큐는 생성 안 함
+- uart_handler.h의 extern 선언 사항 유지 필요
+
+**Phase 2.1.2.3 (HID 태스크)에 미치는 영향**:
+- frame_queue를 통한 BridgeFrame 수신 구조는 변경 없음
+- processBridgeFrame()의 필드명 매핑은 bridge_frame_t의 필드명 사용 필수
+  - `bridge_frame_t.modifier` (계획 문서의 modifiers 아님)
+  - `bridge_frame_t.keycode1`, `bridge_frame_t.keycode2` (계획 문서의 keyCodes 아님)
+
+**Phase 2.1.3 이후 (리팩토링)에 미치는 영향**:
+- CMakeLists.txt 의존성 설정 패턴이 확립되었으므로, 향후 새로운 컴포넌트/모듈 추가 시 동일한 패턴 적용
+  - 컴포넌트 간 의존성은 명시적으로 CMakeLists.txt에 선언
+  - PRIV_REQUIRES vs REQUIRES 구분: tusb_config.h는 private이므로 PRIV_REQUIRES 사용
+- UART 초기화 순서(app_main → uart_init → usb_task 생성)는 변경하지 말 것
+  - Phase 3 이상에서 새로운 초기화 단계 추가 시 현재 순서 유지
 
 ---
 
@@ -423,6 +470,15 @@ updated: "2025-10-27"
 - [ ] **`uart_handler.h`에 `extern QueueHandle_t frame_queue` 선언 포함됨** ✓
 - [ ] 디버그 로그 출력 (수신한 프레임 정보) ✓ (DEBUG_FRAME_VERBOSE 매크로)
 - [ ] `idf.py build` 성공 ✓
+
+**⚠️ Phase 2.1.2.1에서의 변경사항 영향**:
+- **UART는 app_main()에서 이미 초기화됨**: 이 Phase에서는 uart_init()을 다시 호출할 필요 없음
+  - app_main()이 uart_init()을 호출하므로, uart_task() 시작 시 UART 드라이버는 이미 준비 상태
+  - uart_read_bytes()를 바로 호출 가능
+- **frame_queue는 별도로 생성/초기화 필요**: uart_init()에서는 UART 드라이버 설정만 수행하고 큐는 생성하지 않음
+  - app_main() 또는 uart_task()에서 xQueueCreate()로 frame_queue 생성 필수
+  - 예: `frame_queue = xQueueCreate(UART_FRAME_QUEUE_SIZE, sizeof(bridge_frame_t));`
+- **CMakeLists.txt 의존성 설정 완료**: 이미 uart_handler.c가 SRCS에 추가되었으므로 추가 설정 불필요
 
 ---
 
@@ -476,6 +532,19 @@ updated: "2025-10-27"
   - `bridge_frame_t.modifier` → `hid_keyboard_report_t.modifier`
   - `bridge_frame_t.x` → `hid_mouse_report_t.x`
   - `bridge_frame_t.y` → `hid_mouse_report_t.y`
+
+**📝 Phase 2.1.2.1 → 2.1.2.3 누적 변경사항 정리**:
+
+| Phase | 변경사항 | 영향 범위 |
+|-------|---------|---------|
+| 2.1.2.1 | UART 초기화를 app_main()에서 수행 (TinyUSB 직후) | 2.1.2.2 (uart_task()는 초기화 불필요) |
+| 2.1.2.1 | CMakeLists.txt 의존성 설정 (uart_handler.c 추가, TinyUSB PRIV_REQUIRES에 main 추가) | 빌드 시스템 (향후 컴포넌트 추가 시 동일 패턴 적용) |
+| 2.1.2.2 (예상) | frame_queue는 app_main() 또는 uart_task()에서 생성 (uart_init()에서 생성 안 함) | 2.1.2.3 (frame_queue를 통해 프레임 수신) |
+| 2.1.2.3 | 필드명: bridge_frame_t.modifier, keycode1/2 (UART 프로토콜 기준) | 없음 (이미 구조체에 반영됨) |
+
+**✅ 후속 Phase 수정 완료 사항**:
+- Phase 2.1.2.2: UART 초기화 시점 및 frame_queue 생성 위치 명시 추가
+- Phase 2.1.2.3: Phase 2.1.2.1 변경사항 영향 문서화 (이미 반영됨)
 
 ---
 

@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "tusb.h"
 #include "usb_descriptors.h"
+#include "uart_handler.h"
 
 static const char* TAG = "BridgeOne";
 
@@ -67,6 +68,17 @@ void app_main(void) {
         return;
     }
     ESP_LOGI(TAG, "TinyUSB device stack initialized (RHPORT=0)");
+    
+    // ==================== 1.5. UART 통신 초기화 ====================
+    // Android와의 UART 통신을 위해 UART 드라이버 초기화
+    // - UART_NUM_0: 내장 USB-to-UART 브릿지 (GPIO43/GPIO44)
+    // - 1Mbps, 8N1: 고속 시리얼 통신
+    ret = uart_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "UART initialization failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    ESP_LOGI(TAG, "UART initialized (1Mbps, 8N1)");
     
     // ==================== 2. 시스템 정보 로깅 ====================
     ESP_LOGI(TAG, "Hardware: ESP32-S3-DevkitC-1-N16R8");
