@@ -4,6 +4,7 @@
 
     <!-- USB 관련 권한 -->
     <uses-permission android:name="android.permission.USB_PERMISSION" />
+    <uses-permission android:name="android.hardware.usb.host" />
     <uses-feature
         android:name="android.hardware.usb.host"
         android:required="false" />
@@ -46,6 +47,13 @@
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/device_filter" />
         </activity>
+        
+        <!-- USB 권한 요청 결과 수신 BroadcastReceiver -->
+        <!-- 구현 노트: MainActivity 또는 별도 BroadcastReceiver에서 
+             ACTION_USB_PERMISSION Intent를 수신하여 처리함 -->
+        <!-- 권한 요청은 UsbSerialManager.requestPermission()에서 
+             PendingIntent로 전달되며, 결과는 handlePermissionResult()에서 처리됨 -->
+        
     </application>
 
     <!-- USB 장치 필터 -->

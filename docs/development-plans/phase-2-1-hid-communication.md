@@ -515,7 +515,7 @@ updated: "2025-11-01"
 |-------|---------|---------|
 | 2.1.2.1 | UART 초기화를 app_main()에서 수행 (TinyUSB 직후) | 2.1.2.2 (uart_task()는 초기화 불필요) |
 | 2.1.2.1 | CMakeLists.txt 의존성 설정 (uart_handler.c 추가, TinyUSB PRIV_REQUIRES에 main 추가) | 빌드 시스템 (향후 컴포넌트 추가 시 동일 패턴 적용) |
-| 2.1.2.2 | frame_queue는 app_main()의 "1.6" 섹션에서 생성 (uart_init() 직후) | 2.1.2.3 (frame_queue를 통해 프레임 수신) |
+| 2.1.2.2 | frame_queue를 app_main() "1.6"에서 xQueueCreate()로 생성 | 2.1.2.3 (frame_queue를 통해 프레임 수신) |
 | 2.1.2.3 | HID 태스크 생성: Priority 7, Core 0 (UART Priority 6과 함께 Core 0에서 실행) | Phase 2.1.4.2 (우선순위 재검토 필요) |
 | 2.1.2.3 | Report ID: Keyboard=1, Mouse=2 (기존 계획 Report ID 0 대신) | Phase 2.1.6+ (호스트 측 호환성 개선) |
 | 2.1.2.3 | 필드명: bridge_frame_t.modifier, keycode1/2 (UART 프로토콜 기준) | 없음 (이미 구조체에 반영됨) |
@@ -1074,13 +1074,57 @@ updated: "2025-11-01"
 5. AndroidManifest.xml 권한 추가
 
 **검증**:
-- [ ] VID/PID 상수 정의됨
-- [ ] `findEsp32s3Device()` 함수 구현됨
-- [ ] `requestPermission()` 함수 구현됨
-- [ ] PendingIntent 생성 및 등록
-- [ ] AndroidManifest.xml에 권한 추가 (USB_DEVICE_ATTACH, DETACH)
-- [ ] BroadcastReceiver 등록됨
-- [ ] Gradle 빌드 성공
+- [x] VID/PID 상수 정의됨
+- [x] `findEsp32s3Device()` 함수 구현됨
+- [x] `requestPermission()` 함수 구현됨
+- [x] PendingIntent 생성 및 등록
+- [x] AndroidManifest.xml에 권한 추가 (USB_DEVICE_ATTACH, DETACH)
+- [x] BroadcastReceiver 등록됨
+- [x] Gradle 빌드 성공
+
+---
+
+**Phase 2.1.8.2 변경사항 분석**:
+
+**1. 새로운 함수 추가: `handlePermissionResult()`**
+- **계획 대비**: 원계획에 명시되지 않음
+- **이유**: 권한 요청 결과 처리를 별도 함수로 분리하여 재사용성 및 테스트 가능성 향상
+- **구현**: Intent 엑스트라에서 권한 여부 추출, Android 13+ 타입 안전 API 적용
+- **영향**: Phase 2.1.8.3에서 포트 열기 전 권한 확인 로직에 활용 필수
+
+**2. 보안 강화: `ContextCompat.registerReceiver()` + `RECEIVER_NOT_EXPORTED`**
+- **계획 대비**: 원계획은 "Intent 필터 및 BroadcastReceiver 설정"만 명시
+- **이유**: ACTION_USB_PERMISSION은 non-system broadcast이므로 Android 14+에서 RECEIVER_EXPORTED/NOT_EXPORTED 플래그 필수 (Google 권고)
+- **구현**: 모든 API level에서 일관되게 ContextCompat 사용하여 보안 강화
+- **영향**: 앱의 보안 정책 준수, 향후 Android 버전 호환성 보장
+
+**3. USB 이벤트 확대 처리**
+- **계획 대비**: 원계획은 USB_DEVICE_ATTACHED만 명시
+- **구현 추가**: ACTION_USB_DEVICE_DETACHED 처리 추가
+- **이유**: USB 장치 분리 시 연결 상태 업데이트 필요, Phase 2.1.8.4의 연결 모니터링 기능 선행 구현
+- **영향**: Phase 2.1.8.4 검증 항목 중 "BroadcastReceiver에서 연결/해제 감지" 부분 사전 처리 완료
+
+**4. PID 다중 지원**
+- **계획 대비**: 원계획은 "VID: 0x303A"만 명시
+- **구현**: ESP32_S3_PID_1 (0x1001, CP2102N), ESP32_S3_PID_2 (0x8108, alternate config) 모두 지원
+- **이유**: 보드 버전 및 펌웨어 설정에 따라 PID 다를 수 있으므로 호환성 확보
+- **영향**: 다양한 ESP32-S3 보드 환경에서의 호환성 향상 (무영향: 후속 Phase)
+
+**5. Android 13+ 호환성 처리**
+- **계획 대비**: 원계획에 명시되지 않음
+- **구현**: getParcelableExtra() 메서드 오버로드 사용 (타입 안전성)
+- **이유**: Android 13부터 제네릭 기반 getParcelableExtra(String, Class<T>) 권장, 지난 API 호환성 유지
+- **영향**: 무영향 (내부 구현, 외부 API 변화 없음)
+
+---
+
+**후속 Phase 영향도 분석**:
+
+| Phase | 영향 | 설명 | 대응 방안 |
+|-------|------|------|---------|
+| 2.1.8.3 | 🟡 중간 | `handlePermissionResult()` 반환값 기반 포트 열기 제어 필요 | openPort() 호출 전 권한 확인 로직 추가 |
+| 2.1.8.4 | 🟢 긍정적 | USB_DEVICE_DETACHED 이벤트 사전 처리로 연결 모니터링 기능 단순화 | 재연결 로직 구현 시 기존 이벤트 핸들러 활용 |
+| 2.1.9 | 🟢 긍정적 | USB 연결 상태 정확성 향상으로 터치 입력 제어 안정성 증대 | 무영향 (이미 _isConnected StateFlow 활용 가능) |
 
 ---
 
@@ -1095,6 +1139,13 @@ updated: "2025-11-01"
 4. 리소스 해제 및 예외 처리
 5. 디버그 로그 추가
 
+**🔗 Phase 2.1.8.2 변경사항 영향**:
+- ✅ 긍정적 영향
+- **설명**: Phase 2.1.8.2에서 `handlePermissionResult()` 함수 추가로 권한 확인 로직이 이미 구현됨
+- **대응 방안**: `openPort()` 호출 전에 `handlePermissionResult()` 반환값 확인 필수
+  - 권한 미확보 시 권한 요청 재시도 또는 사용자 안내
+  - 권한 확보 시에만 포트 열기 진행
+
 **검증**:
 - [ ] `openPort()` 함수 구현됨
 - [ ] `setParameters(1000000, 8, 1, 0)` 호출 확인
@@ -1102,6 +1153,7 @@ updated: "2025-11-01"
 - [ ] `isConnected()` 함수 구현됨
 - [ ] 예외 처리 (IOException, 연결 실패)
 - [ ] 디버그 로그 출력 (연결/해제 시점)
+- [ ] 권한 확인 후 포트 열기 로직 추가 (Phase 2.1.8.2 handlePermissionResult() 활용)
 - [ ] Gradle 빌드 성공
 
 ---
@@ -1117,13 +1169,22 @@ updated: "2025-11-01"
 4. 연결 상태 모니터링 (BroadcastReceiver)
 5. 재연결 로직 기본 구조
 
+**🔗 Phase 2.1.8.2 변경사항 영향**:
+- ✅ 긍정적 영향
+- **설명**: Phase 2.1.8.2에서 `handlePermissionResult()` 함수 추가로 권한 확인 로직이 이미 구현됨
+- **단순화 효과**: 
+  - 본 Phase에서는 ACTION_USB_DEVICE_DETACHED 핸들러 추가 불필요
+  - 기존 BroadcastReceiver 이벤트 핸들러를 `_isConnected` StateFlow 업데이트에 활용 가능
+  - 재연결 로직 구현 시 이미 감지된 연결/해제 이벤트 활용
+
 **검증**:
 - [ ] `sendFrame()` 함수 구현됨
 - [ ] `frame.toByteArray()` 호출로 직렬화
 - [ ] `write()` 호출로 전송
 - [ ] 반환값 체크 (전송 바이트 수)
 - [ ] 예외 처리 (USB 연결 해제 시)
-- [ ] BroadcastReceiver에서 연결/해제 감지
+- [ ] BroadcastReceiver에서 연결/해제 감지 (Phase 2.1.8.2 사전 구현된 이벤트 핸들러 활용)
+- [ ] _isConnected 상태 업데이트 로직 추가
 - [ ] 디버그 로그 (프레임 전송 정보)
 - [ ] Gradle 빌드 성공
 
