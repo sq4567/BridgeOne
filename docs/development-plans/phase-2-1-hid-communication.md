@@ -1286,7 +1286,7 @@ updated: "2025-11-01"
 
 ---
 
-#### Phase 2.1.9: Android 터치 입력 처리 (TouchpadWrapper)
+### Phase 2.1.9: Android 터치 입력 처리 (TouchpadWrapper)
 
 **목표**: 터치 이벤트를 8바이트 프레임으로 변환하는 로직 구현
 
@@ -1325,16 +1325,16 @@ updated: "2025-11-01"
 5. 터치 좌표 저장 (이전/현재)
 
 **검증**:
-- [ ] `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt` 생성됨
-- [ ] Composable 함수 선언됨
-- [ ] Box 또는 Surface로 UI 구성
-- [ ] 1:2 비율 적용 (가로:세로 = 1:2)
-- [ ] 최소 크기 160dp×320dp 이상
-- [ ] 둥근 모서리: 너비의 3%
-- [ ] `Modifier.pointerInput()` 구현됨
-- [ ] ACTION_DOWN, ACTION_MOVE, ACTION_UP 처리
-- [ ] Preview 함수 작성 및 렌더링
-- [ ] Gradle 빌드 성공
+- [x] `src/android/app/src/main/java/com/bridgeone/app.ui/components/TouchpadWrapper.kt` 생성됨
+- [x] Composable 함수 선언됨
+- [x] Box 또는 Surface로 UI 구성
+- [x] 1:2 비율 적용 (가로:세로 = 1:2)
+- [x] 최소 크기 160dp×320dp 이상
+- [x] 둥근 모서리: 너비의 3%
+- [x] `Modifier.pointerInput()` 구현됨
+- [x] ACTION_DOWN, ACTION_MOVE, ACTION_UP 처리
+- [x] Preview 함수 작성 및 렌더링
+- [x] Gradle 빌드 성공
 
 ---
 
@@ -1484,7 +1484,7 @@ updated: "2025-11-01"
 - `docs/android/component-design-guide-app.md` (KeyboardKeyButton 상세)
 
 **검증**:
-- [ ] `src/android/app/src/main/java/com/bridgeone/app/ui/components/KeyboardKeyButton.kt` 파일 생성됨
+- [ ] `src/android/app/src/main/java/com/bridgeone/app.ui/components/KeyboardKeyButton.kt` 파일 생성됨
 - [ ] 터치 다운 시 `keyCode` 포함한 프레임 전송 (modifiers=0, keyCode1=X, keyCode2=0)
 - [ ] 터치 업 시 빈 프레임 전송 (keyCode1=0, keyCode2=0)
 - [ ] ESP32-S3 시리얼 로그에 "HID Keyboard report sent: modifiers=X keyCodes=[X,X,0,0,0,0]" 메시지 표시
