@@ -962,13 +962,13 @@ updated: "2025-11-01"
 4. 기본값 초기화 함수 제공
 
 **검증**:
-- [ ] `FrameBuilder.kt` 파일 생성됨
-- [ ] object 싱글톤 또는 companion object로 구현
-- [ ] 순번 카운터 변수 (volatile 또는 thread-safe)
-- [ ] `toByteArray(): ByteArray` 메서드 구현
-- [ ] 바이트 직렬화 순서: seq, buttons, deltaX, deltaY, wheel, modifiers, keyCode1, keyCode2
-- [ ] Little-Endian 확인 (각 필드 1바이트 순서)
-- [ ] Gradle 빌드 성공
+- [x] `FrameBuilder.kt` 파일 생성됨
+- [x] object 싱글톤 또는 companion object로 구현
+- [x] 순번 카운터 변수 (volatile 또는 thread-safe)
+- [x] `toByteArray(): ByteArray` 메서드 구현
+- [x] 바이트 직렬화 순서: seq, buttons, deltaX, deltaY, wheel, modifiers, keyCode1, keyCode2
+- [x] Little-Endian 확인 (각 필드 1바이트 순서)
+- [x] Gradle 빌드 성공
 
 ---
 
