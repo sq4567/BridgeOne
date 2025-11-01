@@ -1350,17 +1350,54 @@ updated: "2025-11-01"
 5. 델타 범위 정규화 (-127 ~ 127)
 
 **검증**:
-- [ ] `calculateDelta()` 함수 구현됨
-- [ ] 좌표 계산 정확 (current - previous)
-- [ ] dp → pixel 변환 고려됨 (LocalDensity 사용)
-- [ ] X, Y 축 분리 처리됨
-- [ ] `applyDeadZone()` 함수 구현됨
-- [ ] DEAD_ZONE_THRESHOLD = 15dp 정의됨
-- [ ] 임계값 이하 → 0 처리
-- [ ] 임계값 초과 → 정규화 적용
-- [ ] 델타 범위 -127 ~ 127 확인
-- [ ] 디버그 로그 (원본/적용 후 값)
-- [ ] Gradle 빌드 성공
+- [x] `calculateDelta()` 함수 구현됨
+- [x] 좌표 계산 정확 (current - previous)
+- [x] dp → pixel 변환 고려됨 (LocalDensity 사용)
+- [x] X, Y 축 분리 처리됨
+- [x] `applyDeadZone()` 함수 구현됨
+- [x] DEAD_ZONE_THRESHOLD = 15dp 정의됨
+- [x] 임계값 이하 → 0 처리
+- [x] 임계값 초과 → 정규화 적용
+- [x] 델타 범위 -127 ~ 127 확인
+- [x] 디버그 로그 (원본/적용 후 값)
+- [x] Gradle 빌드 성공
+
+---
+
+**🔄 계획 대비 변경사항 분석**:
+
+이 Phase의 핵심 알고리즘(calculateDelta, applyDeadZone)은 계획 대로 구현되었으나, 터치 이벤트 처리 방식에서 다음과 같이 변경되었습니다:
+
+**1. 터치 이벤트 처리 방식 변경**
+- **계획**: pointerInput + awaitPointerEventScope + awaitPointerEvent() 조합
+- **실제**: androidx.compose.foundation.gestures.detectDragGestures 사용
+- **변경 이유**: 
+  - awaitPointerEventScope의 임포트/컴파일 문제로 인한 대체
+  - detectDragGestures는 더 간단하고 명확한 API 제공
+  - 드래그 제스처 감지에 최적화된 고수준 API
+- **효과**: 코드 단순화, 가독성 향상, 빌드 안정성 확보
+
+**2. 헬퍼 데이터 클래스 추가** (계획에 명시되지 않음)
+- DeltaResult: 정규화된 deltaX, deltaY를 타입-안전하게 반환
+- TouchState: 터치 상태(이전 좌표, 누적 델타)를 명확히 관리
+- 이유: DRY 원칙 준수, 데이터 무결성, 코드 가독성
+
+**3. TouchpadConstants 객체 추가** (계획에 명시되지 않음)
+- DEAD_ZONE_THRESHOLD_DP, DELTA_MAX, DELTA_MIN 상수화
+- 이유: 매직 넘버 제거, 유지보수성 향상
+
+**4. 디버그 로그 형식 구체화**
+- 계획: "원본/적용 후 값"만 명시
+- 실제: `"Delta: X=${deltaXDp}dp Y=${deltaYDp}dp → Final: X=${deltaResult.deltaX} Y=${deltaResult.deltaY} Accumulated: X=${newAccumulated.first} Y=${newAccumulated.second}"`
+- 이유: 로그 검증, 디버깅 용이성 향상
+
+**후속 Phase 영향도**:
+
+| Phase | 영향 | 설명 | 대응 방안 |
+|-------|------|------|---------|
+| 2.1.9.3 | 🟢 긍정적 | calculateDelta(), applyDeadZone() 함수 시그니처 동일 → 호출 방식 변경 없음 | 변경 불필요 |
+| 2.1.10 | 🟢 긍정적 | 디버그 로그 형식 정의됨 → 로그 검증 항목 추가 필요 | Phase 2.1.10.1 검증 항목 추가 예정 |
+| 2.1.11 | 🟢 무영향 | 키보드 입력은 독립적 구현 | 변경 불필요 |
 
 ---
 
@@ -1460,6 +1497,7 @@ updated: "2025-11-01"
 - [ ] Android 앱 터치패드 드래그 시 Windows 마우스 포인터 이동 확인
 - [ ] 시리얼 로그: "UART frame received: seq=X buttons=X deltaX=X deltaY=X"
 - [ ] 시리얼 로그: "HID Mouse report sent: buttons=X deltaX=X deltaY=X wheel=X"
+- [ ] Android 로그: TouchpadWrapper 델타 계산 로그 (from Phase 2.1.9.2)
 - [ ] 마우스 이동 방향이 터치 제스처 방향과 일치
 - [ ] 마우스 이동 속도가 터치 제스처 속도와 비례
 - [ ] 클릭 제스처 (500ms 이내 탭) → Windows 좌클릭 동작 확인
