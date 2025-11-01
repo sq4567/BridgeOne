@@ -694,13 +694,13 @@ updated: "2025-10-27"
 - `docs/board/esp32s3-code-implementation-guide.md` §3.3.4 app_main() 초기화 순서
 
 **검증**:
-- [ ] `main.c`에서 `tusb_init(BOARD_TUD_RHPORT, &dev_init)` 호출
-- [ ] **`board_init()` 및 `board_init_after_tusb()` 함수 호출 없음**
-- [ ] **`bsp/board_api.h` 헤더 include 없음**
-- [ ] `uart_init()` 호출 확인
-- [ ] `frame_queue = xQueueCreate(32, sizeof(bridge_frame_t))` 호출
-- [ ] 초기화 로그 메시지 출력 (ESP_LOGI)
-- [ ] `idf.py build` 성공
+- [x] `main.c`에서 `tusb_init(BOARD_TUD_RHPORT, &dev_init)` 호출
+- [x] **`board_init()` 및 `board_init_after_tusb()` 함수 호출 없음**
+- [x] **`bsp/board_api.h` 헤더 include 없음**
+- [x] `uart_init()` 호출 확인
+- [x] `frame_queue = xQueueCreate(32, sizeof(bridge_frame_t))` 호출
+- [x] 초기화 로그 메시지 출력 (ESP_LOGI)
+- [x] `idf.py build` 성공
 
 ---
 
