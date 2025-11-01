@@ -1224,19 +1224,69 @@ updated: "2025-11-01"
   - 상태 일관성 보장(Graceful degradation)으로 예외 처리 단순화
 
 **검증**:
-- [ ] `sendFrame()` 함수 구현됨
-- [ ] `frame.toByteArray()` 호출로 직렬화
-- [ ] `write()` 호출로 전송
-- [ ] 반환값 체크 (전송 바이트 수)
-- [ ] 예외 처리 (USB 연결 해제 시)
-- [ ] BroadcastReceiver에서 연결/해제 감지 (Phase 2.1.8.3 사전 구현된 이벤트 핸들러 활용)
-- [ ] _isConnected 상태 업데이트 로직 추가
-- [ ] 디버그 로그 (프레임 전송 정보)
-- [ ] Gradle 빌드 성공
+- [x] `sendFrame()` 함수 구현됨
+- [x] `frame.toByteArray()` 호출로 직렬화
+- [x] `write()` 호출로 전송
+- [x] 반환값 체크 (전송 바이트 수) - UsbSerialPort.write()가 void를 반환하므로 예외 처리로 검증
+- [x] 예외 처리 (USB 연결 해제 시)
+- [x] BroadcastReceiver에서 연결/해제 감지 (Phase 2.1.8.3 사전 구현된 이벤트 핸들러 활용)
+- [x] _isConnected 상태 업데이트 로직 추가
+- [x] 디버그 로그 (프레임 전송 정보)
+- [x] Gradle 빌드 성공
 
 ---
 
-### Phase 2.1.9: Android 터치 입력 처리 (TouchpadWrapper)
+**Phase 2.1.8.4 변경사항 분석**:
+
+**1. UsbSerialPort.write() 반환 타입 처리**
+- **계획 대비**: 원계획은 "반환값 체크 (전송 바이트 수)"로 int 반환값 검증 예정
+- **실제 구현**: `UsbSerialPort.write(byte[], int timeout)` → `void` 반환
+- **이유**: usb-serial-for-android 3.7.3 라이브러리의 실제 API는 write()가 void를 반환
+- **대응**: 예외 처리 기반으로 변경 (write() 성공 시 아무 예외도 발생하지 않음 = 전송 완료)
+- **영향**: 반환값 검증 로직 제거 → 더 간단한 예외 처리 로직
+
+**2. BridgeFrame.toByteArray() 메서드 추가**
+- **계획 대비**: 원계획은 "frame.toByteArray() 호출"만 명시
+- **구현**: BridgeFrame 클래스에 직렬화 메서드 추가 (FrameBuilder.toByteArray()와 중복되지만 convenience 메서드)
+- **이유**: BridgeFrame 객체에서 직접 toByteArray() 호출 가능 → 코드 가독성 향상 + 인캡슐레이션
+- **변환 규칙**: UByte → Byte (toByte()), Byte → Byte (그대로)
+- **영향**: 무영향 (FrameBuilder.toByteArray()와 동일한 결과)
+
+**3. USB 연결 해제 시 자동 포트 닫기**
+- **계획 대비**: 원계획은 "BroadcastReceiver에서 연결/해제 감지"만 명시
+- **구현**: ACTION_USB_DEVICE_DETACHED 수신 시 자동으로 `closePort()` 호출
+- **이유**: USB 케이블 분리 감지 → 즉시 리소스 정리 필요
+- **효과**: 연결 상태 자동 업데이트 + 메모리 누수 방지 + 재연결 시 깨끗한 상태 보장
+- **영향**: 무영향 (Phase 2.1.8.4의 "재연결 로직 기본 구조" 선행 구현)
+
+**4. 디버그 로그 상세화**
+- **계획 대비**: 원계획은 "디버그 로그 (프레임 전송 정보)" 명시만 됨
+- **구현**: 
+  - 전송 성공: `"Frame sent successfully: seq=..., buttons=0x..., deltaX=..., deltaY=..., wheel=..., modifiers=0x..., keyCode1=..., keyCode2=..."`
+  - 포트 미열림: `"USB port is not open, cannot send frame"`
+  - 연결 끊김: `"USB device detached - closing port automatically"`
+- **효과**: 디버깅 시 프레임 내용 즉시 파악 + 문제 원인 빠른 특정
+- **영향**: 무영향 (로그만 추가, 기능 변화 없음)
+
+**5. IOException 예외 처리 강화**
+- **계획 대비**: 원계획은 "예외 처리 (USB 연결 해제 시)" 만 명시
+- **구현**: 
+  - IOException 발생 → `_isConnected = false` 자동 설정 + 예외 재발생
+  - Exception (기타) → IOException으로 래핑하여 통일
+- **효과**: 호출자가 IOException만 처리하면 됨 → 예외 처리 단순화
+- **영향**: 무영향 (Graceful error handling)
+
+**후속 Phase 영향도 분석**:
+
+| Phase | 영향 | 설명 | 대응 방안 |
+|-------|------|------|---------|
+| 2.1.9 | 🟢 긍정적 | sendFrame()이 완벽히 구현되어 TouchpadWrapper에서 직접 호출 가능 | 변경 불필요 |
+| 2.1.10 | 🟢 긍정적 | 프레임 전송 로직 검증됨 → E2E 테스트 시 안정성 확보 | 변경 불필요 |
+| 2.1.통합검증 | 🟢 긍정적 | USB 연결/해제 자동 관리로 재연결 로직 테스트 용이 | 변경 불필요 |
+
+---
+
+#### Phase 2.1.9: Android 터치 입력 처리 (TouchpadWrapper)
 
 **목표**: 터치 이벤트를 8바이트 프레임으로 변환하는 로직 구현
 
@@ -1318,6 +1368,17 @@ updated: "2025-11-01"
 
 **목표**: 클릭 감지 로직 및 프레임 생성/전송 구현
 
+**🔗 Phase 2.1.8.4 변경사항 영향**:
+- ✅ 긍정적 영향 (매우 중요)
+- **설명**: Phase 2.1.8.4에서 `UsbSerialManager.sendFrame(frame: BridgeFrame)` 메서드가 완벽히 구현됨
+- **개선 사항**:
+  - BridgeFrame 객체에서 `toByteArray()` 직접 호출 가능 → 프레임 직렬화 자동화
+  - `UsbSerialManager.sendFrame()`이 모든 예외 처리 담당 → TouchpadWrapper에서는 호출만 하면 됨
+  - 연결 상태 자동 확인 → 포트 미열림 시 자동으로 IOException 발생
+  - USB 해제 시 자동 포트 닫기 → 재연결 상태 자동 정리
+  - **효과**: TouchpadWrapper에서는 단순히 `UsbSerialManager.sendFrame(frame)` 호출로 완료
+  - **코드 단순화**: 포트 열림 확인, 직렬화, 예외 처리 모두 UsbSerialManager에 위임 가능
+
 **세부 목표**:
 1. `detectClick()` 함수 구현
 2. CLICK_MAX_DURATION = 500ms, CLICK_MAX_MOVEMENT = 15dp
@@ -1352,22 +1413,26 @@ updated: "2025-11-01"
 
 **개발 기간**: 3-4일
 
-**🔗 Phase 2.1.7.3 변경사항 영향**:
-- ✅ 긍정적 영향 (매우 중요)
-- **설명**: Phase 2.1.7.3의 완벽한 단위 테스트로 프로토콜 계층 검증 완료
+**🔗 Phase 2.1.8.4 + 2.1.9 변경사항 영향**:
+- ✅ 긍정적 영향 (극도로 중요)
+- **설명**: 
+  - Phase 2.1.8.4: USB 프레임 전송 인프라 완성 (UsbSerialManager.sendFrame())
+  - Phase 2.1.9: TouchpadWrapper로 실제 터치 입력 → 프레임 변환 → 전송 완성
 - **개선 사항**:
-  - BridgeFrame 프로토콜의 모든 필드, 직렬화 순서, 범위 검증 완료
-  - FrameBuilder의 주요 메서드들이 완벽히 테스트됨 (createDefaultFrame, toByteArray)
-  - 시퀀스 번호 순환(0~255) 완벽 검증
-  - **효과**: End-to-End 테스트 시 프로토콜 계층 이슈로 인한 오류 가능성 극히 낮음
-  - **개발 효율**: 종단간 테스트에서 높은 수준의 데이터 일관성 신뢰 가능
+  - BridgeFrame 직렬화 검증 완료 (Phase 2.1.7.3 + 2.1.8.4)
+  - USB 포트 관리 자동화 (Phase 2.1.8.4)
+  - 터치 → 프레임 변환 로직 검증 완료 (Phase 2.1.9)
+  - **효과**: End-to-End 테스트 시 각 계층이 완벽히 검증됨 → 통합 테스트 실패 원인 명확
+  - **테스트 효율**: 프로토콜, USB, UI 계층 모두 사전 검증됨 → 오류 원인 빠른 특정
 
 **세부 목표**:
-1. HID Mouse 경로 검증
-2. HID Keyboard 경로 검증
-3. 지연시간 측정
-4. 프레임 손실률 측정
-5. 안정성 테스트
+1. 시리얼 모니터에서 UART 프레임 수신 로그 확인
+2. 시리얼 모니터에서 HID Mouse 리포트 전송 로그 확인
+3. Windows에서 마우스 포인터 이동 확인
+4. 이동 방향 및 속도 검증
+5. 지연시간 측정
+6. 프레임 손실률 측정
+7. 안정성 테스트
 
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §9 성능 벤치마크 및 품질 기준
@@ -1510,7 +1575,7 @@ updated: "2025-11-01"
 5. 프레임 생성 및 전송
 
 **검증**:
-- [ ] `src/android/app/src/main/java/com/bridgeone/app/ui/components/KeyboardKeyButton.kt` 생성됨
+- [ ] `src/android/app/src/main/java/com/bridgeone/app.ui/components/KeyboardKeyButton.kt` 생성됨
 - [ ] Composable 함수 구현됨
 - [ ] 터치 다운 시 keyCode 포함 프레임 전송
 - [ ] 터치 업 시 빈 프레임 전송

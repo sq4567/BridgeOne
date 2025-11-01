@@ -257,4 +257,64 @@ object UsbSerialManager {
      * @return 포트가 열려있고 연결되어 있으면 true, 아니면 false
      */
     fun isConnected(): Boolean = _isConnected.value
+
+    /**
+     * BridgeFrame을 UART를 통해 ESP32-S3로 전송합니다.
+     *
+     * 이 메서드는 BridgeFrame을 8바이트 배열로 직렬화한 후
+     * USB 직렬 포트를 통해 전송합니다. 연결 상태 확인, 데이터 직렬화,
+     * 전송 완료 확인(예외 처리)을 모두 수행합니다.
+     *
+     * **전송 흐름**:
+     * 1. 포트 열림 상태 확인 (isPortOpen() 체크)
+     * 2. BridgeFrame을 toByteArray()로 직렬화
+     * 3. UsbSerialPort.write()로 데이터 전송
+     * 4. 예외 없이 완료 시 전송 성공으로 간주
+     * 5. 전송 실패 시 예외 처리
+     *
+     * **기술 정보**:
+     * - UsbSerialPort.write()는 void를 반환합니다 (성공/실패는 예외로 표현)
+     * - IOException 발생 시 USB 연결이 끊어진 상태로 간주합니다.
+     * - 모든 8바이트가 write() 호출로 전송됩니다 (타임아웃은 라이브러리에서 처리).
+     *
+     * @param frame 전송할 BridgeFrame 데이터
+     * @return 8 (상수, 전송된 바이트 수를 나타냄)
+     * @throws IOException 포트가 열려있지 않거나 전송 실패 시
+     *
+     * @see com.bridgeone.app.protocol.BridgeFrame.toByteArray
+     */
+    fun sendFrame(frame: com.bridgeone.app.protocol.BridgeFrame): Int {
+        try {
+            // 1. 연결 상태 확인
+            if (!isPortOpen()) {
+                Log.e(TAG, "USB port is not open, cannot send frame")
+                throw IOException("USB port is not open")
+            }
+            
+            // 2. BridgeFrame을 8바이트 배열로 직렬화
+            val frameBytes = frame.toByteArray()
+            
+            // 3. UART를 통해 전송 (usb-serial-for-android의 UsbSerialPort.write())
+            // UsbSerialPort.write()는 void를 반환하며, 성공 시 아무 예외도 발생하지 않습니다.
+            // timeout은 100ms로 설정 (충분한 시간으로 모든 8바이트 전송 가능)
+            usbPort!!.write(frameBytes, 100)
+            
+            // 4. 디버그 로그 - 프레임 전송 성공
+            Log.d(TAG, "Frame sent successfully: seq=${frame.seq}, buttons=0x${frame.buttons.toString(16)}, " +
+                    "deltaX=${frame.deltaX}, deltaY=${frame.deltaY}, wheel=${frame.wheel}, " +
+                    "modifiers=0x${frame.modifiers.toString(16)}, keyCode1=${frame.keyCode1}, keyCode2=${frame.keyCode2}")
+            
+            return 8  // 성공 시 8바이트 전송됨
+            
+        } catch (e: IOException) {
+            Log.e(TAG, "IOException while sending frame: ${e.message}", e)
+            // USB 연결 끊김으로 간주하고 상태 업데이트
+            _isConnected.value = false
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error while sending frame: ${e.message}", e)
+            _isConnected.value = false
+            throw IOException("Failed to send frame: ${e.message}", e)
+        }
+    }
 }

@@ -34,4 +34,29 @@ data class BridgeFrame(
     val modifiers: UByte,     // 키보드 수정자 (Ctrl, Shift, Alt, Win)
     val keyCode1: UByte,      // 첫 번째 키코드 (0~255)
     val keyCode2: UByte       // 두 번째 키코드 (0~255)
-)
+) {
+    /**
+     * BridgeFrame을 8바이트 배열로 직렬화합니다.
+     *
+     * 각 필드를 순서대로 바이트로 변환하여 Little-Endian 형식의
+     * 8바이트 배열을 생성합니다. 이 배열은 UART를 통해 ESP32-S3로
+     * 전송됩니다.
+     *
+     * **변환 규칙**:
+     * - UByte (0~255) → 부호 없는 바이트
+     * - Byte (-128~127) → 부호 있는 바이트 (2의 보수 표현)
+     * - toByteArray() 호출 시 배열 길이는 항상 8입니다.
+     *
+     * @return 8바이트 배열 [seq, buttons, deltaX, deltaY, wheel, modifiers, keyCode1, keyCode2]
+     */
+    fun toByteArray(): ByteArray = byteArrayOf(
+        seq.toByte(),
+        buttons.toByte(),
+        deltaX,
+        deltaY,
+        wheel,
+        modifiers.toByte(),
+        keyCode1.toByte(),
+        keyCode2.toByte()
+    )
+}

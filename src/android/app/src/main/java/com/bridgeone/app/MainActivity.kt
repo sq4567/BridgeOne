@@ -49,9 +49,14 @@ class MainActivity : ComponentActivity() {
                 Log.d(TAG, "USB device attached")
                 // 자동 감지 및 권한 요청 로직은 Phase 2.1.8.3에서 구현됨
             } else if (intent?.action == UsbManager.ACTION_USB_DEVICE_DETACHED) {
-                // USB 장치가 분리된 경우
-                Log.d(TAG, "USB device detached")
-                // 연결 해제 처리 로직은 Phase 2.1.8.3에서 구현됨
+                // USB 장치가 분리된 경우 - 포트 자동 종료
+                // Phase 2.1.8.4: 연결 모니터링 로직 추가
+                Log.d(TAG, "USB device detached - closing port automatically")
+                
+                // 열려있는 포트가 있다면 안전하게 종료
+                // closePort()는 내부적으로 _isConnected를 false로 설정
+                UsbSerialManager.closePort()
+                Log.d(TAG, "USB port closed due to device detachment")
             }
         }
     }
