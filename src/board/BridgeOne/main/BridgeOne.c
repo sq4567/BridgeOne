@@ -5,6 +5,7 @@
 #include "tusb.h"
 #include "usb_descriptors.h"
 #include "uart_handler.h"
+#include "hid_handler.h"  // hid_task 함수 선언
 
 static const char* TAG = "BridgeOne";
 
@@ -121,6 +122,26 @@ void app_main(void) {
     }
     ESP_LOGI(TAG, "UART task created (Core 0, Priority 6)");
     
+    // HID 태스크: UART 큐에서 프레임 수신하여 HID 리포트로 변환 및 전송
+    // - 우선순위 7: UART 태스크(6)보다는 낮지만 USB 태스크(5)보다 높음
+    // - Core 0에서 실행: UART와 함께 Core 0에서 집중 처리
+    // - 스택 크기 3072 bytes: HID 리포트 생성 처리에 충분
+    BaseType_t hid_task_created = xTaskCreatePinnedToCore(
+        hid_task,           // 태스크 함수
+        "HID",              // 태스크 이름
+        3072,               // 스택 크기 (bytes)
+        NULL,               // 매개변수
+        7,                  // 우선순위 (UART보다는 낮음, USB보다는 높음)
+        NULL,               // 생성된 태스크 핸들 (미사용)
+        0                   // Core 0에서 실행
+    );
+    
+    if (hid_task_created != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create HID task");
+        return;
+    }
+    ESP_LOGI(TAG, "HID task created (Core 0, Priority 7)");
+
     // USB 태스크: TinyUSB 스택 폴링 담당
     // - 우선순위 5: 일반 우선순위 (높지 않음)
     // - Core 1에서 실행: 멀티코어 활용

@@ -212,6 +212,238 @@ void hid_update_report_state(uint8_t* frame_data) {
              frame_data[0], frame_data[0]);
 }
 
+// ==================== HID 리포트 전송 함수 ====================
+
+/**
+ * @brief HID Keyboard 리포트 전송
+ * 
+ * @param report 전송할 키보드 리포트 (8바이트)
+ * @return true 전송 성공, false 전송 실패
+ * 
+ * 동작:
+ * 1. tud_hid_n_ready()로 전송 가능 상태 확인
+ * 2. 불가능하면 false 반환
+ * 3. tud_hid_n_report()로 리포트 전송
+ * 4. g_last_kb_report 업데이트 (GET_REPORT 콜백용)
+ * 
+ * 참고: .cursor/rules/tinyusb-hid-implementation.mdc §1.2 API 사용 패턴 준수
+ */
+bool sendKeyboardReport(const hid_keyboard_report_t* report) {
+    if (report == NULL) {
+        ESP_LOGW(TAG, "sendKeyboardReport: report is NULL");
+        return false;
+    }
+    
+    uint8_t instance = ITF_NUM_HID_KEYBOARD;
+    
+    // 1. USB가 마운트되었고, 이전 전송이 완료되었는지 확인
+    if (!tud_hid_n_ready(instance)) {
+        ESP_LOGW(TAG, "Keyboard not ready (USB disconnected or buffer full)");
+        return false;
+    }
+    
+    // 2. 상태 저장 (GET_REPORT 콜백용)
+    memcpy(&g_last_kb_report, report, sizeof(hid_keyboard_report_t));
+    
+    // 3. 리포트 전송
+    // Report ID 1: Boot Protocol Keyboard
+    if (!tud_hid_n_report(instance, 1, report, sizeof(hid_keyboard_report_t))) {
+        ESP_LOGE(TAG, "Failed to send keyboard report");
+        return false;
+    }
+    
+    // 디버그 로그: 전송된 키보드 리포트 정보
+    ESP_LOGD(TAG, "Keyboard report sent: modifier=0x%02x, keycode[0]=0x%02x, keycode[1]=0x%02x",
+             report->modifier, report->keycode[0], report->keycode[1]);
+    
+    return true;
+}
+
+/**
+ * @brief HID Mouse 리포트 전송
+ * 
+ * @param report 전송할 마우스 리포트 (4바이트)
+ * @return true 전송 성공, false 전송 실패
+ * 
+ * 동작:
+ * 1. tud_hid_n_ready()로 전송 가능 상태 확인
+ * 2. 불가능하면 false 반환
+ * 3. tud_hid_n_report()로 리포트 전송
+ * 4. g_last_mouse_report 업데이트 (GET_REPORT 콜백용)
+ */
+bool sendMouseReport(const hid_mouse_report_t* report) {
+    if (report == NULL) {
+        ESP_LOGW(TAG, "sendMouseReport: report is NULL");
+        return false;
+    }
+    
+    uint8_t instance = ITF_NUM_HID_MOUSE;
+    
+    // 1. USB가 마운트되었고, 이전 전송이 완료되었는지 확인
+    if (!tud_hid_n_ready(instance)) {
+        ESP_LOGW(TAG, "Mouse not ready (USB disconnected or buffer full)");
+        return false;
+    }
+    
+    // 2. 상태 저장 (GET_REPORT 콜백용)
+    memcpy(&g_last_mouse_report, report, sizeof(hid_mouse_report_t));
+    
+    // 3. 리포트 전송
+    // Report ID 2: Boot Protocol Mouse
+    if (!tud_hid_n_report(instance, 2, report, sizeof(hid_mouse_report_t))) {
+        ESP_LOGE(TAG, "Failed to send mouse report");
+        return false;
+    }
+    
+    // 디버그 로그: 전송된 마우스 리포트 정보
+    ESP_LOGD(TAG, "Mouse report sent: buttons=0x%02x, x=%d, y=%d, wheel=%d",
+             report->buttons, report->x, report->y, report->wheel);
+    
+    return true;
+}
+
+// ==================== BridgeFrame 처리 함수 ====================
+
+/**
+ * @brief BridgeFrame 처리 및 HID 리포트로 변환
+ * 
+ * UART에서 수신한 bridge_frame_t를 분석하여 Keyboard 및 Mouse 리포트를
+ * 생성하고 호스트에 전송합니다.
+ * 
+ * 세부 동작:
+ * 1. frame->modifier, frame->keycode1/keycode2 추출 → Keyboard 리포트 생성
+ * 2. frame->buttons, frame->x, frame->y, frame->wheel 추출 → Mouse 리포트 생성
+ * 3. sendKeyboardReport()로 키보드 리포트 전송
+ * 4. sendMouseReport()로 마우스 리포트 전송
+ * 5. 에러 발생 시 로깅
+ * 
+ * @param frame UART에서 수신한 검증된 프레임 (bridge_frame_t)
+ * 
+ * 참고: uart_handler.h bridge_frame_t 정의:
+ *  - seq (바이트 0): 시퀀스 번호
+ *  - buttons (바이트 1): 마우스 버튼
+ *  - x (바이트 2): X축 이동값
+ *  - y (바이트 3): Y축 이동값
+ *  - wheel (바이트 4): 휠 값
+ *  - modifier (바이트 5): 키보드 modifier
+ *  - keycode1 (바이트 6): 첫 번째 키코드
+ *  - keycode2 (바이트 7): 두 번째 키코드
+ */
+void processBridgeFrame(const bridge_frame_t* frame) {
+    if (frame == NULL) {
+        ESP_LOGE(TAG, "processBridgeFrame: frame is NULL");
+        return;
+    }
+    
+    // ==================== Keyboard 리포트 생성 및 전송 ====================
+    // 조건: modifier가 0이 아니거나, keycode1/keycode2 중 하나라도 0이 아닐 때
+    if (frame->modifier != 0 || frame->keycode1 != 0 || frame->keycode2 != 0) {
+        // Boot Protocol Keyboard 리포트 구성 (8바이트)
+        hid_keyboard_report_t kb_report = {
+            .modifier = frame->modifier,    // 바이트 0: Ctrl/Shift/Alt/GUI
+            .reserved = 0,                  // 바이트 1: 예약 필드 (0x00)
+            .keycode = {                    // 바이트 2-7: 키 코드 배열 (6-Key Rollover)
+                frame->keycode1,            // 첫 번째 키 코드
+                frame->keycode2,            // 두 번째 키 코드
+                0, 0, 0, 0                  // 나머지는 0 (미사용)
+            }
+        };
+        
+        if (!sendKeyboardReport(&kb_report)) {
+            ESP_LOGW(TAG, "Failed to send keyboard report (seq=%d)", frame->seq);
+        }
+    }
+    
+    // ==================== Mouse 리포트 생성 및 전송 ====================
+    // 조건: buttons/x/y/wheel 중 하나라도 0이 아닐 때
+    if (frame->buttons != 0 || frame->x != 0 || frame->y != 0 || frame->wheel != 0) {
+        // Boot Protocol Mouse 리포트 구성 (4바이트)
+        hid_mouse_report_t mouse_report = {
+            .buttons = frame->buttons,      // 바이트 0: Left/Right/Middle 버튼
+            .x = frame->x,                  // 바이트 1: X축 상대 이동 (-127~127)
+            .y = frame->y,                  // 바이트 2: Y축 상대 이동 (-127~127)
+            .wheel = frame->wheel           // 바이트 3: 휠 스크롤 (-127~127)
+        };
+        
+        if (!sendMouseReport(&mouse_report)) {
+            ESP_LOGW(TAG, "Failed to send mouse report (seq=%d)", frame->seq);
+        }
+    }
+    
+    // 디버그 로그: 처리된 프레임 정보
+    ESP_LOGD(TAG, "Bridge frame processed: seq=%d, kb=[mod=0x%02x, k1=0x%02x, k2=0x%02x], "
+             "mouse=[btn=0x%02x, x=%d, y=%d, wheel=%d]",
+             frame->seq, frame->modifier, frame->keycode1, frame->keycode2,
+             frame->buttons, frame->x, frame->y, frame->wheel);
+}
+
+// ==================== HID 태스크 ====================
+
+/**
+ * @brief HID 태스크 - BridgeFrame을 HID 리포트로 변환하여 전송
+ * 
+ * FreeRTOS 태스크로서 다음 동작을 반복 수행합니다:
+ * 1. xQueueReceive()로 frame_queue에서 검증된 bridge_frame_t 수신 (100ms 타임아웃)
+ * 2. processBridgeFrame()을 호출하여 Keyboard/Mouse 리포트 생성
+ * 3. 각 리포트를 USB HID 인터페이스로 전송
+ * 4. 다음 프레임을 대기
+ * 
+ * 타임아웃:
+ * - 100ms: UART 프레임 수신 간격보다 충분히 길어서 모든 프레임 처리 가능
+ * - 너무 길지 않아서 반응성 유지
+ * 
+ * 에러 처리:
+ * - 큐 수신 실패: 타임아웃 후 재시도 (정상 동작)
+ * - USB 미연결: sendKeyboardReport/sendMouseReport에서 처리
+ * - 프레임 NULL: processBridgeFrame에서 안전하게 처리
+ * 
+ * @param param 미사용
+ * 
+ * 참고:
+ * - uart_handler.h: frame_queue, bridge_frame_t 정의
+ * - .cursor/rules/tinyusb-freertos-integration.mdc: FreeRTOS + TinyUSB 통합 패턴
+ */
+void hid_task(void* param) {
+    (void)param;  // 미사용 파라미터 경고 제거
+    
+    ESP_LOGI(TAG, "HID task started (waiting for frames from UART queue)");
+    
+    // Phase 2.1.2.1에서 uart_handler.h에 extern QueueHandle_t frame_queue 선언됨
+    // Phase 2.1.2.2에서 app_main()의 "1.6" 섹션에서 xQueueCreate() 호출됨
+    // 이 frame_queue에서 검증된 프레임을 수신합니다.
+    
+    bridge_frame_t frame_buffer;
+    
+    while (1) {
+        // 1. FreeRTOS 큐에서 검증된 프레임 수신
+        // - portMAX_DELAY 대신 100ms 타임아웃 사용 (태스크 응답성 유지)
+        // - xQueueReceive() 반환: pdTRUE(성공) 또는 pdFALSE(타임아웃)
+        BaseType_t result = xQueueReceive(
+            frame_queue,                    // uart_task에서 전송한 큐
+            &frame_buffer,                  // 수신 버퍼
+            pdMS_TO_TICKS(100)              // 100ms 타임아웃
+        );
+        
+        if (result == pdTRUE) {
+            // 2. 검증된 프레임 처리: Keyboard/Mouse 리포트 생성 및 전송
+            processBridgeFrame(&frame_buffer);
+            
+            // 디버그 로그: 큐에서 수신한 프레임
+            ESP_LOGV(TAG, "Frame received from queue: seq=%d, "
+                     "buttons=0x%02x, x=%d, y=%d, wheel=%d, "
+                     "modifier=0x%02x, keycode1=0x%02x, keycode2=0x%02x",
+                     frame_buffer.seq, frame_buffer.buttons,
+                     frame_buffer.x, frame_buffer.y, frame_buffer.wheel,
+                     frame_buffer.modifier, frame_buffer.keycode1, frame_buffer.keycode2);
+        } 
+        else {
+            // 타임아웃 (정상 상황): 100ms 동안 프레임이 없음
+            // 다시 대기 (loop 계속)
+            ESP_LOGV(TAG, "HID task: queue receive timeout (no frame for 100ms)");
+        }
+    }
+}
+
 /**
  * @brief 현재 키보드 LED 상태 조회
  * 

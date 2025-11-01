@@ -20,6 +20,7 @@
 #include <stdbool.h>
 #include "tusb.h"
 #include "class/hid/hid.h"  // HID_REPORT_TYPE_* 매크로 및 리포트 구조체 사용 필수
+#include "uart_handler.h"  // bridge_frame_t 정의 및 frame_queue 사용 필수
 
 // ==================== HID 리포트 구조체 (TinyUSB에서 제공) ====================
 
@@ -112,6 +113,67 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
  * @note Phase 2.1.2에서 구현될 예정 (UART 통신 후)
  */
 void hid_update_report_state(uint8_t* frame_data);
+
+/**
+ * @brief HID 태스크 - BridgeFrame을 HID 리포트로 변환하여 전송
+ * 
+ * FreeRTOS 큐에서 검증된 프레임을 수신하고, 이를 HID Keyboard/Mouse 리포트로
+ * 변환하여 Windows 호스트에 전송합니다.
+ * 
+ * 동작:
+ * 1. xQueueReceive()로 frame_queue에서 bridge_frame_t 수신
+ * 2. processBridgeFrame()을 호출하여 리포트 생성
+ * 3. sendKeyboardReport() 및 sendMouseReport()로 호스트 전송
+ * 4. 100ms 타임아웃 후 다시 대기
+ * 
+ * @param param 미사용
+ * 
+ * @note Phase 2.1.2.3에서 구현됨
+ */
+void hid_task(void* param);
+
+/**
+ * @brief BridgeFrame 처리 및 HID 리포트 변환
+ * 
+ * UART에서 수신한 bridge_frame_t를 분석하고 Keyboard/Mouse 리포트를 생성
+ * 하여 호스트에 전송합니다.
+ * 
+ * 세부 동작:
+ * 1. frame->modifiers/keycode[0]/keycode[1] → Keyboard 리포트
+ * 2. frame->buttons/x/y/wheel → Mouse 리포트
+ * 3. 각 리포트는 별도의 USB 엔드포인트로 전송
+ * 
+ * @param frame UART에서 수신한 검증된 프레임
+ * 
+ * @note Phase 2.1.2.3에서 구현됨
+ */
+void processBridgeFrame(const bridge_frame_t* frame);
+
+/**
+ * @brief HID Keyboard 리포트 전송
+ * 
+ * 준비된 keyboard 리포트를 USB HID Keyboard 인터페이스(ITF_NUM_HID_KEYBOARD)로
+ * 전송합니다. 이전 전송 완료 여부를 확인한 후 새 데이터를 전송합니다.
+ * 
+ * @param report 전송할 키보드 리포트 (8바이트)
+ * @return true 전송 성공, false 전송 실패 (USB 미연결 등)
+ * 
+ * @note Phase 2.1.2.3에서 구현됨
+ */
+bool sendKeyboardReport(const hid_keyboard_report_t* report);
+
+/**
+ * @brief HID Mouse 리포트 전송
+ * 
+ * 준비된 mouse 리포트를 USB HID Mouse 인터페이스(ITF_NUM_HID_MOUSE)로
+ * 전송합니다. 이전 전송 완료 여부를 확인한 후 새 데이터를 전송합니다.
+ * 
+ * @param report 전송할 마우스 리포트 (4바이트)
+ * @return true 전송 성공, false 전송 실패 (USB 미연결 등)
+ * 
+ * @note Phase 2.1.2.3에서 구현됨
+ */
+bool sendMouseReport(const hid_mouse_report_t* report);
 
 /**
  * @brief 현재 키보드 LED 상태 조회

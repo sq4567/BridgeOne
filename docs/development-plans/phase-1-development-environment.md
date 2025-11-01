@@ -654,9 +654,7 @@ void app_main(void) {
 **Step 2: 빌드 실행**
 
 ```powershell
-C:\Espressif\frameworks\esp-idf-v5.5.1\export.ps1
-cd "F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\BridgeOne"
-idf.py build
+C:\Espressif\frameworks\esp-idf-v5.5.1\export.ps1; cd "F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\BridgeOne"; cls; idf.py build
 ```
 
 **Step 3: 플래싱 및 검증**

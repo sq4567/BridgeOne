@@ -503,44 +503,52 @@ updated: "2025-10-27"
    - `processBridgeFrame()` 호출
 4. `processBridgeFrame()` 함수 구현
    - Keyboard/Mouse 데이터 분리
-   - Phase 2.1.1.3에서 구현한 `hid_update_report_state()` 헬퍼 함수 활용
+   - 조건부 리포트 전송 (모든 필드가 0인 경우 제외)
    - `sendKeyboardReport()` 호출
    - `sendMouseReport()` 호출
 5. `sendKeyboardReport()` 함수 구현
    - HID Keyboard 리포트 작성 (8바이트)
-   - `tud_hid_n_report()` 호출 (Instance 0, Report ID: 0 - Boot Protocol)
+   - `tud_hid_n_report()` 호출 (Instance 0, Report ID: 1 - Boot Protocol Keyboard)
+   - g_last_kb_report 상태 저장 (GET_REPORT 콜백용)
 6. `sendMouseReport()` 함수 구현
    - HID Mouse 리포트 작성 (4바이트)
-   - `tud_hid_n_report()` 호출 (Instance 1, Report ID: 0 - Boot Protocol)
+   - `tud_hid_n_report()` 호출 (Instance 1, Report ID: 2 - Boot Protocol Mouse)
+   - g_last_mouse_report 상태 저장 (GET_REPORT 콜백용)
 
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §4.2 USB HID 모듈 구현 (ESP-IDF TinyUSB)
 - `docs/board/esp32s3-code-implementation-guide.md` §3.4 BridgeOne 프레임 처리 로직
 - TinyUSB 문서: `tud_hid_n_report()` 사용법
-- Phase 2.1.1.3: 구현된 헬퍼 함수 (`hid_update_report_state()`)
+- Phase 2.1.1.3: 구현된 헬퍼 함수 (`hid_update_report_state()` - 현재 미사용)
 - `.cursor/rules/tinyusb-hid-implementation.mdc` - HID 리포트 전송 API 사용법
 - `.cursor/rules/tinyusb-freertos-integration.mdc` - HID 태스크 설계 및 큐 동기화 가이드
 
 **검증**:
-- [ ] `src/board/BridgeOne/main/hid_handler.h` 파일 생성됨
-- [ ] `src/board/BridgeOne/main/hid_handler.c` 파일 생성됨
-- [ ] `hid_task()` 함수 구현됨
-- [ ] `xQueueReceive()` 호출로 프레임 수신
-- [ ] `processBridgeFrame()` 함수 구현됨
-- [ ] Keyboard/Mouse 필드 분리 로직 구현
-- [ ] Phase 2.1.1.3에서 구현한 `hid_update_report_state()` 함수 활용 확인
-- [ ] `sendKeyboardReport()` 함수 구현됨 (modifiers, keycode1/2 포함)
-- [ ] `sendMouseReport()` 함수 구현됨 (buttons, x/y, wheel 포함)
-- [ ] `tud_hid_n_report()` 호출 (Instance 구분)
-- [ ] 에러 처리 (USB 연결 해제 시)
-- [ ] 디버그 로그 출력 (리포트 전송 정보)
-- [ ] `idf.py build` 성공
+- [x] `src/board/BridgeOne/main/hid_handler.h` 파일 생성됨
+- [x] `src/board/BridgeOne/main/hid_handler.c` 파일 생성됨
+- [x] `hid_task()` 함수 구현됨
+- [x] `xQueueReceive()` 호출로 프레임 수신 (100ms 타임아웃)
+- [x] `processBridgeFrame()` 함수 구현됨
+- [x] Keyboard/Mouse 필드 분리 로직 구현
+- [x] 조건부 리포트 전송 (필드값 0 시 제외)
+- [x] `sendKeyboardReport()` 함수 구현됨 (modifiers, keycode1/2 포함)
+- [x] `sendMouseReport()` 함수 구현됨 (buttons, x/y, wheel 포함)
+- [x] `tud_hid_n_report()` 호출 (Instance 구분)
+- [x] Report ID: Keyboard=1, Mouse=2
+- [x] 에러 처리 (USB 연결 해제 시)
+- [x] 디버그 로그 출력 (리포트 전송 정보)
+- [x] `idf.py build` 성공
 
-**⚠️ Phase 2.1.1.3 및 2.1.2.1 변경사항 영향**:
-- **필드명 매핑 필수**: `processBridgeFrame()` 구현 시 실제 필드명 적용
-  - `bridge_frame_t.modifier` → `hid_keyboard_report_t.modifier`
-  - `bridge_frame_t.x` → `hid_mouse_report_t.x`
-  - `bridge_frame_t.y` → `hid_mouse_report_t.y`
+**⚠️ Phase 2.1.2.3 구현 시 변경사항**:
+- **Report ID 설정**: 기존 계획 Report ID 0 대신 명시적 ID 사용 (Keyboard=1, Mouse=2)
+  - 근거: TinyUSB 콜백 호환성 및 호스트 측 리포트 구분 개선
+  - 참고: `docs/phase-logs/phase-2-1-2-3-changes.md` §2.1 참조
+- **상태 저장 메커니즘**: sendKeyboardReport/sendMouseReport에서 memcpy() 추가
+  - 근거: GET_REPORT 콜백 지원 (BIOS/UEFI 부트 시 필요)
+  - 참고: `docs/phase-logs/phase-2-1-2-3-changes.md` §2.4 참조
+- **조건부 리포트 전송**: 모든 필드가 0인 경우 리포트 미전송
+  - 근거: USB 대역폭 효율성 및 에러 처리 개선
+  - 참고: `docs/phase-logs/phase-2-1-2-3-changes.md` §2.3 참조
 
 **📝 Phase 2.1.2.1 → 2.1.2.3 누적 변경사항 정리**:
 
@@ -548,12 +556,18 @@ updated: "2025-10-27"
 |-------|---------|---------|
 | 2.1.2.1 | UART 초기화를 app_main()에서 수행 (TinyUSB 직후) | 2.1.2.2 (uart_task()는 초기화 불필요) |
 | 2.1.2.1 | CMakeLists.txt 의존성 설정 (uart_handler.c 추가, TinyUSB PRIV_REQUIRES에 main 추가) | 빌드 시스템 (향후 컴포넌트 추가 시 동일 패턴 적용) |
-| 2.1.2.2 (예상) | frame_queue는 app_main() 또는 uart_task()에서 생성 (uart_init()에서 생성 안 함) | 2.1.2.3 (frame_queue를 통해 프레임 수신) |
+| 2.1.2.2 | frame_queue는 app_main()의 "1.6" 섹션에서 생성 (uart_init() 직후) | 2.1.2.3 (frame_queue를 통해 프레임 수신) |
+| 2.1.2.3 | HID 태스크 생성: Priority 7, Core 0 (UART Priority 6과 함께 Core 0에서 실행) | Phase 2.1.4.2 (우선순위 재검토 필요) |
+| 2.1.2.3 | Report ID: Keyboard=1, Mouse=2 (기존 계획 Report ID 0 대신) | Phase 2.1.6+ (호스트 측 호환성 개선) |
 | 2.1.2.3 | 필드명: bridge_frame_t.modifier, keycode1/2 (UART 프로토콜 기준) | 없음 (이미 구조체에 반영됨) |
 
-**✅ 후속 Phase 수정 완료 사항**:
-- Phase 2.1.2.2: UART 초기화 시점 및 frame_queue 생성 위치 명시 추가
-- Phase 2.1.2.3: Phase 2.1.2.1 변경사항 영향 문서화 (이미 반영됨)
+**✅ 후속 Phase 수정 필요 사항**:
+- Phase 2.1.3: 검증 체크리스트에 hid_update_report_state() 제거 또는 비활성화 항목 추가
+  - 근거: Phase 2.1.2.3 구현에서 processBridgeFrame()에 직접 구현되어 중복
+- Phase 2.1.4.2: 우선순위 재검토 및 문서 업데이트 (Priority 7 > Priority 6 이슈)
+  - 권장: 큐 기반 동작이므로 실제 문제 없으나 데이터 흐름과 일치도록 재설정 고려
+  - 옵션: UART Priority 6 유지, HID Priority 5로 변경 → USB Priority 4 조정
+- Phase 2.1.5: 로그 메시지 검증 항목 추가 (HID task started, Frame received from queue 등)
 
 ---
 
@@ -655,19 +669,58 @@ updated: "2025-10-27"
 **목표**: Core 0에서 UART 및 HID 태스크 생성
 
 **세부 목표**:
-1. UART 태스크 생성 (우선순위 10)
-2. HID 태스크 생성 (우선순위 9)
+1. UART 태스크 생성 (우선순위 6)
+2. HID 태스크 생성 (우선순위 7, Phase 2.1.2.3에서 이미 구현됨)
 3. 각 태스크 시작 로그 확인
-4. 스택 크기 할당 (4096 바이트)
+4. 스택 크기 할당 (3072 바이트)
+
+**⚠️ 우선순위 재검토 필요 (Phase 2.1.2.3 구현 후 발견)**:
+
+**현재 설정**:
+- UART Priority 6 (실시간 UART 수신)
+- HID Priority 7 (프레임 처리)
+- USB Priority 5 (TinyUSB 폴링)
+
+**문제점**:
+- FreeRTOS에서 Priority 숫자가 높을수록 우선순위가 높음 (Priority 7 > Priority 6 > Priority 5)
+- 따라서 HID가 UART보다 먼저 실행될 수 있음
+- 데이터 흐름(UART → HID → USB)과 우선순위 순서가 맞지 않음
+
+**실제 영향 분석**:
+- ✅ **큐 기반 동작이므로 실제 문제 없음**: HID가 100ms 타임아웃으로 큐를 확인하므로, 우선순위보다는 큐 상태가 실행을 결정함
+- ⚠️ **일관성**: 데이터 흐름과 우선순위 순서를 일치시키는 것이 향후 유지보수성 향상
+
+**권장 수정 옵션**:
+
+옵션 1: 현재 상태 유지 (빠른 진행)
+```c
+// UART Priority 6, HID Priority 7, USB Priority 5 유지
+// ✅ 큐 기반이므로 현재 상태도 정상 작동
+// ⚠️ 우선순위와 데이터 흐름 순서가 불일치
+```
+
+옵션 2: 우선순위 조정 (권장)
+```c
+// UART Priority 6, HID Priority 5, USB Priority 4
+// 변경: HID Priority 7 → 5, USB Priority 5 → 4
+// ✅ 데이터 흐름과 우선순위 순서 일치
+// ✅ 미래 우선순위 기반 태스크 추가 시 확장성 향상
+```
 
 **참조 문서 및 섹션**:
 - `.cursor/rules/tinyusb-freertos-integration.mdc` - 태스크 우선순위 및 코어 할당 가이드
+- `docs/phase-logs/phase-2-1-2-3-changes.md` §3.2 - 우선순위 문제 분석
 
 **검증**:
-- [ ] `xTaskCreatePinnedToCore(uart_task, "UART", 4096, NULL, 10, NULL, 0)` 호출
-- [ ] `xTaskCreatePinnedToCore(hid_task, "HID", 4096, NULL, 9, NULL, 0)` 호출
-- [ ] 태스크 생성 성공 확인 (nullptr 아님)
+- [ ] UART Priority 6, HID Priority ?, USB Priority ? 설정 확인
+- [ ] 큐 기반 동작으로 인해 우선순위 영향이 최소임을 검증 (실제 테스트 단계)
+- [ ] 우선순위 변경 시 데이터 흐름 통합 테스트 (Phase 2.1.5 참조)
 - [ ] `idf.py build` 성공
+
+**현재 구현 상태** (Phase 2.1.2.3 완료):
+- [x] UART Priority 6 생성 완료
+- [x] HID Priority 7 생성 완료 (우선순위 재검토 필요)
+- [ ] 우선순위 최종 결정 및 확정 필요
 
 ---
 
@@ -715,16 +768,21 @@ updated: "2025-10-27"
 - `.cursor/rules/tinyusb-debugging.mdc` - TinyUSB 빌드 오류, 런타임 문제 디버깅 가이드
 
 **검증**:
-- [] `idf.py build` 성공 (메시지: "BUILD SUCCESSFUL")
-- [] `build/BridgeOne.bin` 파일 생성됨
-- [] 플래싱 성공 ("Hash of data verified" 메시지 표시)
-- [] 시리얼 모니터에서 "TinyUSB initialized" 또는 "USB initialized" 메시지 확인
-- [] 시리얼 모니터에서 "UART task started" 메시지 확인
-- [] 시리얼 모니터에서 "HID task started" 메시지 확인
-- [] 시리얼 모니터에서 "USB task started" 메시지 확인
-- [] Windows Device Manager에서 "USB Input Device" 2개 확인 (Keyboard, Mouse)
-- [] 드라이버 오류 없음 (노란색 느낌표 미표시)
-- [] PowerShell 명령 실행: `Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table FriendlyName, Status, DeviceID`로 2개 디바이스 확인 (Status: OK)
+- [ ] `idf.py build` 성공 (메시지: "BUILD SUCCESSFUL")
+- [ ] `build/BridgeOne.bin` 파일 생성됨
+- [ ] 플래싱 성공 ("Hash of data verified" 메시지 표시)
+- [ ] 시리얼 모니터에서 "TinyUSB initialized" 또는 "USB initialized" 메시지 확인
+- [ ] 시리얼 모니터에서 "UART task started" 메시지 확인
+- [ ] 시리얼 모니터에서 "HID task started (waiting for frames from UART queue)" 메시지 확인
+- [ ] 시리얼 모니터에서 "USB task started" 메시지 확인
+- [ ] Windows Device Manager에서 "USB Input Device" 2개 확인 (Keyboard, Mouse)
+- [ ] 드라이버 오류 없음 (노란색 느낌표 미표시)
+- [ ] PowerShell 명령 실행: `Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table FriendlyName, Status, DeviceID`로 2개 디바이스 확인 (Status: OK)
+
+**⚠️ Phase 2.1.2.3 구현 후 추가 검증 항목**:
+- [ ] 시리얼 모니터에서 "Keyboard report sent:" 또는 "Mouse report sent:" 로그 확인 (DEBUG 레벨 로깅)
+- [ ] 프레임 수신 시 "Frame received from queue: seq=..." 로그 확인 (VERBOSE 레벨 로깅)
+- [ ] 데이터 흐름 통합 테스트: Android → ESP32 → Windows 경로 확인
 
 ---
 
