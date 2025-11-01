@@ -108,24 +108,6 @@ uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance) {
     return NULL;
 }
 
-/**
- * HID Get Report 콜백 함수
- * 
- * 호스트가 현재 HID 리포트 상태를 요청할 때 호출됨
- * 
- * 참고: 이는 hid_handler.c에서 구현됩니다.
- */
-// 함수 구현은 hid_handler.c로 이동됨
-
-/**
- * HID Set Report 콜백 함수
- * 
- * 호스트가 HID 디바이스의 상태를 설정할 때 호출됨 (예: LED)
- * 
- * 참고: 이는 hid_handler.c에서 구현됩니다.
- */
-// 함수 구현은 hid_handler.c로 이동됨
-
 // ==================== 3. Configuration Descriptor ====================
 /**
  * Configuration Descriptor 배열

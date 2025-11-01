@@ -173,45 +173,6 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
 
 // ==================== HID 헬퍼 함수 ====================
 
-/**
- * @brief HID 리포트 상태 업데이트 (스켈레톤)
- * 
- * UART에서 수신한 데이터를 기반으로 Keyboard/Mouse 리포트 상태를 업데이트합니다.
- * 이 함수는 Phase 2.1.2에서 UART 통신 로직이 완성된 후 구현될 예정입니다.
- * 
- * @param frame_data: UART로부터 수신한 8바이트 프레임 데이터
- *                   - [0] seq: 시퀀스 번호
- *                   - [1] buttons: 마우스 버튼 상태
- *                   - [2] x: X축 이동값 (signed)
- *                   - [3] y: Y축 이동값 (signed)
- *                   - [4] wheel: 휠 스크롤값 (signed)
- *                   - [5] modifier: 키보드 modifier 키
- *                   - [6] keycode1: 첫 번째 키코드
- *                   - [7] keycode2: 두 번째 키코드
- * 
- * 예상 동작:
- * 1. frame_data 파싱
- * 2. g_last_kb_report 업데이트 (modifier, keycode)
- * 3. g_last_mouse_report 업데이트 (buttons, x, y, wheel)
- * 4. tud_hid_n_report()를 통해 호스트로 전송 (Phase 2.1.2)
- * 
- * @note 이 함수는 Phase 2.1.2에서 구현됩니다. 현재는 스켈레톤만 제공.
- */
-void hid_update_report_state(uint8_t* frame_data) {
-    if (frame_data == NULL) {
-        ESP_LOGW(TAG, "hid_update_report_state: frame_data is NULL");
-        return;
-    }
-
-    // Phase 2.1.2에서 구현될 예정
-    // 1. Keyboard 리포트 업데이트
-    // 2. Mouse 리포트 업데이트
-    // 3. tud_hid_n_report()를 통해 전송
-    
-    ESP_LOGV(TAG, "hid_update_report_state: frame_data[0]=0x%02x (seq=%d)",
-             frame_data[0], frame_data[0]);
-}
-
 // ==================== HID 리포트 전송 함수 ====================
 
 /**

@@ -376,7 +376,7 @@ updated: "2025-10-27"
   - `CFG_TUD_HID_EP_BUFSIZE = 64` (HID 리포트 버퍼)
   - `CFG_TUSB_OS = OPT_OS_FREERTOS` (FreeRTOS 통합)
   - 기타 UART, CDC 설정 (선택적)
-- **TinyUSB 의존성 추가**: Phase 2.1.1.1에서 `managed_components/espressif__tinyusb/CMakeLists.txt`에 `main` 컴포넌트가 `PRIV_REQUIRES`에 추가되어야 함
+- **TinyUSB 의존성 추가**: Phase 2.1.1.1에서 `managed_components/espressif__tinyusb/CMakeLists.txt`에 `main` 컴포넌트를 `PRIV_REQUIRES`에 추가되어야 함
 - **BridgeFrame 구조체의 의존성**: UART 수신 태스크(Phase 2.1.2.2)에서 이 구조체를 사용하므로, 정확한 8바이트 크기 정의 필수
 
 **⚠️ Phase 2.1.1.3 변경사항 영향**:
@@ -599,17 +599,57 @@ updated: "2025-10-27"
 - `.cursor/rules/tinyusb-architecture.mdc` - 모듈 책임 분리 및 아키텍처 설계 원칙
 
 **검증**:
-- [ ] `src/board/BridgeOne/main/usb_descriptors.c` 중복 함수 제거됨
-- [ ] `src/board/BridgeOne/main/usb_descriptors.h` 중복 선언 제거됨
-- [ ] `src/board/BridgeOne/main/hid_handler.c` 통합 구현 완료
-- [ ] `src/board/BridgeOne/main/hid_handler.h` 모든 함수 선언 추가됨
-- [ ] `src/board/BridgeOne/main/uart_handler.h` frame_queue extern 선언 추가됨
-- [ ] `src/board/BridgeOne/main/uart_handler.c` 중복 선언 제거됨
-- [ ] HID 인터페이스 번호 상수 통합됨 (ITF_NUM_HID_KEYBOARD, ITF_NUM_HID_MOUSE)
-- [ ] 누락된 헤더 파일 추가됨 (<string.h>, class/hid/hid.h)
-- [ ] Linter 오류 없음 (모든 .c/.h 파일 검증)
-- [ ] 모듈 책임 분리 명확화 (각 모듈의 역할 문서화)
-- [ ] `idf.py build` 성공
+- [x] `src/board/BridgeOne/main/usb_descriptors.c` 중복 함수 제거됨
+- [x] `src/board/BridgeOne/main/usb_descriptors.h` 중복 선언 제거됨
+- [x] `src/board/BridgeOne/main/hid_handler.c` 통합 구현 완료
+- [x] `src/board/BridgeOne/main/hid_handler.h` 모든 함수 선언 추가됨
+- [x] `src/board/BridgeOne/main/uart_handler.h` frame_queue extern 선언 추가됨
+- [x] `src/board/BridgeOne/main/uart_handler.c` 중복 선언 제거됨
+- [x] HID 인터페이스 번호 상수 통합됨 (ITF_NUM_HID_KEYBOARD, ITF_NUM_HID_MOUSE)
+- [x] 누락된 헤더 파일 추가됨 (<string.h>, class/hid/hid.h)
+- [x] Linter 오류 없음 (모든 .c/.h 파일 검증)
+- [x] 모듈 책임 분리 명확화 (각 모듈의 역할 문서화)
+- [x] `idf.py build` 성공
+
+**변경 분석 - 계획과 다르게 구현된 부분**:
+
+1. **`hid_update_report_state()` 함수 처리**
+   - 계획: `hid_update_report_state()`, `hid_get_keyboard_led_status()` 함수 "통합"
+   - 실제: `hid_update_report_state()` 함수 제거, `hid_get_keyboard_led_status()` 유지
+   - 변경 이유:
+     - `hid_update_report_state()`는 선언만 있고 실제 동작을 수행하지 않음 (Phase 2.1.2에서 스켈레톤 함수로 남겨짐)
+     - `processBridgeFrame()` 함수가 모든 기능을 이미 처리하고 있어 중복
+     - `hid_get_keyboard_led_status()`는 호스트 LED 상태 조회에 필요한 기능이므로 유지
+     - 결과: 더 간결한 API, 코드 중복 제거
+
+2. **Legacy 호환성 별칭(alias) 미정의**
+   - 계획: `INTERFACE_HID_KB` → `ITF_NUM_HID_KEYBOARD` 로 이름 통일하고 Legacy 호환성 위해 별칭 정의
+   - 실제: 별칭 정의 없이 `ITF_NUM_HID_KEYBOARD`, `ITF_NUM_HID_MOUSE` 상수만 사용
+   - 변경 이유:
+     - Phase 2.1.2.3에서 이미 모든 파일이 `ITF_NUM_HID_*` 상수를 사용하고 있음
+     - Legacy 코드가 없어서 별칭이 불필요함
+     - 불필요한 복잡성 제거로 코드 가독성 향상
+
+**후속 Phase 영향 분석**:
+- Phase 2.1.4 (FreeRTOS 태스크 구조): 변경 없음 (이미 hid_handler.h의 hid_task() 함수 사용)
+- Phase 2.1.5 (로깅 및 디버깅): 변경 없음 (로깅은 각 모듈에서 이미 구현됨)
+- Phase 2.1.6 (에러 처리 및 복구): 변경 없음 (에러 처리 로직은 독립적)
+- Phase 2.1.7 (성능 최적화): 긍정적 영향 (코드 중복 제거로 메모리 사용 감소)
+
+**📊 Phase 2.1 전체 누적 변경사항 정리 (2.1.1.1 ~ 2.1.3)**:
+
+| Phase | 변경사항 | 변경 유형 | 영향 범위 |
+|-------|---------|---------|---------|
+| 2.1.1.1 | TinyUSB 디스크립터 설정, Report ID 선택, VID/PID 정의 | 설계 결정 | Phase 2+ 전체 |
+| 2.1.2.1 | UART 초기화를 app_main()에서 수행 | 아키텍처 | Phase 2.1.2.2+ |
+| 2.1.2.1 | CMakeLists.txt에 uart_handler.c 추가, TinyUSB PRIV_REQUIRES에 main 추가 | 빌드 시스템 | 향후 컴포넌트 |
+| 2.1.2.2 | frame_queue를 app_main() "1.6"에서 xQueueCreate()로 생성 | 초기화 순서 | Phase 2.1.2.3+ |
+| 2.1.2.3 | Report ID: Keyboard=1, Mouse=2 명시적 설정 | 구현 세부사항 | Phase 2.1.6+ 호스트 호환성 |
+| 2.1.2.3 | HID Priority 7, UART Priority 6 (Core 0) | 우선순위 설정 | Phase 2.1.4.2 재검토 제안 |
+| 2.1.2.3 | sendKeyboardReport/sendMouseReport에서 memcpy()로 상태 저장 | GET_REPORT 지원 | BIOS/UEFI 호환성 |
+| 2.1.2.3 | 조건부 리포트 전송 (모든 필드 0일 때 미전송) | 최적화 | USB 대역폭 효율 |
+| 2.1.3 | hid_update_report_state() 함수 제거 | 중복 제거 | 메모리 감소 |
+| 2.1.3 | Legacy 별칭 미정의 (ITF_NUM_HID_* 상수만 사용) | 단순화 | 코드 가독성 향상 |
 
 ---
 

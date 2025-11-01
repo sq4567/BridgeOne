@@ -100,21 +100,6 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
 // ==================== HID 헬퍼 함수 선언 ====================
 
 /**
- * @brief HID 리포트 상태 업데이트
- * 
- * UART에서 수신한 데이터를 기반으로 Keyboard/Mouse 리포트 상태를 업데이트
- * 
- * 역할:
- * - UART 수신 프레임 파싱
- * - Keyboard 리포트 생성 (modifiers, keyCodes)
- * - Mouse 리포트 생성 (buttons, deltaX, deltaY, wheel)
- * - 업데이트된 리포트를 저장
- * 
- * @note Phase 2.1.2에서 구현될 예정 (UART 통신 후)
- */
-void hid_update_report_state(uint8_t* frame_data);
-
-/**
  * @brief HID 태스크 - BridgeFrame을 HID 리포트로 변환하여 전송
  * 
  * FreeRTOS 큐에서 검증된 프레임을 수신하고, 이를 HID Keyboard/Mouse 리포트로
