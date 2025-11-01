@@ -149,6 +149,9 @@ static bool validateBridgeFrame(const bridge_frame_t* frame) {
  * @param param 미사용
  */
 void uart_task(void* param) {
+    // 이 태스크를 Task WDT에 등록 (NULL = 현재 태스크)
+    esp_task_wdt_add(NULL);
+    
     // 예상되는 다음 시퀀스 번호 (0부터 시작)
     static uint8_t expected_seq = 0;
     

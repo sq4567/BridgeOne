@@ -366,6 +366,9 @@ void processBridgeFrame(const bridge_frame_t* frame) {
  * - .cursor/rules/tinyusb-freertos-integration.mdc: FreeRTOS + TinyUSB 통합 패턴
  */
 void hid_task(void* param) {
+    // 이 태스크를 Task WDT에 등록 (NULL = 현재 태스크)
+    esp_task_wdt_add(NULL);
+    
     (void)param;  // 미사용 파라미터 경고 제거
     
     ESP_LOGI(TAG, "HID task started (waiting for frames from UART queue)");

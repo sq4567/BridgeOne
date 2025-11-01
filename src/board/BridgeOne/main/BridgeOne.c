@@ -24,15 +24,25 @@ static const char* TAG = "BridgeOne";
 void usb_task(void* param) {
     ESP_LOGI(TAG, "USB task started");
     
+    // USB 태스크 루프 카운터 (디버깅용)
+    uint32_t loop_count = 0;
+    
     while (1) {
+        loop_count++;
+        
+        // 100회 루프마다 디버깅 로그 출력
+        if (loop_count % 100 == 0) {
+            ESP_LOGI(TAG, "USB task running (loop_count=%u)", loop_count);
+        }
+        
         // TinyUSB 스택 처리 (호스트로부터의 제어 전송, 데이터 이벤트 처리)
         tud_task();
         
         // 워치독 리셋 (무한 루프 방지)
         esp_task_wdt_reset();
         
-        // 2ms 주기로 반복
-        vTaskDelay(pdMS_TO_TICKS(2));
+        // 1ms 주기로 반복 (가속화: 2ms → 1ms)
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -56,23 +66,20 @@ void usb_task(void* param) {
 void app_main(void) {
     ESP_LOGI(TAG, "BridgeOne Board - USB Composite Device Initialization");
     
-    // TinyUSB 디바이스 스택 초기화
-    tusb_init();
-    
     // ==================== 1. TinyUSB 디바이스 스택 초기화 ====================
-    // RHPORT: USB OTG 포트 지정 (ESP32-S3는 RHPORT 0만 지원)
+    // tusb_init(): TinyUSB 전체 초기화 (RHPORT 0 자동 설정)
     // 이 함수가 호출되면:
     // - Device Descriptor 콜백: tud_descriptor_device_cb()
     // - Configuration Descriptor 콜백: tud_descriptor_configuration_cb()
     // - HID Report Descriptor 콜백: tud_hid_descriptor_report_cb()
     // - String Descriptor 콜백: tud_descriptor_string_cb()
     // 등이 호스트의 디바이스 열거 요청에 응답
-    esp_err_t ret = tud_init(0);  // RHPORT 0: ESP32-S3의 USB-OTG 포트
+    esp_err_t ret = tusb_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "TinyUSB initialization failed: %s", esp_err_to_name(ret));
         return;
     }
-    ESP_LOGI(TAG, "TinyUSB device stack initialized (RHPORT=0)");
+    ESP_LOGI(TAG, "TinyUSB device stack initialized");
     
     // ==================== 1.5. UART 통신 초기화 ====================
     // Android와의 UART 통신을 위해 UART 드라이버 초기화
@@ -106,6 +113,11 @@ void app_main(void) {
              EPNUM_HID_KB, EPNUM_HID_MOUSE, EPNUM_CDC_NOTIF, EPNUM_CDC_OUT, EPNUM_CDC_IN);
     
     // ==================== 3. FreeRTOS 태스크 생성 ====================
+    // 태스크 핸들 선언 (워치독 등록용)
+    TaskHandle_t uart_task_handle = NULL;
+    TaskHandle_t hid_task_handle = NULL;
+    TaskHandle_t usb_task_handle = NULL;
+    
     // UART 수신 태스크: Android로부터 마우스/키보드 입력 수신
     // - 우선순위 6: USB 태스크(5)보다 높음 (실시간 통신 우선)
     // - Core 0에서 실행: 통신 처리 전담
@@ -116,7 +128,7 @@ void app_main(void) {
         3072,               // 스택 크기 (bytes)
         NULL,               // 매개변수
         6,                  // 우선순위 (USB 태스크보다 높음)
-        NULL,               // 생성된 태스크 핸들 (미사용)
+        &uart_task_handle,  // 태스크 핸들 저장
         0                   // Core 0에서 실행
     );
     
@@ -136,7 +148,7 @@ void app_main(void) {
         3072,               // 스택 크기 (bytes)
         NULL,               // 매개변수
         5,                  // 우선순위 (UART보다는 낮음, USB보다는 높음)
-        NULL,               // 생성된 태스크 핸들 (미사용)
+        &hid_task_handle,   // 태스크 핸들 저장
         0                   // Core 0에서 실행
     );
     
@@ -156,7 +168,7 @@ void app_main(void) {
         4096,               // 스택 크기 (bytes)
         NULL,               // 매개변수
         4,                  // 우선순위
-        NULL,               // 생성된 태스크 핸들 (미사용)
+        &usb_task_handle,   // 태스크 핸들 저장
         1                   // Core 1에서 실행
     );
     
