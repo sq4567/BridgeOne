@@ -1052,13 +1052,13 @@ updated: "2025-11-01"
 5. 기본 데이터 멤버 선언
 
 **검증**:
-- [ ] `gradle/libs.versions.toml`에 `usb-serial-for-android = "3.7.3"` 추가
-- [ ] `app/build.gradle.kts`에 `libs.usb.serial.for.android` 의존성 추가됨
-- [ ] Gradle 동기화 성공 (라이브러리 다운로드 완료)
-- [ ] `src/android/app/src/main/java/com/bridgeone/app/usb/` 디렉터리 생성됨
-- [ ] `UsbSerialManager.kt` 파일 생성됨 (object 싱글톤)
-- [ ] UsbManager, UsbSerialPort, isConnected 멤버 변수 선언됨
-- [ ] Gradle 빌드 성공
+- [x] `gradle/libs.versions.toml`에 `usb-serial-for-android = "3.7.3"` 추가
+- [x] `app/build.gradle.kts`에 `libs.usb.serial.for.android` 의존성 추가됨
+- [x] Gradle 동기화 성공 (라이브러리 다운로드 완료)
+- [x] `src/android/app/src/main/java/com/bridgeone/app/usb/` 디렉터리 생성됨
+- [x] `UsbSerialManager.kt` 파일 생성됨 (object 싱글톤)
+- [x] UsbManager, UsbSerialPort, isConnected 멤버 변수 선언됨
+- [x] Gradle 빌드 성공
 
 ---
 
