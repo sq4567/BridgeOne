@@ -6,6 +6,7 @@
 #include "usb_descriptors.h"
 #include "uart_handler.h"
 #include "hid_handler.h"  // hid_task 함수 선언
+#include "esp_task_wdt.h"
 
 static const char* TAG = "BridgeOne";
 
@@ -26,6 +27,9 @@ void usb_task(void* param) {
     while (1) {
         // TinyUSB 스택 처리 (호스트로부터의 제어 전송, 데이터 이벤트 처리)
         tud_task();
+        
+        // 워치독 리셋 (무한 루프 방지)
+        esp_task_wdt_reset();
         
         // 2ms 주기로 반복
         vTaskDelay(pdMS_TO_TICKS(2));

@@ -21,6 +21,7 @@
 #include "class/hid/hid.h"
 #include "hid_handler.h"
 #include "usb_descriptors.h"
+#include "esp_task_wdt.h"
 
 // ==================== 로깅 설정 ====================
 static const char* TAG = "HID_HANDLER";
@@ -389,6 +390,9 @@ void hid_task(void* param) {
             // 2. 검증된 프레임 처리: Keyboard/Mouse 리포트 생성 및 전송
             processBridgeFrame(&frame_buffer);
             
+            // 워치독 리셋 (무한 루프 방지)
+            esp_task_wdt_reset();
+            
             // 디버그 로그: 큐에서 수신한 프레임
             ESP_LOGV(TAG, "Frame received from queue: seq=%d, "
                      "buttons=0x%02x, x=%d, y=%d, wheel=%d, "
@@ -399,6 +403,9 @@ void hid_task(void* param) {
         } 
         else {
             // 타임아웃 (정상 상황): 100ms 동안 프레임이 없음
+            // 워치독 리셋 (무한 루프 방지)
+            esp_task_wdt_reset();
+            
             // 다시 대기 (loop 계속)
             ESP_LOGV(TAG, "HID task: queue receive timeout (no frame for 100ms)");
         }
