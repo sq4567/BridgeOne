@@ -187,14 +187,54 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 **참조**: Phase 2.2.1.1에서 `BridgeFrame.toByteArray()` 및 `default()` 팩토리 함수가 이미 구현되었으므로 FrameBuilder는 순번 관리와 프레임 빌딩에만 집중
 
 **검증**:
-- [ ] `FrameBuilder.kt` 파일 생성됨
-- [ ] object 싱글톤으로 구현
-- [ ] 순번 카운터 변수 (volatile 또는 AtomicInteger 사용)
-- [ ] `buildFrame(buttons, deltaX, deltaY, wheel, modifiers, keyCode1, keyCode2): BridgeFrame` 메서드 구현
-- [ ] 시퀀스 번호 자동 증가 (0~255 순환)
-- [ ] 순번 순환 검증: seq 255 → 0으로 전환
-- [ ] 스레드 안전성 확보 (동시 호출 시에도 순번 중복 없음)
-- [ ] Gradle 빌드 성공
+- [x] `FrameBuilder.kt` 파일 생성됨
+- [x] object 싱글톤으로 구현
+- [x] 순번 카운터 변수 (volatile 또는 AtomicInteger 사용)
+- [x] `buildFrame(buttons, deltaX, deltaY, wheel, modifiers, keyCode1, keyCode2): BridgeFrame` 메서드 구현
+- [x] 시퀀스 번호 자동 증가 (0~255 순환)
+- [x] 순번 순환 검증: seq 255 → 0으로 전환
+- [x] 스레드 안전성 확보 (동시 호출 시에도 순번 중복 없음)
+- [x] Gradle 빌드 성공
+
+#### 🔄 Phase 2.2.1.2 변경사항 분석
+
+**기존 계획 대비 추가 구현 사항**:
+
+1. **`getNextSequence()` private 메서드 추가**
+   - 변경: 순환 로직을 별도 메서드로 캡슐화
+   - 이유: 원자적 카운터 증가 후 범위 검증 로직의 책임 분리, 코드 가독성 및 재사용성 향상
+   - 구현: `getAndIncrement()` 후 256 도달 시 0으로 리셋, 모듈로 연산(`% 256`)으로 추가 안전성 보장
+
+2. **`resetSequence()` 헬퍼 메서드 추가**
+   - 변경: 테스트/디버깅 목적의 초기화 함수 제공
+   - 이유: Phase 2.2.1.3 단위 테스트에서 테스트 케이스 간 순번 카운터 초기화 필요 (순번 순환 검증 시)
+   - 용도: `FrameBuilderTest.kt`에서 `resetSequence()` 호출 후 순번 0부터 재시작하여 반복 검증 가능
+   - 프로덕션 영향: 없음 (테스트 전용 메서드, 앱 실행 중 호출 불필요)
+
+3. **`getCurrentSequence()` 디버깅 메서드 추가**
+   - 변경: 현재 카운터 상태 조회 함수 제공
+   - 이유: 테스트 검증 및 로그 디버깅 시 다음 시퀀스 번호 확인 필요
+   - 용도: `FrameBuilderTest.kt`의 "다중 스레드 안전성 검증" 테스트에서 예상 값 비교, 디버그 로그 출력
+   - 반환값: `Int` (AtomicInteger의 내부 값, 범위 0~255)
+
+**기술 선택 근거**:
+
+| 항목 | 선택사항 | 이유 |
+|------|---------|------|
+| 순번 관리 | AtomicInteger | volatile보다 강력한 원자성 보장, `getAndIncrement()` 원자적 연산 제공, 스레드 안전성 검증 용이 |
+| 순환 로직 | 256 도달 시 0으로 리셋 + 모듈로 연산 | 이중 검증으로 예외 상황 방지, 넓은 범위의 테스트 커버리지 확보 가능 |
+| 캡슐화 | private 헬퍼 메서드 | 내부 구현 세부사항 숨김, 공개 API 단순화 |
+
+**후속 Phase 영향도 분석**:
+
+| Phase | 기존 계획 | 변경 후 | 조치 사항 |
+|-------|---------|--------|---------|
+| **2.2.1.3** | 테스트에서 직접 카운터 접근 | `resetSequence()`, `getCurrentSequence()` 사용 | ✅ 테스트 코드 단순화, 순번 검증 용이 |
+| **2.2.2.4** | 동일 (변경 없음) | 동일 (변경 없음) | ✅ 무영향 (public API 동일) |
+| **2.2.3+** | 프레임 생성 시 상수 조회 | 동일 (변경 없음) | ✅ 무영향 (프레임 생성 로직 동일) |
+| **전체 앱** | 프로덕션 로그 출력 불가 | 동일 (변경 없음) | ✅ 무영향 (디버깅 메서드는 테스트 전용) |
+
+**결론**: 추가 구현된 메서드들은 **테스트 및 디버깅 효율성을 향상**시키며, 공개 API(`buildFrame()`)는 변경 없으므로 후속 Phase는 **영향 없음**. 각 Phase에서 이 메서드들을 활용하도록 문서 업데이트 필요.
 
 ---
 
@@ -215,10 +255,10 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - [ ] 테스트 케이스: toByteArray() 바이트 순서 정확성
 - [ ] 테스트 케이스: BridgeFrame.default() 기본값 확인 (모든 필드 0)
 - [ ] 테스트 케이스: 헬퍼 함수 동작 검증
-  - [x] isLeftClickPressed() → buttons & BUTTON_LEFT_MASK 일치
-  - [x] isRightClickPressed() → buttons & BUTTON_RIGHT_MASK 일치
-  - [x] isCtrlModifierActive() → modifiers & MODIFIER_LEFT_CTRL_MASK 일치
-  - [x] isShiftModifierActive() → modifiers & MODIFIER_LEFT_SHIFT_MASK 일치
+  - [ ] isLeftClickPressed() → buttons & BUTTON_LEFT_MASK 일치
+  - [ ] isRightClickPressed() → buttons & BUTTON_RIGHT_MASK 일치
+  - [ ] isCtrlModifierActive() → modifiers & MODIFIER_LEFT_CTRL_MASK 일치
+  - [ ] isShiftModifierActive() → modifiers & MODIFIER_LEFT_SHIFT_MASK 일치
 - [ ] 테스트 케이스: 값 범위 검증 (UByte: 0~255, Byte: -128~127)
 - [ ] `FrameBuilderTest.kt` 파일 생성됨
 - [ ] 테스트 케이스: buildFrame() 호출 시 seq 자동 증가 (0, 1, 2, ...)
@@ -226,6 +266,45 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - [ ] 테스트 케이스: 다중 스레드 환경에서 순번 중복 없음
 - [ ] 모든 테스트 통과
 - [ ] Gradle 빌드 성공
+
+#### Phase 2.2.1.3 업데이트 사항 (Phase 2.2.1.2 변경에 따른 조치)
+
+**새 테스트 케이스 추가**:
+
+1. **테스트 케이스: `resetSequence()` 활용 (순번 초기화 검증)**
+   ```kotlin
+   @Test
+   fun testResetSequence() {
+       // Given: 여러 번 buildFrame() 호출하여 카운터 증가
+       repeat(5) { FrameBuilder.buildFrame(...) }
+       
+       // When: resetSequence() 호출
+       FrameBuilder.resetSequence()
+       
+       // Then: 다음 buildFrame()의 seq가 0부터 시작
+       val frame = FrameBuilder.buildFrame(...)
+       assertEquals(0, frame.seq.toInt())
+   }
+   ```
+   - 목적: Phase 2.2.1.3 각 테스트 케이스 간 순번 카운터 초기화 확보
+   - 용도: 순번 순환 검증 반복 테스트 시 필수
+
+2. **테스트 케이스: `getCurrentSequence()` 활용 (카운터 상태 확인)**
+   ```kotlin
+   @Test
+   fun testGetCurrentSequence() {
+       // Given: resetSequence() 호출 후 초기 상태
+       FrameBuilder.resetSequence()
+       
+       // When: 몇 번 buildFrame() 호출
+       repeat(3) { FrameBuilder.buildFrame(...) }
+       
+       // Then: getCurrentSequence()의 반환값이 예상값과 일치
+       assertEquals(3, FrameBuilder.getCurrentSequence())
+   }
+   ```
+   - 목적: 현재 카운터 상태 조회 검증
+   - 용도: 디버그 로그 출력, 다중 스레드 테스트에서 경쟁 상태 감지
 
 ---
 
@@ -455,6 +534,22 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 
 ---
 
+#### Phase 2.2.2.4 업데이트 사항 (Phase 2.2.1.2 변경에 따른 조치)
+
+**FrameBuilder와의 통합**:
+
+Phase 2.2.1.2에서 구현된 `FrameBuilder.buildFrame()` 메서드는 `sendFrame()` 구현 시 활용되지 않습니다. 이유는:
+- `sendFrame(frame: BridgeFrame)` 함수는 **이미 생성된 프레임을 전송**하는 역할
+- 프레임 생성은 **Phase 2.2.3 (터치 입력 처리)에서 수행**
+- Phase 2.2.2.4는 USB Serial 통신 계층의 프레임 **직렬화 및 전송**에만 집중
+
+**후속 Phase 통합 시점**:
+- Phase 2.2.3.1에서 TouchpadWrapper 터치 이벤트 발생 시 `FrameBuilder.buildFrame()`으로 프레임 생성
+- 생성된 프레임을 `UsbSerialManager.sendFrame()`로 전송
+- 데이터 흐름: 터치 입력 → `FrameBuilder.buildFrame()` → `UsbSerialManager.sendFrame()` → UART 전송
+
+---
+
 ## Phase 2.2.3: Android 터치 입력 처리 (TouchpadWrapper)
 
 **목표**: 터치 이벤트를 8바이트 프레임으로 변환하는 로직 구현
@@ -543,23 +638,64 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 5. `sendFrame()` 함수 (비동기 처리)
 6. 상태 초기화
 
+**참조**: Phase 2.2.1.2에서 `FrameBuilder.buildFrame()`이 구현되었음 - 프레임 생성 시 직접 활용
+
 **검증**:
 - [ ] `detectClick()` 함수 구현됨
-- [ ] CLICK_MAX_DURATION = 500ms 정의됨
-- [ ] CLICK_MAX_MOVEMENT = 15dp 정의됨
-- [ ] 터치 시작 시간 기록
-- [ ] 경과시간 및 이동거리 계산
-- [ ] 클릭 판정 로직 정확 (시간 AND 거리)
+- [ ] CLICK_MAX_DURATION = 500ms 상수 정의됨
+- [ ] CLICK_MAX_MOVEMENT = 15dp 상수 정의됨
+- [ ] 클릭 판정 로직 정확 (누르는 시간 < 500ms && 움직임 < 15dp)
 - [ ] `getButtonState()` 함수 구현됨
-- [ ] LEFT_CLICK 버튼 상태 처리: BridgeFrame.BUTTON_LEFT_MASK 사용 (0x01 매직 넘버 제거)
+- [ ] LEFT_CLICK(클릭), RIGHT_CLICK(롱터치), MIDDLE_CLICK(더블터치) 반환
 - [ ] `createFrame()` 함수 구현됨
-- [ ] FrameBuilder 연동
-- [ ] `sendFrame()` 함수 구현됨 (LaunchedEffect 또는 viewModelScope)
-- [ ] UsbSerialManager.sendFrame() 호출
-- [ ] 예외 처리 및 로그
-- [ ] 상태 초기화 로직
-- [ ] Compose Preview 렌더링 확인
+- [ ] `FrameBuilder.buildFrame()` 호출로 프레임 생성 (시퀀스 번호 자동 할당)
+- [ ] 프레임에 buttons, deltaX, deltaY, wheel 값 포함
+- [ ] `sendFrame()` 함수 구현됨 (viewModelScope.launch() 또는 LaunchedEffect)
+- [ ] `UsbSerialManager.sendFrame(frame)` 호출로 UART 전송
+- [ ] 전송 실패 시 에러 로그 및 예외 처리
+- [ ] 상태 초기화 로직 (터치 완료 후 초기화)
 - [ ] Gradle 빌드 성공
+
+---
+
+#### Phase 2.2.3.3 업데이트 사항 (Phase 2.2.1.2 변경에 따른 조치)
+
+**`createFrame()` 구현 패턴**:
+
+```kotlin
+private fun createFrame(): BridgeFrame {
+    // FrameBuilder.buildFrame()를 호출하여 자동으로 시퀀스 번호 할당
+    return FrameBuilder.buildFrame(
+        buttons = getButtonState(),      // 클릭 상태 (0x00~0x07)
+        deltaX = calculateDelta().x.toInt().toByteValue(),
+        deltaY = calculateDelta().y.toInt().toByteValue(),
+        wheel = 0,                       // Boot 모드에서는 0
+        modifiers = 0u,                  // Phase 2.2.4에서 키보드 입력 추가
+        keyCode1 = 0u,
+        keyCode2 = 0u
+    )
+}
+
+private fun sendFrame() {
+    viewModelScope.launch {
+        try {
+            val frame = createFrame()
+            UsbSerialManager.sendFrame(frame)
+        } catch (e: Exception) {
+            Log.e("TouchpadWrapper", "Failed to send frame", e)
+        }
+    }
+}
+```
+
+**FrameBuilder의 역할**:
+- 터치 이벤트 발생 시마다 `FrameBuilder.buildFrame()`으로 프레임 생성
+- 매 호출마다 시퀀스 번호가 **자동으로 0~255 순환하며 증가**
+- ESP32-S3 UART 수신 측에서 순번 검증으로 **패킷 유실 감지 가능**
+
+**스레드 안전성**:
+- `FrameBuilder` 싱글톤은 AtomicInteger 사용으로 멀티 스레드 환경 안전
+- Compose Recomposition 중에도 동시 호출되는 경우 순번 중복 방지
 
 ---
 
@@ -941,3 +1077,34 @@ Phase 2.2 (Android → ESP32-S3 UART 통신)를 완료한 후 다음을 확인�
    - 실제 Android 디바이스에 앱 설치 및 테스트
    - USB-C 케이블 확인 (데이터 전송 지원)
    - 권한 획득 동작 확인
+
+---
+
+#### 📊 Phase 2.2.1.2 변경사항 전체 요약
+
+**FrameBuilder 구현 완료**:
+- ✅ AtomicInteger를 이용한 스레드 안전 순번 관리
+- ✅ 0~255 순환 로직 (256 도달 시 0으로 리셋 + 모듈로 연산)
+- ✅ `buildFrame()` public API (프레임 생성 및 시퀀스 할당)
+- ✅ `resetSequence()` 테스트용 헬퍼 메서드
+- ✅ `getCurrentSequence()` 디버깅용 메서드
+- ✅ Gradle 빌드 성공
+
+**후속 Phase 영향도 및 조치**:
+
+| 섹션 | 변경 내용 | 상태 |
+|------|---------|------|
+| **Phase 2.2.1.3** | 테스트 케이스 추가 (`resetSequence()`, `getCurrentSequence()` 활용) | ✅ 완료 |
+| **Phase 2.2.2.4** | 후속 Phase와의 통합 관계 명시 | ✅ 완료 |
+| **Phase 2.2.3.3** | `createFrame()` 구현 패턴 및 FrameBuilder 역할 설명 | ✅ 완료 |
+
+**개발 흐름**:
+```
+TouchpadWrapper (터치 입력)
+    ↓
+FrameBuilder.buildFrame() (프레임 생성 + 시퀀스 할당)
+    ↓
+UsbSerialManager.sendFrame() (UART 직렬화 + 전송)
+    ↓
+ESP32-S3 UART 수신 (순번 검증 가능)
+```
