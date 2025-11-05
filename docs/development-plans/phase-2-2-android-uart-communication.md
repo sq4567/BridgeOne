@@ -495,15 +495,135 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - AndroidManifest.xml에 선언된 권한명과 일치해야 함
 
 **검증**:
-- [ ] `src/android/app/src/main/java/com/bridgeone/app/usb/` 디렉터리 생성됨
-- [ ] `UsbPermissionReceiver.kt` 파일 생성됨
-- [ ] BroadcastReceiver 상속 및 `onReceive()` 구현
-- [ ] `requestUsbPermission()` 함수 구현됨
-- [ ] PendingIntent 플래그 설정 (PendingIntent.FLAG_UPDATE_CURRENT 등)
-- [ ] 권한 결과 체크 (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false))
-- [ ] 로그 출력 (권한 승인/거부)
-- [ ] **권한명 일치 확인**: `android.permission.USB_DEVICE` 사용 확인
-- [ ] Gradle 빌드 성공
+- [x] `src/android/app/src/main/java/com/bridgeone/app/usb/` 디렉터리 생성됨
+- [x] `UsbPermissionReceiver.kt` 파일 생성됨
+- [x] BroadcastReceiver 상속 및 `onReceive()` 구현
+- [x] `requestUsbPermission()` 함수 구현됨
+- [x] PendingIntent 플래그 설정 (PendingIntent.FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE)
+- [x] 권한 결과 체크 (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false))
+- [x] 로그 출력 (권한 승인/거부)
+- [x] **권한명 일치 확인**: `android.permission.USB_DEVICE` 사용 확인
+- [x] Gradle 빌드 성공
+
+##### Phase 2.2.1.4.2 변경사항 분석
+
+**1. 독립적인 BroadcastReceiver 클래스 설계**
+
+**기존 계획:** 권한 요청 함수와 BroadcastReceiver를 분리하지 않거나, 통합 관리 예상
+
+**실제 구현:** 
+- `UsbPermissionReceiver` 클래스로 BroadcastReceiver 독립 구현
+- AndroidManifest.xml에 명시적 등록
+
+**변경 이유:**
+- Android Framework 아키텍처 준수 (BroadcastReceiver는 별도 컴포넌트)
+- 권한 결과를 비동기로 안전하게 처리
+- 추후 Phase 2.2.2에서 UsbSerialManager 내부 클래스로 이동 가능한 구조
+- 테스트 용이성 (단위 테스트 가능)
+
+**영향도:**
+- **Phase 2.2.2.2**: UsbPermissionReceiver를 UsbSerialManager 내부 클래스로 이동 가능
+- **테스트**: BroadcastReceiver 단위 테스트 가능 (향후 계측 테스트 작성 시 유리)
+
+**2. 별도 헬퍼 함수 추가 (requestUsbPermission, hasUsbPermission)**
+
+**기존 계획:** BroadcastReceiver만 구현하고 권한 요청 함수는 Phase 2.2.2에서 구현 예상
+
+**실제 구현:**
+- `requestUsbPermission(context, usbManager, device)` 함수 (Top-level)
+- `hasUsbPermission(context)` 함수 (Top-level)
+- `notifyPermissionResult(context, device, granted)` 함수 (Private, 내부 사용)
+
+**변경 이유:**
+- 권한 요청 로직의 재사용성 향상 (DeviceDetector, MainActivity에서 바로 호출 가능)
+- 런타임 권한 확인 함수 조기 제공 (Android 6.0+ 호환성 보장)
+- Phase 2.2.1.4.4 (DeviceDetector)에서 발견 즉시 권한 요청 가능
+
+**영향도:**
+- **Phase 2.2.1.4.4**: `requestUsbPermission()` 직접 호출 가능 (함수 재사용)
+- **Phase 2.2.2.2**: 함수 시그니처 유지 (호환성 보장)
+
+**3. API 호환성 처리 (getParcelableExtra 분기 처리)**
+
+**기존 계획:** 호환성 처리 방식 미지정
+
+**실제 구현:**
+```kotlin
+val device: UsbDevice? = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+    intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+} else {
+    @Suppress("DEPRECATION")
+    intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+}
+```
+
+**변경 이유:**
+- API 33(TIRAMISU)부터 새로운 getParcelableExtra() 시그니처 필수
+- minSdkVersion 24 유지를 위해 분기 처리 필요
+- @Suppress("DEPRECATION")로 린트 경고 제거
+
+**영향도:**
+- **minSdkVersion 유지**: API 24 기기에서도 정상 동작
+- **코드 품질**: 린트 오류 없음 (BUILD SUCCESSFUL)
+
+**4. PendingIntent 플래그 설정**
+
+**기존 계획:** PendingIntent 플래그 구체적 지정 미기재
+
+**실제 구현:**
+```kotlin
+val permissionIntent = android.app.PendingIntent.getBroadcast(
+    context,
+    device.deviceId,  // 디바이스별 고유 requestCode
+    Intent(ACTION_USB_PERMISSION).apply {
+        setPackage(context.packageName)  // 보안: 패키지 명시
+    },
+    android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+    android.app.PendingIntent.FLAG_IMMUTABLE
+)
+```
+
+**변경 이유:**
+- `FLAG_UPDATE_CURRENT`: 같은 디바이스의 중복 권한 요청 시 이전 Intent 갱신
+- `FLAG_IMMUTABLE`: Android 12+ 보안 권장사항 (Intent 수정 불가)
+- `setPackage()`: 같은 action의 다른 앱 브로드캐스트 보안 필터링
+- `requestCode = device.deviceId`: 여러 기기 동시 권한 요청 지원
+
+**영향도:**
+- **보안**: 안드로이드 보안 권장사항 준수
+- **다중 기기 지원**: 여러 USB 기기 동시 권한 요청 가능
+
+**5. notifyPermissionResult 콜백 함수 추가**
+
+**기존 계획:** 권한 결과 처리 방식 미지정
+
+**실제 구현:**
+```kotlin
+private fun notifyPermissionResult(
+    context: Context,
+    device: UsbDevice,
+    granted: Boolean
+) {
+    // 로그 출력 및 TODO: Phase 2.2.2 연동 위치 표시
+}
+```
+
+**변경 이유:**
+- 권한 결과 처리를 분리하여 로직 확장 가능
+- Phase 2.2.2에서 SharedPreferences 또는 전역 상태 저장 구조 미리 준비
+- UI 업데이트, 재시도 로직, 에러 처리 등의 확장점 제공
+
+**영향도:**
+- **Phase 2.2.2**: 권한 상태 관리 시스템 연동 시 여기서 구현
+
+**후속 Phase 영향도 분석 및 수정 사항:**
+
+| Phase | 영향 | 수정 사항 | 우선순위 |
+|-------|------|---------|--------|
+| 2.2.1.4.3 | ✗ 영향 없음 | - | - |
+| 2.2.1.4.4 | ✓ 필요 | `requestUsbPermission()` 함수 직접 호출 가능 (재사용) | 높음 |
+| 2.2.2.1 | ✗ 영향 없음 | - | - |
+| 2.2.2.2 | ✓ 필요 | UsbSerialManager와 권한 처리 통합 시 구조 호환성 보장 | 높음 |
 
 ---
 
@@ -540,12 +660,24 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 3. USB 디바이스 목록 순회 및 필터링
 4. 발견 시 권한 요청 트리거
 
+**주의사항** (Phase 2.2.1.4.2에서 변경됨):
+- **이미 구현된 함수**: Phase 2.2.1.4.2에서 `requestUsbPermission()` 함수가 이미 구현됨
+- 이 Phase에서는 `requestUsbPermission()` 함수를 **직접 호출**하면 됨 (재구현 불필요)
+- `UsbPermissionReceiver.kt`에서 제공하는 `requestUsbPermission()` 함수 시그니처:
+  ```kotlin
+  fun requestUsbPermission(
+      context: Context,
+      usbManager: UsbManager,
+      device: UsbDevice
+  )
+  ```
+
 **검증**:
 - [ ] `src/android/app/src/main/java/com/bridgeone/app/usb/DeviceDetector.kt` 생성됨
 - [ ] `findEsp32s3Device(usbManager: UsbManager): UsbDevice?` 함수 구현
 - [ ] `usbManager.deviceList` 순회
-- [ ] VID/PID 필터링 로직 정확
-- [ ] 발견 시 권한 요청 (`requestUsbPermission()` 호출)
+- [ ] VID/PID 필터링 로직 정확 (UsbConstants 사용)
+- [ ] 발견 시 권한 요청 (`requestUsbPermission()` 호출 - 기존 함수 재사용)
 - [ ] 발견되지 않으면 null 반환
 - [ ] 로그 출력 (발견/미발견 상태)
 - [ ] Gradle 빌드 성공
@@ -612,23 +744,29 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - Phase 2.2.1.4.4: 보드 자동 감지 함수 구현 ✓
 
 **세부 목표**:
-1. Phase 2.2.1.4.2의 UsbPermissionReceiver를 UsbSerialManager 내부 클래스로 이동
-2. `requestPermission(device: UsbDevice)` 함수를 UsbSerialManager에 추가 (UsbPermissionReceiver 위임)
-3. 권한 결과 콜백을 리스너 패턴으로 변환 (옵션: PermissionCallback 인터페이스)
-4. 권한 상태 확인 함수 구현 (`hasPermission(device: UsbDevice): Boolean`)
+1. Phase 2.2.1.4.2의 `requestUsbPermission()` 함수를 UsbSerialManager에서 래핑 (`requestPermission()`)
+2. Phase 2.2.1.4.2의 `hasUsbPermission()` 함수를 UsbSerialManager에서 래핑 (`hasPermission()`)
+3. UsbSerialManager에서 권한 상태 관리 추가 (SharedPreferences 또는 멤버 변수)
+4. 권한 결과 콜백 처리 로직 구현 (notifyPermissionResult() 연동)
 
-**주의사항** (Phase 2.2.1.4.1에서 변경됨):
+**주의사항** (Phase 2.2.1.4.2 통합 및 호환성):
 - **권한명 일치**: Phase 2.2.1.4.1에서 정의한 표준 권한명 **`android.permission.USB_DEVICE`를 사용**
 - 런타임 권한 확인 시: `context.checkSelfPermission("android.permission.USB_DEVICE")`
 - PendingIntent 등록 시: `usbManager.requestPermission(device, pendingIntent)` (내부적으로 권한명 자동 처리)
+- **구조 호환성** (Phase 2.2.1.4.2에서 변경됨):
+  - Phase 2.2.1.4.2에서 `UsbPermissionReceiver`가 독립 클래스로 구현됨 (이미 AndroidManifest.xml 등록)
+  - Phase 2.2.1.4.2에서 `requestUsbPermission()`, `hasUsbPermission()` 함수가 이미 구현됨
+  - 이 Phase에서는 위 함수들을 **UsbSerialManager에서 래핑 또는 위임**하면 됨
+  - 기존 UsbPermissionReceiver는 유지하면서 UsbSerialManager에서 상태 관리 추가
 
 **검증**:
-- [ ] `requestPermission(device: UsbDevice)` 함수 추가됨
-- [ ] PendingIntent 생성 및 등록
-- [ ] 권한 결과 콜백 처리 로직 구현
+- [ ] `requestPermission(device: UsbDevice)` 함수 추가됨 (Phase 2.2.1.4.2의 `requestUsbPermission()` 위임)
+- [ ] `hasPermission(device: UsbDevice): Boolean` 함수 추가됨 (Phase 2.2.1.4.2의 `hasUsbPermission()` 위임)
+- [ ] UsbSerialManager에서 권한 상태 관리 (SharedPreferences 또는 멤버 변수)
+- [ ] 권한 결과 콜백 처리 로직 구현 (notifyPermissionResult() 연동)
 - [ ] 권한 거부 시 에러 로그 및 예외 처리
-- [ ] `hasPermission(device: UsbDevice): Boolean` 함수 구현
 - [ ] **권한명 검증**: 런타임 권한 확인에서 `android.permission.USB_DEVICE` 사용 확인
+- [ ] **AndroidManifest.xml 검증**: BroadcastReceiver 이미 등록됨 (Phase 2.2.1.4.2)
 - [ ] Gradle 빌드 성공
 
 ---
