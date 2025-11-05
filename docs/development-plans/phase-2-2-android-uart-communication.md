@@ -21,7 +21,7 @@ updated: "2025-11-05"
 
 ---
 
-## Phase 2.2 배경 정보 및 선행 작업
+## 배경 정보 및 선행 작업
 
 ### Phase 2.1과의 관계
 
@@ -845,18 +845,67 @@ private fun notifyPermissionResult(
   - null 반환 시 예외 처리 및 false 반환
 
 **검증**:
-- [ ] `connect(context: Context): Boolean` 함수 추가
-  - [ ] 내부에서 `DeviceDetector.findEsp32s3Device(context)` 호출
-  - [ ] null 반환 시 예외 처리 및 false 반환
-  - [ ] 성공 시 true 반환
-- [ ] **선택적**: `disconnect()` 헬퍼 함수 추가 (closePort() 래핑)
-- [ ] **권한 상태 관리** (Phase 2.2.2.2에서 이동):
-  - [ ] `notifyPermissionResult()` 함수 업데이트 (SharedPreferences 저장)
-  - [ ] SharedPreferences 초기화 (키: `"usb_permission_status"`)
-  - [ ] 권한 승인 시: 상태 저장
-  - [ ] 권한 거부 시: 상태 초기화
-- [ ] 디바이스 미발견/권한 거부/연결 실패에 대한 상세 로그
-- [ ] Gradle 빌드 성공
+- [x] `connect(context: Context): Boolean` 함수 추가
+  - [x] 내부에서 `DeviceDetector.findEsp32s3Device(context)` 호출
+  - [x] null 반환 시 예외 처리 및 false 반환
+  - [x] 성공 시 true 반환
+- [x] **선택적**: `disconnect()` 헬퍼 함수 추가 (closePort() 래핑)
+- [x] **권한 상태 관리** (Phase 2.2.2.2에서 이동):
+  - [x] `notifyPermissionResult()` 함수 업데이트 (SharedPreferences 저장)
+  - [x] SharedPreferences 초기화 (키: `"usb_permission_status"`)
+  - [x] 권한 승인 시: 상태 저장
+  - [x] 권한 거부 시: 상태 초기화
+- [x] 디바이스 미발견/권한 거부/연결 실패에 대한 상세 로그
+- [x] Gradle 빌드 성공
+
+---
+
+**기존 계획과의 차이점 분석 및 개선사항**
+
+**기존 계획 대비 추가 구현 사항** (모두 향상된 기능):
+
+### 1. SharedPreferences 헬퍼 함수 체계화
+**기존 계획**: `notifyPermissionResult()`에서 단순 상태 저장만 수행
+**실제 구현**: 3개의 헬퍼 함수로 명확한 책임 분리
+- `savePermissionStatus()`: 권한 상태 저장
+- `getPermissionStatus()`: 권한 상태 조회
+- `clearPermissionStatus()`: 권한 상태 초기화
+
+**개선 이유**:
+- 코드 재사용성 증가 (savePermissionStatus는 notifyPermissionResult와 connect에서 사용)
+- 단일 책임 원칙 준수 (SRP)
+- 테스트 용이성 향상
+
+### 2. connect() 함수에 캐시 기반 포트 열기 로직 추가
+**기존 계획**: 권한 요청만 수행
+**실제 구현**: SharedPreferences 캐시에서 "granted" 상태 발견 시 포트 즉시 열기 시도
+
+```kotlin
+if (permissionStatus == "granted") {
+    try {
+        openPort(device)  // 사용자 재승인 불필요 → 빠른 재연결
+        return true
+    } catch (e: Exception) {
+        // 포트 열기 실패 시 권한 재요청
+        clearPermissionStatus(context)
+        requestPermission(context, device)
+        return true
+    }
+}
+```
+
+**개선 이유**:
+- 사용자 경험 개선: 이미 권한 승인 후 재연결 시 대화상자 불필요
+- 빠른 재연결: 캐시된 권한으로 즉시 포트 열기
+- 기기 신뢰성 개선: 포트 열기 실패 시 권한 재요청 (기기 재착탈 감지)
+
+### 3. 포트 열기 실패 시 권한 재요청 로직
+**기존 계획**: 명시된 바 없음
+**실제 구현**: 캐시된 권한으로 포트 열기 실패 시 권한 상태 초기화 후 재요청
+
+**상황**: USB 기기를 뺐다가 다시 꽂은 경우
+- 기존 계획: 캐시된 권한으로 포트 열기 시도 → 실패 → 연결 실패 (사용자는 수동으로 다시 실행해야 함)
+- 개선된 구현: 포트 열기 실패 시 자동으로 권한 재요청 (사용자 재조작 불필요)
 
 ---
 
@@ -926,8 +975,43 @@ Phase 2.2.1.2에서 구현된 `FrameBuilder.buildFrame()` 메서드는 `sendFram
 
 **개발 기간**: 4-5일
 
+**Phase 2.2.2.3에서 온 개선사항 (영향도 분석)**
+
+**상태**: **✅ 긍정적 영향 - 더 나은 연결 안정성과 사용자 경험**
+
+**개선 사항**:
+
+1. **`connect(context: Context)` 고수준 함수 제공**
+   - 기존: 저수준 `openPort(device)` 또는 `initializeAndConnect(context)`만 가능
+   - 개선: 단순 `UsbSerialManager.connect(context)` 호출로 연결 시작
+   - **영향**: Phase 2.2.3에서 진입점 단순화 가능
+     ```kotlin
+     // Before: 저수준 API 조합 필요
+     // After: 단순 한 줄로 연결
+     UsbSerialManager.connect(context)
+     ```
+
+2. **캐시 기반 빠른 재연결 (SharedPreferences)**
+   - 사용자가 권한을 한 번 승인하면 다음 앱 재실행 시 대화상자 없음
+   - 포트 즉시 열기 → 터치 입력 즉시 처리 가능
+   - **영향**: Phase 2.2.3에서 더 빠른 초기화 가능
+
+3. **포트 열기 실패 시 자동 권한 재요청**
+   - USB 기기 재착탈 상황 자동 대응
+   - 사용자 수동 재시도 불필요
+   - **영향**: Phase 2.2.3에서 안정성 향상 (기기 재착탈 감지)
+
+**통합 권장 사항**:
+- Phase 2.2.3의 초기화 단계에서 `UsbSerialManager.connect(context)` 사용 권장
+- `TouchpadWrapper` 렌더링 전에 연결 확인
+- 재연결 로직: `UsbSerialManager.disconnect()` → `UsbSerialManager.connect(context)`
+
 **선행 조건** (반드시 완료):
 - Phase 2.2.1: Android 프로토콜 구현 (BridgeFrame) ✓
+- Phase 2.2.2.3: 고수준 포트 관리 (connect/disconnect) ✓ **← 이번에 추가됨**
+  - `UsbSerialManager.connect(context)` 메서드 구현 완료
+  - 캐시 기반 빠른 재연결 지원
+  - 권한 상태 관리 완료
 - Phase 2.2.2.4: 프레임 전송 및 연결 모니터링 ✓
   - `UsbSerialManager.sendFrame()` 메서드 구현 필수
   - 비동기 처리 패턴 정의 필수

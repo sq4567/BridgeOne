@@ -1,5 +1,6 @@
 package com.bridgeone.app.usb
 
+import android.content.Context
 import android.hardware.usb.UsbManager
 import android.util.Log
 import com.hoho.android.usbserial.driver.UsbSerialPort
@@ -89,7 +90,6 @@ object UsbSerialManager {
      * ```
      */
     fun setUsbManager(manager: UsbManager) {
-        require(manager != null) { "UsbManager cannot be null" }
         this.usbManager = manager
         Log.d(TAG, "UsbManager initialized")
     }
@@ -284,10 +284,13 @@ object UsbSerialManager {
     }
 
     /**
-     * 권한 결과 콜백을 처리합니다 (Phase 2.2.2.2에서 추가).
+     * 권한 결과 콜백을 처리합니다 (Phase 2.2.2.2에서 추가, Phase 2.2.2.3에서 업데이트).
      *
      * UsbPermissionReceiver에서 호출되어 권한 승인/거부 결과를 처리합니다.
-     * 권한이 승인된 경우 자동으로 포트를 열 수 있도록 준비합니다.
+     * 권한 상태를 SharedPreferences에 저장합니다.
+     *
+     * **권한 승인 시**: 상태를 "granted"로 저장
+     * **권한 거부 시**: 상태를 초기화하고 포트 닫기
      *
      * @param context 현재 앱의 Context
      * @param device 권한 요청 대상 디바이스
@@ -299,13 +302,157 @@ object UsbSerialManager {
         granted: Boolean
     ) {
         if (granted) {
-            Log.d(TAG, "USB permission granted for device: ${device.deviceName}")
-            // Phase 2.2.3에서 추가 처리 (포트 열기 등)
-            // TODO: Phase 2.2.3에서 자동 포트 열기 로직 구현
+            // Phase 2.2.2.3: 권한 상태를 SharedPreferences에 저장
+            savePermissionStatus(context, true)
+            Log.d(TAG, "USB permission granted and saved for device: ${device.deviceName}")
         } else {
-            Log.w(TAG, "USB permission denied for device: ${device.deviceName}")
+            // Phase 2.2.2.3: 권한 상태 초기화 및 포트 닫기
+            clearPermissionStatus(context)
             closePort()
+            Log.w(TAG, "USB permission denied for device: ${device.deviceName}, port closed")
         }
+    }
+
+    // ========== 고수준 연결 함수 (Phase 2.2.2.3에서 추가) ==========
+
+    /**
+     * SharedPreferences 키: USB 권한 상태.
+     * 값은 "granted" 또는 "denied"
+     */
+    private const val PREF_USB_PERMISSION_STATUS = "usb_permission_status"
+
+    /**
+     * SharedPreferences에 권한 상태를 저장합니다.
+     *
+     * 권한이 승인되었을 때 호출되어 상태를 "granted"로 저장합니다.
+     *
+     * @param context 현재 앱의 Context
+     * @param granted 권한 승인 여부
+     */
+    private fun savePermissionStatus(context: Context, granted: Boolean) {
+        val sharedPrefs = context.getSharedPreferences("bridge_one_usb", Context.MODE_PRIVATE)
+        val status = if (granted) "granted" else "denied"
+        sharedPrefs.edit().apply {
+            putString(PREF_USB_PERMISSION_STATUS, status)
+            apply()
+        }
+        Log.d(TAG, "Permission status saved: $status")
+    }
+
+    /**
+     * SharedPreferences에서 권한 상태를 조회합니다.
+     *
+     * @param context 현재 앱의 Context
+     * @return 권한이 승인된 상태이면 "granted", 거부되었으면 "denied", 저장된 상태가 없으면 ""
+     */
+    private fun getPermissionStatus(context: Context): String {
+        val sharedPrefs = context.getSharedPreferences("bridge_one_usb", Context.MODE_PRIVATE)
+        return sharedPrefs.getString(PREF_USB_PERMISSION_STATUS, "") ?: ""
+    }
+
+    /**
+     * SharedPreferences에서 권한 상태를 초기화합니다.
+     *
+     * 권한이 거부되었을 때 호출되어 이전 승인 상태를 제거합니다.
+     *
+     * @param context 현재 앱의 Context
+     */
+    private fun clearPermissionStatus(context: Context) {
+        val sharedPrefs = context.getSharedPreferences("bridge_one_usb", Context.MODE_PRIVATE)
+        sharedPrefs.edit().apply {
+            remove(PREF_USB_PERMISSION_STATUS)
+            apply()
+        }
+        Log.d(TAG, "Permission status cleared")
+    }
+
+    /**
+     * Context에서 ESP32-S3 디바이스를 자동 감지하여 연결합니다 (Phase 2.2.2.3).
+     *
+     * DeviceDetector를 사용하여 연결 가능한 ESP32-S3 디바이스를 찾고,
+     * 권한 요청을 시작합니다. 실제 포트 열기는 권한 승인 후 수행됩니다.
+     *
+     * **프로세스**:
+     * 1. DeviceDetector.findEsp32s3Device(context)를 호출하여 디바이스 자동 감지
+     * 2. null 반환 시 예외 처리 및 false 반환
+     * 3. 디바이스 발견 시 권한 상태를 SharedPreferences에서 확인
+     * 4. 이미 권한이 승인된 경우: 포트 열기 시도
+     * 5. 권한이 없는 경우: 권한 요청 시작
+     *
+     * @param context 현재 앱의 Context
+     * @return 디바이스 발견 및 연결 시도 시 true, 실패 시 false
+     *
+     * 예시:
+     * ```kotlin
+     * if (UsbSerialManager.connect(context)) {
+     *     Log.i(TAG, "Connection process started")
+     * } else {
+     *     Log.w(TAG, "ESP32-S3 device not found")
+     * }
+     * ```
+     */
+    fun connect(context: Context): Boolean {
+        try {
+            // Phase 2.2.1.4.4의 DeviceDetector 활용
+            val device = DeviceDetector.findEsp32s3Device(context)
+                ?: run {
+                    Log.w(TAG, "ESP32-S3 device not found")
+                    return false
+                }
+
+            // USB Manager 초기화 확인
+            if (usbManager == null) {
+                val manager = context.getSystemService(Context.USB_SERVICE) as? UsbManager
+                if (manager == null) {
+                    Log.e(TAG, "Failed to get UsbManager")
+                    return false
+                }
+                setUsbManager(manager)
+            }
+
+            // SharedPreferences에서 권한 상태 확인
+            val permissionStatus = getPermissionStatus(context)
+
+            if (permissionStatus == "granted") {
+                // 권한이 이미 승인된 경우: 포트 열기
+                try {
+                    openPort(device)
+                    Log.i(TAG, "USB port opened successfully with cached permission")
+                    return true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to open port with cached permission: ${e.message}, requesting new permission")
+                    clearPermissionStatus(context)
+                    // 권한 요청으로 재시도
+                    requestPermission(context, device)
+                    return true
+                }
+            } else {
+                // 권한이 없는 경우: 권한 요청 시작
+                requestPermission(context, device)
+                Log.i(TAG, "USB permission request initiated for device: ${device.deviceName}")
+                return true
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in connect(): ${e.message}", e)
+            return false
+        }
+    }
+
+    /**
+     * USB 연결을 해제합니다 (Phase 2.2.2.3).
+     *
+     * closePort()를 래핑하여 더 명확한 인터페이스를 제공합니다.
+     * 포트가 이미 닫혀있으면 안전하게 무시됩니다.
+     *
+     * 예시:
+     * ```kotlin
+     * UsbSerialManager.disconnect()
+     * ```
+     */
+    fun disconnect() {
+        closePort()
+        Log.i(TAG, "USB connection disconnected")
     }
 }
 
