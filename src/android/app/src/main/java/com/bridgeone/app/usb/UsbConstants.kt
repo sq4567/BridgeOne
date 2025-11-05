@@ -1,5 +1,7 @@
 package com.bridgeone.app.usb
 
+import com.hoho.android.usbserial.driver.UsbSerialPort
+
 /**
  * USB 상수 정의 및 UART 통신 설정.
  *
@@ -51,10 +53,13 @@ object UsbConstants {
 
     /**
      * UART 패리티 설정.
-     * 0 = No parity (NONE)
+     * usb-serial-for-android 라이브러리의 UsbSerialPort.PARITY_NONE 상수.
+     * No parity (NONE)
      * CLAUDE.md에 명시: "8N1" 프로토콜
+     *
+     * 참조: com.hoho.android.usbserial.driver.UsbSerialPort.PARITY_NONE
      */
-    const val UART_PARITY = 0
+    const val UART_PARITY = UsbSerialPort.PARITY_NONE
 
     // ========== USB Timeout and Retry Settings ==========
 
