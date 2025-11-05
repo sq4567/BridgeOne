@@ -14,8 +14,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
+import com.bridgeone.app.ui.utils.DeltaCalculator
+import android.util.Log
 
 /**
  * TouchpadWrapper Composable
@@ -24,9 +27,14 @@ import androidx.compose.ui.tooling.preview.Preview
  * 1:2 비율의 직사각형으로 구성되며, 라운드 모서리가 적용됩니다.
  * 터치 이벤트(DOWN, MOVE, UP)를 감지하고 터치 좌표를 저장합니다.
  *
+ * Phase 2.2.3.2 업데이트: 델타 계산 및 데드존 보상
+ * - onTouchEvent 콜백에서 DeltaCalculator 호출 가능
+ * - MOVE 이벤트 발생 시 자동으로 델타 계산
+ * - 디버그 로그 출력 (원본/보상 후 값)
+ *
  * @param modifier 외부에서 추가할 수 있는 Modifier
  * @param onTouchEvent 터치 이벤트 콜백 함수
- *   - eventType: PointerEventType (DOWN, MOVE, UP)
+ *   - eventType: PointerEventType (PRESS, MOVE, RELEASE)
  *   - currentPosition: 현재 터치 위치
  *   - previousPosition: 이전 터치 위치 (델타 계산용)
  */
@@ -42,6 +50,9 @@ fun TouchpadWrapper(
     // 현재 터치 위치 및 이전 터치 위치 상태
     val currentTouchPosition = remember { mutableStateOf(Offset.Zero) }
     val previousTouchPosition = remember { mutableStateOf(Offset.Zero) }
+    
+    // Phase 2.2.3.2: 현재 화면의 밀도 정보
+    val density = LocalDensity.current
 
     // 터치패드의 기본 크기: 가로 160dp, 세로 320dp (1:2 비율)
     val TOUCHPAD_WIDTH = 160.dp
@@ -74,6 +85,24 @@ fun TouchpadWrapper(
                     while (moveEvent.type == PointerEventType.Move) {
                         previousTouchPosition.value = currentTouchPosition.value
                         currentTouchPosition.value = moveEvent.changes.first().position
+                        
+                        // Phase 2.2.3.2: 델타 계산 및 데드존 보상
+                        val rawDelta = DeltaCalculator.calculateDelta(
+                            previousTouchPosition.value,
+                            currentTouchPosition.value
+                        )
+                        val compensatedDelta = DeltaCalculator.applyDeadZone(
+                            density,
+                            DeltaCalculator.convertDpToPixels(density, rawDelta)
+                        )
+                        
+                        // 디버그 로그: 원본 및 보상 후 델타 값
+                        Log.d(
+                            "TouchpadWrapper",
+                            "MOVE Event - Raw Delta: (${rawDelta.x.toInt()}, ${rawDelta.y.toInt()}) → " +
+                            "Compensated: (${compensatedDelta.x.toInt()}, ${compensatedDelta.y.toInt()})"
+                        )
+                        
                         onTouchEvent(
                             PointerEventType.Move,
                             currentTouchPosition.value,
@@ -86,6 +115,24 @@ fun TouchpadWrapper(
                     if (moveEvent.type == PointerEventType.Release) {
                         previousTouchPosition.value = currentTouchPosition.value
                         currentTouchPosition.value = moveEvent.changes.first().position
+                        
+                        // Phase 2.2.3.2: RELEASE 이벤트 시에도 델타 계산
+                        val releaseDelta = DeltaCalculator.calculateDelta(
+                            previousTouchPosition.value,
+                            currentTouchPosition.value
+                        )
+                        val releaseCompensatedDelta = DeltaCalculator.applyDeadZone(
+                            density,
+                            DeltaCalculator.convertDpToPixels(density, releaseDelta)
+                        )
+                        
+                        // 디버그 로그: RELEASE 이벤트의 델타 값
+                        Log.d(
+                            "TouchpadWrapper",
+                            "RELEASE Event - Raw Delta: (${releaseDelta.x.toInt()}, ${releaseDelta.y.toInt()}) → " +
+                            "Compensated: (${releaseCompensatedDelta.x.toInt()}, ${releaseCompensatedDelta.y.toInt()})"
+                        )
+                        
                         onTouchEvent(
                             PointerEventType.Release,
                             currentTouchPosition.value,

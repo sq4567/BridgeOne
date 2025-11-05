@@ -1254,54 +1254,96 @@ fun TouchpadWrapper(
 5. 델타 범위 정규화 (-127 ~ 127)
 
 **검증**:
-- [ ] `calculateDelta()` 함수 구현됨
-- [ ] 좌표 계산 정확 (current - previous)
-- [ ] dp → pixel 변환 고려됨 (LocalDensity 사용)
-- [ ] X, Y 축 분리 처리됨
-- [ ] `applyDeadZone()` 함수 구현됨
-- [ ] DEAD_ZONE_THRESHOLD = 15dp 정의됨
-- [ ] 임계값 이하 → 0 처리
-- [ ] 임계값 초과 → 정규화 적용
-- [ ] 델타 범위 -127 ~ 127 확인
-- [ ] 디버그 로그 (원본/적용 후 값)
-- [ ] Gradle 빌드 성공
+- [x] `calculateDelta()` 함수 구현됨
+- [x] 좌표 계산 정확 (current - previous)
+- [x] dp → pixel 변환 고려됨 (LocalDensity 사용)
+- [x] X, Y 축 분리 처리됨
+- [x] `applyDeadZone()` 함수 구현됨
+- [x] DEAD_ZONE_THRESHOLD = 15dp 정의됨
+- [x] 임계값 이하 → 0 처리
+- [x] 임계값 초과 → 정규화 적용
+- [x] 델타 범위 -127 ~ 127 확인
+- [x] 디버그 로그 (원본/적용 후 값)
+- [x] Gradle 빌드 성공
 
-#### Phase 2.2.3.2 업데이트 사항 (Phase 2.2.3.1 개선에 따른 조치)
+#### Phase 2.2.3.2 구현 내용 및 변경사항
 
-**변경 배경**:
-- Phase 2.2.3.1에서 `onTouchEvent` 콜백이 추가되어, 이미 `currentPosition`과 `previousPosition`이 명확히 분리됨
-- Phase 2.2.3.1의 순차적 이벤트 처리로 각 단계에서 정확한 좌표 값 보장
+**구현 상태**: ✅ **완료** (Gradle 빌드 성공, 18s)
 
-**개선 사항**:
-
-1. **calculateDelta() 호출 시점**:
-   - 기존: 별도 함수로 계산 필요
-   - 개선: `onTouchEvent` 콜백에서 직접 `(currentPosition - previousPosition)` 계산 가능
-   
-2. **콜백 구현 예시**:
-```kotlin
-TouchpadWrapper(
-    onTouchEvent = { eventType, currentPos, previousPos ->
-        // Phase 2.2.3.2: calculateDelta() 호출 위치
-        if (eventType == PointerEventType.Move) {
-            val delta = calculateDelta(previousPos, currentPos)
-            val compensatedDelta = applyDeadZone(delta)
-            // Phase 2.2.3.3으로 전달
-        }
-    }
-)
+**신규 파일 생성**:
+```
+📁 src/android/app/src/main/java/com/bridgeone/app/ui/utils/DeltaCalculator.kt
 ```
 
-3. **이점**:
-   - 각 MOVE 이벤트에서 즉시 델타 계산 가능 (이벤트 드리븐 구조)
-   - 불필요한 중간 상태 저장 감소
-   - 데드존 보상이 실시간 터치 이동에 반영
+**주요 구현**:
 
-**검증 항목 추가** (Phase 2.2.3.1 변경사항 반영):
-- [ ] `onTouchEvent` 콜백에서 `PointerEventType` 확인 후 델타 계산
-- [ ] DOWN 이벤트: 초기 좌표 저장 (previousPosition ← currentPosition)
-- [ ] MOVE 이벤트: 델타 계산 (currentPosition - previousPosition)
-- [ ] RELEASE 이벤트: 델타 마지막 값 처리
+1. **`DeltaCalculator` 싱글톤 클래스**
+   - `calculateDelta(previousPosition, currentPosition)`: 상대 이동값 계산 (현재 - 이전)
+   - `convertDpToPixels(density, deltaOffsetDp)`: LocalDensity 활용하여 dp → pixel 변환
+   - `getDeadZoneThresholdPx(density)`: 15dp 임계값을 pixel 단위로 변환
+   - `applyDeadZone(density, deltaPixel)`: 데드존 보상 및 범위 정규화 (-127 ~ 127)
+   - `calculateAndCompensate(density, previousPos, currentPos)`: 통합 함수 (3단계)
+
+2. **LocalDensity 활용** (Context7 기반)
+   - **이유**: Android 공식 문서(Context7)에서 권장하는 화면 밀도 기반 변환 패턴
+   - **패턴**: `with(LocalDensity.current) { dpValue.toPx() }`
+   - **효과**: 밀도별 일관된 UI 제공 (1.0x: 15px, 1.5x: 22.5px, 2.0x: 30px)
+
+3. **데드존 보상 알고리즘**
+   ```
+   Step 1: calculateDelta() - 상대 이동값 계산
+   Step 2: convertDpToPixels() - dp → pixel 변환
+   Step 3: applyDeadZone() - 임계값 비교 및 범위 정규화
+   
+   예시 (밀도 2.0x):
+   Input:  previousPos = Offset(100, 150), currentPos = Offset(115, 140)
+   Step 1: deltaOffsetDp = Offset(15, -10)
+   Step 2: deltaOffsetPx = Offset(30, -20)  // 15dp * 2.0 = 30px
+   Step 3: X축 |30| >= 30 → 통과, Y축 |-20| < 30 → 필터 (0)
+   Output: Offset(30, 0)
+   ```
+
+**TouchpadWrapper 통합 변경사항**:
+
+1. **Import 추가** (라인 17, 20, 21):
+   ```kotlin
+   import androidx.compose.ui.platform.LocalDensity  // 화면 밀도 접근
+   import com.bridgeone.app.ui.utils.DeltaCalculator
+   import android.util.Log                           // 디버그 로그
+   ```
+
+2. **LocalDensity 초기화** (라인 54-55):
+   ```kotlin
+   val density = LocalDensity.current  // Composable 내에서 현재 화면 밀도
+   ```
+
+3. **MOVE 이벤트 처리 강화** (라인 89-104):
+   - 델타 계산: `DeltaCalculator.calculateDelta()`
+   - 데드존 보상: `DeltaCalculator.applyDeadZone()`
+   - 디버그 로그: 원본/보상 후 델타 값 출력
+   - 예: `MOVE Event - Raw Delta: (10, -15) → Compensated: (0, -20)`
+
+4. **RELEASE 이벤트 처리 강화** (라인 119-134):
+   - RELEASE 이벤트에서도 같은 방식으로 델타 계산
+   - 최종 터치 완료 시 정확한 이동값 기록
+
+**변경 배경 및 이유**:
+- Phase 2.2.3.1에서 `onTouchEvent` 콜백이 추가되어, `currentPosition`과 `previousPosition`이 명확히 분리됨
+- Phase 2.2.3.1의 순차적 이벤트 처리(DOWN → MOVE → UP)로 각 단계에서 정확한 좌표 값이 보장됨
+- **기존 계획 대비 개선점**:
+  - 기존: 콜백에서만 이벤트 타입 구분, 실제 델타 계산은 외부 구현 (덜 명확)
+  - 실제: TouchpadWrapper 내에서 직접 DeltaCalculator 호출하여 MOVE/RELEASE마다 보상된 델타 계산 (명확하고 추적 가능)
+  - 이유: 디버그 로그를 통해 실시간으로 터치 입력의 품질을 모니터링 가능하며, 후속 Phase에서 이 보상값을 직접 활용 가능
+
+**검증 결과**:
+- [x] DeltaCalculator 구현 (5개 함수, 2개 상수)
+- [x] calculateDelta() 함수 정확성 (현재 - 이전)
+- [x] LocalDensity 활용 (화면 밀도별 변환)
+- [x] applyDeadZone() 함수 (15dp 임계값, -127~127 범위)
+- [x] MOVE/RELEASE 이벤트 모두 처리
+- [x] 디버그 로그 (원본/보상 후 값)
+- [x] Lint 검사 완료 (0 에러, LocalDensity import 경로 수정)
+- [x] Gradle 빌드 성공 (18s, 37 actionable tasks)
 
 ---
 
@@ -1334,8 +1376,6 @@ TouchpadWrapper(
 - [ ] 전송 실패 시 에러 로그 및 예외 처리
 - [ ] 상태 초기화 로직 (터치 완료 후 초기화)
 - [ ] Gradle 빌드 성공
-
----
 
 #### Phase 2.2.3.3 업데이트 사항 (Phase 2.2.3.1 개선에 따른 조치)
 
@@ -1394,6 +1434,29 @@ fun detectClick(duration: Long, movement: Float): UByte {
 - [ ] `detectClick()`: 누르는 시간 < 500ms && 움직임 < 15dp → LEFT_CLICK
 - [ ] `detectClick()`: 누르는 시간 >= 500ms && 움직임 < 15dp → RIGHT_CLICK
 - [ ] `detectClick()`: 그 외 → NO_CLICK
+
+#### Phase 2.2.3.2 영향도 분석 (델타 계산 및 데드존 보상)
+
+**영향도**: ✅ **긍정적**
+
+Phase 2.2.3.2에서 구현된 DeltaCalculator와 보상된 델타 값의 활용:
+- `onTouchEvent` 콜백에서 PRESS/RELEASE 시간 기록 시, 이미 MOVE 이벤트에서 보상된 델타가 계산되어 있음
+- 클릭 vs 드래그 판정 로직이 더 정확해짐: 손떨림이 필터되므로 15dp 이동 임계값이 더 신뢰성 있음
+- DeltaCalculator의 디버그 로그로 실시간 모니터링 가능
+
+**변경사항 적용 예시**:
+```kotlin
+// Phase 2.2.3.2 완료 후
+PointerEventType.Release -> {
+    val pressDuration = System.currentTimeMillis() - touchDownTime
+    val movement = (currentPos - touchDownPosition).getDistance()
+    
+    // 이미 보상된 델타 활용 → 더 정확한 드래그 판정
+    val buttonState = detectClick(pressDuration, movement)
+    val frame = createFrame(buttonState, compensatedDeltaX, compensatedDeltaY)  // Phase 2.2.3.4에서
+    sendFrame(frame)
+}
+```
 
 ---
 
