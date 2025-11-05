@@ -250,22 +250,22 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 5. 순번 순환 검증 (255 → 0)
 
 **검증**:
-- [ ] `BridgeFrameTest.kt` 파일 생성됨
-- [ ] 테스트 케이스: 프레임 크기 == 8바이트
-- [ ] 테스트 케이스: toByteArray() 바이트 순서 정확성
-- [ ] 테스트 케이스: BridgeFrame.default() 기본값 확인 (모든 필드 0)
-- [ ] 테스트 케이스: 헬퍼 함수 동작 검증
-  - [ ] isLeftClickPressed() → buttons & BUTTON_LEFT_MASK 일치
-  - [ ] isRightClickPressed() → buttons & BUTTON_RIGHT_MASK 일치
-  - [ ] isCtrlModifierActive() → modifiers & MODIFIER_LEFT_CTRL_MASK 일치
-  - [ ] isShiftModifierActive() → modifiers & MODIFIER_LEFT_SHIFT_MASK 일치
-- [ ] 테스트 케이스: 값 범위 검증 (UByte: 0~255, Byte: -128~127)
-- [ ] `FrameBuilderTest.kt` 파일 생성됨
-- [ ] 테스트 케이스: buildFrame() 호출 시 seq 자동 증가 (0, 1, 2, ...)
-- [ ] 테스트 케이스: 순번 순환 (255 → 0)
-- [ ] 테스트 케이스: 다중 스레드 환경에서 순번 중복 없음
-- [ ] 모든 테스트 통과
-- [ ] Gradle 빌드 성공
+- [x] `BridgeFrameTest.kt` 파일 생성됨
+- [x] 테스트 케이스: 프레임 크기 == 8바이트
+- [x] 테스트 케이스: toByteArray() 바이트 순서 정확성
+- [x] 테스트 케이스: BridgeFrame.default() 기본값 확인 (모든 필드 0)
+- [x] 테스트 케이스: 헬퍼 함수 동작 검증
+  - [x] isLeftClickPressed() → buttons & BUTTON_LEFT_MASK 일치
+  - [x] isRightClickPressed() → buttons & BUTTON_RIGHT_MASK 일치
+  - [x] isCtrlModifierActive() → modifiers & MODIFIER_LEFT_CTRL_MASK 일치
+  - [x] isShiftModifierActive() → modifiers & MODIFIER_LEFT_SHIFT_MASK 일치
+- [x] 테스트 케이스: 값 범위 검증 (UByte: 0~255, Byte: -128~127)
+- [x] `FrameBuilderTest.kt` 파일 생성됨
+- [x] 테스트 케이스: buildFrame() 호출 시 seq 자동 증가 (0, 1, 2, ...)
+- [x] 테스트 케이스: 순번 순환 (255 → 0)
+- [x] 테스트 케이스: 다중 스레드 환경에서 순번 중복 없음
+- [x] 모든 테스트 통과 (30/30 tests passed)
+- [x] Gradle 빌드 성공
 
 #### Phase 2.2.1.3 업데이트 사항 (Phase 2.2.1.2 변경에 따른 조치)
 
@@ -305,6 +305,78 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
    ```
    - 목적: 현재 카운터 상태 조회 검증
    - 용도: 디버그 로그 출력, 다중 스레드 테스트에서 경쟁 상태 감지
+
+---
+
+### 🔄 Phase 2.2.1.3 변경사항 분석 및 후속 Phase 영향도
+
+#### 기존 계획 대비 개발 변경사항
+
+| 항목 | 기존 계획 | 변경된 내용 | 변경 사유 |
+|------|---------|----------|---------|
+| **테스트 파일 작성** | BridgeFrameTest, FrameBuilderTest 작성 (명시하지 않음) | 30개 테스트 케이스 작성 (BridgeFrameTest 16개, FrameBuilderTest 14개) | 포괄적인 단위 테스트 커버리지 확보 필요 |
+| **테스트 언어** | 한국어 주석 포함 계획 | 영어 주석으로 변경 | 빌드 시 한글 인코딩 문제 발생 → 영어 주석으로 통일 |
+| **타입 검증** | JUnit assertEquals() 기본 사용 | 모든 UByte/Byte 비교에 명시적 `.toUByte()`, `.toByte()` 변환 추가 | JUnit의 엄격한 타입 검증 대응 필요 |
+| **테스트 격리** | @Before 패턴 미명시 | @Before에서 `resetSequence()` 호출로 테스트 격리 | 각 테스트가 독립적으로 동작하도록 보장 |
+| **다중 스레드 테스트** | 언급하지 않음 | CountDownLatch, AtomicInteger 활용한 다중 스레드 테스트 추가 | FrameBuilder의 스레드 안전성 검증 필수 |
+| **빌드 성공 확인** | 언급하지 않음 | `./gradlew clean test -x connectedAndroidTest` 실행 및 완전 통과 확인 | 30/30 테스트 100% 성공률 달성 |
+
+#### 구현 세부사항
+
+**1. 인코딩 문제 해결**
+- **문제**: 한국어 주석의 인코딩 문제로 빌드 실패
+- **해결책**: 모든 테스트 파일을 영어 주석으로 작성
+- **영향**: 장기적으로 메인테넌스 용이성 향상 (한국어/영어 혼용 불필요)
+
+**2. 타입 시스템 안전성**
+- **문제**: JUnit의 assertEquals()는 매개변수 타입이 정확히 일치해야 함 (`UByte` ≠ `UInt`)
+- **해결책**: 모든 비교문에서 명시적 타입 변환 적용
+  ```kotlin
+  // 잘못된 예
+  assertEquals("seq", 0u, frame.seq)  // UInt vs UByte 타입 불일치
+  
+  // 올바른 예
+  assertEquals("seq", 0u.toUByte(), frame.seq)  // 명시적 변환
+  ```
+- **영향**: Phase 2.2.2 이후 테스트 작성 시 UByte/Byte 타입 변환 규칙 준수 필수
+
+**3. 테스트 격리 패턴**
+- **패턴**: 각 테스트 메서드 실행 전 @Before에서 `resetSequence()` 호출
+- **효과**: 테스트 간 상태 격리로 독립적 실행 가능
+- **영향**: Phase 2.2.2 이후 UART/UI 통신 테스트도 동일 패턴 적용 권장
+
+**4. 다중 스레드 안전성 검증**
+- **테스트 구성**: 10개 스레드에서 각 100개 프레임 생성 (총 1000개)
+- **검증 내용**: 각 순번의 발생 횟수 3~4회 (1000 ÷ 256 ≈ 3.9)로 균등 분산 확인
+- **의의**: AtomicInteger 기반 FrameBuilder의 스레드 안전성 확증
+
+#### 후속 Phase들에 미치는 영향도 분석
+
+| Phase | 영향 분류 | 구체적 영향 | 대응 방안 |
+|-------|---------|----------|---------|
+| **2.2.2 (UART 통신)** | 직접 영향 ⭐⭐⭐ | UART 통신 테스트 작성 시 영어 주석, UByte 타입 변환 규칙 적용 필수 | 2.2.2 테스트 케이스 작성 시 BridgeFrameTest/FrameBuilderTest와 동일한 테스트 패턴 적용 |
+| **2.2.3 (터치 입력)** | 간접 영향 ⭐⭐ | BridgeFrame 헬퍼 함수(`isLeftClickPressed()` 등) 검증 완료로 UI 계층 신뢰도 향상 | 터치 이벤트에서 헬퍼 함수 활용 가능 |
+| **2.2.4 (키보드 입력)** | 간접 영향 ⭐⭐ | BridgeFrame 수정자 키 헬퍼 함수(`isCtrlModifierActive()` 등) 검증 완료 | 키보드 입력 처리 시 헬퍼 함수로 modifier 상태 확인 |
+| **2.2.5+ (통합/E2E)** | 기반 영향 ⭐ | BridgeFrame 구조 및 FrameBuilder 신뢰도 확보로 상위 계층 개발 안정성 향상 | 프로토콜 수준 단위 테스트 완료로 통합 테스트 신뢰도 높음 |
+
+#### 후속 Phase 문서 수정 방향
+
+**Phase 2.2.2 (UART 통신 구현)**
+- 테스트 작성 시 영어 주석 사용 명시
+- UByte/Byte 타입 변환 규칙 추가 (2.2.1.3 참고)
+- @Before 패턴으로 테스트 격리 권장
+
+**Phase 2.2.3 (터치 입력 처리)**
+- BridgeFrame의 button 헬퍼 함수 활용 가능 명시
+- 예: `frame.isLeftClickPressed()` 사용 가능
+
+**Phase 2.2.4 (키보드 입력 처리)**
+- BridgeFrame의 modifier 헬퍼 함수 활용 가능 명시
+- 예: `frame.isCtrlModifierActive()`, `frame.isShiftModifierActive()` 사용 가능
+
+**Phase 2.2.5+ (프레임 전송/통합)**
+- BridgeFrame 및 FrameBuilder의 스레드 안전성 검증 완료 사실 활용
+- 다중 스레드 환경에서의 동시성 문제 최소화
 
 ---
 
@@ -534,7 +606,7 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 
 ---
 
-#### Phase 2.2.2.4 업데이트 사항 (Phase 2.2.1.2 변경에 따른 조치)
+#### Phase 2.2.2.4 업데이트 사항 (Phase 2.2.1.2/2.2.1.3 변경에 따른 조치)
 
 **FrameBuilder와의 통합**:
 
@@ -547,6 +619,15 @@ Phase 2.2.1.2에서 구현된 `FrameBuilder.buildFrame()` 메서드는 `sendFram
 - Phase 2.2.3.1에서 TouchpadWrapper 터치 이벤트 발생 시 `FrameBuilder.buildFrame()`으로 프레임 생성
 - 생성된 프레임을 `UsbSerialManager.sendFrame()`로 전송
 - 데이터 흐름: 터치 입력 → `FrameBuilder.buildFrame()` → `UsbSerialManager.sendFrame()` → UART 전송
+
+**Phase 2.2.1.3 단위 테스트 영향**:
+- Phase 2.2.1.3에서 30개 테스트 케이스 (BridgeFrameTest 16개, FrameBuilderTest 14개) 완성
+- **테스트 작성 시 참고사항**:
+  1. 모든 테스트는 영어 주석으로 작성 (한글 인코딩 문제 해결)
+  2. UByte/Byte 타입 비교 시 명시적 `.toUByte()`, `.toByte()` 변환 필수
+  3. @Before 패턴으로 테스트 격리 (각 테스트 전 초기화)
+  4. 다중 스레드 안전성 검증 완료 (AtomicInteger 기반 FrameBuilder 신뢰도 확보)
+- Phase 2.2.2.4 테스트 작성 시 동일한 패턴 적용 권장
 
 ---
 
@@ -658,7 +739,7 @@ Phase 2.2.1.2에서 구현된 `FrameBuilder.buildFrame()` 메서드는 `sendFram
 
 ---
 
-#### Phase 2.2.3.3 업데이트 사항 (Phase 2.2.1.2 변경에 따른 조치)
+#### Phase 2.2.3.3 업데이트 사항 (Phase 2.2.1.2/2.2.1.3 변경에 따른 조치)
 
 **`createFrame()` 구현 패턴**:
 
@@ -667,9 +748,9 @@ private fun createFrame(): BridgeFrame {
     // FrameBuilder.buildFrame()를 호출하여 자동으로 시퀀스 번호 할당
     return FrameBuilder.buildFrame(
         buttons = getButtonState(),      // 클릭 상태 (0x00~0x07)
-        deltaX = calculateDelta().x.toInt().toByteValue(),
-        deltaY = calculateDelta().y.toInt().toByteValue(),
-        wheel = 0,                       // Boot 모드에서는 0
+        deltaX = calculateDelta().x.toInt().toByte(),
+        deltaY = calculateDelta().y.toInt().toByte(),
+        wheel = 0.toByte(),              // Boot 모드에서는 0
         modifiers = 0u,                  // Phase 2.2.4에서 키보드 입력 추가
         keyCode1 = 0u,
         keyCode2 = 0u
@@ -688,14 +769,21 @@ private fun sendFrame() {
 }
 ```
 
-**FrameBuilder의 역할**:
+**FrameBuilder의 역할 및 Phase 2.2.1.3 테스트 보증**:
 - 터치 이벤트 발생 시마다 `FrameBuilder.buildFrame()`으로 프레임 생성
 - 매 호출마다 시퀀스 번호가 **자동으로 0~255 순환하며 증가**
 - ESP32-S3 UART 수신 측에서 순번 검증으로 **패킷 유실 감지 가능**
+- **Phase 2.2.1.3 테스트 완료**: 순번 자동 증가, 순환, 다중 스레드 안전성 모두 검증됨 ✅
 
-**스레드 안전성**:
-- `FrameBuilder` 싱글톤은 AtomicInteger 사용으로 멀티 스레드 환경 안전
-- Compose Recomposition 중에도 동시 호출되는 경우 순번 중복 방지
+**스레드 안전성 (Phase 2.2.1.3 검증 완료)**:
+- `FrameBuilder` 싱글톤은 AtomicInteger 사용으로 멀티 스레드 환경 안전 ✅
+- Compose Recomposition 중에도 동시 호출되는 경우 순번 중복 없음 보장 ✅
+- Phase 2.2.1.3에서 10개 스레드 × 100개 프레임 환경에서 검증 완료
+
+**Type Safety (Phase 2.2.1.3 교훈)**:
+- `deltaX`, `deltaY`, `wheel` 파라미터는 **명시적 `.toByte()` 변환** 필수
+- BridgeFrame의 필드는 모두 UByte 또는 Byte 타입이므로 정확한 변환 중요
+- `getButtonState()` 반환값도 UByte 타입 확인 필수
 
 ---
 
@@ -720,6 +808,12 @@ private fun sendFrame() {
 **참조 문서 및 섹션**:
 - `docs/android/component-design-guide-app.md` - KeyboardKeyButton 설계
 - `docs/android/technical-specification-app.md` §2.3.2 키보드 컴포넌트
+
+**Phase 2.2.1.3 영향도 (BridgeFrame 헬퍼 함수 활용)**:
+- Phase 2.2.1.3에서 검증된 헬퍼 함수: `isCtrlModifierActive()`, `isShiftModifierActive()`, `isAltModifierActive()`, `isGuiModifierActive()`
+- 키보드 UI에서 modifier 키 상태 시각화 시 이들 함수 직접 활용 가능
+- 예: `frame.isShiftModifierActive()` 반환값으로 Shift 키 강조 표시 여부 결정
+- 타입 안전성: 모든 modifier 상태는 UByte 타입으로 검증됨 ✅
 
 ---
 
