@@ -18,6 +18,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.bridgeone.app.ui.utils.DeltaCalculator
+import com.bridgeone.app.ui.utils.ClickDetector
+import com.bridgeone.app.ui.utils.getDistance
 import android.util.Log
 
 /**
@@ -25,15 +27,26 @@ import android.util.Log
  *
  * 터치패드 UI 구성 및 터치 이벤트 감지를 담당합니다.
  * 1:2 비율의 직사각형으로 구성되며, 라운드 모서리가 적용됩니다.
- * 터치 이벤트(DOWN, MOVE, UP)를 감지하고 터치 좌표를 저장합니다.
+ * 터치 이벤트(DOWN, MOVE, UP)를 감지하고, 자동으로 클릭 감지 및 프레임 생성/전송을 수행합니다.
  *
- * Phase 2.2.3.2 업데이트: 델타 계산 및 데드존 보상
- * - onTouchEvent 콜백에서 DeltaCalculator 호출 가능
- * - MOVE 이벤트 발생 시 자동으로 델타 계산
- * - 디버그 로그 출력 (원본/보상 후 값)
+ * Phase 2.2.3.3 업데이트: 클릭 감지 및 프레임 생성/전송
+ * - DOWN 이벤트: 터치 시간 및 위치 기록
+ * - MOVE 이벤트: 델타 계산 및 데드존 보상 (Phase 2.2.3.2 통합)
+ * - RELEASE 이벤트: 클릭 판정 → 프레임 생성 → UART 전송 (ClickDetector 활용)
+ * - 자동 상태 초기화: 터치 완료 후 모든 상태 초기화
+ *
+ * **클릭 감지 로직:**
+ * - LEFT_CLICK: 누르는 시간 < 500ms && 움직임 < 15dp
+ * - RIGHT_CLICK: 누르는 시간 >= 500ms && 움직임 < 15dp (롱터치)
+ * - NO_CLICK: 그 외 (드래그로 판정)
+ *
+ * **프레임 생성 흐름:**
+ * 1. RELEASE 이벤트에서 클릭 판정 (ClickDetector.detectClick)
+ * 2. 프레임 생성 with 보상된 델타 값 (ClickDetector.createFrame)
+ * 3. UART 전송 (ClickDetector.sendFrame → UsbSerialManager.sendFrame)
  *
  * @param modifier 외부에서 추가할 수 있는 Modifier
- * @param onTouchEvent 터치 이벤트 콜백 함수
+ * @param onTouchEvent 터치 이벤트 콜백 함수 (선택사항, 외부 처리 필요 시 사용)
  *   - eventType: PointerEventType (PRESS, MOVE, RELEASE)
  *   - currentPosition: 현재 터치 위치
  *   - previousPosition: 이전 터치 위치 (델타 계산용)
@@ -50,6 +63,14 @@ fun TouchpadWrapper(
     // 현재 터치 위치 및 이전 터치 위치 상태
     val currentTouchPosition = remember { mutableStateOf(Offset.Zero) }
     val previousTouchPosition = remember { mutableStateOf(Offset.Zero) }
+    
+    // Phase 2.2.3.3: 클릭 감지를 위한 DOWN 이벤트 시간 및 위치 기록
+    val touchDownTime = remember { mutableStateOf(0L) }
+    val touchDownPosition = remember { mutableStateOf(Offset.Zero) }
+    
+    // Phase 2.2.3.3: 보상된 델타 값 저장 (MOVE 이벤트에서 업데이트, RELEASE에서 사용)
+    val compensatedDeltaX = remember { mutableStateOf(0f) }
+    val compensatedDeltaY = remember { mutableStateOf(0f) }
     
     // Phase 2.2.3.2: 현재 화면의 밀도 정보
     val density = LocalDensity.current
@@ -73,6 +94,20 @@ fun TouchpadWrapper(
                     if (down.type == PointerEventType.Press) {
                         currentTouchPosition.value = down.changes.first().position
                         previousTouchPosition.value = currentTouchPosition.value
+                        
+                        // Phase 2.2.3.3: DOWN 이벤트 시간 및 위치 기록 (클릭 감지용)
+                        touchDownTime.value = System.currentTimeMillis()
+                        touchDownPosition.value = currentTouchPosition.value
+                        
+                        // Phase 2.2.3.3: 보상된 델타 값 초기화
+                        compensatedDeltaX.value = 0f
+                        compensatedDeltaY.value = 0f
+                        
+                        Log.d(
+                            "TouchpadWrapper",
+                            "DOWN Event - position=(${currentTouchPosition.value.x.toInt()}, ${currentTouchPosition.value.y.toInt()})"
+                        )
+                        
                         onTouchEvent(
                             PointerEventType.Press,
                             currentTouchPosition.value,
@@ -95,6 +130,10 @@ fun TouchpadWrapper(
                             density,
                             DeltaCalculator.convertDpToPixels(density, rawDelta)
                         )
+                        
+                        // Phase 2.2.3.3: 보상된 델타 값을 저장 (RELEASE에서 프레임 생성 시 사용)
+                        compensatedDeltaX.value = compensatedDelta.x
+                        compensatedDeltaY.value = compensatedDelta.y
                         
                         // 디버그 로그: 원본 및 보상 후 델타 값
                         Log.d(
@@ -126,11 +165,44 @@ fun TouchpadWrapper(
                             DeltaCalculator.convertDpToPixels(density, releaseDelta)
                         )
                         
+                        // Phase 2.2.3.3: RELEASE 이벤트에서 보상된 델타 값 업데이트
+                        compensatedDeltaX.value = releaseCompensatedDelta.x
+                        compensatedDeltaY.value = releaseCompensatedDelta.y
+                        
                         // 디버그 로그: RELEASE 이벤트의 델타 값
                         Log.d(
                             "TouchpadWrapper",
                             "RELEASE Event - Raw Delta: (${releaseDelta.x.toInt()}, ${releaseDelta.y.toInt()}) → " +
                             "Compensated: (${releaseCompensatedDelta.x.toInt()}, ${releaseCompensatedDelta.y.toInt()})"
+                        )
+                        
+                        // Phase 2.2.3.3: 클릭 감지 및 프레임 생성/전송
+                        val pressDuration = System.currentTimeMillis() - touchDownTime.value
+                        val movement = (currentTouchPosition.value - touchDownPosition.value).getDistance()
+                        
+                        // detectClick로 클릭 타입 판정
+                        val buttonState = ClickDetector.detectClick(pressDuration, movement)
+                        
+                        // 프레임 생성 (자동 시퀀스 번호 할당)
+                        val frame = ClickDetector.createFrame(
+                            buttonState = buttonState,
+                            deltaX = compensatedDeltaX.value,
+                            deltaY = compensatedDeltaY.value
+                        )
+                        
+                        // UART로 프레임 전송
+                        ClickDetector.sendFrame(frame)
+                        
+                        // 터치 상태 초기화
+                        touchDownTime.value = 0L
+                        touchDownPosition.value = Offset.Zero
+                        compensatedDeltaX.value = 0f
+                        compensatedDeltaY.value = 0f
+                        
+                        Log.d(
+                            "TouchpadWrapper",
+                            "RELEASE Event - pressDuration=$pressDuration ms, movement=${movement.toInt()} dp, " +
+                            "buttonState=0x${buttonState.toString(16).padStart(2, '0')}"
                         )
                         
                         onTouchEvent(
