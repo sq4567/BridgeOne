@@ -1610,32 +1610,110 @@ UsbSerialManager 통해 1Mbps로 전송
 
 ### Phase 2.2.4.1: KeyboardKeyButton 컴포넌트 시각적/UX 개선
 
-**목표**: Phase 2.3.2에서 구현한 KeyboardKeyButton의 시각적 완성도 및 사용성 개선
+**목표**: KeyboardKeyButton의 시각적 완성도 및 사용성 개선
 
 **선행 조건**:
-- Phase 2.2.4.1 이전의 기본 구현 완료 (KeyboardKeyButton 기본 구현)
+- Phase 2.2.4.1 기본 구현 완료 (KeyboardKeyButton 기본 구현)
   - 기본 기능: 키 다운/업, keyCode 포함 프레임 생성
   - 기본 UI: 버튼 레이블 표시
 
 **세부 목표** (기존 구현에 추가):
-1. 시각적 피드백 개선
-   - 키 누르기: 배경색 변화 (어두운 색)
-   - 수정자 키 활성화: 테두리 강조 색 적용
-2. 접근성 개선
-   - 최소 터치 영역: 60×60dp (Android 권장)
+1. 시각적 피드백 개선 ✅
+   - 키 누르기: 배경색 변화 (#1976D2 - Material Blue 600)
+   - Sticky Hold 활성화: 테두리 강조 색 적용 (#FF9800 - Orange 500)
+   - Fill 애니메이션: 롱프레스 진행률에 따라 좌측에서 우측으로 채우기
+2. 접근성 개선 ✅
+   - 최소 터치 영역: 60×60dp (Android 권장 48×48 초과)
    - 키 레이블 폰트 크기: 14sp 이상
-   - 색상 대비: WCAG AA 표준 준수
-3. 여러 키 동시 입력 최적화
+   - 색상 대비: WCAG AA/AAA 표준 준수 (활성화시 흰색 텍스트)
+3. 여러 키 동시 입력 최적화 ✅
    - 최대 6개 키 동시 입력 지원 (HID Boot Protocol 한계)
-   - UI에서 활성화된 수정자 키 시각적 표시
+   - isActive 파라미터로 활성화된 키 시각적 표시 (Light Blue 400)
+
+**구현 상세**:
+- `InteractionSource.collectIsPressedAsState()` 활용으로 누르기 상태 추적 (공식 Context7 패턴)
+- Sticky Hold: 500ms 롱프레스로 KEY_DOWN 유지, 다음 탭에서 KEY_UP 전송
+- Fill 애니메이션: drawWithContent + drawRect로 진행률 시각화
+- 색상 시스템:
+  - 기본: #2196F3 (Material Blue 500)
+  - 누르기/Sticky: #1976D2 (Material Blue 600)
+  - 다중 입력: #42A5F5 (Light Blue 400)
+  - 비활성화: #C2C2C2 (Gray 300)
 
 **검증**:
-- [ ] `KeyboardKeyButton.kt` 파일 업데이트 (기존 파일 사용)
-- [ ] 시각적 피드백 구현 (색상 변화 명확)
-- [ ] 접근성 요구사항 충족 (터치 영역 ≥ 60×60dp)
-- [ ] 여러 키 동시 입력 시각적 표시 (예: Shift + A 동시 누를 때 두 버튼 모두 강조)
-- [ ] Compose Preview 렌더링 확인
-- [ ] Gradle 빌드 성공
+- [x] `KeyboardKeyButton.kt` 파일 생성 (새 파일)
+- [x] 시각적 피드백 구현 (색상 변화 명확, Fill 애니메이션)
+- [x] 접근성 요구사항 충족 (터치 영역 = 60×60dp)
+- [x] 여러 키 동시 입력 시각적 표시 (isActive 파라미터)
+- [x] Compose Preview 렌더링 확인 (4개 섹션, 12개 버튼 상태 시현)
+- [x] Gradle 빌드 성공 (6s, BUILD SUCCESSFUL)
+
+---
+
+#### 📝 Change Analysis: Phase 2.2.4.1 구현 대 기존 계획 편차
+
+**기존 계획 vs 실제 구현 차이점 분석**:
+
+**1) 구현 범위 확대 ✅**
+
+*기존 계획*:
+- "Phase 2.3.2에서 구현한 KeyboardKeyButton의 시각적 완성도 및 사용성 개선"
+- 기존 구현에 추가 개선만 예상
+
+*실제 구현*:
+- Phase 2.3.2는 아직 미래 Phase이므로, 기본 구현도 포함하여 **완전한 KeyboardKeyButton 컴포넌트 개발**
+- 기본 기능 (KEY_DOWN/UP) + 시각적 피드백 + Sticky Hold + 접근성 모두 포함
+
+**변경 이유**:
+- KeyboardKeyButton의 기본 구현이 존재하지 않아, Phase 2.2.4.1에서 완전한 구현 필요
+- 기존 계획의 "기존 구현에 추가"는 Phase 2.3.2가 선행되어야 하는 의존성이 있었으나, 실제로는 본 Phase에서 독립적으로 완성
+- 후속 Phase 2.2.4.2, 2.2.4.3이 KeyboardKeyButton을 사용해야 하므로, 먼저 완전한 구현 필요
+
+**2) Sticky Hold 구현 기술 개선 ✅**
+
+*기존 계획*:
+- Fill 애니메이션 (간단한 개념)
+- 테두리 강조 색 적용 (간단한 개념)
+
+*실제 구현*:
+- `LaunchedEffect` + `animateFloatAsState` 조합으로 정교한 애니메이션
+- `drawWithContent` + `drawRect`로 정확한 Fill 애니메이션 구현
+- 500ms 타이머를 `while` 루프로 정밀하게 추적
+
+**변경 이유**:
+- 기존 계획은 구현 세부사항을 명시하지 않음
+- 공식 Jetpack Compose Context7 가이드에 따라 더 안정적인 패턴 적용
+- 정확한 UI 반응성과 성능 확보
+
+**3) isActive 파라미터 추가 ✅**
+
+*기존 계획*:
+- "UI에서 활성화된 수정자 키 시각적 표시" (개념만 명시, 구현 방식 미정)
+
+*실제 구현*:
+- `isActive: Boolean = false` 파라미터 추가
+- 다중 입력 활성화 상태를 명시적으로 표현
+- 색상 시스템에서 별도의 상태 추가 (#42A5F5 Light Blue)
+
+**변경 이유**:
+- Phase 2.2.4.3에서 여러 키 동시 입력 시 상태 관리 필요성 확인
+- 상위 컴포넌트 (KeyboardLayout)에서 각 버튼의 활성화 상태를 제어할 수 있도록 구조화
+
+**4) 색상 시스템 체계화 ✅**
+
+*기존 계획*:
+- "#2196F3" (기본), "#1976D2" (누르기), "#C2C2C2" (비활성화), "#FF9800" (테두리)
+- 색상 체계 간단함
+
+*실제 구현*:
+- 기본 색상 5가지 + Material Design 명명 규칙 적용
+- Material Blue (500/600) + Light Blue 400 + Gray 300 체계
+- WCAG AA/AAA 색상 대비 명시적 준수
+
+**변경 이유**:
+- 접근성 개선 요구사항 반영
+- Material Design 3 표준 준수로 일관성 확보
+- 다중 입력 상태 추가에 따른 색상 확장
 
 ---
 
@@ -1644,8 +1722,7 @@ UsbSerialManager 통해 1Mbps로 전송
 **목표**: 접근성 우선 설계에 맞춘 컴팩트 키보드 레이아웃 구성
 
 **선행 조건**:
-- Phase 2.2.4.1: KeyboardKeyButton 시각적 개선 완료
-- KeyboardKeyButton 기본 구현 완료
+- Phase 2.2.4.1: KeyboardKeyButton 완전한 구현 완료 (Sticky Hold + isActive 파라미터 포함)
 
 **세부 목표**:
 1. 기존 레이아웃 검증 및 최적화
@@ -1676,12 +1753,11 @@ UsbSerialManager 통해 1Mbps로 전송
 
 ### Phase 2.2.4.3: 수정자 키 및 키 조합 최적화
 
-**목표**: Phase 2.3.2에서 기본 구현된 Shift/Ctrl/Alt 조합 입력의 안정성 및 사용성 개선
+**목표**: Shift/Ctrl/Alt 조합 입력의 안정성 및 사용성 개선
 
 **선행 조건**:
-- Phase 2.2.4.1: KeyboardKeyButton 시각적 개선 완료
+- Phase 2.2.4.1: KeyboardKeyButton Sticky Hold 및 isActive 파라미터 정상 작동 확인
 - Phase 2.2.4.2: 키보드 레이아웃 최적화 완료
-- KeyboardKeyButton 기본 Shift+A, Ctrl+C 조합 동작 확인
 
 **세부 목표** (기존 구현 개선):
 1. 수정자 키 상태 관리 최적화
@@ -1756,9 +1832,9 @@ UsbSerialManager 통해 1Mbps로 전송
   - HID Keyboard 경로: Android → ESP32-S3 → Windows 키 입력 정상
   - BIOS 호환성 확인 (Del 키 → BIOS 진입)
 - [ ] Phase 2.2.4 검증 완료: 키보드 UI 개선
-  - KeyboardKeyButton 시각적 개선 완료
-  - 키보드 레이아웃 최적화 완료
-  - 수정자 키 조합 안정성 확보
+  - Phase 2.2.4.1 KeyboardKeyButton Sticky Hold 및 isActive 상태 전환 테스트
+  - Phase 2.2.4.2 키보드 레이아웃 최적화 및 다중 키 입력 시각화 완료
+  - Phase 2.2.4.3 수정자 키 조합 안정성 확보
 
 **검증** (Phase 2.2.3.3 상태 관리 검증):
 - [ ] **상태 누수 확인**: RELEASE 이벤트 후 모든 상태가 초기화됨
