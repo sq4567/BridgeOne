@@ -1,0 +1,943 @@
+---
+title: "BridgeOne Phase 2.2: Android → ESP32-S3 UART 통신 구현"
+description: "BridgeOne 프로젝트 Phase 2.2: Android 앱 및 UART 통신 구현"
+tags: ["android", "esp32-s3", "uart", "usb-serial", "kotlin", "jetpack-compose"]
+version: "v1.0"
+owner: "Chatterbones"
+updated: "2025-11-05"
+---
+
+# BridgeOne Phase 2.2: Android → ESP32-S3 UART 통신 구현
+
+**개발 기간**: 2주
+
+**목표**: Android 앱 프로토콜 구현 및 ESP32-S3와의 UART 통신 경로 구축
+
+**핵심 성과물**:
+- Android 앱 8바이트 델타 프레임 생성 및 UART 전송
+- USB Serial 기반 ESP32-S3 통신
+- 터치패드 UI 및 입력 처리 알고리즘
+- End-to-End 통신 경로 검증 (50ms 이하 지연시간, 0.1% 이하 손실률)
+
+---
+
+## Phase 2.2 배경 정보 및 선행 작업
+
+### Phase 2.1과의 관계
+
+**Phase 2.1에서 구현된 기반**:
+- ESP32-S3 USB Composite 디스크립터 (HID Mouse + Keyboard)
+- TinyUSB 기반 HID Boot 프로토콜 구현
+- ESP32-S3 UART 초기화 및 기본 수신 로직
+- FreeRTOS 듀얼 코어 멀티태스킹 (UART/HID/USB 태스크)
+
+**Phase 2.2의 역할**:
+- Android 앱에서 8바이트 델타 프레임 생성 및 UART 전송
+- ESP32-S3의 UART 수신 데이터를 HID 리포트로 변환
+- 전체 경로의 통신 안정성 확보
+
+### Phase 2.2 진행 시 중요 사항
+
+#### 1. ESP32-S3 펌웨어 로그 출력 활성화 (필수)
+
+Phase 2.3 검증을 위해 ESP32-S3에서 다음 로그를 출력하도록 설정하세요:
+
+```c
+// uart_handler.c 또는 hid_handler.c에서 추가
+
+// UART 프레임 수신 로그 (Phase 2.3.1 검증용)
+ESP_LOGI(TAG, "UART frame received: seq=%d buttons=0x%02x deltaX=%d deltaY=%d wheel=%d",
+         frame->seq, frame->buttons, frame->deltaX, frame->deltaY, frame->wheel);
+
+// HID 리포트 전송 로그 (Phase 2.3 검증용)
+ESP_LOGI(TAG, "HID Mouse report sent: buttons=0x%02x deltaX=%d deltaY=%d wheel=%d",
+         report.buttons, report.x, report.y, report.wheel);
+```
+
+**로그 확인 방법**:
+- Windows PC: PuTTY, miniterm.py 또는 Arduino IDE Serial Monitor
+- 포트: ESP32-S3 시리얼 포트 (COM3, COM4 등)
+- 속도: 115200 baud
+
+#### 2. Phase 2.1의 HID 기능 유지 (변경 금지)
+
+Phase 2.2 진행 중 다음 항목을 변경하지 마세요:
+- USB Composite 디스크립터 (HID 부분)
+- TinyUSB HID 콜백 함수
+- HID 리포트 전송 로직
+- FreeRTOS 태스크 우선순위 설정 (현재 상태 유지)
+
+**예시: 태스크 우선순위 현재 상태 (변경 금지)**:
+| 태스크 | 우선순위 | 코어 | 설명 |
+|-------|---------|------|------|
+| UART 수신 | 6 | 0 | 가장 높은 우선순위 (데이터 입력) |
+| HID 처리 | 5 | 0 | 프레임 변환 |
+| USB 장치 | 4 | 1 | TinyUSB 스택 관리 |
+
+**참조**: Phase 2.1.4.2에서 우선순위가 UART(6) > HID(5) > USB(4)로 조정되었습니다.
+데이터 흐름 (UART → HID → USB)과 완벽히 일치하므로 유지 필수입니다.
+
+#### 3. Android 테스트 환경 준비
+
+Phase 2.2 작업 시작 전 다음을 준비하세요:
+- 실제 Android 디바이스 (API 24 이상, USB-OTG 지원)
+- 데이터 전송 지원 가능한 USB-C 케이블
+- Windows PC (시리얼 모니터용)
+- Android Studio 최신 버전
+
+---
+
+## Phase 2.2.1: Android 프로토콜 구현 (BridgeFrame)
+
+**목표**: BridgeOne 프로토콜 정의 및 프레임 생성 로직 구현
+
+**개발 기간**: 4-5일
+
+**세부 목표**:
+1. BridgeFrame 데이터 클래스 정의
+2. FrameBuilder 클래스 구현
+3. 순번 관리 (0~255 순환)
+4. Little-Endian 직렬화
+5. 단위 테스트
+
+**참조 문서 및 섹션**:
+- `docs/android/technical-specification-app.md` §1.2 BridgeOne 프로토콜 명세
+- `docs/technical-specification.md` §2.1 UART 통신 (Android → ESP32-S3)
+
+---
+
+### Phase 2.2.1.1: BridgeFrame 데이터 클래스 정의
+
+**목표**: 8바이트 BridgeOne 프레임 데이터 클래스 정의
+
+**세부 목표**:
+1. `com.bridgeone.app.protocol` 패키지 생성
+2. `BridgeFrame.kt` 데이터 클래스 작성
+3. 8바이트 필드 정의 (seq, buttons, deltaX, deltaY, wheel, modifiers, keyCode1, keyCode2)
+4. Docstring 및 주석 추가
+
+**검증**:
+- [x] `src/android/app/src/main/java/com/bridgeone/app/protocol/` 디렉터리 생성됨
+- [x] `BridgeFrame.kt` 파일 생성됨
+- [x] 데이터 클래스 선언됨 (data class)
+- [x] 8개 필드 정의:
+  - [x] seq: UByte (시퀀스 번호)
+  - [x] buttons: UByte (마우스 버튼 비트)
+  - [x] deltaX: Byte (X축 이동값)
+  - [x] deltaY: Byte (Y축 이동값)
+  - [x] wheel: Byte (휠 값)
+  - [x] modifiers: UByte (키보드 modifier)
+  - [x] keyCode1: UByte (첫 번째 키코드)
+  - [x] keyCode2: UByte (두 번째 키코드)
+- [x] Docstring 작성됨
+- [x] Gradle 빌드 성공
+
+---
+
+#### 🔄 Phase 2.2.1.1 변경사항 분석
+
+**기존 계획 대비 추가 구현 사항**:
+
+1. **`toByteArray()` 메서드 조기 구현**
+   - 변경: BridgeFrame 클래스 내부에 직접 구현 (원래 계획: Phase 2.2.1.2에서)
+   - 이유: 프레임의 직렬화는 BridgeFrame 클래스의 핵심 기능이며, 데이터 클래스 정의 시 함께 제공하는 것이 OOP 원칙에 부합
+   - 장점: 프로토콜 계층과 빌더 계층의 책임 분리 명확화, Phase 2.2.1.2에서 FrameBuilder는 순번 관리에만 집중 가능
+
+2. **`companion object` 비트마스크 상수 추가**
+   - 변경: BUTTON_*_MASK, MODIFIER_*_MASK 상수 정의 (원래 계획에서 명시되지 않음)
+   - 이유: 마우스 버튼, 키보드 수정자 키 상태 확인 시 매직 넘버 제거 및 코드 가독성 향상
+   - 영향: 메모리 오버헤드 최소 (companion object는 클래스 로드 시 한 번만 초기화)
+   - 구현 상세: `const val` 대신 `val` 사용 (toUByte() 런타임 호출로 인해)
+
+3. **헬퍼 함수 추가**
+   - 변경: isLeftClickPressed(), isRightClickPressed(), isCtrlModifierActive() 등 5개 함수 추가
+   - 이유: 비트 마스킹 로직의 캡슐화, 후속 UI 계층(Phase 2.2.3, 2.2.4)에서 직관적인 상태 확인 가능
+   - 패턴: Boolean 함수명 규칙 준수 (is*, has* 접두사)
+
+4. **`default()` 팩토리 함수 추가**
+   - 변경: 기본값 BridgeFrame 생성 함수 제공
+   - 이유: 초기 상태 프레임 생성 시 명시적 필드 나열 불필요, 코드 간결성 향상
+   - 용도: Phase 2.2.2.4 (프레임 전송)에서 초기 프레임 생성, Phase 2.2.3 (터치 입력)에서 기본값 설정
+
+**후속 Phase 영향도 분석**:
+
+| Phase | 영향 | 조치 사항 |
+|-------|------|---------|
+| 2.2.1.2 | ✅ 긍정적 | FrameBuilder에서 toByteArray() 중복 구현 제거 가능, 순번 관리에만 집중 |
+| 2.2.1.3 | ✅ 긍정적 | 테스트에서 헬퍼 함수 활용 가능 (isLeftClickPressed() 등으로 상태 검증) |
+| 2.2.2.4 | ✅ 긍정적 | BridgeFrame.default()로 초기 프레임 생성 가능, 코드 간결화 |
+| 2.2.3.1 | ✅ 긍정적 | 터치 이벤트에서 BridgeFrame.BUTTON_LEFT_MASK 사용 (매직 넘버 제거) |
+| 2.2.3.3 | ✅ 긍정적 | detectClick(), getButtonState()에서 헬퍼 함수 또는 상수 활용 |
+| 2.2.4.3 | ✅ 긍정적 | 수정자 키 상태 확인 시 isCtrlModifierActive() 등 활용 가능 |
+
+**결론**: 모든 추가 구현이 **후속 Phase의 개발 효율성을 향상**시키므로 유지하되, 각 Phase에서 이 함수들/상수들을 활용하도록 문서 업데이트 필요
+
+---
+
+### Phase 2.2.1.2: FrameBuilder 및 순번 관리
+
+**목표**: 프레임 생성 및 순번 관리 구현
+
+**세부 목표**:
+1. `FrameBuilder.kt` 클래스 작성 (순번 관리 전담)
+2. 순번 카운터 관리 (0~255 순환)
+3. `buildFrame()` 메서드 구현 (BridgeFrame 생성 및 시퀀스 번호 할당)
+4. 스레드 안전 처리 (volatile 또는 AtomicInteger)
+
+**참조**: Phase 2.2.1.1에서 `BridgeFrame.toByteArray()` 및 `default()` 팩토리 함수가 이미 구현되었으므로 FrameBuilder는 순번 관리와 프레임 빌딩에만 집중
+
+**검증**:
+- [ ] `FrameBuilder.kt` 파일 생성됨
+- [ ] object 싱글톤으로 구현
+- [ ] 순번 카운터 변수 (volatile 또는 AtomicInteger 사용)
+- [ ] `buildFrame(buttons, deltaX, deltaY, wheel, modifiers, keyCode1, keyCode2): BridgeFrame` 메서드 구현
+- [ ] 시퀀스 번호 자동 증가 (0~255 순환)
+- [ ] 순번 순환 검증: seq 255 → 0으로 전환
+- [ ] 스레드 안전성 확보 (동시 호출 시에도 순번 중복 없음)
+- [ ] Gradle 빌드 성공
+
+---
+
+### Phase 2.2.1.3: 단위 테스트 및 검증
+
+**목표**: BridgeFrame 구조 및 FrameBuilder 기능 테스트
+
+**세부 목표**:
+1. `BridgeFrameTest.kt` 테스트 클래스 작성 (BridgeFrame 데이터 검증)
+2. `FrameBuilderTest.kt` 테스트 클래스 작성 (순번 관리 및 프레임 생성)
+3. 프레임 크기 검증 (8바이트)
+4. 헬퍼 함수 기능 검증 (isLeftClickPressed(), isCtrlModifierActive() 등)
+5. 순번 순환 검증 (255 → 0)
+
+**검증**:
+- [ ] `BridgeFrameTest.kt` 파일 생성됨
+- [ ] 테스트 케이스: 프레임 크기 == 8바이트
+- [ ] 테스트 케이스: toByteArray() 바이트 순서 정확성
+- [ ] 테스트 케이스: BridgeFrame.default() 기본값 확인 (모든 필드 0)
+- [ ] 테스트 케이스: 헬퍼 함수 동작 검증
+  - [x] isLeftClickPressed() → buttons & BUTTON_LEFT_MASK 일치
+  - [x] isRightClickPressed() → buttons & BUTTON_RIGHT_MASK 일치
+  - [x] isCtrlModifierActive() → modifiers & MODIFIER_LEFT_CTRL_MASK 일치
+  - [x] isShiftModifierActive() → modifiers & MODIFIER_LEFT_SHIFT_MASK 일치
+- [ ] 테스트 케이스: 값 범위 검증 (UByte: 0~255, Byte: -128~127)
+- [ ] `FrameBuilderTest.kt` 파일 생성됨
+- [ ] 테스트 케이스: buildFrame() 호출 시 seq 자동 증가 (0, 1, 2, ...)
+- [ ] 테스트 케이스: 순번 순환 (255 → 0)
+- [ ] 테스트 케이스: 다중 스레드 환경에서 순번 중복 없음
+- [ ] 모든 테스트 통과
+- [ ] Gradle 빌드 성공
+
+---
+
+### Phase 2.2.1.4: Android USB 권한 및 보드 인식 (선행 구축)
+
+**목표**: ESP32-S3 보드 자동 감지 및 USB 권한 획득
+
+**개발 기간**: 1-2일
+
+**세부 목표**:
+1. AndroidManifest.xml USB 권한 추가
+2. USB 권한 요청 함수 및 BroadcastReceiver 구현
+3. ESP32-S3 VID/PID 상수 정의
+4. 보드 자동 감지 함수 구현
+
+**참조 문서 및 섹션**:
+- `docs/android/technical-specification-app.md` §1.1 통신 아키텍처 설계
+
+---
+
+#### Phase 2.2.1.4.1: AndroidManifest.xml USB 권한 추가
+
+**목표**: USB Host API 및 디바이스 권한 선언
+
+**세부 목표**:
+1. USB Host 권한 추가 (`android.hardware.usb.host`)
+2. USB Device 권한 추가
+3. INTERNET 권한 추가 (선택사항)
+4. Intent Filter 설정
+
+**검증**:
+- [ ] `src/android/app/src/main/AndroidManifest.xml` 수정됨
+- [ ] `<uses-feature android:name="android.hardware.usb.host" android:required="true" />` 추가
+- [ ] `<uses-permission android:name="android.permission.USB_DEVICE" />` 추가
+- [ ] `<uses-permission android:name="android.permission.INTERNET" />` 추가 (선택)
+- [ ] Gradle 빌드 성공
+
+---
+
+#### Phase 2.2.1.4.2: USB 권한 요청 BroadcastReceiver 구현
+
+**목표**: USB 권한 요청 및 권한 결과 처리
+
+**세부 목표**:
+1. `UsbPermissionReceiver.kt` BroadcastReceiver 클래스 생성
+2. `requestUsbPermission()` 함수 구현
+3. PendingIntent 생성 및 등록
+4. 권한 결과 콜백 처리
+
+**검증**:
+- [ ] `src/android/app/src/main/java/com/bridgeone/app/usb/` 디렉터리 생성됨
+- [ ] `UsbPermissionReceiver.kt` 파일 생성됨
+- [ ] BroadcastReceiver 상속 및 `onReceive()` 구현
+- [ ] `requestUsbPermission()` 함수 구현됨
+- [ ] PendingIntent 플래그 설정 (PendingIntent.FLAG_UPDATE_CURRENT 등)
+- [ ] 권한 결과 체크 (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false))
+- [ ] 로그 출력 (권한 승인/거부)
+- [ ] Gradle 빌드 성공
+
+---
+
+#### Phase 2.2.1.4.3: ESP32-S3 VID/PID 상수 정의
+
+**목표**: ESP32-S3 디바이스 필터링을 위한 식별자 정의
+
+**세부 목표**:
+1. `UsbConstants.kt` 파일 생성
+2. VID/PID 상수 정의 (VID: 0x303A, PID: 0x82C5)
+3. 타임아웃 및 설정 상수 정의
+4. 문서 주석 추가
+
+**검증**:
+- [ ] `src/android/app/src/main/java/com/bridgeone/app/usb/UsbConstants.kt` 생성됨
+- [ ] `const val ESP32_S3_VID = 0x303A` 정의
+- [ ] `const val ESP32_S3_PID = 0x82C5` 정의
+- [ ] `const val UART_BAUDRATE = 1000000` 정의
+- [ ] `const val UART_DATA_BITS = 8` 정의
+- [ ] `const val UART_STOP_BITS = 1` 정의
+- [ ] `const val UART_PARITY = 0` 정의
+- [ ] Docstring 포함
+- [ ] Gradle 빌드 성공
+
+---
+
+#### Phase 2.2.1.4.4: 보드 자동 감지 함수 구현
+
+**목표**: VID/PID 필터링을 통한 ESP32-S3 디바이스 자동 감지
+
+**세부 목표**:
+1. `DeviceDetector.kt` 헬퍼 클래스 생성
+2. `findEsp32s3Device()` 함수 구현
+3. USB 디바이스 목록 순회 및 필터링
+4. 발견 시 권한 요청 트리거
+
+**검증**:
+- [ ] `src/android/app/src/main/java/com/bridgeone/app/usb/DeviceDetector.kt` 생성됨
+- [ ] `findEsp32s3Device(usbManager: UsbManager): UsbDevice?` 함수 구현
+- [ ] `usbManager.deviceList` 순회
+- [ ] VID/PID 필터링 로직 정확
+- [ ] 발견 시 권한 요청 (`requestUsbPermission()` 호출)
+- [ ] 발견되지 않으면 null 반환
+- [ ] 로그 출력 (발견/미발견 상태)
+- [ ] Gradle 빌드 성공
+
+---
+
+## Phase 2.2.2: Android USB Serial 통신 구현
+
+**목표**: USB Serial 라이브러리를 통한 ESP32-S3 UART 통신 구현
+
+**개발 기간**: 3-4일 (Phase 2.2.1.4 선행 완료 후)
+
+**선행 조건** (반드시 완료):
+- Phase 2.2.1: Android 프로토콜 구현 (BridgeFrame) ✓
+- Phase 2.2.1.4: Android USB 권한 및 보드 인식 ✓
+  - Phase 2.2.1.4.1: AndroidManifest.xml USB 권한 추가
+  - Phase 2.2.1.4.2: USB 권한 요청 BroadcastReceiver 구현
+  - Phase 2.2.1.4.3: ESP32-S3 VID/PID 상수 정의
+  - Phase 2.2.1.4.4: 보드 자동 감지 함수 구현
+
+**세부 목표**:
+1. usb-serial-for-android 라이브러리 추가
+2. UsbSerialManager 싱글톤 클래스 구현
+3. ESP32-S3 자동 감지
+4. UART 통신 설정 (1Mbps, 8N1)
+5. 연결 상태 모니터링
+
+**참조 문서 및 섹션**:
+- `docs/android/technical-specification-app.md` §1.1 통신 아키텍처 설계
+- `docs/technical-specification.md` §5.2 usb-serial-for-android 프로젝트 분석
+
+---
+
+### Phase 2.2.2.1: 라이브러리 의존성 추가 및 기본 구조
+
+**목표**: usb-serial-for-android 라이브러리 추가 및 UsbSerialManager 기본 구조 작성
+
+**세부 목표**:
+1. `gradle/libs.versions.toml`에 라이브러리 버전 추가
+2. `app/build.gradle.kts`에 의존성 선언
+3. Gradle 동기화 및 라이브러리 다운로드
+4. `UsbSerialManager.kt` 싱글톤 클래스 생성
+5. 기본 데이터 멤버 선언
+
+**검증**:
+- [ ] `gradle/libs.versions.toml`에 `usb-serial-for-android = "3.7.3"` 추가
+- [ ] `app/build.gradle.kts`에 `libs.usb.serial.for.android` 의존성 추가됨
+- [ ] Gradle 동기화 성공 (라이브러리 다운로드 완료)
+- [ ] `src/android/app/src/main/java/com/bridgeone/app/usb/` 디렉터리 생성됨
+- [ ] `UsbSerialManager.kt` 파일 생성됨 (object 싱글톤)
+- [ ] UsbManager, UsbSerialPort, isConnected 멤버 변수 선언됨
+- [ ] Gradle 빌드 성공
+
+---
+
+### Phase 2.2.2.2: UsbSerialManager와 권한 처리 통합
+
+**목표**: Phase 2.2.1.4.2에서 구현한 UsbPermissionReceiver를 UsbSerialManager 내부에 통합하여 권한 처리 로직 일원화
+
+**선행 조건** (반드시 완료):
+- Phase 2.2.1.4.1: AndroidManifest.xml USB 권한 추가 ✓
+- Phase 2.2.1.4.2: USB 권한 요청 BroadcastReceiver 구현 ✓
+- Phase 2.2.1.4.3: ESP32-S3 VID/PID 상수 정의 ✓
+- Phase 2.2.1.4.4: 보드 자동 감지 함수 구현 ✓
+
+**세부 목표**:
+1. Phase 2.2.1.4.2의 UsbPermissionReceiver를 UsbSerialManager 내부 클래스로 이동
+2. `requestPermission(device: UsbDevice)` 함수를 UsbSerialManager에 추가 (UsbPermissionReceiver 위임)
+3. 권한 결과 콜백을 리스너 패턴으로 변환 (옵션: PermissionCallback 인터페이스)
+4. 권한 상태 확인 함수 구현 (`hasPermission(device: UsbDevice): Boolean`)
+
+**검증**:
+- [ ] `requestPermission(device: UsbDevice)` 함수 추가됨
+- [ ] PendingIntent 생성 및 등록
+- [ ] 권한 결과 콜백 처리 로직 구현
+- [ ] 권한 거부 시 에러 로그 및 예외 처리
+- [ ] `hasPermission(device: UsbDevice): Boolean` 함수 구현
+- [ ] Gradle 빌드 성공
+
+---
+
+### Phase 2.2.2.3: UART 통신 설정 및 포트 관리
+
+**목표**: 1Mbps 8N1 통신 설정 및 포트 열기/닫기 구현
+
+**세부 목표**:
+1. `openPort()` 함수 구현 (1Mbps, 8N1 설정)
+2. `closePort()` 함수 구현
+3. `isConnected()` 함수 구현
+4. 리소스 해제 및 예외 처리
+5. 디버그 로그 추가
+
+**검증**:
+- [ ] `openPort()` 함수 구현됨
+- [ ] `setParameters(1000000, 8, 1, 0)` 호출 확인
+- [ ] `closePort()` 함수 구현됨
+- [ ] `isConnected()` 함수 구현됨
+- [ ] 예외 처리 (IOException, 연결 실패)
+- [ ] 디버그 로그 출력 (연결/해제 시점)
+- [ ] Gradle 빌드 성공
+
+---
+
+### Phase 2.2.2.4: 프레임 전송 및 연결 모니터링
+
+**목표**: BridgeFrame 전송 함수 및 연결 상태 모니터링 구현
+
+**세부 목표**:
+1. `sendFrame(frame: BridgeFrame)` 함수 구현
+2. BridgeFrame.toByteArray()를 사용한 바이트 변환 및 UART 전송
+3. 전송 완료 확인 (return 값 체크)
+4. 연결 상태 모니터링 (BroadcastReceiver)
+5. 재연결 로직 기본 구조
+
+**참조**: Phase 2.2.1.1에서 `BridgeFrame.toByteArray()`와 `default()` 구현되었음 - 이를 직접 활용
+
+**검증**:
+- [ ] `sendFrame()` 함수 구현됨
+- [ ] `frame.toByteArray()` 호출로 8바이트 ByteArray 직렬화
+- [ ] `write()` 호출로 UART 전송
+- [ ] 반환값 체크 (전송 바이트 수 == 8)
+- [ ] 초기 프레임 생성 시 `BridgeFrame.default()` 활용
+- [ ] 예외 처리 (USB 연결 해제 시 IOException)
+- [ ] BroadcastReceiver에서 연결/해제 감지
+- [ ] 디버그 로그 (프레임 전송 정보)
+- [ ] Gradle 빌드 성공
+
+---
+
+## Phase 2.2.3: Android 터치 입력 처리 (TouchpadWrapper)
+
+**목표**: 터치 이벤트를 8바이트 프레임으로 변환하는 로직 구현
+
+**개발 기간**: 4-5일
+
+**선행 조건** (반드시 완료):
+- Phase 2.2.1: Android 프로토콜 구현 (BridgeFrame) ✓
+- Phase 2.2.2.4: 프레임 전송 및 연결 모니터링 ✓
+  - `UsbSerialManager.sendFrame()` 메서드 구현 필수
+  - 비동기 처리 패턴 정의 필수
+
+**세부 목표**:
+1. TouchpadWrapper Composable 기본 UI
+2. 터치 이벤트 감지
+3. 델타 계산 및 데드존 보상
+4. 클릭 감지
+5. 프레임 생성 및 전송
+
+**참조 문서 및 섹션**:
+- `docs/android/technical-specification-app.md` §2.2 터치패드 알고리즘
+- `docs/android/component-touchpad.md`
+
+---
+
+### Phase 2.2.3.1: 기본 UI 및 터치 이벤트 감지
+
+**목표**: TouchpadWrapper UI 구성 및 터치 이벤트 감지 구현
+
+**세부 목표**:
+1. `TouchpadWrapper.kt` Composable 생성
+2. 1:2 비율 직사각형 UI
+3. 둥근 모서리 적용
+4. `Modifier.pointerInput()` 구현
+5. 터치 좌표 저장 (이전/현재)
+
+**검증**:
+- [ ] `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt` 생성됨
+- [ ] Composable 함수 선언됨
+- [ ] Box 또는 Surface로 UI 구성
+- [ ] 1:2 비율 적용 (가로:세로 = 1:2)
+- [ ] 최소 크기 160dp×320dp 이상
+- [ ] 둥근 모서리: 너비의 3%
+- [ ] `Modifier.pointerInput()` 구현됨
+- [ ] ACTION_DOWN, ACTION_MOVE, ACTION_UP 처리
+- [ ] Preview 함수 작성 및 렌더링
+- [ ] Gradle 빌드 성공
+
+---
+
+### Phase 2.2.3.2: 델타 계산 및 데드존 보상
+
+**목표**: 터치 좌표 델타 계산 및 데드존 보상 알고리즘 구현
+
+**세부 목표**:
+1. `calculateDelta()` 함수 구현
+2. dp → pixel 변환 (LocalDensity 사용)
+3. `applyDeadZone()` 함수 구현
+4. DEAD_ZONE_THRESHOLD = 15dp 적용
+5. 델타 범위 정규화 (-127 ~ 127)
+
+**검증**:
+- [ ] `calculateDelta()` 함수 구현됨
+- [ ] 좌표 계산 정확 (current - previous)
+- [ ] dp → pixel 변환 고려됨 (LocalDensity 사용)
+- [ ] X, Y 축 분리 처리됨
+- [ ] `applyDeadZone()` 함수 구현됨
+- [ ] DEAD_ZONE_THRESHOLD = 15dp 정의됨
+- [ ] 임계값 이하 → 0 처리
+- [ ] 임계값 초과 → 정규화 적용
+- [ ] 델타 범위 -127 ~ 127 확인
+- [ ] 디버그 로그 (원본/적용 후 값)
+- [ ] Gradle 빌드 성공
+
+---
+
+### Phase 2.2.3.3: 클릭 감지 및 프레임 생성
+
+**목표**: 클릭 감지 로직 및 프레임 생성/전송 구현
+
+**세부 목표**:
+1. `detectClick()` 함수 구현
+2. CLICK_MAX_DURATION = 500ms, CLICK_MAX_MOVEMENT = 15dp
+3. `getButtonState()` 함수 구현
+4. `createFrame()` 함수 구현
+5. `sendFrame()` 함수 (비동기 처리)
+6. 상태 초기화
+
+**검증**:
+- [ ] `detectClick()` 함수 구현됨
+- [ ] CLICK_MAX_DURATION = 500ms 정의됨
+- [ ] CLICK_MAX_MOVEMENT = 15dp 정의됨
+- [ ] 터치 시작 시간 기록
+- [ ] 경과시간 및 이동거리 계산
+- [ ] 클릭 판정 로직 정확 (시간 AND 거리)
+- [ ] `getButtonState()` 함수 구현됨
+- [ ] LEFT_CLICK 버튼 상태 처리: BridgeFrame.BUTTON_LEFT_MASK 사용 (0x01 매직 넘버 제거)
+- [ ] `createFrame()` 함수 구현됨
+- [ ] FrameBuilder 연동
+- [ ] `sendFrame()` 함수 구현됨 (LaunchedEffect 또는 viewModelScope)
+- [ ] UsbSerialManager.sendFrame() 호출
+- [ ] 예외 처리 및 로그
+- [ ] 상태 초기화 로직
+- [ ] Compose Preview 렌더링 확인
+- [ ] Gradle 빌드 성공
+
+---
+
+## Phase 2.2.4: Android 키보드 UI 구현 및 완성도 개선
+
+**목표**: HID Keyboard 입력을 위한 Android UI 완성 및 사용성 개선
+
+**개발 기간**: 3-4일
+
+**선행 조건** (반드시 완료):
+- Phase 2.2.1 ~ Phase 2.2.3: UART 통신 기본 구현 ✓
+  - BridgeFrame 프로토콜 구현
+  - USB Serial 통신 구현
+  - 터치패드 입력 처리
+
+**세부 목표**:
+1. Phase 2.3.2에서 구현한 KeyboardKeyButton의 시각적 및 UX 개선
+2. 키보드 레이아웃 최적화 및 추가 키 배열
+3. 수정자 키 (Shift, Ctrl, Alt) 조합 입력 최적화
+4. 키보드 탭 전환 또는 매크로 기능 (옵션)
+
+**참조 문서 및 섹션**:
+- `docs/android/component-design-guide-app.md` - KeyboardKeyButton 설계
+- `docs/android/technical-specification-app.md` §2.3.2 키보드 컴포넌트
+
+---
+
+### Phase 2.2.4.1: KeyboardKeyButton 컴포넌트 시각적/UX 개선
+
+**목표**: Phase 2.3.2에서 구현한 KeyboardKeyButton의 시각적 완성도 및 사용성 개선
+
+**선행 조건**:
+- Phase 2.2.4.1 이전의 기본 구현 완료 (KeyboardKeyButton 기본 구현)
+  - 기본 기능: 키 다운/업, keyCode 포함 프레임 생성
+  - 기본 UI: 버튼 레이블 표시
+
+**세부 목표** (기존 구현에 추가):
+1. 시각적 피드백 개선
+   - 키 누르기: 배경색 변화 (어두운 색)
+   - 수정자 키 활성화: 테두리 강조 색 적용
+2. 접근성 개선
+   - 최소 터치 영역: 60×60dp (Android 권장)
+   - 키 레이블 폰트 크기: 14sp 이상
+   - 색상 대비: WCAG AA 표준 준수
+3. 여러 키 동시 입력 최적화
+   - 최대 6개 키 동시 입력 지원 (HID Boot Protocol 한계)
+   - UI에서 활성화된 수정자 키 시각적 표시
+
+**검증**:
+- [ ] `KeyboardKeyButton.kt` 파일 업데이트 (기존 파일 사용)
+- [ ] 시각적 피드백 구현 (색상 변화 명확)
+- [ ] 접근성 요구사항 충족 (터치 영역 ≥ 60×60dp)
+- [ ] 여러 키 동시 입력 시각적 표시 (예: Shift + A 동시 누를 때 두 버튼 모두 강조)
+- [ ] Compose Preview 렌더링 확인
+- [ ] Gradle 빌드 성공
+
+---
+
+### Phase 2.2.4.2: 키보드 레이아웃 최적화 및 추가 키 배열
+
+**목표**: 접근성 우선 설계에 맞춘 컴팩트 키보드 레이아웃 구성
+
+**선행 조건**:
+- Phase 2.2.4.1: KeyboardKeyButton 시각적 개선 완료
+- KeyboardKeyButton 기본 구현 완료
+
+**세부 목표**:
+1. 기존 레이아웃 검증 및 최적화
+   - 중앙 하단 240×280dp 영역에 배치 (기존 계획)
+   - 터치 영역 최소화 (키 크기 조정)
+2. 주요 키 배열 추가
+   - 화살표 키 (↑, ↓, ←, →)
+   - Tab, Enter, Backspace, Esc
+   - 한영 전환 키 (옵션, Android 입력기와 협력 필요)
+3. 수정자 키 영역 최적화
+   - Shift: 좌측 하단 (한손 조작 최적화)
+   - Ctrl: 우측 하단 (modifier 조합 용이)
+   - Alt: 중앙 하단
+4. 탭 또는 페이지 전환 (옵션)
+   - "숫자/기호" 탭 추가
+   - "기능" 탭 추가 (F1~F12 등)
+
+**검증**:
+- [ ] `KeyboardLayout.kt` 파일 업데이트 또는 생성
+- [ ] 중앙 하단 240×280dp 영역 내 배치 확인
+- [ ] 주요 기능 키 (Tab, Enter, Esc) 접근 용이 확인
+- [ ] 수정자 키 (Shift, Ctrl, Alt) 한손 조작 최적화 확인
+- [ ] 여러 화면 크기 테스트 (4인치~6인치 디바이스)
+- [ ] Compose Preview 렌더링 확인
+- [ ] Gradle 빌드 성공
+
+---
+
+### Phase 2.2.4.3: 수정자 키 및 키 조합 최적화
+
+**목표**: Phase 2.3.2에서 기본 구현된 Shift/Ctrl/Alt 조합 입력의 안정성 및 사용성 개선
+
+**선행 조건**:
+- Phase 2.2.4.1: KeyboardKeyButton 시각적 개선 완료
+- Phase 2.2.4.2: 키보드 레이아웃 최적화 완료
+- KeyboardKeyButton 기본 Shift+A, Ctrl+C 조합 동작 확인
+
+**세부 목표** (기존 구현 개선):
+1. 수정자 키 상태 관리 최적화
+   - 상태 저장: Kotlin mutableStateOf
+   - 중복 상태 방지 (예: Shift 이중 누르기 무시)
+   - BridgeFrame 헬퍼 함수 활용: isShiftModifierActive(), isCtrlModifierActive(), isAltModifierActive()
+2. 키 조합 안정성 개선
+   - 타이밍 문제 해결 (수정자 → 일반 키 순서 보장)
+   - 프레임 생성 최적화 (burst 입력 시 누락 방지)
+3. 멀티 키 입력 최적화
+   - 최대 6개 키 동시 입력 지원 (HID Boot Protocol 한계)
+   - UI: 활성화된 키들을 모두 시각적으로 표시
+4. 프레임 정확성 검증
+   - modifiers 필드 값 검증: BridgeFrame.MODIFIER_LEFT_*_MASK 상수 활용
+   - keyCode 필드 값 검증 (HID 키코드 테이블 기반)
+
+**검증**:
+- [ ] Shift 수정자 활성화/해제 시 UI 표시 변화 확인
+- [ ] Shift+A 입력 → frame.isShiftModifierActive()=true, modifiers=0x02, keyCode1=0x04
+- [ ] Ctrl+C 입력 → frame.isCtrlModifierActive()=true, modifiers=0x01, keyCode1=0x06
+- [ ] Shift+Ctrl+A 입력 → frame.modifiers=0x03 (SHIFT | CTRL)
+- [ ] 동시 6개 키 입력 시 모두 정상 작동
+- [ ] BridgeFrame 헬퍼 함수 정확성 검증 (각 수정자 키 활성 상태 판별)
+- [ ] 빠른 연속 키 입력 중 조합 누락 없음 (Windows에서 모든 키 입력 확인)
+- [ ] Gradle 빌드 성공
+
+---
+
+## Phase 2.2.5: 최종 통합 검증 및 문서화
+
+**목표**: Phase 2.1 전체 완료 및 최종 검증
+
+**개발 기간**: 2-3일
+
+**세부 목표**:
+1. 모든 하위 Phase 검증 완료 확인
+2. 성능 목표 달성 확인
+3. 문서화 및 주석 최종 검토
+4. 커밋 및 릴리스 노트 작성
+
+---
+
+### Phase 2.2.5.1: Phase 2.2 검증 항목 최종 확인
+
+**목표**: Phase 2.2의 모든 세부 단계 검증 완료 및 성능 임계값 달성 확인
+
+**세부 목표**:
+1. Phase 2.2.1 ~ 2.2.4의 모든 검증 항목 재확인
+2. 성능 임계값 달성 최종 검증
+3. Phase 2.1과의 호환성 재검증 (HID 기능 여전히 정상)
+
+**검증** (Phase 2.2 검증 항목):
+- [ ] Phase 2.2.1 검증 완료: Android 프로토콜 (BridgeFrame)
+  - 8바이트 프레임 크기 정확
+  - Little-Endian 직렬화 정확
+  - 순번 순환 (0~255) 정상
+- [ ] Phase 2.2.1.4 검증 완료: USB 권한 및 보드 인식
+  - AndroidManifest.xml USB 권한 선언
+  - ESP32-S3 자동 감지 정상
+- [ ] Phase 2.2.2 검증 완료: Android USB Serial 통신
+  - usb-serial-for-android 라이브러리 정상 작동
+  - 1Mbps 8N1 통신 설정 정상
+  - 권한 처리 통합 정상
+- [ ] Phase 2.2.3 검증 완료: Android 터치 입력 처리
+  - 터치 이벤트 감지 정상
+  - 델타 계산 및 데드존 보상 정상
+  - 클릭 감지 정상
+- [ ] Phase 2.3 검증 완료: UART 통신 + End-to-End 검증
+  - UART 프레임 정확성: 8바이트, seq 연속성, Little-Endian 정확
+  - UART 성능: 50ms 이하 지연, 0.1% 이하 손실률
+  - HID Mouse 경로: Android → ESP32-S3 → Windows 마우스 이동 정상
+  - HID Keyboard 경로: Android → ESP32-S3 → Windows 키 입력 정상
+  - BIOS 호환성 확인 (Del 키 → BIOS 진입)
+- [ ] Phase 2.2.4 검증 완료: 키보드 UI 개선
+  - KeyboardKeyButton 시각적 개선 완료
+  - 키보드 레이아웃 최적화 완료
+  - 수정자 키 조합 안정성 확보
+
+**검증** (성능 임계값):
+- [ ] 평균 지연시간 < 50ms (100프레임 이상 측정 후 평균값)
+- [ ] 최대 지연시간 < 100ms (99 percentile)
+- [ ] 프레임 손실률 < 0.1% (1000프레임 중 1개 이하 손실)
+- [ ] 4시간 연속 사용 무중단 (크래시 없음)
+- [ ] CPU 사용률 < 30% (esp_get_free_heap_size 안정)
+
+**검증** (호환성):
+- [ ] Windows 10 HID 인식 정상
+- [ ] Windows 11 HID 인식 정상
+- [ ] Android 8.0 이상 USB Serial 통신 정상
+- [ ] Phase 2.1 HID 기능 (마우스/키보드) 여전히 정상 작동
+
+---
+
+### Phase 2.2.5.2: 문서 및 코드 주석 최종 검토
+
+**목표**: 모든 코드 파일 주석 및 Docstring 완성도 검증
+
+**세부 목표**:
+1. 모든 함수에 Google 스타일 Docstring 확인
+2. 복잡한 로직에 한국어 주석 확인
+3. 상수명 대문자 규칙 확인 (예: MAX_RETRY_COUNT)
+4. Boolean 변수명 규칙 확인 (is, has, can으로 시작)
+5. README 업데이트
+
+**검증**:
+- [ ] 모든 public 함수에 Docstring 포함
+- [ ] 복잡한 로직에 한국어 주석
+- [ ] 상수명 모두 UPPER_CASE
+- [ ] Boolean 변수명 규칙 준수
+- [ ] README 또는 PHASE_NOTES 문서에 Phase 2.2 완료 기록
+- [ ] Linter 오류 없음 (모든 파일)
+
+---
+
+### Phase 2.2.5.3: 최종 커밋 및 릴리스 노트
+
+**목표**: Phase 2.2 완료 커밋 및 정리
+
+**세부 목표**:
+1. 모든 변경사항 커밋
+2. 커밋 메시지 작성 (작가 가이드라인 준수)
+3. Phase 2.2 완료 요약 문서 작성
+4. 다음 Phase 2.3 준비
+
+**검증**:
+- [ ] 모든 파일 커밋 완료
+- [ ] 커밋 메시지: "feat: Phase 2.2 Android → ESP32-S3 UART 통신 구현 완료"
+- [ ] Phase 2.2 완료 요약 문서 작성
+- [ ] Phase 2.3 시작 조건 확인
+
+---
+
+## 🔄 Phase 2.2 전체 변경사항 정리 및 후속 영향도
+
+### 변경사항 요약
+
+Phase 2.2.1.1에서의 추가 구현이 이후 모든 Phase에 긍정적 영향을 미치도록 각 Phase 문서를 업데이트했습니다:
+
+#### 1️⃣ Phase 2.2.1.2 영향 (FrameBuilder 및 순번 관리)
+- **변경**: toByteArray() 및 default() 메서드 중복 구현 제거
+- **조치**: FrameBuilder는 순번 관리와 buildFrame() 메서드에만 집중
+- **장점**: 책임 분리 명확화, 중복 코드 제거
+
+#### 2️⃣ Phase 2.2.1.3 영향 (단위 테스트)
+- **변경**: BridgeFrame 헬퍼 함수를 활용한 테스트 추가
+- **추가 테스트**:
+  - ✅ isLeftClickPressed(), isRightClickPressed() 테스트
+  - ✅ isCtrlModifierActive(), isShiftModifierActive() 테스트
+  - ✅ BridgeFrame.default() 기본값 검증
+  - ✅ FrameBuilderTest 추가 (다중 스레드 순번 중복 테스트)
+
+#### 3️⃣ Phase 2.2.2.4 영향 (프레임 전송)
+- **변경**: BridgeFrame.default() 팩토리 함수 활용 권장
+- **조치**: 검증 항목에 "초기 프레임 생성 시 BridgeFrame.default() 활용" 추가
+- **장점**: 코드 간결화, 필드 나열 불필요
+
+#### 4️⃣ Phase 2.2.3 영향 (터치 입력 처리)
+- **변경**: 버튼 상태 처리 시 매직 넘버 제거
+- **조치**: BridgeFrame.BUTTON_LEFT_MASK 상수 활용 권장
+- **검증**: LEFT_CLICK 버튼 상태 처리 항목 구체화
+
+#### 5️⃣ Phase 2.2.4.3 영향 (수정자 키 조합)
+- **변경**: 수정자 키 상태 확인 시 헬퍼 함수 활용
+- **조치**: 
+  - isShiftModifierActive(), isCtrlModifierActive(), isAltModifierActive() 활용 명시
+  - BridgeFrame.MODIFIER_LEFT_*_MASK 상수 활용
+- **검증**: frame.isShiftModifierActive() 등으로 활성 상태 판별 테스트 추가
+
+### 최종 정리
+
+| 변경 항목 | 영향도 | 문서 업데이트 상태 |
+|---------|--------|----------------|
+| toByteArray() 조기 구현 | 2.2.1.2 단순화 | ✅ 반영 |
+| BridgeFrame 상수 추가 | 2.2.3, 2.2.4 개선 | ✅ 반영 |
+| 헬퍼 함수 추가 | 2.2.1.3, 2.2.3, 2.2.4 개선 | ✅ 반영 |
+| default() 팩토리 추가 | 2.2.2.4 단순화 | ✅ 반영 |
+
+**결론**: Phase 2.2.1.1의 모든 추가 구현이 각 후속 Phase의 개발 효율성과 코드 품질을 향상시키므로 계획 변경 유지
+
+---
+
+## Phase 2.2 완료 요약
+
+**목표 달성**: Android → ESP32-S3 UART 통신 구현 완료 
+
+**완료 항목**:
+- Phase 2.1.1: ESP32-S3 USB Composite 디스크립터 구현
+  - Phase 2.1.1.1: USB Device & Configuration Descriptor 정의
+  - Phase 2.1.1.2: HID Report Descriptor (Keyboard + Mouse)
+  - Phase 2.1.1.3: TinyUSB 콜백 함수 구현
+- Phase 2.1.2: ESP32-S3 UART → HID 변환 로직 구현
+  - Phase 2.1.2.1: UART 초기화 및 bridge_frame_t 구조체 정의
+  - Phase 2.1.2.2: UART 수신 태스크 및 프레임 검증 로직
+  - Phase 2.1.2.3: HID 태스크 및 프레임 처리 로직
+- Phase 2.1.3: 코드 리팩토링 및 품질 개선
+- Phase 2.1.4: ESP32-S3 FreeRTOS 태스크 구조 구현
+  - Phase 2.1.4.1: app_main() 초기화 함수 작성
+  - Phase 2.1.4.2: UART 및 HID 태스크 생성 (Core 0)
+  - Phase 2.1.4.3: USB 태스크 생성 (Core 1) 및 TWDT 설정
+- Phase 2.1.5: ESP32-S3 펌웨어 빌드 및 기본 검증
+  - Phase 2.1.5.1: CMakeLists.txt 업데이트 및 빌드
+  - Phase 2.1.5.2: 펌웨어 플래싱 및 시리얼 연결
+  - Phase 2.1.5.3: 초기화 로그 검증
+- Phase 2.1.6: Windows HID 디바이스 인식 및 기본 검증
+  - Phase 2.1.6.1: Device Manager에서 HID 디바이스 확인
+  - Phase 2.1.6.2: PowerShell 디바이스 상태 확인
+- Phase 2.2.1: Android 프로토콜 구현 (BridgeFrame)
+  - Phase 2.2.1.1: BridgeFrame 데이터 클래스 정의
+  - Phase 2.2.1.2: FrameBuilder 및 순번 관리
+  - Phase 2.2.1.3: 단위 테스트 및 검증
+  - Phase 2.2.1.4: Android USB 권한 및 보드 인식 (선행 구축)
+- Phase 2.2.2: Android USB Serial 통신 구현
+  - Phase 2.2.2.1: 라이브러리 의존성 추가 및 기본 구조
+  - Phase 2.2.2.2: UsbSerialManager와 권한 처리 통합
+  - Phase 2.2.2.3: UART 통신 설정 및 포트 관리
+  - Phase 2.2.2.4: 프레임 전송 및 연결 모니터링
+- Phase 2.2.3: Android 터치 입력 처리 (TouchpadWrapper)
+  - Phase 2.2.3.1: 기본 UI 및 터치 이벤트 감지
+  - Phase 2.2.3.2: 델타 계산 및 데드존 보상
+  - Phase 2.2.3.3: 클릭 감지 및 프레임 생성
+- Phase 2.3: UART 통신 검증 + HID E2E 테스트
+  - Phase 2.3.1: UART 프레임 정확성 검증
+  - Phase 2.3.2: UART 지연시간 및 손실률 측정
+  - Phase 2.3.3: UART 안정성 및 스트레스 테스트
+  - Phase 2.3.4: HID Mouse 경로 E2E 검증
+  - Phase 2.3.5: HID Keyboard 경로 E2E 검증
+  - Phase 2.3.6: 최종 지연시간 및 손실률 측정 (HID)
+  - Phase 2.3.7: HID 안정성 및 스트레스 테스트
+  - Phase 2.3.8: 최종 통합 검증 및 문서화
+- Phase 2.2.4: Android 키보드 UI 구현 및 완성도 개선
+  - Phase 2.2.4.1: KeyboardKeyButton 컴포넌트 구현
+  - Phase 2.2.4.2: 키보드 레이아웃 및 UI 구성
+  - Phase 2.2.4.3: 수정자 키 및 키 조합 지원
+- Phase 2.2.5: 최종 통합 검증 및 문서화
+  - Phase 2.2.5.1: 검증 체크리스트 최종 확인
+  - Phase 2.2.5.2: 문서 및 코드 주석 최종 검토
+  - Phase 2.2.5.3: 최종 커밋 및 릴리스 노트
+
+**구성된 통신 경로**:
+- ESP32-S3 TinyUSB 기반 HID Boot Mouse + HID Boot Keyboard 복합 디바이스
+- FreeRTOS 듀얼 코어 멀티태스킹 시스템 (UART/HID/USB 태스크)
+- Android 앱 8바이트 델타 프레임 생성 및 UART 전송
+- USB Serial 라이브러리 기반 ESP32-S3 통신
+- Windows HID 기본 드라이버 자동 인식
+- End-to-End 통신 경로 검증 완료 (50ms 이하 지연시간, 0.1% 이하 손실률)
+
+**핵심 성과물**:
+- ESP32-S3 펌웨어: `usb_descriptors.c`, `uart_handler.c`, `hid_handler.c`, `main.c`
+- Android 앱: `BridgeFrame.kt`, `FrameBuilder.kt`, `UsbSerialManager.kt`, `TouchpadWrapper.kt`, `KeyboardKeyButton.kt`
+- 검증 완료: Windows에서 마우스/키보드 정상 작동, BIOS 호환성 확인
+
+**다음 단계**: Phase 2.4 (Windows 양방향 통신 또는 Keyboard UI 완성도) - CDC Vendor 통신 구현 또는 KeyboardKeyButton 시각적 개선
+
+**⚠️ Phase 2.3 시작 시 필수 사항**:
+- Phase 2.2.1 ~ Phase 2.2.4 모든 구현 완료 필수
+- Android 앱 빌드 및 ESP32-S3 연결 테스트 환경 준비
+- Windows PC 시리얼 모니터 (115200 baud) 준비
+
+---
+
+### Phase 2.2 완료 후 점검사항
+
+Phase 2.2 (Android → ESP32-S3 UART 통신)를 완료한 후 다음을 확인하십시오:
+
+1. **Phase 2.2 변경사항이 모든 구현에 반영되었는가?**
+   - Android 앱 UART 통신 구현 완료
+   - BridgeFrame 프로토콜 8바이트 구조 구현
+   - USB Serial 라이브러리 통합 완료
+   - 터치패드 + 키보드 UI 구현
+
+2. **ESP32-S3 준비 상태 확인**:
+   - 기존 Phase 2.1의 HID 구현 유지 (변경 불필요)
+   - UART 수신 로그 출력 설정 필수 (Phase 2.3 검증용)
+     - 프레임 수신 로그: "UART frame received: seq=X deltaX=X deltaY=X"
+   - 시리얼 포트 115200 baud 설정 확인
+
+3. **Android 앱 테스트 환경 준비**:
+   - 실제 Android 디바이스에 앱 설치 및 테스트
+   - USB-C 케이블 확인 (데이터 전송 지원)
+   - 권한 획득 동작 확인
