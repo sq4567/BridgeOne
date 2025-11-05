@@ -1103,16 +1103,142 @@ Phase 2.2.1.2에서 구현된 `FrameBuilder.buildFrame()` 메서드는 `sendFram
 5. 터치 좌표 저장 (이전/현재)
 
 **검증**:
-- [ ] `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt` 생성됨
-- [ ] Composable 함수 선언됨
-- [ ] Box 또는 Surface로 UI 구성
-- [ ] 1:2 비율 적용 (가로:세로 = 1:2)
-- [ ] 최소 크기 160dp×320dp 이상
-- [ ] 둥근 모서리: 너비의 3%
-- [ ] `Modifier.pointerInput()` 구현됨
-- [ ] ACTION_DOWN, ACTION_MOVE, ACTION_UP 처리
-- [ ] Preview 함수 작성 및 렌더링
-- [ ] Gradle 빌드 성공
+- [x] `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt` 생성됨
+- [x] Composable 함수 선언됨
+- [x] Box 또는 Surface로 UI 구성
+- [x] 1:2 비율 적용 (가로:세로 = 1:2)
+- [x] 최소 크기 160dp×320dp 이상
+- [x] 둥근 모서리: 너비의 3%
+- [x] `Modifier.pointerInput()` 구현됨
+- [x] ACTION_DOWN, ACTION_MOVE, ACTION_UP 처리
+- [x] Preview 함수 작성 및 렌더링
+- [x] Gradle 빌드 성공
+
+#### Phase 2.2.3.1 변경사항 분석
+
+**기존 계획과의 주요 차이점**:
+
+| 항목 | 기존 계획 | 실제 구현 | 변경 사유 |
+|------|---------|---------|---------|
+| **컨테이너** | Box 또는 Surface | Box만 사용 | Surface는 불필요한 추가 레이어이며, Box + `.background()` + `.clip()`으로 동일 기능 구현 가능 |
+| **이벤트 감지 패턴** | ACTION_DOWN, ACTION_MOVE, ACTION_UP 단순 처리 | `awaitEachGesture` + 순차적 이벤트 처리 | Jetpack Compose의 권장 패턴으로, 포인터 이벤트 생명주기를 정확히 관리 |
+| **이벤트 타입** | Android MotionEvent 기반 (ACTION_*) | Jetpack Compose PointerEventType (Press/Move/Release) | Context7 공식 문서 기반 - Jetpack Compose 레이어에서 제공하는 타입 사용 |
+| **콜백 인터페이스** | 암묵적인 내부 상태 관리 | 명시적 `onTouchEvent` 콜백 함수 | 관심사의 분리 - 상위 컴포넌트에서 터치 이벤트 처리 로직 구현 가능 |
+| **이벤트 흐름 제어** | 각 이벤트별 독립 처리 | DOWN → MOVE (while) → UP 순차 처리 | 더 명확한 터치 제스처 생명주기 관리 |
+
+**1️⃣ 컨테이너 선택 변경: Surface → Box**
+
+```kotlin
+// ❌ 기존 계획 (과도함)
+Surface(
+    modifier = modifier
+        .clip(RoundedCornerShape(8.dp))
+        .pointerInput(...),
+    color = Color(0xFF1A1A1A),
+    shape = RoundedCornerShape(8.dp)
+) { ... }
+
+// ✅ 실제 구현 (간결함)
+Box(
+    modifier = modifier
+        .size(160.dp, 320.dp)
+        .clip(RoundedCornerShape(4.8.dp))
+        .background(Color(0xFF1A1A1A))
+        .pointerInput(...) { ... }
+)
+```
+
+- **변경 사유**: Surface는 Material Design의 고수준 컴포넌트로, 추가적인 레이어와 처리 오버헤드 발생
+- **영향도**: 성능 개선 (렌더링 시간 단축) + 코드 간결성 증대
+- **후속 Phase 영향**: 없음 (외부 인터페이스 변경 없음)
+
+**2️⃣ 이벤트 감지 아키텍처 개선: 독립 처리 → 순차 처리**
+
+```kotlin
+// ❌ 기존 계획 (제한적)
+// "ACTION_DOWN, ACTION_MOVE, ACTION_UP을 처리한다" (구체적 구현 미정)
+
+// ✅ 실제 구현 (명확함)
+awaitEachGesture {
+    // 1단계: DOWN 이벤트 대기
+    val down = awaitPointerEvent()
+    if (down.type == PointerEventType.Press) { ... }
+    
+    // 2단계: MOVE 이벤트 반복 처리 (UP까지)
+    var moveEvent = awaitPointerEvent()
+    while (moveEvent.type == PointerEventType.Move) {
+        ... // 매 MOVE에서 좌표 갱신
+        moveEvent = awaitPointerEvent()
+    }
+    
+    // 3단계: UP 이벤트 처리
+    if (moveEvent.type == PointerEventType.Release) { ... }
+}
+```
+
+- **변경 사유**: 포인터 이벤트의 명확한 생명주기 관리로, 클릭 감지 및 멀티 터치 상황에서 정확도 향상
+- **Context7 기반**: Android 공식 문서에서 권장하는 `awaitEachGesture` 패턴 따름
+- **영향도**: Phase 2.2.3.2 (델타 계산) ~ 2.2.3.4 (프레임 전송)에 **긍정적**
+  - 각 이벤트 단계에서 `currentTouchPosition`과 `previousTouchPosition` 자동 구분
+  - 클릭 판정 로직 단순화 (DOWN 시간 + UP 시간으로 duration 계산 가능)
+
+**3️⃣ 이벤트 타입 명확화: Android MotionEvent → Jetpack Compose PointerEventType**
+
+```kotlin
+// ❌ 기존 (혼동 가능성)
+// "ACTION_DOWN, ACTION_MOVE, ACTION_UP"
+// → 이것이 Android MotionEvent.ACTION_* 상수인지 Compose API인지 모호
+
+// ✅ 실제 (명확함)
+// PointerEventType.Press    (= ACTION_DOWN 역할)
+// PointerEventType.Move     (= ACTION_MOVE 역할)
+// PointerEventType.Release  (= ACTION_UP 역할)
+```
+
+- **변경 사유**: Jetpack Compose 레이어에서 작동하므로, Compose의 고수준 API 사용
+- **Context7 기반**: 공식 Jetpack Compose 문서에서 PointerEventType 사용 권장
+- **영향도**: 없음 (하위 계층 구현 변경이 아님)
+
+**4️⃣ 콜백 인터페이스 추가: 내부 상태 → 외부 콜백**
+
+```kotlin
+// ❌ 기존 계획 (제한적)
+// "터치 좌표를 저장한다" (어디에? 어떻게 공유? 미정)
+
+// ✅ 실제 구현 (확장성 우수)
+@Composable
+fun TouchpadWrapper(
+    modifier: Modifier = Modifier,
+    onTouchEvent: (
+        eventType: PointerEventType,
+        currentPosition: Offset,
+        previousPosition: Offset
+    ) -> Unit = { _, _, _ -> }
+)
+```
+
+- **변경 사유**: 관심사의 분리 원칙 - 터치 이벤트 감지와 이벤트 처리 로직 분리
+- **설계 패턴**: Callback Hell 방지, 상위 컴포넌트에서 이벤트 처리 결정권 보유
+- **영향도**: Phase 2.2.3.2 ~ 2.2.3.4에 **긍정적**
+  - Phase 2.2.3.2 (델타 계산): `onTouchEvent` 콜백에서 직접 `calculateDelta()` 호출 가능
+  - Phase 2.2.3.3 (클릭 감지): `onTouchEvent` 콜백에서 DOWN/UP 시간 기록 가능
+  - Phase 2.2.3.4 (프레임 전송): `onTouchEvent` 콜백에서 `sendFrame()` 호출
+
+**5️⃣ 이벤트 흐름 제어 개선**
+
+```kotlin
+// ❌ 기존 (각 이벤트를 독립적으로 처리)
+// 이벤트 타입 확인 → 처리 (다음 이벤트와 독립적)
+
+// ✅ 실제 (이벤트 생명주기 기반)
+// 1. DOWN 이벤트 받음 → 이전 좌표 저장
+// 2. MOVE 루프 진입 → while (moveEvent.type == Move) 반복
+// 3. UP 이벤트 받음 → 루프 탈출 후 UP 처리
+```
+
+- **변경 사유**: 포인터 이벤트의 자연스러운 상태 전이 표현
+- **이점**: 클릭 감지에서 "누르는 시간 측정" 가능 (DOWN → UP 구간 시간 계산)
+- **영향도**: Phase 2.2.3.3 (클릭 감지) 단순화
 
 ---
 
@@ -1139,6 +1265,43 @@ Phase 2.2.1.2에서 구현된 `FrameBuilder.buildFrame()` 메서드는 `sendFram
 - [ ] 델타 범위 -127 ~ 127 확인
 - [ ] 디버그 로그 (원본/적용 후 값)
 - [ ] Gradle 빌드 성공
+
+#### Phase 2.2.3.2 업데이트 사항 (Phase 2.2.3.1 개선에 따른 조치)
+
+**변경 배경**:
+- Phase 2.2.3.1에서 `onTouchEvent` 콜백이 추가되어, 이미 `currentPosition`과 `previousPosition`이 명확히 분리됨
+- Phase 2.2.3.1의 순차적 이벤트 처리로 각 단계에서 정확한 좌표 값 보장
+
+**개선 사항**:
+
+1. **calculateDelta() 호출 시점**:
+   - 기존: 별도 함수로 계산 필요
+   - 개선: `onTouchEvent` 콜백에서 직접 `(currentPosition - previousPosition)` 계산 가능
+   
+2. **콜백 구현 예시**:
+```kotlin
+TouchpadWrapper(
+    onTouchEvent = { eventType, currentPos, previousPos ->
+        // Phase 2.2.3.2: calculateDelta() 호출 위치
+        if (eventType == PointerEventType.Move) {
+            val delta = calculateDelta(previousPos, currentPos)
+            val compensatedDelta = applyDeadZone(delta)
+            // Phase 2.2.3.3으로 전달
+        }
+    }
+)
+```
+
+3. **이점**:
+   - 각 MOVE 이벤트에서 즉시 델타 계산 가능 (이벤트 드리븐 구조)
+   - 불필요한 중간 상태 저장 감소
+   - 데드존 보상이 실시간 터치 이동에 반영
+
+**검증 항목 추가** (Phase 2.2.3.1 변경사항 반영):
+- [ ] `onTouchEvent` 콜백에서 `PointerEventType` 확인 후 델타 계산
+- [ ] DOWN 이벤트: 초기 좌표 저장 (previousPosition ← currentPosition)
+- [ ] MOVE 이벤트: 델타 계산 (currentPosition - previousPosition)
+- [ ] RELEASE 이벤트: 델타 마지막 값 처리
 
 ---
 
@@ -1171,6 +1334,66 @@ Phase 2.2.1.2에서 구현된 `FrameBuilder.buildFrame()` 메서드는 `sendFram
 - [ ] 전송 실패 시 에러 로그 및 예외 처리
 - [ ] 상태 초기화 로직 (터치 완료 후 초기화)
 - [ ] Gradle 빌드 성공
+
+---
+
+#### Phase 2.2.3.3 업데이트 사항 (Phase 2.2.3.1 개선에 따른 조치)
+
+**변경 배경**:
+- Phase 2.2.3.1에서 `onTouchEvent` 콜백이 추가되어, 이벤트 타입 구분이 명확함
+- Phase 2.2.3.1의 순차적 이벤트 처리 (DOWN → MOVE → UP)로 클릭 감지 시간 측정 용이
+
+**개선 사항**:
+
+1. **클릭 감지 시간 측정**:
+   - 기존: 별도의 타이머/카운터 필요 (복잡도 높음)
+   - 개선: DOWN 이벤트 시간 기록 → UP 이벤트 시간 - DOWN 시간 = 누르는 시간
+   
+2. **클릭 감지 콜백 예시**:
+```kotlin
+private var touchDownTime = 0L
+private var touchDownPosition = Offset.Zero
+
+TouchpadWrapper(
+    onTouchEvent = { eventType, currentPos, previousPos ->
+        when (eventType) {
+            PointerEventType.Press -> {
+                touchDownTime = System.currentTimeMillis()
+                touchDownPosition = currentPos
+            }
+            PointerEventType.Release -> {
+                val pressDuration = System.currentTimeMillis() - touchDownTime
+                val movement = (currentPos - touchDownPosition).getDistance()
+                
+                val buttonState = detectClick(pressDuration, movement)
+                val frame = createFrame(buttonState)
+                sendFrame(frame)
+            }
+            else -> {} // Move 이벤트는 스킵
+        }
+    }
+)
+
+fun detectClick(duration: Long, movement: Float): UByte {
+    return when {
+        duration < 500 && movement < 15.dp.toPx() -> 0x01u  // LEFT_CLICK
+        duration >= 500 && movement < 15.dp.toPx() -> 0x02u // RIGHT_CLICK (롱터치)
+        else -> 0x00u  // NO_CLICK
+    }
+}
+```
+
+3. **이점**:
+   - 클릭 감지 로직 단순화 (상태 머신 제거 가능)
+   - UP 이벤트 시점에서 즉시 판정 가능
+   - 이벤트 기반 구조로 콜백에서 완결된 처리
+
+**검증 항목 추가** (Phase 2.2.3.1 변경사항 반영):
+- [ ] `onTouchEvent` 콜백에서 `PointerEventType.Press` 시 DOWN 시간 기록
+- [ ] `onTouchEvent` 콜백에서 `PointerEventType.Release` 시 `detectClick()` 호출
+- [ ] `detectClick()`: 누르는 시간 < 500ms && 움직임 < 15dp → LEFT_CLICK
+- [ ] `detectClick()`: 누르는 시간 >= 500ms && 움직임 < 15dp → RIGHT_CLICK
+- [ ] `detectClick()`: 그 외 → NO_CLICK
 
 ---
 
