@@ -208,5 +208,104 @@ object UsbSerialManager {
      * @return UsbSerialPort 인스턴스, 포트가 없으면 null
      */
     internal fun getPort(): UsbSerialPort? = usbSerialPort
+
+    // ========== 권한 처리 함수 (Phase 2.2.2.2에서 추가) ==========
+
+    /**
+     * USB 기기에 권한을 요청합니다 (Phase 2.2.1.4.2의 requestUsbPermission() 래핑).
+     *
+     * android.permission.USB_DEVICE 권한이 필요한 경우,
+     * 이 함수를 호출하여 사용자에게 권한 요청 대화상자를 표시합니다.
+     *
+     * 권한 결과는 UsbPermissionReceiver를 통해 수신됩니다.
+     *
+     * **권한 요청 흐름:**
+     * 1. PendingIntent 생성 및 등록
+     * 2. UsbManager.requestPermission()으로 권한 요청 시작
+     * 3. 사용자가 승인/거부 선택
+     * 4. UsbPermissionReceiver.onReceive()에서 결과 처리
+     *
+     * @param context 현재 앱의 Context (Activity 또는 Service)
+     * @param device 권한을 요청할 USB 기기
+     *
+     * 예시:
+     * ```kotlin
+     * UsbSerialManager.requestPermission(context, device)
+     * ```
+     */
+    fun requestPermission(context: android.content.Context, device: android.hardware.usb.UsbDevice) {
+        val manager = usbManager
+        check(manager != null) { "UsbManager not initialized. Call setUsbManager() first." }
+
+        // Phase 2.2.1.4.2의 requestUsbPermission() 함수 위임
+        requestUsbPermission(context, manager, device)
+        Log.d(TAG, "USB permission requested for device: ${device.deviceName}")
+    }
+
+    /**
+     * USB 권한을 확인합니다 (Phase 2.2.1.4.2의 hasUsbPermission() 래핑).
+     *
+     * Android 6.0(API 23)부터는 런타임 권한 요청이 필수입니다.
+     * 이 함수는 기기가 해당 USB 권한을 가지고 있는지 확인합니다.
+     *
+     * @param context 현재 앱의 Context
+     * @return 권한이 있으면 true, 없으면 false
+     */
+    fun hasPermission(context: android.content.Context): Boolean {
+        return hasUsbPermission(context)
+    }
+
+    /**
+     * ESP32-S3 디바이스를 찾고 초기화 및 연결을 시도합니다 (Phase 2.2.1.4.4의 DeviceDetector 통합).
+     *
+     * 다음 작업을 수행합니다:
+     * 1. DeviceDetector.findAndRequestPermission()을 호출하여 디바이스 검색 및 권한 요청
+     * 2. 권한 승인 대기 (비동기 콜백)
+     *
+     * **주의사항**:
+     * - 이 함수는 권한 요청만 수행하며, 실제 포트 열기는 권한 승인 후 수행됩니다.
+     * - 권한 결과는 UsbPermissionReceiver.notifyPermissionResult()를 통해 처리됩니다.
+     * - Phase 2.2.2.3에서 더 자세한 초기화/연결 로직이 구현됩니다.
+     *
+     * @param context 현재 앱의 Context
+     * @return 디바이스 발견 및 권한 요청 시작 시 true, 실패 시 false
+     *
+     * 예시:
+     * ```kotlin
+     * if (UsbSerialManager.initializeAndConnect(context)) {
+     *     Log.i(TAG, "USB permission request initiated")
+     * } else {
+     *     Log.w(TAG, "ESP32-S3 device not found")
+     * }
+     * ```
+     */
+    fun initializeAndConnect(context: android.content.Context): Boolean {
+        return DeviceDetector.findAndRequestPermission(context)
+    }
+
+    /**
+     * 권한 결과 콜백을 처리합니다 (Phase 2.2.2.2에서 추가).
+     *
+     * UsbPermissionReceiver에서 호출되어 권한 승인/거부 결과를 처리합니다.
+     * 권한이 승인된 경우 자동으로 포트를 열 수 있도록 준비합니다.
+     *
+     * @param context 현재 앱의 Context
+     * @param device 권한 요청 대상 디바이스
+     * @param granted 권한 승인 여부
+     */
+    fun notifyPermissionResult(
+        context: android.content.Context,
+        device: android.hardware.usb.UsbDevice,
+        granted: Boolean
+    ) {
+        if (granted) {
+            Log.d(TAG, "USB permission granted for device: ${device.deviceName}")
+            // Phase 2.2.3에서 추가 처리 (포트 열기 등)
+            // TODO: Phase 2.2.3에서 자동 포트 열기 로직 구현
+        } else {
+            Log.w(TAG, "USB permission denied for device: ${device.deviceName}")
+            closePort()
+        }
+    }
 }
 

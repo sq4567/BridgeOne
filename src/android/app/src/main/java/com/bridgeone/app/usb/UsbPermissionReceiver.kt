@@ -76,10 +76,14 @@ class UsbPermissionReceiver : BroadcastReceiver() {
     }
 
     /**
-     * USB 권한 결과를 알립니다.
+     * USB 권한 결과를 알립니다 (Phase 2.2.2.2에서 UsbSerialManager 연동).
      * 
-     * 추후 Phase 2.2.2에서 전역 권한 상태 관리 시스템과 연동될 예정입니다.
-     * 현재는 로그 기반 알림만 수행합니다.
+     * UsbSerialManager의 notifyPermissionResult() 콜백을 호출하여
+     * 권한 승인/거부 결과를 관리 시스템에 통보합니다.
+     * 
+     * **권한 결과 처리:**
+     * - 권한 승인: UsbSerialManager.notifyPermissionResult()에서 추후 포트 열기 준비
+     * - 권한 거부: UsbSerialManager.notifyPermissionResult()에서 포트 닫기 및 정리
      * 
      * @param context 현재 앱의 Context
      * @param device 권한 결과에 해당하는 USB 기기
@@ -93,10 +97,9 @@ class UsbPermissionReceiver : BroadcastReceiver() {
         val status = if (granted) "granted" else "denied"
         Log.d(TAG, "Permission status: $status for device ${device.deviceName}")
         
-        // TODO: Phase 2.2.2에서 전역 권한 상태 관리 시스템 연동
-        // - SharedPreferences 또는 전역 상태 저장
-        // - UI 업데이트 (권한 결과 안내)
-        // - UsbSerialManager 재시도 로직 연동
+        // Phase 2.2.2.2: UsbSerialManager 연동
+        // UsbSerialManager에서 권한 결과를 처리하도록 콜백
+        UsbSerialManager.notifyPermissionResult(context, device, granted)
     }
 
     companion object {

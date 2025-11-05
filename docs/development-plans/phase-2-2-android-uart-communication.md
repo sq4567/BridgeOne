@@ -757,11 +757,11 @@ private fun notifyPermissionResult(
 - Phase 2.2.1.4.4: 보드 자동 감지 함수 구현 ✓
 
 **세부 목표**:
-1. Phase 2.2.1.4.2의 `requestUsbPermission()` 함수를 UsbSerialManager에서 래핑 (`requestPermission()`)
-2. Phase 2.2.1.4.2의 `hasUsbPermission()` 함수를 UsbSerialManager에서 래핑 (`hasPermission()`)
-3. Phase 2.2.1.4.4의 `DeviceDetector.findAndRequestPermission()` 통합 (권장)
-4. UsbSerialManager에서 권한 상태 관리 추가 (SharedPreferences 또는 멤버 변수)
-5. 권한 결과 콜백 처리 로직 구현 (notifyPermissionResult() 연동)
+1. Phase 2.2.1.4.2의 `requestUsbPermission()` 함수를 UsbSerialManager에서 래핑 (`requestPermission()`) ✓
+2. Phase 2.2.1.4.2의 `hasUsbPermission()` 함수를 UsbSerialManager에서 래핑 (`hasPermission()`) ✓
+3. Phase 2.2.1.4.4의 `DeviceDetector.findAndRequestPermission()` 통합 (권장) ✓
+4. ~~UsbSerialManager에서 권한 상태 관리 추가 (SharedPreferences 또는 멤버 변수)~~ → **Phase 2.2.2.3으로 이동** (아래 참조)
+5. 권한 결과 콜백 처리 로직 구현 (notifyPermissionResult() 연동) ✓
 
 **주의사항** (Phase 2.2.1.4.2 통합 및 호환성):
 - **권한명 일치**: Phase 2.2.1.4.1에서 정의한 표준 권한명 **`android.permission.USB_DEVICE`를 사용**
@@ -774,15 +774,21 @@ private fun notifyPermissionResult(
   - 기존 UsbPermissionReceiver는 유지하면서 UsbSerialManager에서 상태 관리 추가
 
 **검증**:
-- [ ] `requestPermission(device: UsbDevice)` 함수 추가됨 (Phase 2.2.1.4.2의 `requestUsbPermission()` 위임)
-- [ ] `hasPermission(device: UsbDevice): Boolean` 함수 추가됨 (Phase 2.2.1.4.2의 `hasUsbPermission()` 위임)
-- [ ] **Phase 2.2.1.4.4 DeviceDetector 통합**: `initializeAndConnect(context: Context): Boolean` 함수에서 `DeviceDetector.findAndRequestPermission()` 호출 (권장)
-- [ ] UsbSerialManager에서 권한 상태 관리 (SharedPreferences 또는 멤버 변수)
-- [ ] 권한 결과 콜백 처리 로직 구현 (notifyPermissionResult() 연동)
-- [ ] 권한 거부 시 에러 로그 및 예외 처리
-- [ ] **권한명 검증**: 런타임 권한 확인에서 `android.permission.USB_DEVICE` 사용 확인
-- [ ] **AndroidManifest.xml 검증**: BroadcastReceiver 이미 등록됨 (Phase 2.2.1.4.2)
-- [ ] Gradle 빌드 성공
+- [x] `requestPermission(device: UsbDevice)` 함수 추가됨 (Phase 2.2.1.4.2의 `requestUsbPermission()` 위임)
+- [x] `hasPermission(device: UsbDevice): Boolean` 함수 추가됨 (Phase 2.2.1.4.2의 `hasUsbPermission()` 위임)
+- [x] **Phase 2.2.1.4.4 DeviceDetector 통합**: `initializeAndConnect(context: Context): Boolean` 함수에서 `DeviceDetector.findAndRequestPermission()` 호출 (권장)
+- [x] 권한 결과 콜백 처리 로직 구현 (notifyPermissionResult() 연동)
+- [x] 권한 거부 시 에러 로그 및 예외 처리
+- [x] **권한명 검증**: 런타임 권한 확인에서 `android.permission.USB_DEVICE` 사용 확인
+- [x] **AndroidManifest.xml 검증**: BroadcastReceiver 이미 등록됨 (Phase 2.2.1.4.2)
+- [x] Gradle 빌드 성공
+
+**설계 개선 사항** (기존 계획 대비 변경):
+- **세부 목표 4 이동**: 권한 상태 관리(SharedPreferences 저장)를 Phase 2.2.2.3으로 이동
+  - **이유**: 비동기 권한 처리와 연결 상태 관리를 함께 구현하는 것이 설계상 효율적
+  - Phase 2.2.2.2: 권한 요청/결과 콜백만 담당 (현재 단계)
+  - Phase 2.2.2.3: 연결 상태 추적 + 권한 상태 저장
+  - 단계별 책임 분리로 코드 복잡도 감소 및 유지보수성 향상
 
 **Phase 2.2.1.4.4 변경사항 반영**:
 - `DeviceDetector.findAndRequestPermission()` 함수 사용으로 초기 연결 흐름 단순화 가능
@@ -790,11 +796,27 @@ private fun notifyPermissionResult(
   - 개선: DeviceDetector.findAndRequestPermission() 1단계로 통합 (권장)
 - `DeviceDetector.findEsp32s3Device(context)` 오버로드로 UsbManager 획득 자동화 가능
 
+**Phase 2.2.2.2 완료 요약**
+
+**구현된 함수**:
+1. `requestPermission(context, device)`: Phase 2.2.1.4.2의 `requestUsbPermission()` 위임
+2. `hasPermission(context)`: Phase 2.2.1.4.2의 `hasUsbPermission()` 위임
+3. `initializeAndConnect(context)`: Phase 2.2.1.4.4의 `DeviceDetector.findAndRequestPermission()` 호출
+4. `notifyPermissionResult(context, device, granted)`: 권한 결과 콜백 처리
+
+**연동**: `UsbPermissionReceiver.notifyPermissionResult()`에서 `UsbSerialManager.notifyPermissionResult()` 콜백 호출
+
+**검증**:
+- ✓ Gradle 빌드 성공
+- ✓ 권한명 검증: `"android.permission.USB_DEVICE"` 사용
+- ✓ AndroidManifest.xml 호환성: BroadcastReceiver 이미 등록됨
+- ✓ 모든 검증 체크리스트 완료
+
 ---
 
-### Phase 2.2.2.3: 고수준 포트 관리 및 자동 감지 통합
+### Phase 2.2.2.3: 고수준 포트 관리 및 권한 상태 관리 통합
 
-**목표**: Phase 2.2.2.1에서 제공한 기본 포트 관리 함수(openPort, closePort, isConnected)를 기반으로 고수준 연결 함수 및 DeviceDetector 통합 구현
+**목표**: Phase 2.2.2.1에서 제공한 기본 포트 관리 함수(openPort, closePort, isConnected)를 기반으로 고수준 연결 함수, DeviceDetector 통합, 그리고 권한 상태 관리 구현
 
 **세부 목표**:
 1. **Phase 2.2.2.1 제공 기능 활용** (이미 구현됨):
@@ -806,8 +828,12 @@ private fun notifyPermissionResult(
    - `connect(context: Context): Boolean` - Context에서 자동 감지 후 연결 (DeviceDetector 통합)
    - `disconnect()` - 기존 closePort() 래핑 또는 추가 정리 로직
 3. **DeviceDetector 통합**: Phase 2.2.1.4.4의 `DeviceDetector.findEsp32s3Device(context)` 활용하여 자동 감지
-4. **에러 처리**: 디바이스 미발견, 권한 거부, 연결 실패 등에 대한 상세 로그
-5. **선택적 기능**: 재연결 시도 로직 기본 구조 (필요시)
+4. **권한 상태 관리** (Phase 2.2.2.2에서 이동):
+   - SharedPreferences에 권한 상태 저장 (키: `"usb_permission_status"`)
+   - 권한 승인 후: `notifyPermissionResult(granted=true)` → SharedPreferences에 상태 저장
+   - 권한 거부 후: `notifyPermissionResult(granted=false)` → 상태 초기화 및 포트 닫기
+5. **에러 처리**: 디바이스 미발견, 권한 거부, 연결 실패 등에 대한 상세 로그
+6. **선택적 기능**: 재연결 시도 로직 기본 구조
 
 **주의사항** (Phase 2.2.2.1에서 이미 구현됨):
 - **UsbConstants 활용**: Phase 2.2.1.4.3에서 정의한 상수 사용
@@ -824,6 +850,11 @@ private fun notifyPermissionResult(
   - [ ] null 반환 시 예외 처리 및 false 반환
   - [ ] 성공 시 true 반환
 - [ ] **선택적**: `disconnect()` 헬퍼 함수 추가 (closePort() 래핑)
+- [ ] **권한 상태 관리** (Phase 2.2.2.2에서 이동):
+  - [ ] `notifyPermissionResult()` 함수 업데이트 (SharedPreferences 저장)
+  - [ ] SharedPreferences 초기화 (키: `"usb_permission_status"`)
+  - [ ] 권한 승인 시: 상태 저장
+  - [ ] 권한 거부 시: 상태 초기화
 - [ ] 디바이스 미발견/권한 거부/연결 실패에 대한 상세 로그
 - [ ] Gradle 빌드 성공
 
@@ -864,9 +895,7 @@ private fun notifyPermissionResult(
 - [ ] 프레임 크기 상수 적용 확인 (UsbConstants.DELTA_FRAME_SIZE)
 - [ ] Gradle 빌드 성공
 
----
-
-#### Phase 2.2.2.4 업데이트 사항 (Phase 2.2.1.2/2.2.1.3 변경에 따른 조치)
+**Phase 2.2.2.4 업데이트 사항 (Phase 2.2.1.2/2.2.1.3 변경에 따른 조치)**
 
 **FrameBuilder와의 통합**:
 
@@ -1281,89 +1310,6 @@ private fun sendFrame() {
 - [ ] Phase 2.2 완료 요약 문서 작성
 - [ ] Phase 2.3 시작 조건 확인
 
----
-
-## 🔄 Phase 2.2 전체 변경사항 정리 및 후속 영향도
-
-### 변경사항 요약
-
-#### 🔄 Phase 2.2.1.4.3 변경사항 (ESP32-S3 VID/PID 상수 정의)
-
-**기존 계획 대비 추가 구현**:
-
-Phase 2.2.1.4.3에서 계획된 기본 상수 외에 다음의 추가 상수들이 구현되었습니다:
-
-1. **USB 타임아웃 설정 3개** (계획에 없었음 → 추가함)
-   - `USB_OPEN_TIMEOUT_MS = 1000`
-   - `USB_READ_TIMEOUT_MS = 100`
-   - `USB_WRITE_TIMEOUT_MS = 1000`
-   - **이유**: Phase 2.2.2.1 (UsbSerialManager) 에서 포트 열기/읽기/쓰기 작업 시 필요. 조기 정의로 DeviceDetector (2.2.1.4.4)에서도 활용 가능
-
-2. **프레임 프로토콜 설정 2개** (계획에 없었음 → 추가함)
-   - `DELTA_FRAME_SIZE = 8`
-   - `MAX_SEQUENCE_NUMBER = 255`
-   - **이유**: Phase 2.2.2.4+ (프레임 송수신) 에서 필요한 프로토콜 상수를 중앙화하여 하드코딩 방지 및 유지보수성 향상
-
-**후속 Phase 영향도 분석 및 업데이트**:
-
-| Phase | 영향도 | 조치 사항 |
-|-------|--------|---------|
-| 2.2.1.4.4 | ✗ 미미 | USB 타임아웃 상수 사용 안 함 (디바이스 발견 단계에서는 타임아웃 없음) |
-| 2.2.2.1 | ✅ 높음 | USB_*_TIMEOUT_MS, UART_* 상수 **필수** 사용 - 검증 항목 업데이트 |
-| 2.2.2.2 | ✓ 중간 | 권한 처리 로직에 타임아웃 설정 추가 권장 |
-| 2.2.2.3 | ✅ 높음 | UART_* 상수 **필수** 사용 - `setParameters()` 호출에 반영 |
-| 2.2.2.4 | ✅ 높음 | DELTA_FRAME_SIZE 상수 사용 - 프레임 크기 검증에 반영 |
-| 2.2.2.5+ | ✅ 높음 | MAX_SEQUENCE_NUMBER 상수 활용 - 순번 검증/생성 시 사용 |
-| 2.2.3 | ✗ 영향 없음 | 터치 입력 처리에는 직접 영향 없음 |
-
-**문서 업데이트**:
-- Phase 2.2.2.3: setParameters() 호출에 UsbConstants 활용 명시 추가
-- Phase 2.2.2.4: 프레임 크기 검증에 DELTA_FRAME_SIZE 상수 활용 추가
-
----
-
-Phase 2.2.1.1에서의 추가 구현이 이후 모든 Phase에 긍정적 영향을 미치도록 각 Phase 문서를 업데이트했습니다:
-
-#### 1️⃣ Phase 2.2.1.2 영향 (FrameBuilder 및 순번 관리)
-- **변경**: toByteArray() 및 default() 메서드 중복 구현 제거
-- **조치**: FrameBuilder는 순번 관리와 buildFrame() 메서드에만 집중
-- **장점**: 책임 분리 명확화, 중복 코드 제거
-
-#### 2️⃣ Phase 2.2.1.3 영향 (단위 테스트)
-- **변경**: BridgeFrame 헬퍼 함수를 활용한 테스트 추가
-- **추가 테스트**:
-  - ✅ isLeftClickPressed(), isRightClickPressed() 테스트
-  - ✅ isCtrlModifierActive(), isShiftModifierActive() 테스트
-  - ✅ BridgeFrame.default() 기본값 검증
-  - ✅ FrameBuilderTest 추가 (다중 스레드 순번 중복 테스트)
-
-#### 3️⃣ Phase 2.2.2.4 영향 (프레임 전송)
-- **변경**: BridgeFrame.default() 팩토리 함수 활용 권장
-- **조치**: 검증 항목에 "초기 프레임 생성 시 BridgeFrame.default() 활용" 추가
-- **장점**: 코드 간결화, 필드 나열 불필요
-
-#### 4️⃣ Phase 2.2.3 영향 (터치 입력 처리)
-- **변경**: 버튼 상태 처리 시 매직 넘버 제거
-- **조치**: BridgeFrame.BUTTON_LEFT_MASK 상수 활용 권장
-- **검증**: LEFT_CLICK 버튼 상태 처리 항목 구체화
-
-#### 5️⃣ Phase 2.2.4.3 영향 (수정자 키 조합)
-- **변경**: 수정자 키 상태 확인 시 헬퍼 함수 활용
-- **조치**: 
-  - isShiftModifierActive(), isCtrlModifierActive(), isAltModifierActive() 활용 명시
-  - BridgeFrame.MODIFIER_LEFT_*_MASK 상수 활용
-- **검증**: frame.isShiftModifierActive() 등으로 활성 상태 판별 테스트 추가
-
-### 최종 정리
-
-| 변경 항목 | 영향도 | 문서 업데이트 상태 |
-|---------|--------|----------------|
-| toByteArray() 조기 구현 | 2.2.1.2 단순화 | ✅ 반영 |
-| BridgeFrame 상수 추가 | 2.2.3, 2.2.4 개선 | ✅ 반영 |
-| 헬퍼 함수 추가 | 2.2.1.3, 2.2.3, 2.2.4 개선 | ✅ 반영 |
-| default() 팩토리 추가 | 2.2.2.4 단순화 | ✅ 반영 |
-
-**결론**: Phase 2.2.1.1의 모든 추가 구현이 각 후속 Phase의 개발 효율성과 코드 품질을 향상시키므로 계획 변경 유지
 
 ---
 
