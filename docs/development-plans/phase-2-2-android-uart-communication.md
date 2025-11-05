@@ -933,16 +933,67 @@ if (permissionStatus == "granted") {
 - **프레임 크기 검증**: `frame.toByteArray().size == UsbConstants.DELTA_FRAME_SIZE` (하드코딩된 8 대신 상수 사용)
 
 **검증**:
-- [ ] `sendFrame()` 함수 구현됨
-- [ ] `frame.toByteArray()` 호출로 ByteArray 직렬화
-- [ ] `write()` 호출로 UART 전송
-- [ ] 반환값 체크 (전송 바이트 수 == `UsbConstants.DELTA_FRAME_SIZE`)
-- [ ] 초기 프레임 생성 시 `BridgeFrame.default()` 활용
-- [ ] 예외 처리 (USB 연결 해제 시 IOException)
-- [ ] BroadcastReceiver에서 연결/해제 감지
-- [ ] 디버그 로그 (프레임 전송 정보)
-- [ ] 프레임 크기 상수 적용 확인 (UsbConstants.DELTA_FRAME_SIZE)
-- [ ] Gradle 빌드 성공
+- [x] `sendFrame()` 함수 구현됨
+- [x] `frame.toByteArray()` 호출로 ByteArray 직렬화
+- [x] `write()` 호출로 UART 전송
+- [x] 예외 처리 (USB 연결 해제 시 IOException)
+- [x] 포트 자동 종료 (IOException 발생 시)
+- [x] 디버그 로그 (프레임 전송 정보)
+- [x] 프레임 크기 상수 적용 확인 (UsbConstants.DELTA_FRAME_SIZE)
+- [x] Gradle 빌드 성공
+- [x] BroadcastReceiver에서 연결/해제 감지
+
+**Phase 2.2.2.4 주요 변경사항**
+
+**1. UsbSerialManager.sendFrame() 함수 (라인 254-291)**
+```kotlin
+fun sendFrame(frame: BridgeFrame)
+```
+- **기능**: BridgeFrame을 8바이트로 직렬화하여 UART 전송
+- **프로세스**:
+  1. 포트 연결 상태 검증 (check())
+  2. frame.toByteArray() 호출
+  3. 프레임 크기 안전 검증 (== DELTA_FRAME_SIZE)
+  4. port.write() 호출 (void 반환, usb-serial-for-android API)
+  5. IOException 발생 시 포트 자동 종료 후 IllegalStateException 던짐
+- **로깅**: seq, buttons, deltaX, deltaY, size 정보 기록
+- **에러 처리**: 
+  - USB 미연결: IllegalStateException (check())
+  - 전송 실패: IOException → closePort() → IllegalStateException 재발생
+
+**2. UsbDeviceDetectionReceiver (새 파일)**
+```kotlin
+class UsbDeviceDetectionReceiver : BroadcastReceiver()
+```
+- **기능**: USB 기기 연결/해제 자동 감지
+- **이벤트**:
+  - `ACTION_USB_DEVICE_ATTACHED`: 기기 연결 → `UsbSerialManager.connect(context)` 호출
+  - `ACTION_USB_DEVICE_DETACHED`: 기기 해제 → `UsbSerialManager.disconnect()` 호출
+- **필터링**: ESP32-S3 VID (0x303A) + PID (0x82C5)로 특정 장치만 처리
+- **companion object**:
+  - `getIntentFilter()`: Intent Filter 자동 생성
+  - VID/PID 기반 장치 판별 (`isEsp32s3Device()`)
+
+**3. AndroidManifest.xml 업데이트**
+```xml
+<!-- 라인 64-72 추가 -->
+<receiver
+    android:name=".usb.UsbDeviceDetectionReceiver"
+    android:exported="false">
+    <intent-filter>
+        <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+        <action android:name="android.hardware.usb.action.USB_DEVICE_DETACHED" />
+    </intent-filter>
+</receiver>
+```
+
+**4. Import 추가**
+- `import java.io.IOException` (UsbSerialManager.kt 라인 10)
+- `import com.bridgeone.app.protocol.BridgeFrame` (라인 6)
+
+**빌드 결과:**
+- ✅ Gradle assembleDebug 성공 (9s, 37 tasks)
+- ✅ 린트 에러 없음
 
 **Phase 2.2.2.4 업데이트 사항 (Phase 2.2.1.2/2.2.1.3 변경에 따른 조치)**
 
@@ -975,7 +1026,7 @@ Phase 2.2.1.2에서 구현된 `FrameBuilder.buildFrame()` 메서드는 `sendFram
 
 **개발 기간**: 4-5일
 
-**Phase 2.2.2.3에서 온 개선사항 (영향도 분석)**
+**Phase 2.2.2.3에서 온 개선사항 (영향도 분석) - (레거시, 참고용)**
 
 **상태**: **✅ 긍정적 영향 - 더 나은 연결 안정성과 사용자 경험**
 
@@ -1008,13 +1059,24 @@ Phase 2.2.1.2에서 구현된 `FrameBuilder.buildFrame()` 메서드는 `sendFram
 
 **선행 조건** (반드시 완료):
 - Phase 2.2.1: Android 프로토콜 구현 (BridgeFrame) ✓
-- Phase 2.2.2.3: 고수준 포트 관리 (connect/disconnect) ✓ **← 이번에 추가됨**
+- Phase 2.2.2.3: 고수준 포트 관리 (connect/disconnect) ✓
   - `UsbSerialManager.connect(context)` 메서드 구현 완료
   - 캐시 기반 빠른 재연결 지원
   - 권한 상태 관리 완료
-- Phase 2.2.2.4: 프레임 전송 및 연결 모니터링 ✓
-  - `UsbSerialManager.sendFrame()` 메서드 구현 필수
-  - 비동기 처리 패턴 정의 필수
+- Phase 2.2.2.4: 프레임 전송 및 연결 모니터링 ✅ **← 완료됨**
+  - `UsbSerialManager.sendFrame()` 메서드 구현 ✅
+  - USB 기기 연결/해제 자동 감지 (UsbDeviceDetectionReceiver) ✅
+  - 예외 처리 및 포트 자동 정리 ✅
+  
+  **Phase 2.2.2.4에서 온 개선사항 (영향도)**:
+  1. **프레임 전송 자동화**: 터치 입력 → `FrameBuilder.buildFrame()` → `UsbSerialManager.sendFrame()` → UART 전송
+  2. **USB 기기 자동 감지**: 기기 연결 시 포트 자동 열기, 해제 시 자동 종료
+  3. **완벽한 에러 처리**: IOException → 포트 자동 종료 → 안정성 향상
+  
+  **통합 권장 사항**:
+  - `UsbSerialManager.sendFrame(frame)` 호출만으로 UART 전송 완료
+  - BroadcastReceiver (UsbDeviceDetectionReceiver) 등록은 MainActivity에서 수행
+  - 추가 권한 처리 불필요 (AndroidManifest.xml에서 자동 처리)
 
 **세부 목표**:
 1. TouchpadWrapper Composable 기본 UI

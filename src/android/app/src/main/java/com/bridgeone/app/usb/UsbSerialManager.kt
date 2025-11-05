@@ -3,8 +3,11 @@ package com.bridgeone.app.usb
 import android.content.Context
 import android.hardware.usb.UsbManager
 import android.util.Log
+import com.bridgeone.app.protocol.BridgeFrame
+import com.bridgeone.app.usb.UsbConstants
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
+import java.io.IOException
 
 /**
  * USB Serial 통신 싱글톤 매니저
@@ -208,6 +211,84 @@ object UsbSerialManager {
      * @return UsbSerialPort 인스턴스, 포트가 없으면 null
      */
     internal fun getPort(): UsbSerialPort? = usbSerialPort
+
+    /**
+     * BridgeFrame을 직렬화하여 UART로 전송합니다 (Phase 2.2.2.4).
+     *
+     * 다음 작업을 수행합니다:
+     * 1. 포트 연결 상태 확인
+     * 2. frame.toByteArray()로 8바이트 데이터 직렬화
+     * 3. USB Serial 포트로 데이터 전송 (port.write()는 void 반환)
+     * 4. IOException 발생 시 예외 처리 및 포트 자동 종료
+     *
+     * **사용 예시:**
+     * ```kotlin
+     * val frame = FrameBuilder.buildFrame(
+     *     buttons = 0x01u,
+     *     deltaX = 10,
+     *     deltaY = -5,
+     *     wheel = 0,
+     *     modifiers = 0u,
+     *     keyCode1 = 0u,
+     *     keyCode2 = 0u
+     * )
+     * UsbSerialManager.sendFrame(frame)
+     * ```
+     *
+     * **예외 처리:**
+     * - USB 포트가 닫혀있으면 IllegalStateException 발생
+     * - UART 전송 실패 (IOException) 시 포트 자동 닫기 후 예외 던짐
+     *
+     * **구현 참고:**
+     * - usb-serial-for-android 라이브러리의 UsbSerialPort.write()는 void 반환
+     * - 전송 성공 여부는 IOException 발생 여부로 판단
+     *
+     * @param frame 전송할 BridgeFrame 객체
+     * @throws IllegalStateException 포트가 열려있지 않은 경우 또는 전송 실패
+     *
+     * 참조:
+     * - BridgeFrame.kt: frame.toByteArray() 직렬화 메서드
+     * - UsbConstants.kt: DELTA_FRAME_SIZE, USB_WRITE_TIMEOUT_MS 상수
+     * - usb-serial-for-android: UsbSerialPort.write() API
+     */
+    fun sendFrame(frame: BridgeFrame) {
+        // 포트 연결 상태 확인
+        val port = usbSerialPort
+        check(port != null && isConnected) { "USB Serial port is not connected" }
+
+        try {
+            // BridgeFrame을 8바이트 ByteArray로 직렬화
+            val frameData = frame.toByteArray()
+
+            // 프레임 크기 검증 (내부 안전장치)
+            check(frameData.size == UsbConstants.DELTA_FRAME_SIZE) {
+                "Invalid frame size: ${frameData.size}, expected: ${UsbConstants.DELTA_FRAME_SIZE}"
+            }
+
+            // USB Serial 포트로 데이터 전송 (Phase 2.1.8.4에서 확인: write()는 void 반환)
+            // IOException이 발생하면 catch 블록에서 처리
+            port.write(frameData, UsbConstants.USB_WRITE_TIMEOUT_MS)
+
+            // 전송 성공 로그 (프레임 전송 정보)
+            Log.d(
+                TAG,
+                "Frame sent successfully - seq=${frame.seq}, buttons=${frame.buttons}, " +
+                    "dx=${frame.deltaX}, dy=${frame.deltaY}, size=${UsbConstants.DELTA_FRAME_SIZE}"
+            )
+
+        } catch (e: IOException) {
+            // USB 전송 실패 (타임아웃 또는 포트 오류)
+            // 포트 자동 종료 후 예외 던짐
+            Log.e(TAG, "IOException during frame transmission: ${e.message}", e)
+            closePort()
+            throw IllegalStateException("USB transmission failed, port closed", e)
+
+        } catch (e: IllegalStateException) {
+            // 프레임 크기 또는 포트 연결 상태 검증 실패
+            Log.e(TAG, "Frame validation failed: ${e.message}", e)
+            throw e
+        }
+    }
 
     // ========== 권한 처리 함수 (Phase 2.2.2.2에서 추가) ==========
 
