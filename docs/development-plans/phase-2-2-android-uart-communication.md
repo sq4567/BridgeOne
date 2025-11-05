@@ -132,10 +132,6 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - [x] Docstring 작성됨
 - [x] Gradle 빌드 성공
 
----
-
-#### 🔄 Phase 2.2.1.1 변경사항 분석
-
 **기존 계획 대비 추가 구현 사항**:
 
 1. **`toByteArray()` 메서드 조기 구현**
@@ -158,17 +154,6 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
    - 변경: 기본값 BridgeFrame 생성 함수 제공
    - 이유: 초기 상태 프레임 생성 시 명시적 필드 나열 불필요, 코드 간결성 향상
    - 용도: Phase 2.2.2.4 (프레임 전송)에서 초기 프레임 생성, Phase 2.2.3 (터치 입력)에서 기본값 설정
-
-**후속 Phase 영향도 분석**:
-
-| Phase | 영향 | 조치 사항 |
-|-------|------|---------|
-| 2.2.1.2 | ✅ 긍정적 | FrameBuilder에서 toByteArray() 중복 구현 제거 가능, 순번 관리에만 집중 |
-| 2.2.1.3 | ✅ 긍정적 | 테스트에서 헬퍼 함수 활용 가능 (isLeftClickPressed() 등으로 상태 검증) |
-| 2.2.2.4 | ✅ 긍정적 | BridgeFrame.default()로 초기 프레임 생성 가능, 코드 간결화 |
-| 2.2.3.1 | ✅ 긍정적 | 터치 이벤트에서 BridgeFrame.BUTTON_LEFT_MASK 사용 (매직 넘버 제거) |
-| 2.2.3.3 | ✅ 긍정적 | detectClick(), getButtonState()에서 헬퍼 함수 또는 상수 활용 |
-| 2.2.4.3 | ✅ 긍정적 | 수정자 키 상태 확인 시 isCtrlModifierActive() 등 활용 가능 |
 
 **결론**: 모든 추가 구현이 **후속 Phase의 개발 효율성을 향상**시키므로 유지하되, 각 Phase에서 이 함수들/상수들을 활용하도록 문서 업데이트 필요
 
@@ -196,8 +181,6 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - [x] 스레드 안전성 확보 (동시 호출 시에도 순번 중복 없음)
 - [x] Gradle 빌드 성공
 
-#### 🔄 Phase 2.2.1.2 변경사항 분석
-
 **기존 계획 대비 추가 구현 사항**:
 
 1. **`getNextSequence()` private 메서드 추가**
@@ -224,15 +207,6 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 | 순번 관리 | AtomicInteger | volatile보다 강력한 원자성 보장, `getAndIncrement()` 원자적 연산 제공, 스레드 안전성 검증 용이 |
 | 순환 로직 | 256 도달 시 0으로 리셋 + 모듈로 연산 | 이중 검증으로 예외 상황 방지, 넓은 범위의 테스트 커버리지 확보 가능 |
 | 캡슐화 | private 헬퍼 메서드 | 내부 구현 세부사항 숨김, 공개 API 단순화 |
-
-**후속 Phase 영향도 분석**:
-
-| Phase | 기존 계획 | 변경 후 | 조치 사항 |
-|-------|---------|--------|---------|
-| **2.2.1.3** | 테스트에서 직접 카운터 접근 | `resetSequence()`, `getCurrentSequence()` 사용 | ✅ 테스트 코드 단순화, 순번 검증 용이 |
-| **2.2.2.4** | 동일 (변경 없음) | 동일 (변경 없음) | ✅ 무영향 (public API 동일) |
-| **2.2.3+** | 프레임 생성 시 상수 조회 | 동일 (변경 없음) | ✅ 무영향 (프레임 생성 로직 동일) |
-| **전체 앱** | 프로덕션 로그 출력 불가 | 동일 (변경 없음) | ✅ 무영향 (디버깅 메서드는 테스트 전용) |
 
 **결론**: 추가 구현된 메서드들은 **테스트 및 디버깅 효율성을 향상**시키며, 공개 API(`buildFrame()`)는 변경 없으므로 후속 Phase는 **영향 없음**. 각 Phase에서 이 메서드들을 활용하도록 문서 업데이트 필요.
 
@@ -306,11 +280,9 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
    - 목적: 현재 카운터 상태 조회 검증
    - 용도: 디버그 로그 출력, 다중 스레드 테스트에서 경쟁 상태 감지
 
----
+##### Phase 2.2.1.3 변경사항 분석 및 후속 Phase 영향도
 
-### 🔄 Phase 2.2.1.3 변경사항 분석 및 후속 Phase 영향도
-
-#### 기존 계획 대비 개발 변경사항
+**기존 계획 대비 개발 변경사항**
 
 | 항목 | 기존 계획 | 변경된 내용 | 변경 사유 |
 |------|---------|----------|---------|
@@ -321,7 +293,7 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 | **다중 스레드 테스트** | 언급하지 않음 | CountDownLatch, AtomicInteger 활용한 다중 스레드 테스트 추가 | FrameBuilder의 스레드 안전성 검증 필수 |
 | **빌드 성공 확인** | 언급하지 않음 | `./gradlew clean test -x connectedAndroidTest` 실행 및 완전 통과 확인 | 30/30 테스트 100% 성공률 달성 |
 
-#### 구현 세부사항
+**구현 세부사항**
 
 **1. 인코딩 문제 해결**
 - **문제**: 한국어 주석의 인코딩 문제로 빌드 실패
@@ -349,34 +321,6 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - **테스트 구성**: 10개 스레드에서 각 100개 프레임 생성 (총 1000개)
 - **검증 내용**: 각 순번의 발생 횟수 3~4회 (1000 ÷ 256 ≈ 3.9)로 균등 분산 확인
 - **의의**: AtomicInteger 기반 FrameBuilder의 스레드 안전성 확증
-
-#### 후속 Phase들에 미치는 영향도 분석
-
-| Phase | 영향 분류 | 구체적 영향 | 대응 방안 |
-|-------|---------|----------|---------|
-| **2.2.2 (UART 통신)** | 직접 영향 ⭐⭐⭐ | UART 통신 테스트 작성 시 영어 주석, UByte 타입 변환 규칙 적용 필수 | 2.2.2 테스트 케이스 작성 시 BridgeFrameTest/FrameBuilderTest와 동일한 테스트 패턴 적용 |
-| **2.2.3 (터치 입력)** | 간접 영향 ⭐⭐ | BridgeFrame 헬퍼 함수(`isLeftClickPressed()` 등) 검증 완료로 UI 계층 신뢰도 향상 | 터치 이벤트에서 헬퍼 함수 활용 가능 |
-| **2.2.4 (키보드 입력)** | 간접 영향 ⭐⭐ | BridgeFrame 수정자 키 헬퍼 함수(`isCtrlModifierActive()` 등) 검증 완료 | 키보드 입력 처리 시 헬퍼 함수로 modifier 상태 확인 |
-| **2.2.5+ (통합/E2E)** | 기반 영향 ⭐ | BridgeFrame 구조 및 FrameBuilder 신뢰도 확보로 상위 계층 개발 안정성 향상 | 프로토콜 수준 단위 테스트 완료로 통합 테스트 신뢰도 높음 |
-
-#### 후속 Phase 문서 수정 방향
-
-**Phase 2.2.2 (UART 통신 구현)**
-- 테스트 작성 시 영어 주석 사용 명시
-- UByte/Byte 타입 변환 규칙 추가 (2.2.1.3 참고)
-- @Before 패턴으로 테스트 격리 권장
-
-**Phase 2.2.3 (터치 입력 처리)**
-- BridgeFrame의 button 헬퍼 함수 활용 가능 명시
-- 예: `frame.isLeftClickPressed()` 사용 가능
-
-**Phase 2.2.4 (키보드 입력 처리)**
-- BridgeFrame의 modifier 헬퍼 함수 활용 가능 명시
-- 예: `frame.isCtrlModifierActive()`, `frame.isShiftModifierActive()` 사용 가능
-
-**Phase 2.2.5+ (프레임 전송/통합)**
-- BridgeFrame 및 FrameBuilder의 스레드 안전성 검증 완료 사실 활용
-- 다중 스레드 환경에서의 동시성 문제 최소화
 
 ---
 
@@ -414,7 +358,7 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - [x] `<uses-permission android:name="android.permission.INTERNET" />` 추가 (선택)
 - [x] Gradle 빌드 성공
 
-##### Phase 2.2.1.4.1 변경사항 분석
+**Phase 2.2.1.4.1 변경사항 분석**
 
 **1. USB Host Feature required 속성 변경: `false` → `true`**
 
@@ -465,17 +409,6 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - **코드 유지보수성**: 개발자가 권한 구조를 쉽게 이해
 - **향후 수정**: 관련 권한 추가 시 같은 그룹에 추가하면 됨
 - **후속 Phase**: 영향 없음 (기능 로직 변경 없음)
-
-**후속 Phase 영향도 분석 및 수정 사항:**
-
-| Phase | 영향 | 수정 사항 | 우선순위 |
-|-------|------|---------|--------|
-| 2.2.1.4.2 | ✓ 필수 | `android.permission.USB_DEVICE` 권한명 일치 확인 | 높음 |
-| 2.2.1.4.3 | ✗ 영향 없음 | - | - |
-| 2.2.1.4.4 | ✗ 영향 없음 | - | - |
-| 2.2.2.1 | ✗ 영향 없음 | - | - |
-| 2.2.2.2 | ✓ 필요 | 런타임 권한 확인 시 `android.permission.USB_DEVICE` 사용 | 중간 |
-| 2.2.3 | ✗ 영향 없음 | - | - |
 
 ---
 
@@ -616,15 +549,6 @@ private fun notifyPermissionResult(
 **영향도:**
 - **Phase 2.2.2**: 권한 상태 관리 시스템 연동 시 여기서 구현
 
-**후속 Phase 영향도 분석 및 수정 사항:**
-
-| Phase | 영향 | 수정 사항 | 우선순위 |
-|-------|------|---------|--------|
-| 2.2.1.4.3 | ✗ 영향 없음 | - | - |
-| 2.2.1.4.4 | ✓ 필요 | `requestUsbPermission()` 함수 직접 호출 가능 (재사용) | 높음 |
-| 2.2.2.1 | ✗ 영향 없음 | - | - |
-| 2.2.2.2 | ✓ 필요 | UsbSerialManager와 권한 처리 통합 시 구조 호환성 보장 | 높음 |
-
 ---
 
 #### Phase 2.2.1.4.3: ESP32-S3 VID/PID 상수 정의
@@ -650,7 +574,7 @@ private fun notifyPermissionResult(
 
 **실제 구현 변경사항 분석**:
 
-기존 계획대비 다음의 추가 상수들이 구현됨:
+기존 계획 대비 다음의 추가 상수들이 구현됨:
 
 1. **USB 타임아웃 설정 (추가)** - 후속 Phase 2.2.1.4.4 (DeviceDetector)에서 필요
    - `USB_OPEN_TIMEOUT_MS = 1000`: 포트 오픈 시도 타임아웃
@@ -664,12 +588,6 @@ private fun notifyPermissionResult(
 **변경 이유**:
 - **타임아웃 상수**: USB 포트 열기/읽기/쓰기 작업이 진행될 Phase 2.2.2.1 (UsbSerialManager)에서 필수적으로 필요. 조기 정의함으로써 DeviceDetector에서도 활용 가능하도록 함.
 - **프레임 상수**: Phase 2.2.2.2+ (프레임 수신/검증)에서 필요한 프로토콜 상수를 중앙화하여 코드 중복을 방지하고 유지보수성 향상.
-
-**후속 Phase 영향도**:
-- **Phase 2.2.1.4.4 (DeviceDetector)**: USB 타임아웃 상수 사용 가능 (권장하지 않음 - 디바이스 발견 단계에서는 타임아웃 없음)
-- **Phase 2.2.2.1 (UsbSerialManager)**: USB_*_TIMEOUT_MS, UART_* 상수 직접 사용
-- **Phase 2.2.2.2+ (프레임 송수신)**: DELTA_FRAME_SIZE, MAX_SEQUENCE_NUMBER 상수 직접 사용
-- **기타**: Phase 2.2.1.4.2, Phase 2.2.1.5는 영향 없음
 
 ---
 
@@ -696,14 +614,46 @@ private fun notifyPermissionResult(
   ```
 
 **검증**:
-- [ ] `src/android/app/src/main/java/com/bridgeone/app/usb/DeviceDetector.kt` 생성됨
-- [ ] `findEsp32s3Device(usbManager: UsbManager): UsbDevice?` 함수 구현
-- [ ] `usbManager.deviceList` 순회
-- [ ] VID/PID 필터링 로직 정확 (UsbConstants 사용)
-- [ ] 발견 시 권한 요청 (`requestUsbPermission()` 호출 - 기존 함수 재사용)
-- [ ] 발견되지 않으면 null 반환
-- [ ] 로그 출력 (발견/미발견 상태)
-- [ ] Gradle 빌드 성공
+- [x] `src/android/app/src/main/java/com/bridgeone/app/usb/DeviceDetector.kt` 생성됨
+- [x] `findEsp32s3Device(usbManager: UsbManager): UsbDevice?` 함수 구현
+- [x] `usbManager.deviceList` 순회
+- [x] VID/PID 필터링 로직 정확 (UsbConstants 사용)
+- [x] 발견 시 권한 요청 (`requestUsbPermission()` 호출 - 기존 함수 재사용)
+- [x] 발견되지 않으면 null 반환
+- [x] 로그 출력 (발견/미발견 상태)
+- [x] Gradle 빌드 성공
+
+**실제 구현 변경사항 분석**:
+
+기존 계획 대비 다음의 개선 사항이 추가로 구현됨:
+
+1. **findEsp32s3Device() 오버로드 추가** (계획 외 기능)
+   - 계획: `findEsp32s3Device(usbManager: UsbManager): UsbDevice?` 단일 함수
+   - 실제: 2개 오버로드 함수 구현
+     - `fun findEsp32s3Device(context: Context): UsbDevice?` - Context 기반 (권장)
+     - `fun findEsp32s3Device(usbManager: UsbManager): UsbDevice?` - UsbManager 기반 (테스트용)
+   - 변경 이유:
+     - **사용성 개선**: Activity/Fragment에서 context만으로 호출 가능 (UsbManager 획득 자동화)
+     - **테스트 편의성**: 테스트 시 Mock UsbManager 직접 전달 가능
+     - **DRY 원칙 준수**: Context 버전이 UsbManager 버전으로 위임하여 중복 제거
+     - **API 유연성**: 호출자가 상황에 맞는 버전 선택 가능
+
+2. **findAndRequestPermission() 헬퍼 함수 추가** (계획 외 기능)
+   - 계획에는 없었으나, 권한 요청까지 한 번에 처리하는 편의 함수 구현
+   - 변경 이유:
+     - **호출 흐름 단순화**: findEsp32s3Device() 호출 후 별도로 requestUsbPermission() 호출할 필요 없음
+     - **후속 Phase 호환성**: Phase 2.2.2에서 UsbSerialManager 초기화 시 한 줄 호출로 끝낼 수 있음
+     - **오류 처리 단순화**: 디바이스 발견 및 권한 요청 실패를 boolean으로 일관되게 반환
+
+3. **상세한 로그 출력** (계획보다 강화)
+   - 계획: 발견/미발견 상태 기본 로그
+   - 실제: 다음 4단계 로그 추가
+     - `Log.i()`: ESP32-S3 발견 (총 4줄 처리: 검색 시작, 디바이스 확인 중, 발견, 미발견)
+     - 16진수 형식: VID/PID를 16진수로 포맷팅 (`0x303A` 형식) 및 대문자 변환
+     - 디버그 정보: 연결 중인 각 디바이스 정보 로깅 (troubleshooting 용이)
+   - 변경 이유:
+     - **디버깅 효율성**: 어떤 디바이스들을 검색했는지 추적 가능
+     - **사용자 지원**: VID/PID 불일치 원인 파악 용이
 
 ---
 
@@ -758,7 +708,7 @@ private fun notifyPermissionResult(
 
 ### Phase 2.2.2.2: UsbSerialManager와 권한 처리 통합
 
-**목표**: Phase 2.2.1.4.2에서 구현한 UsbPermissionReceiver를 UsbSerialManager 내부에 통합하여 권한 처리 로직 일원화
+**목표**: Phase 2.2.1.4.2에서 구현한 UsbPermissionReceiver와 Phase 2.2.1.4.4에서 구현한 DeviceDetector를 UsbSerialManager에서 통합하여 권한 및 디바이스 감지 로직 일원화
 
 **선행 조건** (반드시 완료):
 - Phase 2.2.1.4.1: AndroidManifest.xml USB 권한 추가 ✓
@@ -769,8 +719,9 @@ private fun notifyPermissionResult(
 **세부 목표**:
 1. Phase 2.2.1.4.2의 `requestUsbPermission()` 함수를 UsbSerialManager에서 래핑 (`requestPermission()`)
 2. Phase 2.2.1.4.2의 `hasUsbPermission()` 함수를 UsbSerialManager에서 래핑 (`hasPermission()`)
-3. UsbSerialManager에서 권한 상태 관리 추가 (SharedPreferences 또는 멤버 변수)
-4. 권한 결과 콜백 처리 로직 구현 (notifyPermissionResult() 연동)
+3. Phase 2.2.1.4.4의 `DeviceDetector.findAndRequestPermission()` 통합 (권장)
+4. UsbSerialManager에서 권한 상태 관리 추가 (SharedPreferences 또는 멤버 변수)
+5. 권한 결과 콜백 처리 로직 구현 (notifyPermissionResult() 연동)
 
 **주의사항** (Phase 2.2.1.4.2 통합 및 호환성):
 - **권한명 일치**: Phase 2.2.1.4.1에서 정의한 표준 권한명 **`android.permission.USB_DEVICE`를 사용**
@@ -785,6 +736,7 @@ private fun notifyPermissionResult(
 **검증**:
 - [ ] `requestPermission(device: UsbDevice)` 함수 추가됨 (Phase 2.2.1.4.2의 `requestUsbPermission()` 위임)
 - [ ] `hasPermission(device: UsbDevice): Boolean` 함수 추가됨 (Phase 2.2.1.4.2의 `hasUsbPermission()` 위임)
+- [ ] **Phase 2.2.1.4.4 DeviceDetector 통합**: `initializeAndConnect(context: Context): Boolean` 함수에서 `DeviceDetector.findAndRequestPermission()` 호출 (권장)
 - [ ] UsbSerialManager에서 권한 상태 관리 (SharedPreferences 또는 멤버 변수)
 - [ ] 권한 결과 콜백 처리 로직 구현 (notifyPermissionResult() 연동)
 - [ ] 권한 거부 시 에러 로그 및 예외 처리
@@ -792,30 +744,45 @@ private fun notifyPermissionResult(
 - [ ] **AndroidManifest.xml 검증**: BroadcastReceiver 이미 등록됨 (Phase 2.2.1.4.2)
 - [ ] Gradle 빌드 성공
 
+**Phase 2.2.1.4.4 변경사항 반영**:
+- `DeviceDetector.findAndRequestPermission()` 함수 사용으로 초기 연결 흐름 단순화 가능
+  - 기존: findEsp32s3Device() → requestUsbPermission() 2단계
+  - 개선: DeviceDetector.findAndRequestPermission() 1단계로 통합 (권장)
+- `DeviceDetector.findEsp32s3Device(context)` 오버로드로 UsbManager 획득 자동화 가능
+
 ---
 
 ### Phase 2.2.2.3: UART 통신 설정 및 포트 관리
 
-**목표**: 1Mbps 8N1 통신 설정 및 포트 열기/닫기 구현
+**목표**: 1Mbps 8N1 통신 설정 및 포트 열기/닫기 구현 (Phase 2.2.1.4.4 DeviceDetector 통합 권장)
 
 **세부 목표**:
-1. `openPort()` 함수 구현 (1Mbps, 8N1 설정)
+1. `openPort(device: UsbDevice)` 함수 구현 (1Mbps, 8N1 설정)
 2. `closePort()` 함수 구현
 3. `isConnected()` 함수 구현
 4. 리소스 해제 및 예외 처리
 5. 디버그 로그 추가
+6. **Phase 2.2.1.4.4 DeviceDetector 통합**: `connect(context: Context): Boolean` 함수에서 `DeviceDetector.findEsp32s3Device(context)`로 자동 감지 후 포트 열기 (권장)
 
-**주의사항** (Phase 2.2.1.4.3에서 추가됨):
+**주의사항** (Phase 2.2.1.4.3 및 2.2.1.4.4에서 추가됨):
 - **UsbConstants 활용 필수**: Phase 2.2.1.4.3에서 정의한 상수 사용
   - 타임아웃: `UsbConstants.USB_OPEN_TIMEOUT_MS`, `USB_READ_TIMEOUT_MS`, `USB_WRITE_TIMEOUT_MS`
   - UART 설정: `UsbConstants.UART_BAUDRATE`, `UART_DATA_BITS`, `UART_STOP_BITS`, `UART_PARITY`
 - **setParameters() 호출**: `port.setParameters(UsbConstants.UART_BAUDRATE, UsbConstants.UART_DATA_BITS, UsbConstants.UART_STOP_BITS, UsbConstants.UART_PARITY)`
+- **Phase 2.2.1.4.4 DeviceDetector 통합** (권장 - 오버로드 개선):
+  - `connect(context: Context): Boolean` 추가: Context만으로 자동 감지 및 연결
+  - 내부에서 `DeviceDetector.findEsp32s3Device(context)` 호출로 디바이스 자동 감지
+  - null 반환 시 예외 처리 및 false 반환
 
 **검증**:
-- [ ] `openPort()` 함수 구현됨
+- [ ] `openPort(device: UsbDevice)` 함수 구현됨
 - [ ] `port.setParameters(UsbConstants.UART_BAUDRATE, UsbConstants.UART_DATA_BITS, UsbConstants.UART_STOP_BITS, UsbConstants.UART_PARITY)` 호출 확인
 - [ ] `closePort()` 함수 구현됨
 - [ ] `isConnected()` 함수 구현됨
+- [ ] **Phase 2.2.1.4.4 DeviceDetector 통합**: `connect(context: Context): Boolean` 함수 추가
+  - [ ] 내부에서 `DeviceDetector.findEsp32s3Device(context)` 호출
+  - [ ] null 반환 시 예외 처리 및 false 반환
+  - [ ] 성공 시 true 반환
 - [ ] 예외 처리 (IOException, 연결 실패)
 - [ ] 디버그 로그 출력 (연결/해제 시점)
 - [ ] 타임아웃 설정 적용 (read/write 메서드에서 UsbConstants 사용)
