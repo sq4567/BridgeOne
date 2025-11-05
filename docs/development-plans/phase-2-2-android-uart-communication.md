@@ -638,15 +638,38 @@ private fun notifyPermissionResult(
 4. 문서 주석 추가
 
 **검증**:
-- [ ] `src/android/app/src/main/java/com/bridgeone/app/usb/UsbConstants.kt` 생성됨
-- [ ] `const val ESP32_S3_VID = 0x303A` 정의
-- [ ] `const val ESP32_S3_PID = 0x82C5` 정의
-- [ ] `const val UART_BAUDRATE = 1000000` 정의
-- [ ] `const val UART_DATA_BITS = 8` 정의
-- [ ] `const val UART_STOP_BITS = 1` 정의
-- [ ] `const val UART_PARITY = 0` 정의
-- [ ] Docstring 포함
-- [ ] Gradle 빌드 성공
+- [x] `src/android/app/src/main/java/com/bridgeone/app/usb/UsbConstants.kt` 생성됨
+- [x] `const val ESP32_S3_VID = 0x303A` 정의
+- [x] `const val ESP32_S3_PID = 0x82C5` 정의
+- [x] `const val UART_BAUDRATE = 1000000` 정의
+- [x] `const val UART_DATA_BITS = 8` 정의
+- [x] `const val UART_STOP_BITS = 1` 정의
+- [x] `const val UART_PARITY = 0` 정의
+- [x] Docstring 포함
+- [x] Gradle 빌드 성공
+
+**실제 구현 변경사항 분석**:
+
+기존 계획대비 다음의 추가 상수들이 구현됨:
+
+1. **USB 타임아웃 설정 (추가)** - 후속 Phase 2.2.1.4.4 (DeviceDetector)에서 필요
+   - `USB_OPEN_TIMEOUT_MS = 1000`: 포트 오픈 시도 타임아웃
+   - `USB_READ_TIMEOUT_MS = 100`: 데이터 수신 대기 시간
+   - `USB_WRITE_TIMEOUT_MS = 1000`: 데이터 송신 대기 시간
+
+2. **프레임 프로토콜 설정 (추가)** - 후속 Phase 2.2.2+ (USB Serial 통신)에서 필요
+   - `DELTA_FRAME_SIZE = 8`: CLAUDE.md "UART 델타 프레임" 섹션의 고정 프레임 크기
+   - `MAX_SEQUENCE_NUMBER = 255`: 패킷 유실 감지용 순번 최대값
+
+**변경 이유**:
+- **타임아웃 상수**: USB 포트 열기/읽기/쓰기 작업이 진행될 Phase 2.2.2.1 (UsbSerialManager)에서 필수적으로 필요. 조기 정의함으로써 DeviceDetector에서도 활용 가능하도록 함.
+- **프레임 상수**: Phase 2.2.2.2+ (프레임 수신/검증)에서 필요한 프로토콜 상수를 중앙화하여 코드 중복을 방지하고 유지보수성 향상.
+
+**후속 Phase 영향도**:
+- **Phase 2.2.1.4.4 (DeviceDetector)**: USB 타임아웃 상수 사용 가능 (권장하지 않음 - 디바이스 발견 단계에서는 타임아웃 없음)
+- **Phase 2.2.2.1 (UsbSerialManager)**: USB_*_TIMEOUT_MS, UART_* 상수 직접 사용
+- **Phase 2.2.2.2+ (프레임 송수신)**: DELTA_FRAME_SIZE, MAX_SEQUENCE_NUMBER 상수 직접 사용
+- **기타**: Phase 2.2.1.4.2, Phase 2.2.1.5는 영향 없음
 
 ---
 
@@ -782,13 +805,20 @@ private fun notifyPermissionResult(
 4. 리소스 해제 및 예외 처리
 5. 디버그 로그 추가
 
+**주의사항** (Phase 2.2.1.4.3에서 추가됨):
+- **UsbConstants 활용 필수**: Phase 2.2.1.4.3에서 정의한 상수 사용
+  - 타임아웃: `UsbConstants.USB_OPEN_TIMEOUT_MS`, `USB_READ_TIMEOUT_MS`, `USB_WRITE_TIMEOUT_MS`
+  - UART 설정: `UsbConstants.UART_BAUDRATE`, `UART_DATA_BITS`, `UART_STOP_BITS`, `UART_PARITY`
+- **setParameters() 호출**: `port.setParameters(UsbConstants.UART_BAUDRATE, UsbConstants.UART_DATA_BITS, UsbConstants.UART_STOP_BITS, UsbConstants.UART_PARITY)`
+
 **검증**:
 - [ ] `openPort()` 함수 구현됨
-- [ ] `setParameters(1000000, 8, 1, 0)` 호출 확인
+- [ ] `port.setParameters(UsbConstants.UART_BAUDRATE, UsbConstants.UART_DATA_BITS, UsbConstants.UART_STOP_BITS, UsbConstants.UART_PARITY)` 호출 확인
 - [ ] `closePort()` 함수 구현됨
 - [ ] `isConnected()` 함수 구현됨
 - [ ] 예외 처리 (IOException, 연결 실패)
 - [ ] 디버그 로그 출력 (연결/해제 시점)
+- [ ] 타임아웃 설정 적용 (read/write 메서드에서 UsbConstants 사용)
 - [ ] Gradle 빌드 성공
 
 ---
@@ -806,15 +836,22 @@ private fun notifyPermissionResult(
 
 **참조**: Phase 2.2.1.1에서 `BridgeFrame.toByteArray()`와 `default()` 구현되었음 - 이를 직접 활용
 
+**주의사항** (Phase 2.2.1.4.3에서 추가됨):
+- **UsbConstants 활용 필수**: Phase 2.2.1.4.3에서 정의한 프레임 프로토콜 상수 사용
+  - `UsbConstants.DELTA_FRAME_SIZE`: 전송 바이트 수 검증 시 사용 (== 8)
+  - `UsbConstants.MAX_SEQUENCE_NUMBER`: 순번 검증 또는 생성 시 사용
+- **프레임 크기 검증**: `frame.toByteArray().size == UsbConstants.DELTA_FRAME_SIZE` (하드코딩된 8 대신 상수 사용)
+
 **검증**:
 - [ ] `sendFrame()` 함수 구현됨
-- [ ] `frame.toByteArray()` 호출로 8바이트 ByteArray 직렬화
+- [ ] `frame.toByteArray()` 호출로 ByteArray 직렬화
 - [ ] `write()` 호출로 UART 전송
-- [ ] 반환값 체크 (전송 바이트 수 == 8)
+- [ ] 반환값 체크 (전송 바이트 수 == `UsbConstants.DELTA_FRAME_SIZE`)
 - [ ] 초기 프레임 생성 시 `BridgeFrame.default()` 활용
 - [ ] 예외 처리 (USB 연결 해제 시 IOException)
 - [ ] BroadcastReceiver에서 연결/해제 감지
 - [ ] 디버그 로그 (프레임 전송 정보)
+- [ ] 프레임 크기 상수 적용 확인 (UsbConstants.DELTA_FRAME_SIZE)
 - [ ] Gradle 빌드 성공
 
 ---
@@ -1239,6 +1276,41 @@ private fun sendFrame() {
 ## 🔄 Phase 2.2 전체 변경사항 정리 및 후속 영향도
 
 ### 변경사항 요약
+
+#### 🔄 Phase 2.2.1.4.3 변경사항 (ESP32-S3 VID/PID 상수 정의)
+
+**기존 계획 대비 추가 구현**:
+
+Phase 2.2.1.4.3에서 계획된 기본 상수 외에 다음의 추가 상수들이 구현되었습니다:
+
+1. **USB 타임아웃 설정 3개** (계획에 없었음 → 추가함)
+   - `USB_OPEN_TIMEOUT_MS = 1000`
+   - `USB_READ_TIMEOUT_MS = 100`
+   - `USB_WRITE_TIMEOUT_MS = 1000`
+   - **이유**: Phase 2.2.2.1 (UsbSerialManager) 에서 포트 열기/읽기/쓰기 작업 시 필요. 조기 정의로 DeviceDetector (2.2.1.4.4)에서도 활용 가능
+
+2. **프레임 프로토콜 설정 2개** (계획에 없었음 → 추가함)
+   - `DELTA_FRAME_SIZE = 8`
+   - `MAX_SEQUENCE_NUMBER = 255`
+   - **이유**: Phase 2.2.2.4+ (프레임 송수신) 에서 필요한 프로토콜 상수를 중앙화하여 하드코딩 방지 및 유지보수성 향상
+
+**후속 Phase 영향도 분석 및 업데이트**:
+
+| Phase | 영향도 | 조치 사항 |
+|-------|--------|---------|
+| 2.2.1.4.4 | ✗ 미미 | USB 타임아웃 상수 사용 안 함 (디바이스 발견 단계에서는 타임아웃 없음) |
+| 2.2.2.1 | ✅ 높음 | USB_*_TIMEOUT_MS, UART_* 상수 **필수** 사용 - 검증 항목 업데이트 |
+| 2.2.2.2 | ✓ 중간 | 권한 처리 로직에 타임아웃 설정 추가 권장 |
+| 2.2.2.3 | ✅ 높음 | UART_* 상수 **필수** 사용 - `setParameters()` 호출에 반영 |
+| 2.2.2.4 | ✅ 높음 | DELTA_FRAME_SIZE 상수 사용 - 프레임 크기 검증에 반영 |
+| 2.2.2.5+ | ✅ 높음 | MAX_SEQUENCE_NUMBER 상수 활용 - 순번 검증/생성 시 사용 |
+| 2.2.3 | ✗ 영향 없음 | 터치 입력 처리에는 직접 영향 없음 |
+
+**문서 업데이트**:
+- Phase 2.2.2.3: setParameters() 호출에 UsbConstants 활용 명시 추가
+- Phase 2.2.2.4: 프레임 크기 검증에 DELTA_FRAME_SIZE 상수 활용 추가
+
+---
 
 Phase 2.2.1.1에서의 추가 구현이 이후 모든 Phase에 긍정적 영향을 미치도록 각 Phase 문서를 업데이트했습니다:
 
