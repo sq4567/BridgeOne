@@ -2,14 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- USB 관련 권한 -->
-    <uses-permission android:name="android.permission.USB_PERMISSION" />
+    <!-- USB Host API 권한 -->
     <uses-feature
         android:name="android.hardware.usb.host"
-        android:required="false" />
-
+        android:required="true" />
+    
+    <!-- USB 통신 권한 -->
+    <uses-permission android:name="android.permission.USB_DEVICE" />
+    
     <!-- 진동 피드백 권한 -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    
+    <!-- 인터넷 권한 (향후 서버 연동용) -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"

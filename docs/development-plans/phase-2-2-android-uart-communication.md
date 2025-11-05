@@ -408,11 +408,74 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 4. Intent Filter 설정
 
 **검증**:
-- [ ] `src/android/app/src/main/AndroidManifest.xml` 수정됨
-- [ ] `<uses-feature android:name="android.hardware.usb.host" android:required="true" />` 추가
-- [ ] `<uses-permission android:name="android.permission.USB_DEVICE" />` 추가
-- [ ] `<uses-permission android:name="android.permission.INTERNET" />` 추가 (선택)
-- [ ] Gradle 빌드 성공
+- [x] `src/android/app/src/main/AndroidManifest.xml` 수정됨
+- [x] `<uses-feature android:name="android.hardware.usb.host" android:required="true" />` 추가
+- [x] `<uses-permission android:name="android.permission.USB_DEVICE" />` 추가
+- [x] `<uses-permission android:name="android.permission.INTERNET" />` 추가 (선택)
+- [x] Gradle 빌드 성공
+
+##### Phase 2.2.1.4.1 변경사항 분석
+
+**1. USB Host Feature required 속성 변경: `false` → `true`**
+
+**변경 이유:**
+- 기존 계획: `android:required="false"` (USB Host 지원은 선택사항)
+- 실제 구현: `android:required="true"` (USB Host 지원 필수)
+- 근거: BridgeOne은 USB를 통한 ESP32-S3 통신이 핵심 기능이므로, USB Host를 지원하지 않는 기기에서는 설치 불가 정책이 타당
+
+**영향도:**
+- **Play Store 배포**: USB Host를 지원하는 기기로만 앱 설치 가능 (호환성 필터링)
+- **대상 사용자 확대**: 저사양 기기(태블릿, 특수 목적 기기) 제외, 주류 스마트폰 대상
+- **후속 Phase**: 영향 없음 (권한 요청 로직은 동일)
+
+**2. USB 권한 명칭 변경: `android.permission.USB_PERMISSION` → `android.permission.USB_DEVICE`**
+
+**변경 이유:**
+- 기존 계획: `android.permission.USB_PERMISSION` (비표준 권한명)
+- 실제 구현: `android.permission.USB_DEVICE` (표준 Android USB Host API 권한)
+- 근거: Android USB Host API 공식 문서(Android Manifest.permission 레퍼런스)에서 표준으로 정의한 권한명 사용
+
+**영향도:**
+- **UsbManager API 호출**: `UsbManager.requestPermission(device, pendingIntent)` 호출 시 정확한 권한 검증
+- **Phase 2.2.1.4.2 (권한 요청)**: `android.permission.USB_DEVICE` 검증으로 수정 필요
+- **Phase 2.2.2.2 (권한 통합)**: 런타임 권한 확인 시 정확한 권한명 사용 필수
+- **Runtime Permissions (Android 6.0+)**: 사용자 권한 요청 대화상자에서 정확히 표시
+
+**3. 권한 선언 순서 및 주석 개선**
+
+**변경 이유:**
+- 기존: 권한이 분산되어 있고 주석이 일반적
+- 개선: 관련 권한끼리 그룹화, 각 권한의 목적을 명확히 하는 주석 추가
+
+**구체적 변경:**
+```xml
+<!-- Before (분산) -->
+<uses-permission android:name="android.permission.USB_PERMISSION" />
+<uses-feature .../>
+<uses-permission android:name="android.permission.VIBRATE" />
+
+<!-- After (그룹화) -->
+<uses-feature .../>
+<uses-permission android:name="android.permission.USB_DEVICE" />
+<uses-permission android:name="android.permission.VIBRATE" />
+<uses-permission android:name="android.permission.INTERNET" />
+```
+
+**영향도:**
+- **코드 유지보수성**: 개발자가 권한 구조를 쉽게 이해
+- **향후 수정**: 관련 권한 추가 시 같은 그룹에 추가하면 됨
+- **후속 Phase**: 영향 없음 (기능 로직 변경 없음)
+
+**후속 Phase 영향도 분석 및 수정 사항:**
+
+| Phase | 영향 | 수정 사항 | 우선순위 |
+|-------|------|---------|--------|
+| 2.2.1.4.2 | ✓ 필수 | `android.permission.USB_DEVICE` 권한명 일치 확인 | 높음 |
+| 2.2.1.4.3 | ✗ 영향 없음 | - | - |
+| 2.2.1.4.4 | ✗ 영향 없음 | - | - |
+| 2.2.2.1 | ✗ 영향 없음 | - | - |
+| 2.2.2.2 | ✓ 필요 | 런타임 권한 확인 시 `android.permission.USB_DEVICE` 사용 | 중간 |
+| 2.2.3 | ✗ 영향 없음 | - | - |
 
 ---
 
@@ -426,6 +489,11 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 3. PendingIntent 생성 및 등록
 4. 권한 결과 콜백 처리
 
+**주의사항** (Phase 2.2.1.4.1에서 변경됨):
+- **권한명**: Phase 2.2.1.4.1에서 `android.permission.USB_PERMISSION` → `android.permission.USB_DEVICE`로 변경됨
+- 이 Phase에서는 **표준 권한명 `android.permission.USB_DEVICE`를 사용**해야 함
+- AndroidManifest.xml에 선언된 권한명과 일치해야 함
+
 **검증**:
 - [ ] `src/android/app/src/main/java/com/bridgeone/app/usb/` 디렉터리 생성됨
 - [ ] `UsbPermissionReceiver.kt` 파일 생성됨
@@ -434,6 +502,7 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - [ ] PendingIntent 플래그 설정 (PendingIntent.FLAG_UPDATE_CURRENT 등)
 - [ ] 권한 결과 체크 (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false))
 - [ ] 로그 출력 (권한 승인/거부)
+- [ ] **권한명 일치 확인**: `android.permission.USB_DEVICE` 사용 확인
 - [ ] Gradle 빌드 성공
 
 ---
@@ -548,12 +617,18 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 3. 권한 결과 콜백을 리스너 패턴으로 변환 (옵션: PermissionCallback 인터페이스)
 4. 권한 상태 확인 함수 구현 (`hasPermission(device: UsbDevice): Boolean`)
 
+**주의사항** (Phase 2.2.1.4.1에서 변경됨):
+- **권한명 일치**: Phase 2.2.1.4.1에서 정의한 표준 권한명 **`android.permission.USB_DEVICE`를 사용**
+- 런타임 권한 확인 시: `context.checkSelfPermission("android.permission.USB_DEVICE")`
+- PendingIntent 등록 시: `usbManager.requestPermission(device, pendingIntent)` (내부적으로 권한명 자동 처리)
+
 **검증**:
 - [ ] `requestPermission(device: UsbDevice)` 함수 추가됨
 - [ ] PendingIntent 생성 및 등록
 - [ ] 권한 결과 콜백 처리 로직 구현
 - [ ] 권한 거부 시 에러 로그 및 예외 처리
 - [ ] `hasPermission(device: UsbDevice): Boolean` 함수 구현
+- [ ] **권한명 검증**: 런타임 권한 확인에서 `android.permission.USB_DEVICE` 사용 확인
 - [ ] Gradle 빌드 성공
 
 ---
