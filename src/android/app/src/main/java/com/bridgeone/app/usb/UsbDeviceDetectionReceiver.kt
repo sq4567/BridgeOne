@@ -83,10 +83,9 @@ class UsbDeviceDetectionReceiver : BroadcastReceiver() {
         }
 
         // USB 기기 정보 추출 (Intent Extra로 전달됨)
-        val device: UsbDevice? = intent.getParcelableExtra(
-            UsbManager.EXTRA_DEVICE,
-            UsbDevice::class.java
-        )
+        // API 32 이하 호환성 유지: getParcelableExtra(String) 사용
+        @Suppress("DEPRECATION")
+        val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
 
         if (device == null) {
             Log.w(TAG, "No USB device found in intent")
