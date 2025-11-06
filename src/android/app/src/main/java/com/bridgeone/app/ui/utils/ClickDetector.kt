@@ -258,6 +258,77 @@ object ClickDetector {
     }
 
     /**
+     * 키보드 키 입력으로부터 BridgeFrame을 생성합니다 (Phase 2.2.4.3).
+     *
+     * 키보드의 키 입력, 수정자 키 상태, 그리고 선택적 제2 키코드를 포함하여 프레임을 생성합니다.
+     * 마우스 이동(deltaX, deltaY)은 0으로 설정됩니다.
+     *
+     * **프레임 구조 (8바이트):**
+     * ```
+     * 구조: [seq(1)] [buttons(1)] [deltaX(1)] [deltaY(1)] [wheel(1)] [modifiers(1)] [keyCode1(1)] [keyCode2(1)]
+     * 예시: [0x42  ] [0x00      ] [0x00     ] [0x00     ] [0x00    ] [0x02       ] [0x04      ] [0x00      ]
+     *       seq=66  no buttons   dx=0       dy=0       wheel=0   shift only    KEY_A      no key2
+     * ```
+     *
+     * **수정자 키 비트 정의 (BridgeFrame.MODIFIER_* 상수):**
+     * - bit0: LEFT_CTRL (0x01) - Ctrl 키
+     * - bit1: LEFT_SHIFT (0x02) - Shift 키
+     * - bit2: LEFT_ALT (0x04) - Alt 키
+     * - bit3: LEFT_GUI (0x08) - Windows 키 (선택사항)
+     *
+     * **주의사항:**
+     * - 수정자 키 여러 개가 동시에 활성화될 수 있음 (예: Shift+Ctrl → modifiers=0x03)
+     * - keyCode1/keyCode2는 HID Boot Protocol 키코드 (0x04~0x65 범위)
+     * - keyCode2는 선택사항 (보통 0으로 설정, 최대 6키 롤오버 지원)
+     * - Phase 2.2.1.2/2.2.1.3에서 구현된 스레드 안전한 FrameBuilder 활용
+     *
+     * @param activeModifierKeys 현재 활성화된 수정자 키 코드 세트
+     *   - 예: setOf(0x02.toUByte(), 0x01.toUByte()) → Shift+Ctrl
+     *   - 빈 세트도 가능 (수정자 키 없음)
+     * @param keyCode1 첫 번째 일반 키코드 (필수)
+     * @param keyCode2 두 번째 일반 키코드 (선택사항, 기본값 0)
+     *
+     * @return BridgeFrame 객체 (8바이트)
+     *
+     * **Reference:**
+     * - BridgeFrame.kt: modifiers 필드 정의 및 헬퍼 함수
+     * - FrameBuilder.kt: buildFrame() 구현 및 시퀀스 번호 관리
+     * - Phase 2.2.4.1: KeyboardKeyButton 구현
+     * - Phase 2.2.4.2: KeyboardLayout 구현
+     */
+    fun createKeyboardFrame(
+        activeModifierKeys: Set<UByte>,
+        keyCode1: UByte,
+        keyCode2: UByte = 0u
+    ): BridgeFrame {
+        // 수정자 키 비트 계산: 활성화된 모든 수정자 키를 비트 OR 연산으로 결합
+        var modifiersByte: UByte = 0u
+        for (modifierKeyCode in activeModifierKeys) {
+            modifiersByte = modifiersByte or modifierKeyCode
+        }
+
+        // FrameBuilder를 사용하여 프레임 생성 (자동 시퀀스 번호 할당)
+        // Phase 2.2.1.2/2.2.1.3에서 구현된 스레드 안전한 FrameBuilder 활용
+        return FrameBuilder.buildFrame(
+            buttons = 0u,                       // 마우스 버튼 없음
+            deltaX = 0,                         // 마우스 이동 없음
+            deltaY = 0,                         // 마우스 이동 없음
+            wheel = 0.toByte(),                 // 휠 없음
+            modifiers = modifiersByte,          // 계산된 수정자 키 비트
+            keyCode1 = keyCode1,                // 첫 번째 키코드
+            keyCode2 = keyCode2                 // 두 번째 키코드 (선택사항)
+        ).also { frame ->
+            // 생성된 프레임 정보 로깅 (디버그)
+            Log.d(
+                TAG,
+                "createKeyboardFrame: seq=${frame.seq}, modifiers=0x${frame.modifiers.toString(16).padStart(2, '0')}, " +
+                    "keyCode1=0x${frame.keyCode1.toString(16).padStart(2, '0')}, " +
+                    "keyCode2=0x${frame.keyCode2.toString(16).padStart(2, '0')}"
+            )
+        }
+    }
+
+    /**
      * 생성된 BridgeFrame을 UART로 비동기로 전송합니다.
      *
      * UsbSerialManager.sendFrame()을 호출하여 USB Serial 포트를 통해

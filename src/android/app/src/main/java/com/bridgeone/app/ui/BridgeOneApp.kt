@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -27,6 +28,8 @@ import com.bridgeone.app.ui.theme.BridgeOneTheme
 import com.bridgeone.app.ui.theme.TextPrimary
 import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.components.KeyboardLayout
+import com.bridgeone.app.ui.utils.ClickDetector
+import android.util.Log
 
 /**
  * BridgeOne 앱의 최상위 Composable 함수입니다.
@@ -59,6 +62,10 @@ private fun MainContent() {
     // 활성 키 상태 관리 (키보드의 다중 입력 시각화용)
     val activeKeys = remember { mutableStateOf(setOf<UByte>()) }
     
+    // 활성 수정자 키 추적 (BridgeFrame 생성용)
+    // Phase 2.2.4.3: 수정자 키 상태 관리 최적화
+    val activeModifierKeys = remember { mutableStateOf(setOf<UByte>()) }
+    
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Bottom,
@@ -82,9 +89,52 @@ private fun MainContent() {
             KeyboardLayout(
                 onKeyPressed = { keyCode ->
                     activeKeys.value = activeKeys.value + keyCode
+                    
+                    // Phase 2.2.4.3: 수정자 키인 경우 activeModifierKeys에도 추가
+                    if (keyCode == 0x01.toUByte() ||  // LEFT_CTRL
+                        keyCode == 0x02.toUByte() ||  // LEFT_SHIFT
+                        keyCode == 0x04.toUByte() ||  // LEFT_ALT
+                        keyCode == 0x08.toUByte()) {  // LEFT_GUI
+                        activeModifierKeys.value = activeModifierKeys.value + keyCode
+                    } else {
+                        // 일반 키인 경우, 현재 활성 수정자 키와 함께 프레임 생성 및 전송
+                        try {
+                            val frame = ClickDetector.createKeyboardFrame(
+                                activeModifierKeys = activeModifierKeys.value,
+                                keyCode1 = keyCode,
+                                keyCode2 = 0u
+                            )
+                            ClickDetector.sendFrame(frame)
+                            Log.d("MainContent", "Keyboard frame sent: keyCode=0x${keyCode.toString(16)}, modifiers=0x${activeModifierKeys.value}")
+                        } catch (e: Exception) {
+                            Log.e("MainContent", "Failed to send keyboard frame: ${e.message}", e)
+                        }
+                    }
                 },
                 onKeyReleased = { keyCode ->
                     activeKeys.value = activeKeys.value - keyCode
+                    
+                    // Phase 2.2.4.3: 수정자 키인 경우 activeModifierKeys에서 제거
+                    if (keyCode == 0x01.toUByte() ||  // LEFT_CTRL
+                        keyCode == 0x02.toUByte() ||  // LEFT_SHIFT
+                        keyCode == 0x04.toUByte() ||  // LEFT_ALT
+                        keyCode == 0x08.toUByte()) {  // LEFT_GUI
+                        activeModifierKeys.value = activeModifierKeys.value - keyCode
+                    } else {
+                        // 일반 키 해제 시에도 프레임 전송 (keyCode=0으로 설정)
+                        // 이를 통해 PC에서 키 해제를 인식
+                        try {
+                            val frame = ClickDetector.createKeyboardFrame(
+                                activeModifierKeys = activeModifierKeys.value,
+                                keyCode1 = 0u,  // 키 해제 표시
+                                keyCode2 = 0u
+                            )
+                            ClickDetector.sendFrame(frame)
+                            Log.d("MainContent", "Keyboard key-release frame sent: modifiers=0x${activeModifierKeys.value}")
+                        } catch (e: Exception) {
+                            Log.e("MainContent", "Failed to send keyboard key-release frame: ${e.message}", e)
+                        }
+                    }
                 },
                 activeKeys = activeKeys.value
             )
