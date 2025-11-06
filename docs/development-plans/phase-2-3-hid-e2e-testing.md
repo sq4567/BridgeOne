@@ -183,13 +183,113 @@ Phase 2.2에서 구현된 위 통신 경로의 **정확성, 안정성, 성능**�
    - ESP32-S3의 USB-OTG 포트를 Windows PC에 USB 케이블로 연결
    - Windows 장치 관리자 열기 (devmgmt.msc)
 
+### Phase 2.3.1.0: USB 초기화 및 장치 자동 감지 구현
+
+**목표**: MainActivity에서 USB 시스템을 초기화하고 BroadcastReceiver를 등록하여 자동 감지 기능 활성화
+
+**구현 완료 사항**:
+
+#### 1. MainActivity 수정 (USB 시스템 초기화)
+
+**파일**: `src/android/app/src/main/java/com/bridgeone/app/MainActivity.kt`
+
+**주요 추가 내용**:
+- `initializeUsbSystem()`: onCreate()에서 호출되어 UsbManager 초기화 및 디바이스 검색 시작
+  ```kotlin
+  private fun initializeUsbSystem() {
+      val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager
+      UsbSerialManager.setUsbManager(usbManager)
+      UsbSerialManager.connect(this)  // DeviceDetector 자동 실행
+  }
+  ```
+
+- `registerUsbBroadcastReceivers()`: onStart()에서 호출되어 BroadcastReceiver 동적 등록
+  - UsbDeviceDetectionReceiver: USB 기기 연결/해제 이벤트 감지 (ACTION_USB_DEVICE_ATTACHED/DETACHED)
+  - UsbPermissionReceiver: USB 권한 요청 결과 수신 (ACTION_USB_PERMISSION)
+
+- `unregisterUsbBroadcastReceivers()`: onStop()에서 호출되어 BroadcastReceiver 등록 해제
+  - 메모리 누수 방지
+
+**라이프사이클 흐름**:
+```
+onCreate()
+  ↓
+initializeUsbSystem()
+  ├─ UsbManager 획득
+  ├─ UsbSerialManager 초기화
+  └─ DeviceDetector 실행 (자동 감지)
+  ↓
+onStart()
+  ↓
+registerUsbBroadcastReceivers()
+  ├─ UsbDeviceDetectionReceiver 등록
+  └─ UsbPermissionReceiver 등록
+  ↓
+[앱 정상 실행]
+  ↓
+onStop()
+  ↓
+unregisterUsbBroadcastReceivers()
+  ├─ UsbDeviceDetectionReceiver 해제
+  └─ UsbPermissionReceiver 해제
+```
+
+#### 2. UsbConstants 수정 (기기 실제 VID/PID 적용)
+
+**파일**: `src/android/app/src/main/java/com/bridgeone/app/usb/UsbConstants.kt`
+
+**변경 사항**:
+```kotlin
+// 이전
+const val ESP32_S3_VID = 0x303A  // Espressif VID
+const val ESP32_S3_PID = 0x82C5  // TinyUSB 계획 PID
+
+// 현재 (실제 기기 기반)
+const val ESP32_S3_VID = 0x10C4  // CP2102 (Silicon Labs) UART-to-USB 칩
+const val ESP32_S3_PID = 0xEA60  // CP2102 기본 PID
+```
+
+**주의**: TinyUSB HID 통신이 완전히 구현되면, 다시 `0x303A:0x4001`로 변경해야 합니다.
+
+#### 3. 빌드 및 설치
+
+**명령어**:
+```bash
+cd src/android
+./gradlew clean assembleDebug
+adb uninstall com.bridgeone.app
+./gradlew installDebug
+```
+
+**결과**:
+- DeviceDetector가 자동으로 ESP32-S3 기기 발견 (VID=0x10C4, PID=0xEA60)
+- Logcat: `DeviceDetector: ESP32-S3 device found: /dev/bus/usb/001/002 (VID=0x10C4, PID=0xEA60)`
+
+#### 4. 검증 항목 (Phase 2.3.1.0 완료 기준)
+
+**구현 검증**:
+- [x] MainActivity에 initializeUsbSystem() 메서드 추가
+- [x] MainActivity에 registerUsbBroadcastReceivers() 메서드 추가
+- [x] MainActivity에 unregisterUsbBroadcastReceivers() 메서드 추가
+- [x] onCreate()에서 initializeUsbSystem() 호출
+- [x] onStart()에서 registerUsbBroadcastReceivers() 호출
+- [x] onStop()에서 unregisterUsbBroadcastReceivers() 호출
+- [x] UsbConstants VID/PID 수정 (0x10C4:0xEA60)
+- [x] Gradle 빌드 성공
+- [x] 앱 설치 성공
+- [x] DeviceDetector가 기기 자동 감지 (Logcat 확인)
+
+---
+
 ### Phase 2.3.1.1: Android → ESP32-S3 USB Serial 인식 검증
 
 **목표**: Android 앱이 ESP32-S3 USB Serial 장치를 올바르게 인식하는지 확인
 
+**사전 조건**: Phase 2.3.1.0 구현 완료
+
 **검증**:
 - [ ] Android 앱 실행 시 ESP32-S3 USB Serial 장치 자동 감지 (DeviceDetector)
-- [ ] Android 앱 로그에 "ESP32-S3 device detected: VID=0x303A, PID=0x82C5" 메시지 표시
+- [ ] Android 앱 로그에 "ESP32-S3 device found: VID=0x10c4, PID=0xEA60" 메시지 표시
 - [ ] UsbSerialManager.isConnected() 호출 시 `true` 반환
 - [ ] USB 연결 해제 후 UsbSerialManager.isConnected() 호출 시 `false` 반환
 - [ ] USB 재연결 시 UsbDeviceDetectionReceiver가 자동 감지하여 연결 복구
