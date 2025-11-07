@@ -432,7 +432,7 @@ Phase 2.2 작업 시작 전 다음을 준비하세요:
 - [x] `UsbPermissionReceiver.kt` 파일 생성됨
 - [x] BroadcastReceiver 상속 및 `onReceive()` 구현
 - [x] `requestUsbPermission()` 함수 구현됨
-- [x] PendingIntent 플래그 설정 (PendingIntent.FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE)
+- [x] PendingIntent 플래그 설정 (PendingIntent.FLAG_UPDATE_CURRENT | FLAG_MUTABLE) ← **Phase 2.3.1.1에서 변경됨**
 - [x] 권한 결과 체크 (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false))
 - [x] 로그 출력 (권한 승인/거부)
 - [x] **권한명 일치 확인**: `android.permission.USB_DEVICE` 사용 확인
@@ -518,7 +518,7 @@ val permissionIntent = android.app.PendingIntent.getBroadcast(
 
 **변경 이유:**
 - `FLAG_UPDATE_CURRENT`: 같은 디바이스의 중복 권한 요청 시 이전 Intent 갱신
-- `FLAG_IMMUTABLE`: Android 12+ 보안 권장사항 (Intent 수정 불가)
+- `FLAG_MUTABLE`: ~~`FLAG_IMMUTABLE` (Android 12+ 보안 권장사항)~~ → **Phase 2.3.1.1에서 변경**: Android 12에서 Intent extras가 null로 전달되는 버그 발견으로 `FLAG_MUTABLE` 사용 (보안: `setPackage()`로 보완)
 - `setPackage()`: 같은 action의 다른 앱 브로드캐스트 보안 필터링
 - `requestCode = device.deviceId`: 여러 기기 동시 권한 요청 지원
 

@@ -386,6 +386,15 @@ object UsbSerialManager {
             // Phase 2.2.2.3: 권한 상태를 SharedPreferences에 저장
             savePermissionStatus(context, true)
             Log.d(TAG, "USB permission granted and saved for device: ${device.deviceName}")
+            
+            // Phase 2.3.1.1: 권한 승인 후 자동으로 포트 오픈
+            try {
+                openPort(device)
+                Log.i(TAG, "USB port opened successfully after permission granted")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to open port after permission granted: ${e.message}", e)
+                clearPermissionStatus(context)
+            }
         } else {
             // Phase 2.2.2.3: 권한 상태 초기화 및 포트 닫기
             clearPermissionStatus(context)

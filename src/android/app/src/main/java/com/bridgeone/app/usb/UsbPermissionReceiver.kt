@@ -40,16 +40,23 @@ class UsbPermissionReceiver : BroadcastReceiver() {
         // Intent에서 USB 기기와 권한 결과 추출
         // getParcelableExtra()는 API 33 이상 필요하므로, 호환성을 위해 @Suppress 사용
         @Suppress("DEPRECATION")
-        val device: UsbDevice? = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(
-                UsbManager.EXTRA_DEVICE,
-                UsbDevice::class.java
-            )
-        } else {
-            // API 32 이하: 레거시 방식 사용
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+        val device: UsbDevice? = try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                // API 33 이상: 제네릭 메서드 사용
+                intent.getParcelableExtra(
+                    UsbManager.EXTRA_DEVICE,
+                    UsbDevice::class.java
+                )
+            } else {
+                // API 32 이하: 레거시 방식 사용
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception while extracting EXTRA_DEVICE: ${e.message}", e)
+            null
         }
+        
         val permissionGranted = intent.getBooleanExtra(
             UsbManager.EXTRA_PERMISSION_GRANTED,
             false
@@ -57,6 +64,31 @@ class UsbPermissionReceiver : BroadcastReceiver() {
 
         if (device == null) {
             Log.e(TAG, "USB device is null in permission result")
+            Log.d(TAG, "Intent extras: ${intent.extras?.keySet()?.joinToString()}")
+            Log.d(TAG, "Permission granted: $permissionGranted")
+            Log.d(TAG, "Attempting alternative extraction method...")
+            
+            // 폴백: 모든 Parcelable 객체를 직렬로 검색 (응급 복구용)
+            val allExtras = intent.extras
+            if (allExtras != null) {
+                for (key in allExtras.keySet()) {
+                    val extra = allExtras.get(key)
+                    if (extra is UsbDevice) {
+                        Log.d(TAG, "Found UsbDevice in extra key: $key")
+                        if (permissionGranted) {
+                            Log.i(TAG, "USB permission granted for device: VID=${extra.vendorId}, PID=${extra.productId}")
+                            notifyPermissionResult(context, extra, true)
+                        } else {
+                            Log.w(TAG, "USB permission denied for device: VID=${extra.vendorId}, PID=${extra.productId}")
+                            notifyPermissionResult(context, extra, false)
+                        }
+                        return
+                    }
+                }
+            }
+            
+            // 폴백 실패: 데이터 부족으로 진행 불가
+            Log.e(TAG, "Failed to find UsbDevice even with fallback method")
             return
         }
 
@@ -136,7 +168,8 @@ fun requestUsbPermission(
     // PendingIntent 생성:
     // - ACTION: android.hardware.usb.action.USB_PERMISSION
     // - FLAG_UPDATE_CURRENT: 기존 PendingIntent가 있으면 갱신
-    // - FLAG_IMMUTABLE: Android 12+ 보안 권장사항 (수정 불가)
+    // - FLAG_MUTABLE: Intent extras 전달 보장 (Android 12+ 호환성)
+    //   주의: FLAG_IMMUTABLE만 사용하면 extras가 전달되지 않는 버그 있음
     val permissionIntent = android.app.PendingIntent.getBroadcast(
         context,
         device.deviceId,  // requestCode: 디바이스별로 고유한 ID
@@ -144,7 +177,7 @@ fun requestUsbPermission(
             setPackage(context.packageName)  // 패키지 지정 (보안)
         },
         android.app.PendingIntent.FLAG_UPDATE_CURRENT or
-        android.app.PendingIntent.FLAG_IMMUTABLE
+        android.app.PendingIntent.FLAG_MUTABLE  // ✅ MUTABLE 사용 (extras 전달 보장)
     )
 
     // USB Manager를 통해 권한 요청

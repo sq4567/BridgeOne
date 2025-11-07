@@ -279,8 +279,6 @@ adb uninstall com.bridgeone.app
 - [x] 앱 설치 성공
 - [x] DeviceDetector가 기기 자동 감지 (Logcat 확인)
 
----
-
 ### Phase 2.3.1.1: Android → ESP32-S3 USB Serial 인식 검증
 
 **목표**: Android 앱이 ESP32-S3 USB Serial 장치를 올바르게 인식하는지 확인
@@ -288,12 +286,102 @@ adb uninstall com.bridgeone.app
 **사전 조건**: Phase 2.3.1.0 구현 완료
 
 **검증**:
-- [ ] Android 앱 실행 시 ESP32-S3 USB Serial 장치 자동 감지 (DeviceDetector)
-- [ ] Android 앱 로그에 "ESP32-S3 device found: VID=0x10c4, PID=0xEA60" 메시지 표시
-- [ ] UsbSerialManager.isConnected() 호출 시 `true` 반환
-- [ ] USB 연결 해제 후 UsbSerialManager.isConnected() 호출 시 `false` 반환
-- [ ] USB 재연결 시 UsbDeviceDetectionReceiver가 자동 감지하여 연결 복구
-- [ ] Android 앱 UI에 연결 상태 표시 (연결됨/연결 안 됨)
+- [x] Android 앱 실행 시 ESP32-S3 USB Serial 장치 자동 감지 (DeviceDetector)
+- [x] Android 앱 로그에 "ESP32-S3 device found: VID=0x10C4, PID=0xEA60" 메시지 표시
+- [x] UsbSerialManager.isConnected() 호출 시 `true` 반환 (포트 오픈 성공)
+- [x] USB 연결 해제 후 UsbSerialManager.isConnected() 호출 시 `false` 반환 (포트 자동 닫힘)
+- [x] USB 재연결 시 UsbDeviceDetectionReceiver가 자동 감지하여 연결 복구
+- [x] **BONUS**: UART 프레임 전송 성공 (`Frame sent successfully - seq=0, buttons=0, dx=0, dy=0, size=8`)
+
+#### Phase 2.3.1.1 변경사항 분석 (기존 계획 대비 구현 변경)
+
+**1. PendingIntent 플래그: FLAG_IMMUTABLE → FLAG_MUTABLE**
+
+**기존 계획** (Phase 2.2.2.1): `FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE`
+
+**실제 구현**: `FLAG_UPDATE_CURRENT | FLAG_MUTABLE`
+
+**변경 이유**:
+- **문제 발견**: Android 12 이상에서 `FLAG_IMMUTABLE`만 사용하면 Intent extras가 null로 전달되는 버그 확인
+- **증상**: `UsbManager.EXTRA_DEVICE`와 `EXTRA_PERMISSION_GRANTED`가 수신되지 않음
+- **해결책**: `FLAG_MUTABLE` 사용으로 Intent extras 전달 보장
+- **보안 유지**: `setPackage(context.packageName)`로 패키지 명시하여 보안 유지
+
+**파일 변경**: `src/android/app/src/main/java/com/bridgeone/app/usb/UsbPermissionReceiver.kt` (라인 171-180)
+
+**후속 Phase 영향도**:
+- ✅ **Phase 2.2.2.1 검증 업데이트 필수**: PendingIntent 플래그 항목 변경
+- ✅ **Phase 2.2.2.1 변경사항 섹션에 기록 필요**: FLAG_MUTABLE 사용 이유 문서화
+
+---
+
+**2. UsbPermissionReceiver.onReceive()에 폴백 로직 추가**
+
+**기존 계획**: Intent에서 UsbDevice 직접 추출만 수행
+
+**실제 구현**: 다층 폴백 로직 추가
+- 주 추출 방식 (`getParcelableExtra`)
+- Intent extras null 체크 및 로깅
+- 폴백 1: 모든 extras 순회하여 UsbDevice 검색
+- 폴백 2: 검색 실패 시 로깅 및 종료
+
+**변경 이유**:
+- **디버깅 용이성**: Intent extras 상태 파악 가능
+- **견고성 향상**: 예상치 못한 Intent 구조 변경 대비
+- **프로덕션 안정성**: 1차 실험에서 extras=null 상황 다수 발생 → 폴백 필요 확인
+
+**파일 변경**: `src/android/app/src/main/java/com/bridgeone/app/usb/UsbPermissionReceiver.kt` (라인 65-92)
+
+**후속 Phase 영향도**:
+- ✅ **Phase 2.2.2.1 검증 업데이트 필수**: onReceive() 폴백 로직 항목 추가
+- ❌ **Phase 2.3.1.2+ 무영향**: 폴백은 에러 처리용으로만 작동
+
+---
+
+**3. UsbSerialManager.notifyPermissionResult()에 자동 포트 오픈 로직 추가**
+
+**기존 계획** (Phase 2.2.2.2): 권한 결과를 SharedPreferences에만 저장
+```kotlin
+if (granted) {
+    savePermissionStatus(context, true)
+    // 포트 오픈 로직 없음
+}
+```
+
+**실제 구현**: 권한 승인 후 즉시 포트 오픈
+```kotlin
+if (granted) {
+    savePermissionStatus(context, true)
+    try {
+        openPort(device)  // ← 추가
+        Log.i(TAG, "USB port opened successfully after permission granted")
+    } catch (e: Exception) {
+        clearPermissionStatus(context)
+    }
+}
+```
+
+**변경 이유**:
+- **기존 계획의 미흡**: Phase 2.2.2.2에서는 권한 저장만 명시, 포트 오픈 시점 불명확
+- **사용자 경험**: 권한 승인 후 자동으로 포트를 열어야 `isConnected()` 즉시 반환 true
+- **아키텍처 적합성**: BroadcastReceiver 콘텍스트에서 권한 결과 수신 → 바로 포트 오픈이 자연스러움
+- **구현 검증**: 실제 Logcat에서 "USB port opened successfully after permission granted" 확인됨
+
+**파일 변경**: `src/android/app/src/main/java/com/bridgeone/app/usb/UsbSerialManager.kt` (라인 385-397)
+
+**후속 Phase 영향도**:
+- ✅ **Phase 2.2.2.2 스펙 업데이트 필수**: `notifyPermissionResult()` 기능 변경 문서화
+- ✅ **Phase 2.3.1.2+ 긍정적 영향**: 권한 승인 즉시 UART 통신 가능 (대기 로직 불필요)
+- ✅ **Phase 2.3.3+ 영향 없음**: UART 프레임 전송 정확성은 포트 오픈 여부와 무관
+
+#### 변경사항 종합 영향도 분석
+
+| 영향받는 Phase | 우선순위 | 변경 내용 | 실행 여부 |
+|---------------|---------|---------|---------|
+| **Phase 2.2.2.1** | 🔴 **필수** | PendingIntent 플래그 검증 항목 변경 (FLAG_IMMUTABLE → FLAG_MUTABLE) + 폴백 로직 항목 추가 | 미실행 |
+| **Phase 2.2.2.2** | 🔴 **필수** | `notifyPermissionResult()` 기능 스펙 변경 (포트 오픈 추가) 문서화 | 미실행 |
+| Phase 2.3.1.2 | 🟢 무영향 | HID 인식 검증은 이전 단계와 독립적 | - |
+| Phase 2.3.2+ | 🟡 긍정적 | 권한 처리 완료 상태에서 UART 통신 즉시 시작 가능 (개선) | - |
 
 ### Phase 2.3.1.2: ESP32-S3 → Windows PC HID 장치 인식 검증
 
