@@ -1,0 +1,183 @@
+menu "TinyUSB Stack"
+
+    config TINYUSB
+        bool "Use TinyUSB Stack"
+        default n
+        help
+            Enable TinyUSB stack support for USB device functionality.
+
+    config TINYUSB_DEBUG
+        depends on TINYUSB
+        int "TinyUSB log level (0-3)"
+        default 0
+        range 0 3
+        help
+            Specify TinyUSB stack log level.
+            0: No log
+            1: Error
+            2: Warning
+            3: Info
+
+    menu "USB Device Configuration"
+        depends on TINYUSB
+
+        config TINYUSB_DEVICE_ENABLED
+            bool "Enable USB Device mode"
+            default y
+            help
+                Enable TinyUSB device mode.
+
+        config TINYUSB_DEVICE_BUS_POWERED
+            depends on TINYUSB_DEVICE_ENABLED
+            bool "Device is bus-powered"
+            default y
+            help
+                Device is powered by USB bus (not self-powered).
+
+        config TINYUSB_DEVICE_SELF_POWERED
+            depends on TINYUSB_DEVICE_ENABLED
+            bool "Device is self-powered"
+            default n
+            help
+                Device has its own power supply.
+
+        config TINYUSB_DEVICE_MAX_POWER
+            depends on TINYUSB_DEVICE_ENABLED
+            int "Max power consumption (mA)"
+            default 100
+            range 0 500
+            help
+                Maximum power consumption from USB bus in milliamperes.
+                USB 2.0 spec allows up to 500mA.
+
+    endmenu # USB Device Configuration
+
+    menu "HID Device Class"
+        depends on TINYUSB && TINYUSB_DEVICE_ENABLED
+
+        config TINYUSB_HID_ENABLED
+            bool "Enable HID Device Class"
+            default n
+            help
+                Enable USB HID (Human Interface Device) class support.
+
+        config TINYUSB_HID_COUNT
+            depends on TINYUSB_HID_ENABLED
+            int "Number of HID interfaces"
+            default 1
+            range 1 4
+            help
+                Number of HID interfaces (e.g., 2 for keyboard + mouse).
+
+        config TINYUSB_HID_BUFSIZE
+            depends on TINYUSB_HID_ENABLED
+            int "HID buffer size"
+            default 64
+            range 8 256
+            help
+                Size of HID report buffer in bytes.
+
+        config TINYUSB_HID_KEYBOARD_ENABLED
+            depends on TINYUSB_HID_ENABLED
+            bool "Enable HID Keyboard"
+            default n
+            help
+                Enable HID Keyboard support (Boot Protocol).
+
+        config TINYUSB_HID_MOUSE_ENABLED
+            depends on TINYUSB_HID_ENABLED
+            bool "Enable HID Mouse"
+            default n
+            help
+                Enable HID Mouse support (Boot Protocol).
+
+    endmenu # HID Device Class
+
+    menu "CDC Device Class"
+        depends on TINYUSB && TINYUSB_DEVICE_ENABLED
+
+        config TINYUSB_CDC_ENABLED
+            bool "Enable CDC Device Class"
+            default n
+            help
+                Enable USB CDC (Communications Device Class) support.
+
+        config TINYUSB_CDC_COUNT
+            depends on TINYUSB_CDC_ENABLED
+            int "Number of CDC interfaces"
+            default 1
+            range 1 3
+            help
+                Number of CDC serial ports.
+
+        config TINYUSB_CDC_RX_BUFSIZE
+            depends on TINYUSB_CDC_ENABLED
+            int "CDC RX buffer size"
+            default 512
+            range 64 4096
+            help
+                Size of CDC receive buffer in bytes.
+
+        config TINYUSB_CDC_TX_BUFSIZE
+            depends on TINYUSB_CDC_ENABLED
+            int "CDC TX buffer size"
+            default 512
+            range 64 4096
+            help
+                Size of CDC transmit buffer in bytes.
+
+    endmenu # CDC Device Class
+
+    menu "MSC Device Class"
+        depends on TINYUSB && TINYUSB_DEVICE_ENABLED
+
+        config TINYUSB_MSC_ENABLED
+            bool "Enable MSC Device Class"
+            default n
+            help
+                Enable USB MSC (Mass Storage Class) support.
+
+        config TINYUSB_MSC_COUNT
+            depends on TINYUSB_MSC_ENABLED
+            int "Number of MSC LUNs"
+            default 1
+            range 1 4
+            help
+                Number of Mass Storage Logical Units.
+
+    endmenu # MSC Device Class
+
+    menu "MIDI Device Class"
+        depends on TINYUSB && TINYUSB_DEVICE_ENABLED
+
+        config TINYUSB_MIDI_ENABLED
+            bool "Enable MIDI Device Class"
+            default n
+            help
+                Enable USB MIDI class support.
+
+    endmenu # MIDI Device Class
+
+    menu "Vendor Device Class"
+        depends on TINYUSB && TINYUSB_DEVICE_ENABLED
+
+        config TINYUSB_VENDOR_ENABLED
+            bool "Enable Vendor Device Class"
+            default n
+            help
+                Enable USB Vendor-specific class support.
+
+    endmenu # Vendor Device Class
+
+    menu "DFU Runtime Device Class"
+        depends on TINYUSB && TINYUSB_DEVICE_ENABLED
+
+        config TINYUSB_DFU_RT_ENABLED
+            bool "Enable DFU Runtime Device Class"
+            default n
+            help
+                Enable USB DFU (Device Firmware Update) Runtime support.
+
+    endmenu # DFU Runtime Device Class
+
+endmenu # TinyUSB Stack
