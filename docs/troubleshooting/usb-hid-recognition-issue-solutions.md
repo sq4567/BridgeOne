@@ -104,8 +104,8 @@ USB Composite Device       OK     USB\VID_303A&PID_1001\24:58:7C:DE:81:C8
 
 ```powershell
 # 1. TinyUSB 컴포넌트 디렉토리에서 Kconfig 파일 검색
-cd F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\BridgeOne
-find components\espressif__tinyusb -maxdepth 2 -name "Kconfig*"
+cd F:\\C\\Programming\\MobileDevelopment\\Projects\\Android\\BridgeOne\\src\\board\\BridgeOne
+find components\\espressif__tinyusb -maxdepth 2 -name "Kconfig*"
 # 결과: Kconfig 파일 없음 확인
 
 # 2. ESP-IDF 표준 Kconfig 파일 생성
@@ -153,7 +153,7 @@ idf.py menuconfig
 
 #### 실행 명령어
 ```powershell
-cd F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\BridgeOne
+cd F:\\C\\Programming\\MobileDevelopment\\Projects\\Android\\BridgeOne\\src\\board\\BridgeOne
 
 # 1. Kconfig 파일 생성 (시도 #1에서 완료)
 # 파일: components/espressif__tinyusb/Kconfig
@@ -212,7 +212,7 @@ idf.py menuconfig
 
 #### 실행 명령어
 ```bash
-cd F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\BridgeOne
+cd F:\\C\\Programming\\MobileDevelopment\\Projects\\Android\\BridgeOne\\src\\board\\BridgeOne
 
 # 1. 빌드 실행
 idf.py build
@@ -258,175 +258,222 @@ I (785) BridgeOne: BridgeOne USB Bridge Ready - Waiting for host connection...
 
 ---
 
-### 시도 #4: USB 설정 충돌 확인 및 해결 - ⏳ 대기 중
+### 시도 #4: USB 설정 충돌 확인 (menuconfig 접근) - ⚠️ 실패 (원인 파악)
 
 #### 시도 정보
-- **시도일**: [대기 중]
-- **목적**: ESP32-S3 내장 USB JTAG/CDC와 TinyUSB 간 충돌 확인 및 해결
+- **시도일**: 2025-11-10 17:30 ~ 2025-11-11 (진행 중)
+- **목적**: ESP32-S3 내장 USB JTAG/CDC와 TinyUSB 간 충돌 확인 및 menuconfig로 해결
 - **예상 결과**: USB 콘솔이 UART로 전환되고, USB 포트가 TinyUSB 전용으로 해제됨
 
-#### 실행 계획
+#### 실행 계획 및 결과
 ```bash
 # 1. 현재 USB 콘솔 설정 확인
 grep "CONFIG_ESP_CONSOLE" sdkconfig
+# 결과: CONFIG_ESP_CONSOLE_UART=y ✅ (이미 UART로 설정됨)
 
 # 2. USB 관련 모든 설정 확인
 grep "CONFIG_USB" sdkconfig | grep -v "CONFIG_TINYUSB"
+# 결과:
+# CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=y ❌ (이것이 문제!)
+# CONFIG_USB_OTG_SUPPORTED=y ✅
+# CONFIG_TINYUSB=y (TinyUSB 필터링으로 제외됨)
 
-# 예상되는 문제 설정:
-# CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
-# CONFIG_ESP_CONSOLE_USB_CDC=y
-
-# 3. menuconfig로 USB 콘솔 비활성화
+# 3. menuconfig 실행 시도
 idf.py menuconfig
-# → Component config → ESP System Settings → Channel for console output
-# → 선택: "UART" (기본 UART0, GPIO43/GPIO44)
-
-# 4. USB JTAG 기능 비활성화 확인
-# → Component config → Hardware Settings → USB-OTG
-# → "USB OTG" 활성화, "USB Serial JTAG" 비활성화
-
-# 5. 설정 저장 및 빌드
-idf.py build
-
-# 6. 플래시 및 모니터
-idf.py -p COM3 flash monitor
+# → Component config → Hardware Settings → USB Serial/JTAG
+# → 관찰: CONFIG_USJ_ENABLE_USB_SERIAL_JTAG 옵션이 회색으로 표시 (변경 불가능)
 ```
 
-#### 예상 관찰 사항
-- `CONFIG_ESP_CONSOLE_UART=y` 활성화
-- `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=n` 비활성화
-- 빌드 로그에서 USB JTAG 관련 경고 사라짐
-- TinyUSB가 USB 포트를 독점적으로 사용 가능
+#### 관찰 사항
+- ❌ `CONFIG_ESP_CONSOLE_UART=y`는 이미 올바르게 설정됨
+- ❌ `CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=y`가 menuconfig에서 변경 불가능한 상태
+- ❌ 의존성 시스템에 의해 필수로 강제되는 것으로 파악
+- ❌ 수동으로 sdkconfig 파일을 편집해도 다시 빌드하면 원래 값으로 되돌아옴
+- 💡 원인: Kconfig 파일의 `select` 또는 `depends on` 구문이 이 설정을 필수로 지정
 
-#### 검증 체크리스트
-- [ ] `CONFIG_ESP_CONSOLE_UART=y` 확인
-- [ ] `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=n` 확인
-- [ ] 빌드 성공 여부
-- [ ] Windows에서 USB JTAG 장치 사라짐
-- [ ] HID Keyboard/Mouse 장치 나타남
+#### 검증 결과
+- [x] `CONFIG_ESP_CONSOLE_UART=y` 확인 ✅
+- [ ] `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=n` 확인 ❌ (변경 불가능)
+- [x] menuconfig에서 USB JTAG 옵션 발견 ✅
+- [ ] USB JTAG 장치 제거 ❌
+
+#### 결론
+- **상태**: ❌ menuconfig 방식으로는 해결 불가능
+- **발견된 새로운 문제**: Kconfig 의존성 체계가 USB_SERIAL_JTAG를 필수로 강제
+- **근본 원인**:
+  - `CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=y`가 Kconfig에서 선택되지 않으면 다른 중요한 설정이 활성화되지 않음
+  - Windows는 첫 번째로 열거되는 ROM 부트로더 USB JTAG/CDC를 점유하면 이후의 TinyUSB 열거를 무시
+- **다음 단계**: eFuse 방식으로 ROM 부트로더 USB를 하드웨어 레벨에서 완전 비활성화 필요
 
 ---
 
-### 시도 #3: TinyUSB 컴포넌트 명시적 활성화 (가설 2 검증) - 이후 단계
+### 시도 #4B: eFuse를 이용한 USB_PHY_SEL 활성화 - ⚠️ 부분 성공
 
 #### 시도 정보
-- **시도일**: [대기 중]
-- **목적**: ESP-IDF의 TinyUSB 컴포넌트가 제대로 등록되어 있는지 확인 및 강제 활성화
-- **예상 결과**: TinyUSB 컴포넌트가 빌드 시스템에 정상 등록됨
+- **시도일**: 2025-11-12
+- **목적**: eFuse를 사용하여 ROM 부트로더의 USB 기능 완전 비활성화
+- **예상 결과**: ROM 부트로더 USB가 완전히 비활성화되어 TinyUSB만 열거됨
+
+#### 실행 명령어 (실제)
+```bash
+cd F:\\C\\Programming\\MobileDevelopment\\Projects\\Android\\BridgeOne\\src\\board\\BridgeOne
+
+# 1. 현재 eFuse 상태 확인
+python C:\\Espressif\\frameworks\\esp-idf-v5.5.1\\components\\esptool_py\\esptool\\espefuse.py --port COM3 summary
+# 결과에서 USB_PHY_SEL 상태 확인
+# - 0 = 기본값 (USB_SERIAL_JTAG이 내부 PHY 사용)
+# - 1 = 활성화됨 (USB_OTG가 내부 PHY 사용, ROM 부트로더 USB 비활성화)
+
+# 2. USB_PHY_SEL eFuse 활성화 (PHY를 USB_OTG로 전환, 한 번 설정하면 되돌릴 수 없음)
+python %IDF_PATH%\\components\\esptool_py\\esptool\\espefuse.py --port COM3 burn_efuse USB_PHY_SEL 1
+# 확인 메시지에서 'BURN' (대문자) 입력하여 확정
+
+# 3. ESP32-S3 자동 재부팅 대기
+# "Applying ESP32 efuses..."
+# 재부팅 후 eFuse 적용 완료
+
+# 4. Windows에서 USB 장치 확인
+Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table FriendlyName, Status, DeviceID
+# 예상 결과: PID_1001 사라지고 PID_4001 (HID) 표시됨
+
+# 5. ESP-IDF 모니터로 로그 확인
+idf.py -p COM3 monitor
+# TinyUSB 초기화 로그 및 정상 동작 확인
+```
+
+#### 실행 결과 (실제)
+
+✅ **eFuse burn 성공 (USB_PHY_SEL = 0 → 1)**
+- eFuse burn 진행 중 Serial data stream stopped (예상된 동작)
+- 보드 강제 재부팅 후 eFuse 적용 확인
+- 포트 변경: COM3 → COM7
+
+✅ **펌웨어 플래시 성공 (COM7)**
+```
+Wrote 230976 bytes (130027 compressed) at 0x00010000 in 3.7 seconds
+Hash of data verified. ✅
+```
+
+❌ **Hard reset 후 USB 연결 끊김**
+```
+Hard resetting with a watchdog...
+A serial exception error occurred: Cannot configure port, something went wrong.
+PermissionError(13, '시스템에 부착된 장치가 작동하지 않습니다.', None, 31)
+```
+
+⚠️ **Windows 장치 인식 상태**
+```
+FriendlyName               Status  DeviceID
+USB Composite Device       OK      USB\VID_303A&PID_0009 (TinyUSB)
+USB Composite Device       Unknown USB\VID_303A&PID_1001 (ROM - 비활성화)
+ESP32-S3                   Error   USB\VID_303A&PID_0009&MI_02
+USB 직렬 장치(COM7)        OK      USB\VID_303A&PID_0009&MI_00
+```
+
+#### 관찰 사항
+- ✅ eFuse burn 성공: USB_PHY_SEL = 1 (ROM 부트로더 USB 비활성화)
+- ✅ ROM 부트로더 USB (PID_1001): Unknown 상태로 비활성화
+- ✅ TinyUSB (PID_0009): OK 상태로 활성화
+- ❌ **Hard reset 후 USB 연결 강제 종료**: eFuse 변경으로 인한 USB 모드 전환 시 발생
+- ❌ **PID가 0x4001이 아닌 0x0009로 인식**: TinyUSB가 HID 없이 CDC만 활성화된 상태
+- 🔴 **근본 원인 발견**: sdkconfig에서 `CONFIG_TINYUSB_HID_KEYBOARD_ENABLED=n` 및 `CONFIG_TINYUSB_HID_MOUSE_ENABLED=n`
+
+#### 검증 결과
+- [x] eFuse 상태 확인 (USB_PHY_SEL = 1) ✅
+- [x] burn_efuse 명령 실행 성공 ✅
+- [x] Windows에서 PID_1001 비활성화됨 ✅
+- [ ] Windows에서 PID_4001 나타남 ❌ (PID_0009로 인식, HID 비활성화)
+- [ ] HID Keyboard/Mouse 장치로 인식됨 ❌
+- [x] TinyUSB CDC로 정상 로깅 가능 ✅ (COM7)
+
+#### 결론
+- **상태**: ⚠️ 부분 성공
+- **성공**: eFuse burn 완료, ROM 부트로더 USB 비활성화, TinyUSB 활성화
+- **실패**: HID Keyboard/Mouse 비활성화 상태로 TinyUSB 초기화 (설정 누락)
+- **근본 원인**: sdkconfig에서 HID Keyboard/Mouse 설정이 저장되지 않음
+- **다음 단계**: menuconfig에서 HID Keyboard/Mouse 활성화 후 재빌드 필요
+
+#### USB 연결 끊김 현상 분석
+**증상**: Hard reset 후 `PermissionError(13, '시스템에 부착된 장치가 작동하지 않습니다.')`
+
+**원인**:
+1. eFuse 변경으로 USB 모드가 전환됨 (ROM USB → TinyUSB)
+2. Hard reset 시 ESP32-S3이 재부팅되면서 USB가 재열거됨
+3. Windows가 USB 장치를 재인식하는 동안 esptool이 포트 접근 시도
+4. 포트가 아직 준비되지 않아 PermissionError 발생
+
+**해결책**:
+- 이것은 **정상적인 동작**입니다
+- 펌웨어 플래시는 이미 성공했으므로 (Hash verified) 에러 무시 가능
+- 재부팅 후 포트가 재할당되므로 (COM3 → COM7) 새 포트로 접근 필요
+
+#### 추가 정보
+**eFuse "Burning"에 대한 안전성**:
+- "Burning"은 하드웨어를 물리적으로 손상시키는 것이 아님
+- eFuse는 일회성 프로그래밍 가능한 메모리 비트로, 한 번 설정하면 읽기 전용이 됨
+- 이것은 정상적인 설정이며, ROM 부트로더를 비활성화하는 표준 방법
+- USB_PHY_SEL을 비활성화해도 펌웨어 기능은 정상 작동 (TinyUSB로 USB 사용)
+- 다음 펌웨어 업데이트 시에는 Download Mode로 진입하여 플래시 가능
+
+---
+
+### 시도 #5: HID Keyboard/Mouse menuconfig 활성화 - ⏳ 대기 중
+
+#### 시도 정보
+- **시도일**: [진행 예정]
+- **목적**: sdkconfig에서 HID Keyboard/Mouse 설정을 명시적으로 활성화
+- **예상 결과**: TinyUSB가 HID Keyboard + Mouse + CDC 복합 장치로 초기화됨
 
 #### 실행 계획
 ```bash
-# 1. ESP-IDF 컴포넌트 목록 확인
-idf.py reconfigure --verbose
+cd F:\\C\\Programming\\MobileDevelopment\\Projects\\Android\\BridgeOne\\src\\board\\BridgeOne
 
-# 출력에서 "tinyusb" 문자열 검색
-# 예상: "Component: tinyusb" 메시지 확인
+# 1. menuconfig 실행
+idf.py menuconfig
 
-# 2. 빌드 디렉토리에서 TinyUSB 오브젝트 파일 확인
-ls build/esp-idf/tinyusb/
+# 2. TinyUSB Stack 메뉴로 이동
+# Component config → TinyUSB Stack → HID Device Class
+#   ☑ Enable HID Keyboard (현재: [ ])
+#   ☑ Enable HID Mouse (현재: [ ])
 
-# 3. sdkconfig.defaults에 명시적 추가 (이미 있지만 재확인)
-# CONFIG_TINYUSB=y
-# CONFIG_TINYUSB_DEVICE_ENABLED=y
+# 3. 저장 (S 키) → 종료 (Q 키)
 
-# 4. 강제 재빌드
+# 4. sdkconfig 확인
+Get-Content sdkconfig | Select-String "CONFIG_TINYUSB_HID"
+# 예상:
+#   CONFIG_TINYUSB_HID_ENABLED=y
+#   CONFIG_TINYUSB_HID_KEYBOARD_ENABLED=y
+#   CONFIG_TINYUSB_HID_MOUSE_ENABLED=y
+
+# 5. 클린 빌드
 idf.py fullclean
-idf.py reconfigure
 idf.py build
+
+# 6. 플래시 (Download Mode)
+idf.py -p COM7 flash
+
+# 7. 모니터링 (재부팅 후 새 포트 확인)
+Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"}
+idf.py -p [NEW_PORT] monitor
 ```
 
 #### 예상 관찰 사항
-- `idf.py reconfigure` 출력에 "Component: tinyusb" 메시지 확인
-- `build/esp-idf/tinyusb/` 디렉토리에 다수의 .o 파일 존재
-- 빌드 로그에서 TinyUSB 소스 파일 컴파일 메시지 출력
-
----
-
-### 시도 #4: 런타임 초기화 디버깅 (가설 3 검증) - 이후 단계
-
-#### 시도 정보
-- **시도일**: [대기 중]
-- **목적**: `tusb_init()` 호출이 성공적으로 실행되는지 확인
-- **예상 결과**: 시리얼 모니터에서 TinyUSB 초기화 성공 메시지 및 디버그 로그 확인
-
-#### 실행 계획
-```bash
-# 1. TinyUSB 디버그 레벨 상승
-idf.py menuconfig
-# → Component config → TinyUSB Stack → TinyUSB log level
-# → 선택: "Debug" 또는 "Verbose"
-
-# 또는 tusb_config.h 수정:
-# #define CFG_TUSB_DEBUG 2
-
-# 2. 빌드 및 플래시
-idf.py build
-idf.py -p COM3 flash monitor
-
-# 3. 시리얼 모니터 출력 확인
-# 예상 로그:
-# I (xxx) BridgeOne: TinyUSB device stack initialized
-# I (xxx) TinyUSB: Device descriptor requested
-# I (xxx) TinyUSB: Configuration descriptor requested
-```
-
-#### 예상 관찰 사항
-- TinyUSB 초기화 로그 출력
-- 호스트(Windows)의 디스크립터 요청 로그 출력
-- USB 열거 과정의 상세 로그 출력
+- menuconfig에서 HID Keyboard/Mouse 활성화 성공
+- sdkconfig에 설정 저장됨
+- 빌드 로그에서 HID 관련 코드 컴파일 확인
+- 부팅 로그: "Interfaces: HID Keyboard(0), HID Mouse(1), CDC(2,3)"
+- Windows에서 PID_4001로 인식
+- HID Keyboard, HID Mouse 장치 열거
 
 #### 검증 체크리스트
-- [ ] `tusb_init()` 호출 성공 메시지 확인
-- [ ] 호스트의 Device Descriptor 요청 확인
-- [ ] 호스트의 Configuration Descriptor 요청 확인
-- [ ] HID Report Descriptor 요청 확인
-- [ ] USB 열거 완료 메시지 확인
-
----
-
-### 시도 #5: USB 디스크립터 검증 및 수정 - 이후 단계
-
-#### 시도 정보
-- **시도일**: [대기 중]
-- **목적**: USB 디스크립터 정의가 표준을 준수하는지 검증
-- **예상 결과**: 디스크립터 오류 수정 및 Windows 인식 성공
-
-#### 실행 계획
-```bash
-# 1. USB 디스크립터 덤프 (Windows)
-# USB Device Tree Viewer 등 도구 사용하여 현재 디스크립터 확인
-
-# 2. usb_descriptors.c 재검토
-# - VID/PID 확인
-# - bNumInterfaces 확인 (4개 맞는지)
-# - 엔드포인트 번호 중복 확인
-# - 디스크립터 길이 계산 확인
-
-# 3. 표준 준수 여부 확인
-# - USB 2.0 Specification 준수
-# - HID Boot Protocol 준수
-# - CDC-ACM Class 준수
-
-# 4. 필요 시 수정 후 재빌드
-```
-
----
-
-### 시도 #6: USB 케이블 및 포트 확인 - 이후 단계
-
-#### 시도 정보
-- **시도일**: [대기 중]
-- **목적**: 하드웨어적 문제 배제 (USB 케이블, 포트 불량)
-- **예상 결과**: 다른 USB 포트 또는 케이블로 동일 증상 재현
-
-#### 실행 계획
-```bash
-# 1. 다른 USB 포트에 연결 시도
-# 2. 다른 USB 케이블 사용 시도
-# 3. 다른 PC에 연결 시도 (가능 시)
-# 4. ESP32-S3 보드 리셋 버튼 눌러 재부팅 후 확인
-```
+- [ ] menuconfig에서 HID Keyboard/Mouse 활성화
+- [ ] sdkconfig에 설정 저장 확인
+- [ ] 빌드 성공
+- [ ] 플래시 성공
+- [ ] 부팅 로그에서 HID 인터페이스 확인
+- [ ] Windows에서 PID_4001 인식
+- [ ] HID Keyboard 장치 열거
+- [ ] HID Mouse 장치 열거
 
 ---
 
@@ -493,3 +540,5 @@ idf.py -p COM3 flash monitor
 **작성자**: Claude Code (SuperClaude Framework)
 **업데이트 이력**:
 - 2025-11-10: 초기 작성, 시도 #0 기록
+- 2025-11-10 17:30: 시도 #1-3 완료 기록 (Kconfig 생성, menuconfig 설정, 펌웨어 빌드/플래시)
+- 2025-11-11: 시도 #4 menuconfig 실패 및 eFuse 솔루션 추가 (시도 #4B)

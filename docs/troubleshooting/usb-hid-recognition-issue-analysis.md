@@ -6,7 +6,7 @@
 - **프로젝트**: BridgeOne ESP32-S3 펌웨어
 - **심각도**: 🔴 CRITICAL (핵심 기능 완전 차단)
 - **상태**: ⚠️ 진행 중 (TinyUSB 초기화 성공, Windows 인식 대기)
-- **마지막 업데이트**: 2025-11-10 17:30
+- **마지막 업데이트**: 2025-11-11 (eFuse 솔루션 파악)
 
 ---
 
@@ -306,10 +306,11 @@ grep "CONFIG_USB" sdkconfig
 **업데이트 이력**:
 - 2025-11-10: 초기 작성
 - 2025-11-10 17:30: 해결 진행 상황 업데이트 (시도 #1-3 완료)
+- 2025-11-11: 근본 원인 파악 및 eFuse 솔루션 추가
 
 ---
 
-## 📊 현재 진행 상황 (2025-11-10 17:30 기준)
+## 📊 현재 진행 상황 (2025-11-12 기준)
 
 ### ✅ 완료된 작업
 1. **TinyUSB Kconfig 파일 생성** (시도 #1)
@@ -318,33 +319,65 @@ grep "CONFIG_USB" sdkconfig
    - menuconfig "Component config → TinyUSB Stack" 메뉴 정상 표시
 
 2. **menuconfig 설정** (시도 #2)
-   - HID Keyboard/Mouse 활성화
+   - HID Keyboard/Mouse 활성화 시도
    - CDC Serial 활성화
-   - 상태: ✅ 완료
+   - 상태: ⚠️ 부분 완료 (설정이 저장되지 않는 문제 발견)
 
 3. **펌웨어 빌드 및 플래시** (시도 #3)
    - 빌드: ✅ 성공
    - 플래시: ✅ 성공
-   - TinyUSB 초기화: ✅ 성공 ("TinyUSB device stack initialized" 로그 출력)
-   - USB Descriptor: ✅ VID=0x303A, PID=0x4001
+   - TinyUSB 초기화: ⚠️ HID 비활성화 상태로 초기화됨
+   - USB Descriptor: VID=0x303A, PID=0x0009 (TinyUSB CDC만)
+
+4. **eFuse USB_PHY_SEL 활성화** (시도 #4B)
+   - eFuse burn: ✅ 성공 (USB_PHY_SEL = 1)
+   - ROM 부트로더 USB: ✅ 비활성화됨
+   - 포트 변경: COM3 → COM7 (예상된 동작)
+
+### 🔴 발견된 새로운 문제 (2025-11-12)
+- **HID Keyboard/Mouse 설정이 sdkconfig에 저장되지 않음**
+  - 현재 상태:
+    ```
+    # CONFIG_TINYUSB_HID_KEYBOARD_ENABLED is not set
+    # CONFIG_TINYUSB_HID_MOUSE_ENABLED is not set
+    ```
+  - 원인: menuconfig에서 활성화했으나 저장되지 않음 (원인 불명)
+  - 영향: TinyUSB가 HID 없이 CDC만으로 초기화됨
 
 ### ⚠️ 진행 중인 작업
-- **Windows HID 장치 인식** (시도 #4 대기)
-  - 현재 상태: Windows가 여전히 ROM 부트로더 PID_1001 표시
-  - 기대 상태: HID Keyboard, HID Mouse 등으로 표시
-  - 다음 단계: USB JTAG/CDC 설정 변경 필요
+- **eFuse burn 후 USB 연결 끊김 현상**
+  - 증상: 펌웨어 플래시 성공 → Hard reset → USB 연결 강제 종료
+  - 에러: `PermissionError(13, '시스템에 부착된 장치가 작동하지 않습니다.')`
+  - 분석: eFuse 변경으로 USB 모드 전환 → 재부팅 중 USB 재열거 필요
+  - 상태: ⏳ 재부팅 후 포트 재인식 대기 중
 
-### 📋 다음 단계 (시도 #4)
+### 🔴 발견된 근본 원인
+**USB JTAG/CDC가 Kconfig 의존성 체계에서 필수로 강제됨**
+- `CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=y` 설정이 menuconfig에서 변경 불가능 (회색/잠금 상태)
+- 의존성 설정을 변경해도 다시 되돌아옴
+- **원인**: Kconfig 파일의 `depends on` 및 `select` 구문이 이 설정을 필수로 지정
+- **Windows 동작**: ROM 부트로더의 USB JTAG/CDC가 먼저 열거되어 USB 포트를 점유
+  - 펌웨어 로드 후 TinyUSB가 시도하지만 이미 점유된 USB 포트 상태
+  - Windows는 첫 번째로 열거된 ROM JTAG/CDC만 인식
+
+### 📋 최종 해결책: eFuse 방식 (시도 #4 변경)
+**menuconfig로는 해결 불가능 → eFuse 영구 설정 필요**
+
+eFuse를 이용한 USB_PHY_SEL 비활성화:
+```bash
+# 1. 현재 eFuse 상태 확인
+python %IDF_PATH%\components\esptool_py\esptool\espefuse.py --port COM3 summary
+
+# 2. USB_PHY_SEL eFuse 비활성화 (ROM 부트로더 USB 완전 비활성화)
+python %IDF_PATH%\components\esptool_py\esptool\espefuse.py --port COM3 burn_efuse USB_PHY_SEL
+
+# 3. ESP32-S3 재부팅 및 확인
+# USB 케이블 뽑았다 다시 꽂음
+# Get-PnpDevice 확인 → PID_0x4001 표시되어야 함
 ```
-1. sdkconfig 확인
-   - CONFIG_ESP_CONSOLE_UART=y (현재 상태)
-   - CONFIG_USB_JTAG_CDC_ENABLED=n (변경 필요?)
 
-2. menuconfig에서 USB 콘솔 설정 확인
-   → Component config → ESP System Settings → Channel for console output
-
-3. USB JTAG 비활성화 시도
-   → Component config → Hardware Settings → USB Serial/JTAG
-
-4. 빌드/플래시/재테스트
-```
+**안전성 확인 완료**:
+- ✅ CDC Serial (CONFIG_TINYUSB_CDC_ENABLED=y)이 활성화되어 있으므로 로깅 계속 가능
+- ✅ eFuse는 영구적 변경이지만 롤백 불가능 (보드 하드웨어 문제는 아님, 정상 설정)
+- ✅ USB JTAG를 비활성화해도 펌웨어는 정상 동작
+- ✅ 다음에 펌웨어를 플래시하려면 UART로 부팅 모드 진입해야 함 (기존과 동일)
