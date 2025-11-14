@@ -65,7 +65,10 @@ void usb_task(void* param) {
  */
 void app_main(void) {
     ESP_LOGI(TAG, "BridgeOne Board - USB Composite Device Initialization");
-    
+
+    // ==================== DEBUG: 부트 단계별 로그 ====================
+    ESP_LOGI(TAG, "[BOOT STAGE 1] app_main() started");
+
     // ==================== 1. TinyUSB 디바이스 스택 초기화 ====================
     // tusb_init(): TinyUSB 전체 초기화 (RHPORT 0 자동 설정)
     // 이 함수가 호출되면:
@@ -74,35 +77,38 @@ void app_main(void) {
     // - HID Report Descriptor 콜백: tud_hid_descriptor_report_cb()
     // - String Descriptor 콜백: tud_descriptor_string_cb()
     // 등이 호스트의 디바이스 열거 요청에 응답
+    ESP_LOGI(TAG, "[BOOT STAGE 2] Calling tusb_init()");
     esp_err_t ret = tusb_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "TinyUSB initialization failed: %s", esp_err_to_name(ret));
         return;
     }
-    ESP_LOGI(TAG, "TinyUSB device stack initialized");
-    
+    ESP_LOGI(TAG, "[BOOT STAGE 3] TinyUSB device stack initialized");
+
     // ==================== 1.5. UART 통신 초기화 ====================
     // Android와의 UART 통신을 위해 UART 드라이버 초기화
     // - UART_NUM_0: 내장 USB-to-UART 브릿지 (GPIO43/GPIO44)
     // - 1Mbps, 8N1: 고속 시리얼 통신
+    ESP_LOGI(TAG, "[BOOT STAGE 4] Calling uart_init()");
     ret = uart_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "UART initialization failed: %s", esp_err_to_name(ret));
         return;
     }
-    ESP_LOGI(TAG, "UART initialized (1Mbps, 8N1)");
+    ESP_LOGI(TAG, "[BOOT STAGE 5] UART initialized (1Mbps, 8N1)");
     
     // ==================== 1.6. FreeRTOS 큐 생성 ====================
     // UART 수신 태스크가 검증된 프레임을 이 큐에 전송합니다.
     // - 큐 크기: UART_FRAME_QUEUE_SIZE (최대 10개 프레임 보관)
     // - 각 아이템 크기: sizeof(bridge_frame_t) = 8 바이트
+    ESP_LOGI(TAG, "[BOOT STAGE 6] Creating FreeRTOS queue");
     #define UART_FRAME_QUEUE_SIZE 10
     frame_queue = xQueueCreate(UART_FRAME_QUEUE_SIZE, sizeof(bridge_frame_t));
     if (frame_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create frame queue");
         return;
     }
-    ESP_LOGI(TAG, "Frame queue created (size=%d, item_size=%u bytes)",
+    ESP_LOGI(TAG, "[BOOT STAGE 7] Frame queue created (size=%d, item_size=%u bytes)",
              UART_FRAME_QUEUE_SIZE, sizeof(bridge_frame_t));
     
     // ==================== 2. 시스템 정보 로깅 ====================
@@ -117,11 +123,14 @@ void app_main(void) {
     TaskHandle_t uart_task_handle = NULL;
     TaskHandle_t hid_task_handle = NULL;
     TaskHandle_t usb_task_handle = NULL;
-    
+
+    ESP_LOGI(TAG, "[BOOT STAGE 8] Creating FreeRTOS tasks");
+
     // UART 수신 태스크: Android로부터 마우스/키보드 입력 수신
     // - 우선순위 6: USB 태스크(5)보다 높음 (실시간 통신 우선)
     // - Core 0에서 실행: 통신 처리 전담
     // - 스택 크기 3072 bytes: UART 수신 처리에 충분
+    ESP_LOGI(TAG, "[BOOT STAGE 8.1] Creating UART task");
     BaseType_t uart_task_created = xTaskCreatePinnedToCore(
         uart_task,          // 태스크 함수
         "UART",             // 태스크 이름
@@ -131,13 +140,14 @@ void app_main(void) {
         &uart_task_handle,  // 태스크 핸들 저장
         0                   // Core 0에서 실행
     );
-    
+
     if (uart_task_created != pdPASS) {
         ESP_LOGE(TAG, "Failed to create UART task");
         return;
     }
-    ESP_LOGI(TAG, "UART task created (Core 0, Priority 6)");
-    
+    ESP_LOGI(TAG, "[BOOT STAGE 8.2] UART task created (Core 0, Priority 6)");
+
+#if 0  // HID 비활성화 (디버깅용)
     // HID 태스크: UART 큐에서 프레임 수신하여 HID 리포트로 변환 및 전송
     // - 우선순위 5: UART 태스크(6)보다는 낮고, USB 태스크(4)보다는 높음 (데이터 흐름 순서)
     // - Core 0에서 실행: UART와 함께 Core 0에서 집중 처리
@@ -151,17 +161,19 @@ void app_main(void) {
         &hid_task_handle,   // 태스크 핸들 저장
         0                   // Core 0에서 실행
     );
-    
+
     if (hid_task_created != pdPASS) {
         ESP_LOGE(TAG, "Failed to create HID task");
         return;
     }
     ESP_LOGI(TAG, "HID task created (Core 0, Priority 5)");
+#endif  // HID 비활성화
 
     // USB 태스크: TinyUSB 스택 폴링 담당
     // - 우선순위 4: 낮은 우선순위 (데이터 처리 후 최종 전송)
     // - Core 1에서 실행: 멀티코어 활용
     // - 스택 크기 4096 bytes: TinyUSB 콜백 처리에 충분
+    ESP_LOGI(TAG, "[BOOT STAGE 9] Creating USB task");
     BaseType_t usb_task_created = xTaskCreatePinnedToCore(
         usb_task,           // 태스크 함수
         "USB",              // 태스크 이름
@@ -171,15 +183,15 @@ void app_main(void) {
         &usb_task_handle,   // 태스크 핸들 저장
         1                   // Core 1에서 실행
     );
-    
+
     if (usb_task_created != pdPASS) {
         ESP_LOGE(TAG, "Failed to create USB task");
         return;
     }
-    ESP_LOGI(TAG, "USB task created (Core 1, Priority 4)");
-    
+    ESP_LOGI(TAG, "[BOOT STAGE 10] USB task created (Core 1, Priority 4)");
+
     // ==================== 4. 초기화 완료 ====================
-    ESP_LOGI(TAG, "BridgeOne USB Bridge Ready - Waiting for host connection...");
-    
+    ESP_LOGI(TAG, "[BOOT STAGE 11] *** BridgeOne USB Bridge Ready - Waiting for host connection ***");
+
     // 메인 태스크는 idle로 반환 (FreeRTOS 스케줄러가 USB 태스크 실행)
 }

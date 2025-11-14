@@ -730,6 +730,283 @@ Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table Frie
 
 ---
 
+### Phase 1.2.6: 새 보드 초기 설정 및 검증
+
+**목표**: 새로 구매한 ESP32-S3-DevKitC-1-N16R8 보드의 안전한 초기 설정 및 BridgeOne 펌웨어 적용
+
+**전제 조건**:
+- 새 보드 구매: ESP32-S3-DevKitC-1-N16R8 (16MB Flash, 8MB PSRAM)
+- Phase 1.2.1 ~ 1.2.5 완료 (개발환경 및 빌드 시스템 구축 완료)
+
+**세부 목표**:
+1. 새 보드 eFuse 상태 확인 (안전성 검증)
+2. CDC 버퍼 사이즈 증가 설정 (멀티 커서/매크로 대비)
+3. BridgeOne 펌웨어 플래시
+4. USB HID + CDC 복합 장치 인식 확인
+5. Android UART 연결 준비 확인
+6. Windows PC USB OTG 연결 확인
+
+---
+
+#### Step 1: eFuse 상태 확인 (안전성 검증)
+
+**중요**: 새 보드에 펌웨어를 플래시하기 **전에** 반드시 eFuse 상태를 확인해야 합니다.
+
+**목적**: 이전 보드처럼 eFuse 설정 충돌로 인한 복구 불가능한 상황 방지
+
+**실행**:
+```powershell
+# 1. ESP-IDF 환경 활성화
+C:\Espressif\frameworks\esp-idf-v5.5.1\export.ps1
+
+# 2. 보드를 PC에 USB 연결 (USB-to-UART 포트 사용)
+
+# 3. COM 포트 자동 감지
+$comPort = (Get-WmiObject Win32_SerialPort | Where-Object {$_.Description -match "USB"} | Select-Object -First 1).DeviceID
+Write-Host "감지된 COM 포트: $comPort"
+
+# 4. eFuse 상태 확인
+python %IDF_PATH%\components\esptool_py\esptool\espefuse.py --port $comPort summary
+```
+
+**검증 체크리스트**:
+- [ ] **DIS_USB_JTAG** = 0 (비활성화 상태여야 함)
+- [ ] **DIS_USB_SERIAL_JTAG** = 0 (비활성화 상태여야 함)
+- [ ] **DIS_USB_OTG** = 0 (비활성화 상태여야 함)
+- [ ] 위 3개 eFuse 비트가 모두 0이면 ✅ 안전한 상태
+
+**⚠️ 만약 eFuse가 비정상이면**:
+- DIS_USB_JTAG = 1 또는 DIS_USB_SERIAL_JTAG = 1이면 즉시 보드 반품/교환
+- 절대로 펌웨어를 플래시하지 마세요 (복구 불가능)
+
+**참조**: `docs/board/new-board-requirements.md` §3.1 eFuse 관련 교훈
+
+---
+
+#### Step 2: CDC 버퍼 사이즈 증가 설정
+
+**목적**: 멀티 커서 및 매크로 실행을 위한 대용량 CDC 데이터 전송 지원
+
+**현재 설정** (`sdkconfig.defaults`):
+```ini
+CONFIG_TINYUSB_CDC_RX_BUFSIZE=512
+CONFIG_TINYUSB_CDC_TX_BUFSIZE=512
+```
+
+**변경할 설정**:
+```ini
+CONFIG_TINYUSB_CDC_RX_BUFSIZE=2048
+CONFIG_TINYUSB_CDC_TX_BUFSIZE=2048
+```
+
+**실행**:
+```powershell
+# 프로젝트 디렉터리로 이동
+cd "F:\C\Programming\MobileDevelopment\Projects\Android\BridgeOne\src\board\BridgeOne"
+
+# sdkconfig.defaults 파일 편집 (PowerShell)
+(Get-Content sdkconfig.defaults) -replace 'CONFIG_TINYUSB_CDC_RX_BUFSIZE=512', 'CONFIG_TINYUSB_CDC_RX_BUFSIZE=2048' | Set-Content sdkconfig.defaults
+(Get-Content sdkconfig.defaults) -replace 'CONFIG_TINYUSB_CDC_TX_BUFSIZE=512', 'CONFIG_TINYUSB_CDC_TX_BUFSIZE=2048' | Set-Content sdkconfig.defaults
+
+# 설정 적용
+idf.py reconfigure
+```
+
+**검증**:
+- [ ] `sdkconfig.defaults`에 `CONFIG_TINYUSB_CDC_RX_BUFSIZE=2048` 존재
+- [ ] `sdkconfig.defaults`에 `CONFIG_TINYUSB_CDC_TX_BUFSIZE=2048` 존재
+- [ ] `sdkconfig` 파일에도 동일한 값 반영됨
+- [ ] `idf.py reconfigure` 실행 성공 (오류 없음)
+
+**이유**:
+- 512바이트: 기본 직렬 통신용 (충분하지 않음)
+- 2048바이트: 멀티 커서 좌표 배열, 매크로 명령어 시퀀스 전송에 적합
+- 향후 확장: 4096바이트까지 증가 가능 (PSRAM 8MB 사용 가능)
+
+---
+
+#### Step 3: BridgeOne 펌웨어 빌드 및 플래시
+
+**전제**: Step 1 eFuse 확인 완료, Step 2 CDC 버퍼 증가 완료
+
+**실행**:
+```powershell
+# 1. 클린 빌드
+idf.py fullclean
+idf.py build
+
+# 2. COM 포트 재확인 (보드 재연결 시 포트 번호 변경될 수 있음)
+$comPort = (Get-WmiObject Win32_SerialPort | Where-Object {$_.Description -match "USB"} | Select-Object -First 1).DeviceID
+Write-Host "감지된 COM 포트: $comPort"
+
+# 3. 펌웨어 플래시
+idf.py -p $comPort flash
+
+# 4. 시리얼 모니터 시작 (부팅 로그 확인)
+idf.py -p $comPort monitor
+```
+
+**검증**:
+- [ ] 빌드 성공 ("BUILD SUCCESSFUL" 메시지)
+- [ ] 플래시 성공 ("Hash of data verified" 메시지)
+- [ ] 시리얼 로그에 "BridgeOne Board - Environment Setup Complete" 출력
+- [ ] 시리얼 로그에 "ESP32-S3-N16R8: 16MB Flash, 8MB PSRAM" 출력
+- [ ] PSRAM 초기화 로그 확인 ("PSRAM initialized, size: 8MB")
+
+---
+
+#### Step 4: USB HID + CDC 복합 장치 인식 확인
+
+**목적**: Windows Device Manager에서 USB HID (Keyboard + Mouse) 및 CDC (COM 포트) 모두 인식되는지 확인
+
+**실행**:
+```powershell
+# Windows Device Manager에서 USB 디바이스 확인
+Get-PnpDevice | Where-Object {$_.DeviceID -match "VID_303A"} | Format-Table FriendlyName, Status, DeviceID -AutoSize
+```
+
+**검증 체크리스트**:
+- [ ] **USB Input Device** (HID Keyboard) 1개 인식
+- [ ] **USB Input Device** (HID Mouse) 1개 인식
+- [ ] **USB Serial Device (COMx)** 또는 **USB-to-UART Bridge** 1개 인식
+- [ ] 모든 디바이스 Status = "OK" (노란색 느낌표 없음)
+- [ ] 총 3개 USB 디바이스 정상 인식
+
+**⚠️ 만약 디바이스가 인식되지 않으면**:
+1. USB 케이블 재연결
+2. 보드 리셋 버튼 누름
+3. Windows Update 실행 (드라이버 최신화)
+4. Phase 1.2.5 트러블슈팅 섹션 참조
+
+---
+
+#### Step 5: Android UART 연결 준비 확인
+
+**목적**: Android 연결용 UART 핀 (GPIO43 TX, GPIO44 RX)이 정상 작동하는지 확인
+
+**전제 조건**:
+- USB-to-UART 어댑터 필요 (테스트용)
+- 또는 Android USB-to-Serial 케이블
+
+**연결 방법**:
+```
+ESP32-S3 GPIO43 (TX) → UART 어댑터 RX
+ESP32-S3 GPIO44 (RX) → UART 어댑터 TX
+ESP32-S3 GND        → UART 어댑터 GND
+```
+
+**테스트 코드** (임시, Phase 2에서 정식 구현):
+```c
+// main/BridgeOne.c에 임시 추가
+#include "driver/uart.h"
+
+void test_uart_tx(void) {
+    uart_config_t uart_config = {
+        .baud_rate = 1000000,  // 1Mbps
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    };
+    uart_param_config(UART_NUM_0, &uart_config);
+    uart_set_pin(UART_NUM_0, 43, 44, -1, -1);  // TX=43, RX=44
+    uart_driver_install(UART_NUM_0, 1024, 0, 0, NULL, 0);
+
+    const char* test_msg = "BridgeOne UART Test\n";
+    uart_write_bytes(UART_NUM_0, test_msg, strlen(test_msg));
+    printf("UART TX Test: Sent test message\n");
+}
+
+void app_main(void) {
+    test_uart_tx();  // UART 송신 테스트
+    // ... 기존 코드
+}
+```
+
+**검증**:
+- [ ] UART 어댑터로 "BridgeOne UART Test" 메시지 수신됨
+- [ ] 1Mbps 속도로 정상 통신 확인
+- [ ] GPIO43/44 핀이 올바르게 작동함
+
+**참조**: Phase 2.1 (Android ↔ ESP32-S3 UART 통신 구현)
+
+---
+
+#### Step 6: Windows PC USB OTG 연결 확인
+
+**목적**: USB OTG 포트를 통해 Windows PC와 HID + CDC 복합 장치로 연결되는지 최종 확인
+
+**연결 방법**:
+```
+ESP32-S3 USB OTG 포트 (USB 라벨) → Windows PC USB 포트
+```
+
+**검증**:
+- [ ] Windows Device Manager에서 USB 디바이스 3개 모두 인식됨
+- [ ] HID Keyboard 장치가 "Human Interface Devices" 섹션에 표시됨
+- [ ] HID Mouse 장치가 "Human Interface Devices" 섹션에 표시됨
+- [ ] CDC 장치가 "Ports (COM & LPT)" 섹션에 COM 포트로 표시됨
+- [ ] 모든 디바이스 드라이버 오류 없음
+
+**USB 포트 배치 확인**:
+- [ ] Android UART 연결용: USB-to-UART 포트 (UART 라벨)
+- [ ] Windows PC 연결용: USB OTG 포트 (USB 라벨)
+- [ ] 두 포트에 동시 연결 시 케이블 간섭 최소화 (L자형 케이블 권장)
+
+---
+
+#### Step 7: 최종 검증 및 완료
+
+**종합 체크리스트**:
+- [ ] ✅ eFuse 상태 정상 (DIS_USB_JTAG=0, DIS_USB_SERIAL_JTAG=0)
+- [ ] ✅ CDC 버퍼 2048바이트로 증가 완료
+- [ ] ✅ 펌웨어 빌드 및 플래시 성공
+- [ ] ✅ USB HID (Keyboard + Mouse) 인식됨
+- [ ] ✅ USB CDC (COM 포트) 인식됨
+- [ ] ✅ UART 핀 (GPIO43/44) 정상 작동
+- [ ] ✅ Windows PC USB OTG 연결 정상
+
+**완료 기준**:
+- 모든 항목이 ✅ 체크되면 새 보드가 BridgeOne 프로젝트에 사용 가능한 상태
+- Phase 2 (Communication Stabilization)로 진행 가능
+
+**참조 문서**:
+- `docs/board/new-board-requirements.md` §5 체크리스트
+- `docs/troubleshooting/usb-hid-recognition-issue-analysis.md` (이전 보드 문제 분석)
+- `docs/troubleshooting/usb-hid-recognition-issue-solutions.md` (문제 해결 방법)
+
+**백업 계획**:
+- 이전 보드 (손상된 eFuse)는 폐기하거나 Android UART 연결 전용으로 활용 가능
+- 새 보드는 Windows PC USB OTG 연결 전용으로 사용
+
+---
+
+### ✅ Phase 1.2 완료 요약
+
+**목표 달성**: ESP32-S3 개발환경 완전 구축 ✅
+
+**완료 항목**:
+- ✅ Phase 1.2.1: ESP-IDF 설치 검증 및 프로젝트 생성 준비
+- ✅ Phase 1.2.2: ESP32-S3 프로젝트 생성 및 타겟 설정
+- ✅ Phase 1.2.3: sdkconfig 기본 설정 및 TinyUSB 활성화
+- ✅ Phase 1.2.4: sdkconfig TinyUSB HID 설정 검증
+- ✅ Phase 1.2.5: 빌드 환경 검증 및 하드웨어 통합 테스트
+- ✅ Phase 1.2.6: 새 보드 초기 설정 및 검증 (CDC 버퍼 증가 포함)
+
+**구성된 개발환경**:
+- ESP-IDF v5.5.1 완전 설치
+- CMake, Ninja, Python, esptool 도구 체인
+- TinyUSB Composite Device 설정 (HID Keyboard + Mouse + CDC)
+- CDC 버퍼 2048바이트로 증가 (멀티 커서/매크로 지원)
+- 16MB Flash, 8MB PSRAM 활성화
+- 펌웨어 빌드 및 플래시 환경 준비
+- Windows Device Manager에서 USB 디바이스 인식 확인
+- 새 보드 eFuse 안전성 검증 완료
+
+**다음 단계**: Phase 1.3 (Windows 서버 개발환경 구축)
+
+---
+
 ## Phase 1.3: Windows 서버 개발환경 구축
 
 ### Phase 1.3.1: Visual Studio 설치 및 WPF 프로젝트 생성 검증

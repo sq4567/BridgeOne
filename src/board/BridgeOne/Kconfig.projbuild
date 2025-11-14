@@ -1,0 +1,39 @@
+# BridgeOne Project Build Configuration
+# This file FORCES USB Serial JTAG to be disabled
+# because we use USB_PHY_SEL=1 (internal PHY assigned to USB_OTG for TinyUSB)
+# without this, the ROM bootloader crashes when trying to initialize USB Serial JTAG
+
+config BRIDGEONE_FORCE_DISABLE_USB_SERIAL_JTAG
+    bool
+    default y
+    help
+        BridgeOne requires USB_PHY_SEL=1 in eFuse, which dedicates the internal PHY
+        to USB_OTG (for TinyUSB HID/CDC). USB Serial JTAG must be completely disabled
+        at the ESP-IDF level to prevent ROM bootloader from attempting initialization.
+
+        This config ensures the following are always disabled:
+        - USJ_ENABLE_USB_SERIAL_JTAG
+        - ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
+        - ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
+
+# Override USB Serial JTAG Enable
+config USJ_ENABLE_USB_SERIAL_JTAG
+    bool "Enable USB Serial/JTAG Controller"
+    default n if BRIDGEONE_FORCE_DISABLE_USB_SERIAL_JTAG
+    help
+        BridgeOne: Always disabled due to USB_PHY_SEL=1 eFuse configuration.
+        The internal PHY is dedicated to USB_OTG for TinyUSB HID/CDC devices.
+
+# Override Console Secondary USB Serial JTAG
+config ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
+    bool "Secondary console output on USB Serial/JTAG Controller"
+    default n if BRIDGEONE_FORCE_DISABLE_USB_SERIAL_JTAG
+    help
+        BridgeOne: Always disabled due to USB_PHY_SEL=1 eFuse configuration.
+
+# Override Console USB Serial JTAG Enable
+config ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
+    bool "USB Serial/JTAG is used as console output"
+    default n if BRIDGEONE_FORCE_DISABLE_USB_SERIAL_JTAG
+    help
+        BridgeOne: Always disabled due to USB_PHY_SEL=1 eFuse configuration.

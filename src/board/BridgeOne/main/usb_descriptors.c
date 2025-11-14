@@ -62,51 +62,53 @@ uint8_t const* tud_descriptor_device_cb(void) {
 // ==================== 2. HID Report Descriptors ====================
 /**
  * HID Boot Keyboard Report Descriptor (8바이트 고정)
- * 
+ *
  * 구조:
  * - [0] Modifier keys (Ctrl, Shift, Alt, GUI) - 1 byte
  * - [1] Reserved (0x00) - 1 byte
  * - [2-7] Key codes (6-key rollover) - 6 bytes
- * 
+ *
  * TUD_HID_REPORT_DESC_KEYBOARD 매크로: Boot Protocol 표준 준수
  */
+#if 0  // HID 비활성화 (디버깅용)
 uint8_t const desc_hid_keyboard_report[] = {
     TUD_HID_REPORT_DESC_KEYBOARD()
 };
 
 /**
  * HID Boot Mouse Report Descriptor (4바이트 고정)
- * 
+ *
  * 구조:
  * - [0] Buttons (Left, Right, Middle) - 1 byte
  * - [1] Delta X (-127~127) - 1 byte signed
  * - [2] Delta Y (-127~127) - 1 byte signed
  * - [3] Wheel (-127~127) - 1 byte signed
- * 
+ *
  * TUD_HID_REPORT_DESC_MOUSE 매크로: Boot Protocol 표준 준수
  */
 uint8_t const desc_hid_mouse_report[] = {
     TUD_HID_REPORT_DESC_MOUSE()
 };
+#endif  // HID 비활성화
 
 /**
- * HID Report Descriptor 콜백 함수
- * 
+ * HID Report Descriptor 콜백 함수 (주석 처리 - 디버깅용)
+ *
  * 호스트가 HID Report Descriptor를 요청할 때 호출
- * 
+ *
  * 매개변수:
  * - instance: Configuration Descriptor에 정의된 HID 인터페이스 번호
- * 
+ *
  * 반환값: 해당 인터페이스의 HID Report Descriptor 배열 포인터
  */
-uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance) {
+/*uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance) {
     if (instance == ITF_NUM_HID_KEYBOARD) {
         return desc_hid_keyboard_report;
     } else if (instance == ITF_NUM_HID_MOUSE) {
         return desc_hid_mouse_report;
     }
     return NULL;
-}
+}*/
 
 // ==================== 3. Configuration Descriptor ====================
 /**
@@ -122,19 +124,19 @@ uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance) {
  */
 uint8_t const desc_configuration[] = {
     // ========== Configuration Descriptor ==========
-    // 총 4개 인터페이스, 500mA 전력 소모 요청
+    // CDC만 활성화 (디버깅용)
     TUD_CONFIG_DESCRIPTOR(
         1,                              // bConfigurationValue
-        ITF_NUM_TOTAL,                  // bNumInterfaces (4개)
+        2,                              // bNumInterfaces (CDC만: 2개)
         0,                              // iConfiguration (String ID, 0=없음)
-        CONFIG_TOTAL_LEN,               // wTotalLength (전체 크기)
+        TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN, // wTotalLength (Config + CDC)
         TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, // bmAttributes (Remote Wakeup 지원)
         500                             // bMaxPower (500mA = 250 units × 2mA)
     ),
-    
-    // ========== Interface 0: HID Boot Keyboard ==========
+
+    // ========== Interface 0: HID Boot Keyboard ========== (주석 처리)
     // HID Descriptor 매크로: (Interface#, String ID, Protocol, ReportDesc Size, Endpoint, MaxPacketSize, PollInterval)
-    TUD_HID_DESCRIPTOR(
+    /*TUD_HID_DESCRIPTOR(
         ITF_NUM_HID_KEYBOARD,           // bInterfaceNumber
         0,                              // iInterface (String ID, 0=없음)
         HID_ITF_PROTOCOL_KEYBOARD,      // bInterfaceProtocol (Boot Keyboard)
@@ -142,10 +144,10 @@ uint8_t const desc_configuration[] = {
         EPNUM_HID_KB,                   // bEndpointAddress (IN Endpoint)
         CFG_TUD_HID_EP_BUFSIZE,         // wMaxPacketSize (64 bytes)
         1                               // bInterval (1ms 폴링)
-    ),
-    
-    // ========== Interface 1: HID Boot Mouse ==========
-    TUD_HID_DESCRIPTOR(
+    ),*/
+
+    // ========== Interface 1: HID Boot Mouse ========== (주석 처리)
+    /*TUD_HID_DESCRIPTOR(
         ITF_NUM_HID_MOUSE,              // bInterfaceNumber
         0,                              // iInterface (String ID, 0=없음)
         HID_ITF_PROTOCOL_MOUSE,         // bInterfaceProtocol (Boot Mouse)
@@ -153,12 +155,12 @@ uint8_t const desc_configuration[] = {
         EPNUM_HID_MOUSE,                // bEndpointAddress (IN Endpoint)
         CFG_TUD_HID_EP_BUFSIZE,         // wMaxPacketSize (64 bytes)
         1                               // bInterval (1ms 폴링)
-    ),
-    
-    // ========== Interface 2/3: CDC-ACM (Communication + Data) ==========
+    ),*/
+
+    // ========== Interface 0/1: CDC-ACM (Communication + Data) ==========
     // CDC Descriptor 매크로: (Comm Interface#, String ID, NotifEP, MaxPacketSize, DataOUT EP, DataIN EP, MaxPacketSize)
     TUD_CDC_DESCRIPTOR(
-        ITF_NUM_CDC_COMM,               // bInterfaceNumber (Comm Interface)
+        0,                              // bInterfaceNumber (Comm Interface, 0으로 변경)
         4,                              // iInterface (String ID: "BridgeOne CDC")
         EPNUM_CDC_NOTIF,                // bEndpointAddress (Notification IN)
         8,                              // bMaxPacketSize (Notification EP는 작음)

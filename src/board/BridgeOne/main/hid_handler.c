@@ -61,8 +61,9 @@ hid_mouse_report_t g_last_mouse_report = {0};
  */
 uint8_t g_hid_keyboard_led_status = 0;
 
-// ==================== TinyUSB HID 콜백 함수 ====================
+// ==================== TinyUSB HID 콜백 함수 ==================== (주석 처리 - 디버깅용)
 
+#if 0  // HID 비활성화 (CDC 전용 디버깅)
 /**
  * @brief HID Get Report 콜백 - 호스트가 현재 리포트 상태를 요청할 때 호출
  * 
@@ -93,29 +94,30 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
     }
 
     // Instance 구분: Keyboard (0) 및 Mouse (1)
-    if (instance == ITF_NUM_HID_KEYBOARD && report_id == 1) {
+    // Boot Protocol에서는 Report ID가 0임
+    if (instance == ITF_NUM_HID_KEYBOARD) {
         // Keyboard Instance - Boot Protocol 리포트 (8바이트)
-        uint16_t len = (reqlen < sizeof(g_last_kb_report)) 
-                       ? reqlen 
+        uint16_t len = (reqlen < sizeof(g_last_kb_report))
+                       ? reqlen
                        : sizeof(g_last_kb_report);
         memcpy(buffer, &g_last_kb_report, len);
-        
+
         ESP_LOGD(TAG, "GET_REPORT Keyboard: modifier=0x%02x, keycode[0]=0x%02x",
                  g_last_kb_report.modifier, g_last_kb_report.keycode[0]);
-        
+
         return len;
-    } 
-    else if (instance == ITF_NUM_HID_MOUSE && report_id == 2) {
+    }
+    else if (instance == ITF_NUM_HID_MOUSE) {
         // Mouse Instance - Boot Protocol 리포트 (4바이트)
-        uint16_t len = (reqlen < sizeof(g_last_mouse_report)) 
-                       ? reqlen 
+        uint16_t len = (reqlen < sizeof(g_last_mouse_report))
+                       ? reqlen
                        : sizeof(g_last_mouse_report);
         memcpy(buffer, &g_last_mouse_report, len);
-        
+
         ESP_LOGD(TAG, "GET_REPORT Mouse: buttons=0x%02x, x=%d, y=%d",
-                 g_last_mouse_report.buttons, g_last_mouse_report.x, 
+                 g_last_mouse_report.buttons, g_last_mouse_report.x,
                  g_last_mouse_report.y);
-        
+
         return len;
     }
 
@@ -171,9 +173,11 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
         }
     }
 }
+#endif  // HID 비활성화
 
-// ==================== HID 헬퍼 함수 ====================
+// ==================== HID 헬퍼 함수 ==================== (주석 처리 - 디버깅용)
 
+#if 0  // HID 비활성화 (CDC 전용 디버깅)
 // ==================== HID 리포트 전송 함수 ====================
 
 /**
@@ -206,10 +210,10 @@ bool sendKeyboardReport(const hid_keyboard_report_t* report) {
     
     // 2. 상태 저장 (GET_REPORT 콜백용)
     memcpy(&g_last_kb_report, report, sizeof(hid_keyboard_report_t));
-    
+
     // 3. 리포트 전송
-    // Report ID 1: Boot Protocol Keyboard
-    if (!tud_hid_n_report(instance, 1, report, sizeof(hid_keyboard_report_t))) {
+    // Report ID 0: Boot Protocol (No Report ID)
+    if (!tud_hid_n_report(instance, 0, report, sizeof(hid_keyboard_report_t))) {
         ESP_LOGE(TAG, "Failed to send keyboard report");
         return false;
     }
@@ -249,10 +253,10 @@ bool sendMouseReport(const hid_mouse_report_t* report) {
     
     // 2. 상태 저장 (GET_REPORT 콜백용)
     memcpy(&g_last_mouse_report, report, sizeof(hid_mouse_report_t));
-    
+
     // 3. 리포트 전송
-    // Report ID 2: Boot Protocol Mouse
-    if (!tud_hid_n_report(instance, 2, report, sizeof(hid_mouse_report_t))) {
+    // Report ID 0: Boot Protocol (No Report ID)
+    if (!tud_hid_n_report(instance, 0, report, sizeof(hid_mouse_report_t))) {
         ESP_LOGE(TAG, "Failed to send mouse report");
         return false;
     }
@@ -414,6 +418,7 @@ void hid_task(void* param) {
         }
     }
 }
+#endif  // HID 비활성화
 
 /**
  * @brief 현재 키보드 LED 상태 조회
