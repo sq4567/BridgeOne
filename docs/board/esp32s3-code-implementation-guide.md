@@ -1,21 +1,23 @@
 ---
-title: "ESP32-S3-DevkitC-1 ESP-IDF 구현 가이드"
+title: "ESP32-S3 ESP-IDF 구현 가이드"
 description: "ESP-IDF 프레임워크 기반 ESP32-S3 USB 브릿지 역할 구현을 위한 설계 요구사항과 아키텍처 명세"
 tags: ["esp32-s3", "esp-idf", "tinyusb", "firmware", "design", "specification", "architecture", "reference-implementation"]
-version: "v1.0"
+version: "v1.1"
 owner: "Chatterbones"
-updated: "2025-10-21"
+updated: "2025-11-19"
 framework: "ESP-IDF (idf.py)"
-board: "ESP32-S3-DevkitC-1-N16R8"
+board: "ESP32-S3 N16R8 (DevkitC-1 / YD-ESP32-S3 호환)"
 ---
 
-# ESP32-S3-DevkitC-1 ESP-IDF 구현 가이드
+# ESP32-S3 ESP-IDF 구현 가이드
 
 > **문서 목적**: BridgeOne 시스템에서 ESP32-S3가 수행해야 할 USB 브릿지 역할을 ESP-IDF 프레임워크 기반으로 구현하기 위한 설계 요구사항과 아키텍처 원칙을 정의합니다.
 >
+> **지원 보드**: ESP32-S3-DevkitC-1-N16R8, YD-ESP32-S3 N16R8 (YD-ESP32-23)
 > **시스템 아키텍처 참조**: [`technical-specification.md` §2 시스템 아키텍처] 필수 선행 이해 필요
 > **Android 앱 연동**: [`technical-specification-app.md` §1 USB 통신] 참조
 > **Windows 서버 연동**: [`technical-specification-server.md` §2 기술 스택] 참조
+> **보드 마이그레이션**: [`YD-ESP32-S3-migration-guide.md`] YD-ESP32-S3 사용 시 참조
 
 ## 1. 시스템 개요
 
@@ -34,17 +36,63 @@ Android 앱 ↔ [UART 1Mbps] ↔ ESP32-S3 ↔ [USB HID/CDC] ↔ PC (Windows)
 
 ### 1.2 하드웨어 사양
 
-**ESP32-S3-DevkitC-1-N16R8 스펙**:
+**ESP32-S3 N16R8 공통 스펙**:
 - **MCU**: Dual-core Xtensa LX7 (240MHz max)
-- **메모리**: 512KB SRAM, 384KB ROM, 16MB Flash (N16), 8MB PSRAM (R8)
-- **USB**: Native USB-OTG 지원 (Device 모드) + 내장 USB-to-UART
-- **GPIO**: 45개 GPIO 핀 (6개 SPI, 3개 UART, 2개 I2C)
+- **메모리**: 512KB SRAM, 384KB ROM, 16MB Flash (N16), 8MB Octal SPI PSRAM (R8)
+- **USB**: Native USB-OTG 지원 (Device 모드, GPIO19/20)
+- **GPIO**: 45개 프로그래머블 GPIO 핀
 - **전력**: 3.3V 동작, 저전력 모드 지원
 
+**보드별 구성**:
+
+#### ESP32-S3-DevkitC-1-N16R8 (Espressif 공식)
+- **USB-UART 칩**: CP2102N
+- **Android 통신**: UART0 (GPIO43/44, CP2102N 연결)
+- **USB-OTG**: Native USB (GPIO19/20)
+- **전원**: USB 5V
+
+#### YD-ESP32-S3 N16R8 (YD-ESP32-23, VCC-GND Studio)
+- **USB-UART 칩**: CH343P
+- **Android 통신**: UART0 (GPIO43/44, CH343P 연결) ⭐
+- **USB-OTG**: Native USB (GPIO19/20)
+- **전원**: USB 5V (일부 보드 5V 핀 이슈 보고됨)
+
+**물리적 포트 위치** (YD-ESP32-S3):
+```
+┌─────────────────────┐
+│                     │
+│  [USB-OTG 포트]     │ ← 좌측 상단 (실크스크린: "USB-OTG")
+│  • PC HID 연결      │    → PC와 연결 (마우스/키보드 장치)
+│  • Native USB       │    → USB HID 통신용
+│                     │
+│  [COM 포트]         │ ← 우측 하단 (실크스크린: "COM")
+│  • Android 연결     │    → Android 앱과 연결 (UART 통신)
+│  • CH343P 브릿지    │    → 1Mbps UART0 통신용
+│                     │    → 개발/플래싱용 (idf.py flash)
+└─────────────────────┘
+```
+
 **연결 구성**:
-- **USB-to-UART 포트**: Android 스마트폰 연결 (내장 USB Serial 브릿지)
-- **USB-OTG 포트**: PC 직접 연결 (복합 장치: HID + CDC)
-- **전원**: USB 5V (두 포트 중 하나에서 공급)
+
+1. **개발/플래싱 단계**:
+   - PC (개발) → **COM 포트** (우측 하단)
+   - 용도: `idf.py flash monitor`
+   - 포트 인식: Windows COM3/COM4 등
+
+2. **Android 앱 테스트 단계**:
+   - Android 스마트폰 → **COM 포트** (우측 하단, UART0 통신)
+   - PC (HID 테스트) → **USB-OTG 포트** (좌측 상단, Native USB)
+   - 두 케이블 **동시 연결** 필요
+
+3. **최종 사용 시**:
+   - Android → **COM 포트** (UART 통신)
+   - PC → **USB-OTG 포트** (HID 입력 수신)
+
+**⚠️ 중요**:
+- DevkitC-1과 USB 포트 위치가 반대입니다!
+- Android는 항상 **COM 포트**에 연결
+- PC 사용 시 **USB-OTG 포트**에 연결
+- 점퍼 케이블 불필요 (USB만 연결하면 동작)
 
 ### 1.3 USB Composite 디바이스 설계 계약 (Protocol Contract)
 
@@ -297,6 +345,15 @@ bool parseVendorCDCFrameByte(uint8_t byte, VendorCDCFrame** outFrame) {
 - **속도**: 1,000,000 bps (1Mbps)
 - **데이터 형식**: 8N1 (8비트 데이터, 패리티 없음, 1스톱비트)
 - **플로우 제어**: 하드웨어 플로우 제어 권장
+
+**보드별 UART 구성**:
+
+| 보드 | UART 번호 | TX 핀 | RX 핀 | 비고 |
+|------|----------|-------|-------|------|
+| ESP32-S3-DevkitC-1 | UART0 | GPIO43 | GPIO44 | CP2102N 연결 |
+| YD-ESP32-S3 N16R8 | UART1 | GPIO17 | GPIO18 | Android 통신 전용 ⭐ |
+
+⚠️ **YD-ESP32-S3 주의사항**: UART0 (GPIO43/44)는 CH343P USB-UART 브릿지가 점유하므로, Android 통신에는 UART1 (GPIO17/18)을 사용해야 합니다.
 
 **BridgeOne 프레임 구조 (8바이트)**:
 ```c
@@ -707,6 +764,9 @@ void app_main(void) {
     ESP_LOGI(TAG, "TinyUSB device stack initialized");
     
     // 2. UART 초기화 (Android 통신)
+    // 보드별 UART 구성:
+    // - ESP32-S3-DevkitC-1: UART0 (GPIO43/44, CP2102N 연결)
+    // - YD-ESP32-S3 N16R8: UART1 (GPIO17/18, Android 통신 전용)
     uart_config_t uart_config = {
         .baud_rate = 1000000,  // 1Mbps
         .data_bits = UART_DATA_8_BITS,
@@ -714,8 +774,15 @@ void app_main(void) {
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
     };
-    ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &uart_config));
-    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 1024, 1024, 0, NULL, 0));
+
+    // uart_handler.h에 정의된 UART_NUM, UART_TX_PIN, UART_RX_PIN 사용
+    ESP_ERROR_CHECK(uart_param_config(UART_NUM, &uart_config));
+
+    // YD-ESP32-S3의 경우 GPIO 핀 할당 필수 (UART1 사용 시)
+    ESP_ERROR_CHECK(uart_set_pin(UART_NUM, UART_TX_PIN, UART_RX_PIN,
+                                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM, 1024, 1024, 0, NULL, 0));
     ESP_LOGI(TAG, "UART initialized (1Mbps)");
     
     // 3. FreeRTOS 태스크 생성 (§3.5 참조)

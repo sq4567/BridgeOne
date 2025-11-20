@@ -8,8 +8,17 @@
 
 /**
  * UART 통신 설정 상수.
+ *
+ * 보드별 UART 구성:
+ * - ESP32-S3-DevkitC-1: UART0 (GPIO43/44) - CP2102N USB-UART 브릿지 연결
+ * - YD-ESP32-S3 N16R8: UART0 (GPIO43/44) - CH343P USB-UART 브릿지 연결
+ *
+ * 두 보드 모두 UART0을 Android 통신에 사용합니다.
+ * USB-UART 브릿지를 통해 Android 앱과 1Mbps로 통신합니다.
  */
 #define UART_NUM UART_NUM_0
+#define UART_TX_PIN GPIO_NUM_43     // Android 통신용 TX 핀 (UART0 기본 핀)
+#define UART_RX_PIN GPIO_NUM_44     // Android 통신용 RX 핀 (UART0 기본 핀)
 #define UART_BAUDRATE 1000000       // 1 Mbps
 #define UART_DATA_BITS UART_DATA_8_BITS
 #define UART_PARITY UART_PARITY_DISABLE
@@ -48,12 +57,18 @@ typedef struct {
 /**
  * UART 초기화 함수.
  *
- * ESP32-S3-DevkitC-1의 내장 USB-to-UART 브릿지를 설정합니다.
- * GPIO43(U0TXD), GPIO44(U0RXD)를 사용하며, 핀 설정은 자동으로 처리됩니다.
+ * Android ↔ ESP32-S3 통신용 UART를 설정합니다.
+ *
+ * 보드별 구성:
+ * - ESP32-S3-DevkitC-1: UART0 (GPIO43/44) - CP2102N USB-UART 브릿지
+ * - YD-ESP32-S3 N16R8: UART0 (GPIO43/44) - CH343P USB-UART 브릿지
+ *
+ * 두 보드 모두 USB-UART 브릿지를 통해 UART0으로 Android와 통신합니다.
+ * USB만 연결하면 점퍼 케이블 없이 바로 동작합니다.
  *
  * @return
- *   - 성공 시 0 반환
- *   - 실패 시 0이 아닌 값 반환
+ *   - ESP_OK (0): 성공
+ *   - 기타: 실패 (esp_err_t 값)
  */
 int uart_init(void);
 

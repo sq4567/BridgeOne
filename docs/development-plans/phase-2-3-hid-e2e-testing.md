@@ -176,12 +176,35 @@ Phase 2.2에서 구현된 위 통신 경로의 **정확성, 안정성, 성능**�
 3. USB 연결 해제 후 재연결 시 자동 인식 확인
 
 **사전 환경 설정**:
+
+### YD-ESP32-S3 보드 포트 위치 확인 ⭐
+
+```
+┌─────────────────────┐
+│                     │
+│  [USB-OTG 포트]     │ ← 좌측 상단 (실크스크린: "USB-OTG")
+│  • PC HID 연결용    │
+│                     │
+│  [COM 포트]         │ ← 우측 하단 (실크스크린: "COM")
+│  • Android 연결용   │
+│  • 개발/플래싱용    │
+└─────────────────────┘
+```
+
 1. **Android → ESP32-S3 연결**:
-   - Android 기기를 ESP32-S3의 USB-UART 포트에 USB-C 케이블 연결
+   - Android 기기를 ESP32-S3의 **COM 포트** (우측 하단)에 USB-C 케이블 연결
+   - ⚠️ **주의**: USB-OTG 포트가 아닙니다!
    - Android 앱 빌드 및 설치
+
 2. **ESP32-S3 → Windows PC 연결**:
-   - ESP32-S3의 USB-OTG 포트를 Windows PC에 USB 케이블로 연결
+   - ESP32-S3의 **USB-OTG 포트** (좌측 상단)를 Windows PC에 USB 케이블로 연결
+   - ⚠️ **주의**: COM 포트가 아닙니다!
    - Windows 장치 관리자 열기 (devmgmt.msc)
+
+**올바른 연결 상태**:
+- Android → **COM 포트** (우측 하단) ✅
+- PC → **USB-OTG 포트** (좌측 상단) ✅
+- 두 케이블 **동시 연결** 필요
 
 ### Phase 2.3.1.0: USB 초기화 및 장치 자동 감지 구현
 
@@ -420,13 +443,15 @@ if (granted) {
   - UsbSerialManager.sendFrame()으로 1Mbps UART 전송
 - **ESP32-S3 측**: UART 수신 로그 활성화 (uart_handler.c)
   - 로그: "UART frame received: seq=%d buttons=0x%02x deltaX=%d deltaY=%d wheel=%d"
-  - 수신 포트: UART1 (1Mbps 8N1)
+  - 수신 포트: UART0 (GPIO43/44, 1Mbps 8N1) - CH343P 연결
 
 **사전 환경 설정**:
-1. Android 기기를 ESP32-S3의 USB-UART 포트에 USB-C 케이블 연결
-2. Windows PC: 시리얼 모니터 실행 (PuTTY, miniterm.py, 또는 Arduino IDE Serial Monitor)
+1. **Android 연결**: Android 기기를 ESP32-S3의 **COM 포트** (우측 하단)에 USB-C 케이블 연결
+2. **시리얼 모니터 설정**:
+   - Windows PC: PuTTY, miniterm.py, 또는 Arduino IDE Serial Monitor 실행
    - 포트: ESP32-S3 시리얼 포트 (COM3, COM4 등 확인)
    - 속도: 115200 baud (ESP-IDF 초기 로그)
+   - ⚠️ **개발 중**: PC를 **COM 포트**에 연결 (Android와 교체)
 3. Android 앱 빌드 및 설치
 4. **선행 필수**: ESP32-S3 펌웨어에 UART 프레임 수신 로그 추가 완료
 
@@ -538,13 +563,20 @@ if (granted) {
   - 로그: "HID Mouse report sent: buttons=0x%02x deltaX=%d deltaY=%d wheel=%d"
 
 **사전 환경 설정**:
-1. Android 기기를 ESP32-S3의 USB-UART 포트에 USB-C 케이블 연결
-2. ESP32-S3의 USB-OTG 포트를 Windows PC에 USB 케이블로 연결
-3. Android 앱 빌드 및 설치
-4. Windows: 시리얼 모니터 실행 (PuTTY, miniterm.py, 또는 Arduino IDE Serial Monitor)
-   - 포트: ESP32-S3 시리얼 포트 (COM3, COM4 등 확인)
+
+**하드웨어 연결** (YD-ESP32-S3):
+1. **Android 연결**: Android 기기를 ESP32-S3의 **COM 포트** (우측 하단)에 USB-C 케이블 연결
+2. **PC HID 연결**: ESP32-S3의 **USB-OTG 포트** (좌측 상단)를 Windows PC에 USB 케이블로 연결
+3. **두 케이블 동시 연결** 필요 ⭐
+
+**소프트웨어 설정**:
+4. Android 앱 빌드 및 설치
+5. **시리얼 모니터 실행** (디버깅용, 선택사항):
+   - Windows PC: PuTTY, miniterm.py, 또는 Arduino IDE Serial Monitor
+   - 포트: ESP32-S3 시리얼 포트 (COM3, COM4 등)
    - 속도: 115200 baud (ESP-IDF 초기 로그)
-5. **선행 필수**: ESP32-S3 펌웨어에 HID Mouse 리포트 전송 로그 추가 완료
+   - ⚠️ **주의**: 시리얼 모니터 사용 시 별도 UART 어댑터 필요 (COM 포트는 Android가 사용 중)
+6. **선행 필수**: ESP32-S3 펌웨어에 HID Mouse 리포트 전송 로그 추가 완료
 
 **세부 목표**:
 1. 시리얼 모니터에서 UART 프레임 수신 로그 확인 (FrameBuilder seq 필드 포함)

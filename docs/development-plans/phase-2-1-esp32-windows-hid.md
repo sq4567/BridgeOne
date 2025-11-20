@@ -2,9 +2,10 @@
 title: "BridgeOne Phase 2.1: ESP32-S3 ↔ Windows HID 통신 구현"
 description: "BridgeOne 프로젝트 Phase 2.1 - ESP32-S3 HID 디바이스 구현 및 Windows 연결"
 tags: ["esp32-s3", "hid", "freertos", "tinyusb", "windows"]
-version: "v2.0"
+version: "v2.1"
 owner: "Chatterbones"
-updated: "2025-11-04"
+updated: "2025-11-19"
+board: "ESP32-S3 N16R8 (DevkitC-1 / YD-ESP32-S3 호환)"
 ---
 
 # BridgeOne Phase 2.1: ESP32-S3 ↔ Windows HID 통신 구현
@@ -38,6 +39,7 @@ updated: "2025-11-04"
 - `docs/board/esp32s3-code-implementation-guide.md` §1.3 USB Composite 디바이스 설계 계약
 - `docs/board/esp32s3-code-implementation-guide.md` §3.3 TinyUSB Composite 디바이스 구현
 - `docs/technical-specification.md` §2.3.1 ESP32-S3-DevkitC-1-N16R8
+- `docs/board/YD-ESP32-S3-migration-guide.md` - YD-ESP32-S3 보드 사용 시 참조
 - `.cursor/rules/tinyusb-descriptors.mdc` - TinyUSB 복합 디바이스 USB 디스크립터 구현 가이드
 
 ---

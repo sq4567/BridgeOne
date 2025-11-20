@@ -52,8 +52,9 @@ graph TD
 
 **하드웨어 구성 요소:**
 - **Android 앱**: Samsung Galaxy s10e (2280×1080, 5.8인치, Android 12)
-- **ESP32-S3**: ESP32-S3-DevkitC-1-N16R8 보드 (16MB Flash, 8MB PSRAM)
-  - 내장 USB-to-UART 포트 (Android 연결)
+- **ESP32-S3**: ESP32-S3 N16R8 보드 (16MB Flash, 8MB Octal SPI PSRAM)
+  - 지원 보드: ESP32-S3-DevkitC-1-N16R8, YD-ESP32-S3 N16R8
+  - UART 포트 (Android 연결, 보드별 GPIO 다름)
   - USB-OTG 포트 (PC 연결, 복합 장치 구성)
 - **PC**: Windows 11, USB Host 포트
 - **충전기**: 5V 2A 이상 (Android 충전용)
@@ -99,19 +100,29 @@ graph TD
 
 ### 2.3 하드웨어 구성 요소 분석
 
-#### 2.3.1 ESP32-S3-DevkitC-1-N16R8
+#### 2.3.1 ESP32-S3 N16R8 보드
 
 **개요:**
 - **역할**: USB 복합 장치로 HID 프로토콜 처리 및 Vendor CDC 통신 담당
-- **제조사**: Espressif Systems
-- **모델**: ESP32-S3-DevkitC-1-N16R8 (공식 개발 보드)
 - **펌웨어 프레임워크**: ESP-IDF v5.5+
-- **주요 특징**:
-  - 듀얼 코어 32비트 LX7 마이크로컨트롤러 (최대 240MHz)
-  - 16MB Flash (N16), 8MB PSRAM (R8)
-  - USB OTG 포트 + 내장 USB-to-UART 포트 (2개 독립 포트)
+- **지원 보드**:
+  - ESP32-S3-DevkitC-1-N16R8 (Espressif 공식 개발 보드)
+  - YD-ESP32-S3 N16R8 / YD-ESP32-23 (VCC-GND Studio 호환 보드)
+- **공통 특징**:
+  - 듀얼 코어 32비트 Xtensa LX7 마이크로컨트롤러 (최대 240MHz)
+  - 16MB Flash (N16), 8MB Octal SPI PSRAM (R8)
+  - Native USB OTG 포트 (GPIO19/20)
   - WiFi (2.4GHz) 및 Bluetooth 5.0 LE 내장
-  - 45개의 GPIO, 6개의 SPI, 3개의 UART, 2개의 I2C 인터페이스
+  - 45개의 프로그래머블 GPIO
+
+**보드별 차이점**:
+
+| 항목 | ESP32-S3-DevkitC-1 | YD-ESP32-S3 N16R8 |
+|------|-------------------|------------------|
+| USB-UART 칩 | CP2102N | CH343P |
+| Android 통신 UART | UART0 (GPIO43/44) | UART1 (GPIO17/18) |
+| 드라이버 | CP210x | CH343 |
+| 비고 | 공식 보드 | 저가 클론, 전압 확인 필요 |
 
 **성능 최적화 포인트:**
 - **USB 스택**: ESP-IDF TinyUSB 컴포넌트로 저수준 직접 제어
@@ -135,11 +146,13 @@ Interface 3: CDC-ACM Data      (0x0A/0x00/0x00) - Windows 서버 통신
 #### 2.3.2 하드웨어 간 통신 최적화 전략
 
 **UART 통신 (Android ↔ ESP32-S3):**
-- **인터페이스**: 내장 USB-to-UART 포트 (ESP32-S3-DevkitC-1)
 - **속도**: 1Mbps, 8N1 (8비트 데이터, 패리티 없음, 1비트 정지)
 - **프레임 구조**: 8바이트 델타 프레임으로 효율적인 데이터 전송
 - **플로우 제어**: 소프트웨어 플로우 제어로 안정적 통신 보장
-- **장점**: GPIO 핀 설정 불필요, 신호 무결성 향상
+- **보드별 구성**:
+  - ESP32-S3-DevkitC-1: UART0 (GPIO43/44, CP2102N 연결)
+  - YD-ESP32-S3 N16R8: UART1 (GPIO17/18, Android 통신 전용)
+- **장점**: 신호 무결성 향상, 안정적 통신
 
 **USB 통신 (ESP32-S3 ↔ PC):**
 - **인터페이스**: 복합 USB 장치 (HID + Vendor CDC)

@@ -8,13 +8,18 @@ static const char *TAG = "UART_HANDLER";
 /**
  * UART 드라이버 초기화.
  *
- * ESP32-S3의 UART_NUM_0을 1Mbps 8N1 설정으로 초기화합니다.
- * ESP32-S3-DevkitC-1은 내장 USB-to-UART 브릿지를 사용하므로
- * GPIO 핀 설정(uart_set_pin)은 필요하지 않습니다.
+ * Android ↔ ESP32-S3 통신용 UART를 1Mbps 8N1 설정으로 초기화합니다.
+ *
+ * 보드별 구성:
+ * - ESP32-S3-DevkitC-1: UART0 (GPIO43/44) - CP2102N USB-UART 브릿지
+ * - YD-ESP32-S3 N16R8: UART0 (GPIO43/44) - CH343P USB-UART 브릿지
+ *
+ * 두 보드 모두 UART0을 사용하여 USB-UART 브릿지를 통해 Android와 통신합니다.
  *
  * 초기화 절차:
  * 1. uart_param_config()로 UART 파라미터 설정
- * 2. uart_driver_install()로 UART 드라이버 설치 및 버퍼 할당
+ * 2. uart_set_pin()로 GPIO 핀 할당 (명시적 핀 설정)
+ * 3. uart_driver_install()로 UART 드라이버 설치 및 버퍼 할당
  *
  * @return
  *   - ESP_OK: 초기화 성공
@@ -37,6 +42,21 @@ int uart_init(void) {
         return ret;
     }
     ESP_LOGI(TAG, "UART parameter configured: %d bps, 8N1", UART_BAUDRATE);
+
+    // GPIO 핀 할당
+    // UART0 기본 핀(GPIO43/44)을 명시적으로 설정
+    ret = uart_set_pin(
+        UART_NUM,
+        UART_TX_PIN,        // TX 핀 (GPIO43)
+        UART_RX_PIN,        // RX 핀 (GPIO44)
+        UART_PIN_NO_CHANGE, // RTS 핀 (미사용)
+        UART_PIN_NO_CHANGE  // CTS 핀 (미사용)
+    );
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set UART pins: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    ESP_LOGI(TAG, "UART pins configured: TX=%d, RX=%d", UART_TX_PIN, UART_RX_PIN);
 
     // UART 드라이버 설치
     // - 파라미터: UART 번호, RX 버퍼 크기, TX 버퍼 크기, 큐 크기, 큐 핸들, 인터럽트 할당 플래그

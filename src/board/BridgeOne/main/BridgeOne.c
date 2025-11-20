@@ -83,7 +83,9 @@ void app_main(void) {
     
     // ==================== 1.5. UART 통신 초기화 ====================
     // Android와의 UART 통신을 위해 UART 드라이버 초기화
-    // - UART_NUM_0: 내장 USB-to-UART 브릿지 (GPIO43/GPIO44)
+    // 보드별 구성:
+    // - ESP32-S3-DevkitC-1: UART0 (GPIO43/44, CP2102N 연결)
+    // - YD-ESP32-S3 N16R8: UART1 (GPIO17/18, Android 통신 전용)
     // - 1Mbps, 8N1: 고속 시리얼 통신
     ret = uart_init();
     if (ret != ESP_OK) {
@@ -106,7 +108,7 @@ void app_main(void) {
              UART_FRAME_QUEUE_SIZE, sizeof(bridge_frame_t));
     
     // ==================== 2. 시스템 정보 로깅 ====================
-    ESP_LOGI(TAG, "Hardware: ESP32-S3-DevkitC-1-N16R8");
+    ESP_LOGI(TAG, "Hardware: ESP32-S3 N16R8 (DevkitC-1 or YD-ESP32-S3 compatible)");
     ESP_LOGI(TAG, "USB Descriptor: VID=0x%04X, PID=0x%04X", USB_VID, USB_PID);
     ESP_LOGI(TAG, "Interfaces: HID Keyboard(0), HID Mouse(1), CDC(2,3)");
     ESP_LOGI(TAG, "Endpoints: KB=0x%02X, Mouse=0x%02X, CDC_NOTIF=0x%02X, CDC_DATA=0x%02X/0x%02X",
