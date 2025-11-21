@@ -386,14 +386,25 @@ struct HidKeyboardReport {
 ### Windows USB 성능 최적화
 Windows 11에서 ESP32-S3 USB CDC 통신 시 다음 레지스트리 설정이 필요할 수 있습니다:
 
+**경로** (시리얼 번호는 각 기기마다 다름):
 ```
-경로: HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USB\VID_303A&PID_82C5\Device Parameters
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USB\VID_303A&PID_4001\[시리얼번호]\Device Parameters
+```
+
+**설정 항목**:
+```
 이름: IdleUsbSelectiveSuspendPolicy
 타입: DWORD (32-bit)
 값: 0x00000001
 ```
 
-설정 후 시스템 재부팅 필요.
+**적용 방법**:
+1. `레지스트리 편집기` 열기 (regedit.exe)
+2. 위 경로로 이동 (시리얼 번호는 각 USB 장치마다 다름)
+3. `Device Parameters` 폴더 우클릭 → 새로 만들기 → DWORD (32-bit) 값
+4. 이름: `IdleUsbSelectiveSuspendPolicy`
+5. 값: `0x00000001` 입력
+6. 시스템 재부팅
 
 ### 개발 환경
 - **Android 개발**: Android Studio (최신 버전 권장)
