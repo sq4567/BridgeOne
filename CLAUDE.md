@@ -160,6 +160,95 @@ src/board/BridgeOne/main/
   - YD-ESP32-S3 N16R8: UART1 (GPIO17/18, Android 통신 전용)
 - **복합 프레임**: 8바이트 고정 크기 프레임으로 마우스 및 키보드 입력 전송
 
+## TinyUSB 설정 가이드 (ESP32-S3)
+
+### ⚠️ 중요: menuconfig에 TinyUSB Stack 메뉴가 없는 것은 정상입니다
+
+본 프로젝트는 **Native TinyUSB** (`espressif/tinyusb`)를 사용하며, 이는 **Kconfig 파일이 없는** 컴포넌트입니다.
+`idf.py menuconfig`에서 TinyUSB Stack 관련 메뉴가 표시되지 않는 것은 **ESP-IDF v5.5의 정상적인 동작**입니다.
+
+### TinyUSB 통합 방식 비교
+
+#### 1. Native TinyUSB (본 프로젝트 사용 방식)
+- **컴포넌트**: `espressif/tinyusb`
+- **설정 방식**: `tusb_config.h` 헤더 파일로 매크로 기반 설정
+- **Kconfig**: ❌ 없음
+- **menuconfig**: ❌ TinyUSB 메뉴 없음 (정상)
+- **장점**: 직접적인 제어, 유연한 커스터마이징
+- **단점**: 설정 파일 직접 작성 필요
+
+#### 2. ESP TinyUSB Wrapper (사용하지 않음)
+- **컴포넌트**: `espressif/esp_tinyusb`
+- **설정 방식**: menuconfig + `tinyusb_config_t` 구조체
+- **Kconfig**: ✅ 있음
+- **menuconfig**: ✅ TinyUSB Stack 메뉴 표시
+- **장점**: 설정이 간편함
+- **단점**: 커스터마이징 제한적
+
+### 현재 프로젝트 설정 구조
+
+```
+src/board/BridgeOne/
+├── main/
+│   ├── idf_component.yml          # espressif/tinyusb: '*' (Native)
+│   ├── tusb_config.h              # TinyUSB 설정 (매크로)
+│   └── CMakeLists.txt             # 컴파일 정의 설정
+├── sdkconfig.defaults             # ESP-IDF 레벨 기본값
+├── sdkconfig                      # 빌드 설정 (CONFIG_TINYUSB 없음 = 정상)
+└── managed_components/
+    └── espressif__tinyusb/
+        ├── CMakeLists.txt         # 컴파일 정의로 설정 전달
+        └── (Kconfig 파일 없음)    # ← 이것이 정상!
+```
+
+### TinyUSB 설정 변경 방법
+
+#### ❌ 절대 하지 말 것
+- `idf.py menuconfig`에서 TinyUSB 설정을 찾으려고 시도
+- Kconfig 파일을 생성하려고 시도
+- `esp_tinyusb` wrapper로 전환 제안 (불필요한 복잡성 증가)
+
+#### ✅ 올바른 설정 방법
+
+**1. TinyUSB 세부 설정 변경:**
+```c
+// main/tusb_config.h 편집
+#define CFG_TUD_HID         2      // HID 인터페이스 개수
+#define CFG_TUD_CDC         1      // CDC 인터페이스 개수
+#define CFG_TUD_HID_EP_BUFSIZE  64 // HID 버퍼 크기
+```
+
+**2. ESP-IDF 레벨 기본값 설정:**
+```bash
+# sdkconfig.defaults 편집 (참고용, TinyUSB에 직접 영향 없음)
+CONFIG_TINYUSB=y
+CONFIG_TINYUSB_HID_COUNT=2
+```
+⚠️ 주의: Native TinyUSB는 이 설정을 **무시**합니다. 실제 설정은 `tusb_config.h`에서만 유효합니다.
+
+**3. 재빌드:**
+```bash
+idf.py fullclean
+idf.py build
+```
+
+### 문제 해결
+
+#### Q: menuconfig에서 TinyUSB Stack 메뉴가 사라졌어요!
+**A**: 정상입니다. Native TinyUSB (`espressif/tinyusb`)는 Kconfig 파일이 없으므로 menuconfig에 메뉴가 표시되지 않습니다. 이는 ESP-IDF v5.5의 의도된 설계입니다.
+
+#### Q: sdkconfig에 CONFIG_TINYUSB 설정이 없어요!
+**A**: 정상입니다. Native TinyUSB는 Kconfig를 사용하지 않으므로 sdkconfig에 관련 설정이 없는 것이 정상입니다.
+
+#### Q: TinyUSB 설정을 어떻게 변경하나요?
+**A**: `main/tusb_config.h` 파일을 직접 편집하세요. 모든 TinyUSB 기능은 매크로로 제어됩니다.
+
+### 참고 자료
+
+- [ESP-IDF USB Device Stack 공식 문서](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/usb_device.html)
+- [ESP Component Registry - espressif/tinyusb](https://components.espressif.com/components/espressif/tinyusb)
+- [ESP-IoT-Solution TinyUSB 개발 가이드](https://docs.espressif.com/projects/esp-iot-solution/en/latest/usb/usb_overview/tinyusb_development_guide.html)
+
 ## 통신 프로토콜
 
 ### UART 델타 프레임 (Android → ESP32-S3)
