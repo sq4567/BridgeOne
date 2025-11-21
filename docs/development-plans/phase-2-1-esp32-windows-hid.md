@@ -5,7 +5,7 @@ tags: ["esp32-s3", "hid", "freertos", "tinyusb", "windows"]
 version: "v2.1"
 owner: "Chatterbones"
 updated: "2025-11-19"
-board: "ESP32-S3 N16R8 (DevkitC-1 / YD-ESP32-S3 호환)"
+board: "ESP32-S3 N16R8 (YD-ESP32-S3)"
 ---
 
 # BridgeOne Phase 2.1: ESP32-S3 ↔ Windows HID 통신 구현
@@ -38,8 +38,7 @@ board: "ESP32-S3 N16R8 (DevkitC-1 / YD-ESP32-S3 호환)"
 **참조 문서 및 섹션**:
 - `docs/board/esp32s3-code-implementation-guide.md` §1.3 USB Composite 디바이스 설계 계약
 - `docs/board/esp32s3-code-implementation-guide.md` §3.3 TinyUSB Composite 디바이스 구현
-- `docs/technical-specification.md` §2.3.1 ESP32-S3-DevkitC-1-N16R8
-- `docs/board/YD-ESP32-S3-migration-guide.md` - YD-ESP32-S3 보드 사용 시 참조
+- `docs/board/YD-ESP32-S3-N16R8-analysis.md` - YD-ESP32-S3 보드 분석 및 호환성 평가
 - `.cursor/rules/tinyusb-descriptors.mdc` - TinyUSB 복합 디바이스 USB 디스크립터 구현 가이드
 
 ---
@@ -310,7 +309,7 @@ board: "ESP32-S3 N16R8 (DevkitC-1 / YD-ESP32-S3 호환)"
 3. UART 상수 정의 (UART_NUM_0, 1Mbps, 8N1)
 4. `uart_handler.c` 파일 작성
 5. UART 초기화 함수 구현 (`uart_init()`)
-   - **주의**: ESP32-S3-DevkitC-1은 내장 USB-to-UART 브릿지(U0TXD: GPIO43, U0RXD: GPIO44)를 사용하므로 `uart_set_pin()` 또는 `gpio_set_direction()` 호출 불필요
+   - **주의**: YD-ESP32-S3 N16R8은 UART1을 사용하며 (TX: GPIO17, RX: GPIO18) 내장 USB-to-UART 브릿지를 통해 Android와 통신
 
 **참조 문서 및 섹션**:
 - `docs/technical-specification.md` §2.1 UART 통신 (Android ↔ ESP32-S3)

@@ -142,18 +142,18 @@ BridgeOne 프로젝트 개발에 필요한 외부 공식 문서 및 개발 자�
 
 ### 7.1 하드웨어 관련 문서
 
-#### 7.1.1 ESP32-S3-DevkitC-1 공식 문서 (Espressif)
+#### 7.1.1 ESP32-S3 공식 문서 (Espressif)
 
 **출처**: [ESP32-S3 공식 문서](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/)
 
 **필수 문서**:
 - **ESP32-S3 데이터시트**: GPIO, UART, USB 기능 상세 사양
 - **ESP-IDF 프로그래밍 가이드**: UART 통신, USB HID 구현 방법
-- **ESP32-S3-DevkitC-1 보드 설명서**: 핀 배치, USB-to-UART 포트, USB-OTG 포트 설명
+- **ESP32-S3 보드 가이드**: 핀 배치, USB 포트 설명
 
-**BridgeOne 활용**: 
-- ESP32-S3-DevkitC-1-N16R8 보드 기반 개발
-- 내장 USB-to-UART 포트를 통한 Android 연결
+**BridgeOne 활용**:
+- ESP32-S3 N16R8 (YD-ESP32-S3) 보드 기반 개발
+- 내장 USB-to-UART 포트를 통한 Android 연결 (UART1: GPIO17/18)
 - USB-OTG 포트를 통한 Windows PC 연결 (HID + CDC 복합 장치)
 - UART 1Mbps 통신, USB HID Boot Protocol 구현
 

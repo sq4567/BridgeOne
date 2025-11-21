@@ -1,7 +1,7 @@
 ---
 title: "BridgeOne Phase n: 통합 테스트 및 품질 보증"
 description: "BridgeOne 프로젝트 Phase n - 전체 시스템 통합 안정성 확보 및 사용자 경험 완성 (2-3주)"
-tags: ["android", "esp32-s3", "devkitc-1", "windows", "integration", "testing", "qa", "vibe-coding"]
+tags: ["android", "esp32-s3", "windows", "integration", "testing", "qa", "vibe-coding"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2025-10-20"
@@ -170,7 +170,7 @@ updated: "2025-10-20"
 
 **참조 문서**:
 - `docs/technical-specification.md` §2.1.1 하드웨어 요구사항
-- `docs/technical-specification.md` §2.3.1 ESP32-S3-DevkitC-1-N16R8
+- `docs/board/YD-ESP32-S3-N16R8-analysis.md` - YD-ESP32-S3 보드 분석 및 호환성 평가
 
 **검증**:
 - [ ] Android API 24+ 모든 버전 호환성 확인

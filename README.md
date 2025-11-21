@@ -80,7 +80,7 @@ BridgeOne/
 - **접근성**: 단일 터치 입력 가능
 
 ### ESP32-S3 하드웨어 동글
-- **MCU**: ESP32-S3-DevkitC-1-N16R8 (Espressif 공식 개발 보드)
+- **MCU**: ESP32-S3 N16R8 (YD-ESP32-S3 호환 보드)
 - **메모리**: 16MB Flash, 8MB PSRAM
 - **펌웨어**: ESP-IDF v5.5+ (TinyUSB 기반)
 - **연결**: USB-OTG (PC 연결), 내장 USB-to-UART (Android 연결)
@@ -98,7 +98,7 @@ BridgeOne/
 ### ESP32-S3 하드웨어 설정
 
 #### 1. 하드웨어 준비물
-- **ESP32-S3 보드** (ESP32-S3-DevkitC-1-N16R8)
+- **ESP32-S3 보드** (YD-ESP32-S3 N16R8)
 - **USB-C 케이블** 2개 (Android 연결용, PC 연결용)
 - **충전기** (5V 2A 이상, Android 충전용)
 
@@ -396,20 +396,17 @@ BridgeOne 프로젝트 개발에 활용된 핵심 라이브러리와 공식 문�
 - **주요 활용**: 고급 USB 기능, 세부 하드웨어 제어 (선택적 사용)
 - **핵심 기술**: ESP-IDF 프레임워크, 고성능 USB 스택
 
-#### ESP32-S3-DevkitC-1
-- **공식 문서**: [ESP32-S3-DevKitC-1](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html)
-- **주요 활용**: 하드웨어 핀 배치, 내장 USB 포트 활용, 전원 공급 설계
 
 ### Android 개발 관련
 
 #### USB Host API (Google)
 - **공식 문서**: [Android USB Host API](https://developer.android.com/develop/connectivity/usb/host)
-- **주요 활용**: USB-OTG 장치 인식, CP2102 연결 및 권한 관리
+- **주요 활용**: USB-OTG 장치 인식 및 권한 관리
 - **핵심 기능**: USB 장치 탐지, 연결 상태 모니터링
 
 #### USB-Serial-for-Android
 - **GitHub**: [mik3y/usb-serial-for-android](https://github.com/mik3y/usb-serial-for-android)
-- **주요 활용**: CP2102 전용 UART 통신, 8바이트 프레임 송수신
+- **주요 활용**: UART 통신, 8바이트 프레임 송수신
 - **라이선스**: MIT License
 
 #### Jetpack Compose & Android Architecture

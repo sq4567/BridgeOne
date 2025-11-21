@@ -40,7 +40,7 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 graph TD
     subgraph "물리적 연결 구조"
         Android_App["Android 앱<br/>(Samsung Galaxy s10e)"] -- "USB-C" --> ESP32_S3_UART["ESP32-S3<br/>USB-to-UART 포트<br/>(내장)"]
-        ESP32_S3_UART -- "내부 연결<br/>(1Mbps, 8N1)" --> ESP32_S3["ESP32-S3<br/>(DevkitC-1-N16R8)"]
+        ESP32_S3_UART -- "내부 연결<br/>(1Mbps, 8N1)" --> ESP32_S3["ESP32-S3<br/>(YD-ESP32-S3 N16R8)"]
         ESP32_S3 -- "USB-OTG 포트<br/>(복합 장치)" --> PC["PC<br/>(Windows 10/11)"]
         Charger["충전기<br/>(5V 2A+)"] -- "USB-C" --> Android_App
     end
@@ -53,8 +53,8 @@ graph TD
 **하드웨어 구성 요소:**
 - **Android 앱**: Samsung Galaxy s10e (2280×1080, 5.8인치, Android 12)
 - **ESP32-S3**: ESP32-S3 N16R8 보드 (16MB Flash, 8MB Octal SPI PSRAM)
-  - 지원 보드: ESP32-S3-DevkitC-1-N16R8, YD-ESP32-S3 N16R8
-  - UART 포트 (Android 연결, 보드별 GPIO 다름)
+  - 지원 보드: YD-ESP32-S3 N16R8
+  - UART 포트 (Android 연결, GPIO17/18)
   - USB-OTG 포트 (PC 연결, 복합 장치 구성)
 - **PC**: Windows 11, USB Host 포트
 - **충전기**: 5V 2A 이상 (Android 충전용)

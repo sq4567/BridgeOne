@@ -585,7 +585,7 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 3. Animated Splash Screen 시작 (2.5초, 6단계 애니메이션 시퀀스) + 병렬 초기 감지:
    - 상세 설계: `styleframe-loading-splash.md` 참조
    - 기술 구현: `technical-specification-app.md` 2.1 스플래시 스크린 구현 요구사항 참조
-   - USB 장치 스캔 (CP2102 자동 탐지)
+   - USB 장치 스캔 (ESP32-S3 자동 탐지)
    - Windows 서버 연결 신호 수신 대기
    ↓
 4. Splash 종료 시점에 결과 기반 화면 분기
@@ -627,7 +627,7 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 graph TD
     subgraph "WaitingForConnection 플로우"
         App_Start["앱 시작"] --> Connection_Waiting["연결 대기 화면"]
-        Connection_Waiting -- "1단계" --> USB_Detection["USB 장치 자동 탐지<br/>(CP2102)"]
+        Connection_Waiting -- "1단계" --> USB_Detection["USB 장치 자동 탐지<br/>(ESP32-S3)"]
         USB_Detection -- "성공" --> USB_Connected["USB 연결 완료"]
         USB_Connected -- "2단계" --> Server_Search["서버 연결 시도<br/>(3-5초 타임아웃)"]
         Server_Search -- "성공" --> Normal_Page["Standard 모드<br/>(Page 1)"]
@@ -665,7 +665,7 @@ graph TD
 **사용자 관점의 연결 플로우**:
 1. **장치 탐지 단계**
   - "USB 동글 확인 중..." 메시지 표시
-  - CP2102 자동 인식 및 드라이버 호환성 확인
+  - ESP32-S3 자동 인식 및 드라이버 호환성 확인
 2. **권한 처리 단계**
   - "USB 권한을 요청했습니다" 대기 메시지
   - 사용자 권한 승인 후 자동 진행
@@ -786,7 +786,7 @@ graph TD
 > - **오류 처리 및 복구**: `technical-guide-app.md` §7 (오류 처리 및 복구 시스템)
 
 **구현 핵심 요소:**
-- **자동 탐지**: CP2102 BroadcastReceiver 기반 실시간 감지
+- **자동 탐지**: ESP32-S3 USB Serial BroadcastReceiver 기반 실시간 감지
 - **상태 관리**: Cancel and Restart 패턴 적용
 - **고성능 통신**: 1Mbps, 8N1 통신 및 Keep-alive 메커니즘
 - **오류 복구**: 지수 백오프 재연결 및 비정상 종료 복구

@@ -6,14 +6,14 @@ version: "v1.1"
 owner: "Chatterbones"
 updated: "2025-11-19"
 framework: "ESP-IDF (idf.py)"
-board: "ESP32-S3 N16R8 (DevkitC-1 / YD-ESP32-S3 호환)"
+board: "ESP32-S3 N16R8 (YD-ESP32-S3)"
 ---
 
 # ESP32-S3 ESP-IDF 구현 가이드
 
 > **문서 목적**: BridgeOne 시스템에서 ESP32-S3가 수행해야 할 USB 브릿지 역할을 ESP-IDF 프레임워크 기반으로 구현하기 위한 설계 요구사항과 아키텍처 원칙을 정의합니다.
 >
-> **지원 보드**: ESP32-S3-DevkitC-1-N16R8, YD-ESP32-S3 N16R8 (YD-ESP32-23)
+> **지원 보드**: YD-ESP32-S3 N16R8 (YD-ESP32-23)
 > **시스템 아키텍처 참조**: [`technical-specification.md` §2 시스템 아키텍처] 필수 선행 이해 필요
 > **Android 앱 연동**: [`technical-specification-app.md` §1 USB 통신] 참조
 > **Windows 서버 연동**: [`technical-specification-server.md` §2 기술 스택] 참조
@@ -43,17 +43,11 @@ Android 앱 ↔ [UART 1Mbps] ↔ ESP32-S3 ↔ [USB HID/CDC] ↔ PC (Windows)
 - **GPIO**: 45개 프로그래머블 GPIO 핀
 - **전력**: 3.3V 동작, 저전력 모드 지원
 
-**보드별 구성**:
-
-#### ESP32-S3-DevkitC-1-N16R8 (Espressif 공식)
-- **USB-UART 칩**: CP2102N
-- **Android 통신**: UART0 (GPIO43/44, CP2102N 연결)
-- **USB-OTG**: Native USB (GPIO19/20)
-- **전원**: USB 5V
+**보드 구성** (YD-ESP32-S3 N16R8):
 
 #### YD-ESP32-S3 N16R8 (YD-ESP32-23, VCC-GND Studio)
 - **USB-UART 칩**: CH343P
-- **Android 통신**: UART0 (GPIO43/44, CH343P 연결) ⭐
+- **Android 통신**: UART1 (GPIO17/18, CH343P 연결)
 - **USB-OTG**: Native USB (GPIO19/20)
 - **전원**: USB 5V (일부 보드 5V 핀 이슈 보고됨)
 
@@ -89,9 +83,9 @@ Android 앱 ↔ [UART 1Mbps] ↔ ESP32-S3 ↔ [USB HID/CDC] ↔ PC (Windows)
    - PC → **USB-OTG 포트** (HID 입력 수신)
 
 **⚠️ 중요**:
-- DevkitC-1과 USB 포트 위치가 반대입니다!
 - Android는 항상 **COM 포트**에 연결
 - PC 사용 시 **USB-OTG 포트**에 연결
+- 5V 핀 전압 확인 권장 (일부 보드에서 이슈 보고)
 - 점퍼 케이블 불필요 (USB만 연결하면 동작)
 
 ### 1.3 USB Composite 디바이스 설계 계약 (Protocol Contract)
@@ -764,9 +758,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "TinyUSB device stack initialized");
     
     // 2. UART 초기화 (Android 통신)
-    // 보드별 UART 구성:
-    // - ESP32-S3-DevkitC-1: UART0 (GPIO43/44, CP2102N 연결)
-    // - YD-ESP32-S3 N16R8: UART1 (GPIO17/18, Android 통신 전용)
+    // YD-ESP32-S3 N16R8: UART1 (GPIO17/18, Android 통신 전용)
     uart_config_t uart_config = {
         .baud_rate = 1000000,  // 1Mbps
         .data_bits = UART_DATA_8_BITS,

@@ -1,7 +1,7 @@
 ---
 title: "BridgeOne Phase 1: 개발환경 설정"
 description: "BridgeOne 프로젝트 Phase 1 - Android, ESP32-S3, Windows 서버 개발환경 구축 및 초기 설정 (1-2주)"
-tags: ["android", "esp32-s3", "devkitc-1", "windows", "development", "environment", "setup", "vibe-coding"]
+tags: ["android", "esp32-s3", "windows", "development", "environment", "setup", "vibe-coding"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2025-10-20"
@@ -488,7 +488,7 @@ CONFIG_TINYUSB_HID_ENABLED=y
 CONFIG_TINYUSB_CDC_ENABLED=y
 CONFIG_TINYUSB_DEVICE_ENABLED=y
 
-# USB Bus Power Mode (ESP32-S3 DevKit powered via USB)
+# USB Bus Power Mode (ESP32-S3 powered via USB)
 CONFIG_TINYUSB_DEVICE_BUS_POWERED=y
 
 # HID Buffer Settings (BridgeOne 8-byte frame processing)
@@ -517,7 +517,7 @@ CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
 
-# Flash Configuration (ESP32-S3-DevkitC-1-N16R8: 16MB Flash)
+# Flash Configuration (ESP32-S3-N16R8: 16MB Flash)
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
@@ -615,7 +615,7 @@ idf.py reconfigure
 3. USB Composite 디바이스가 Windows에서 정상 인식되는지 확인
 
 **유저 사전 작업** (LLM 실행 전 필수):
-1. USB-C 케이블로 ESP32-S3-DevkitC-1을 PC에 연결
+1. USB-C 케이블로 YD-ESP32-S3 N16R8을 PC에 연결
 
 **LLM 검증 작업**:
 1. 빌드 환경 테스트 (최소 스켈레톤 main.c 작성 및 빌드)

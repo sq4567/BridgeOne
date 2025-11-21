@@ -28,9 +28,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **언어**: C/C++
 - **USB 스택**: TinyUSB (HID + CDC 복합 장치)
 - **주요 역할**: Android로부터 UART로 입력 수신 → USB HID로 PC에 전송
-- **지원 보드**:
-  - ESP32-S3-DevkitC-1-N16R8 (Espressif 공식)
-  - YD-ESP32-S3 N16R8 (YD-ESP32-23, VCC-GND Studio 클론)
+- **지원 보드**: YD-ESP32-S3 N16R8 (YD-ESP32-23, VCC-GND Studio 클론)
 
 ### 3. Windows 서버 (선택적, `src/windows/BridgeOne/`)
 - **언어**: C#
@@ -155,9 +153,7 @@ src/board/BridgeOne/main/
 **주요 특징**:
 - **FreeRTOS 태스크**: `usb_task`, `hid_task`, `uart_task` 등 멀티태스킹
 - **TinyUSB**: HID Keyboard + Mouse + CDC 복합 장치 구현
-- **UART 통신**: 1Mbps 속도로 Android와 통신
-  - ESP32-S3-DevkitC-1: UART0 (GPIO43/44, CP2102N 연결)
-  - YD-ESP32-S3 N16R8: UART1 (GPIO17/18, Android 통신 전용)
+- **UART 통신**: 1Mbps 속도로 Android와 통신 (UART1, GPIO17/18)
 - **복합 프레임**: 8바이트 고정 크기 프레임으로 마우스 및 키보드 입력 전송
 
 ## TinyUSB 설정 가이드 (ESP32-S3)
@@ -300,14 +296,12 @@ struct HidKeyboardReport {
 - **Permissions**: `com.google.accompanist:accompanist-permissions`
 
 ### ESP32-S3
-- **MCU**: ESP32-S3 N16R8 (DevkitC-1 또는 YD-ESP32-S3 호환 보드)
+- **MCU**: ESP32-S3 N16R8 (YD-ESP32-S3 호환 보드)
 - **메모리**: 16MB Flash, 8MB Octal SPI PSRAM
 - **프레임워크**: ESP-IDF v5.5+
 - **USB**: TinyUSB 스택
 - **RTOS**: FreeRTOS
-- **UART 통신**:
-  - DevkitC-1: UART0 (GPIO43/44)
-  - YD-ESP32-S3: UART1 (GPIO17/18)
+- **UART 통신**: UART1 (GPIO17/18)
 
 ## 개발 가이드라인
 
@@ -408,14 +402,10 @@ Windows 11에서 ESP32-S3 USB CDC 통신 시 다음 레지스트리 설정이 �
 
 ### 테스트
 - Android 앱 테스트 시 USB-OTG 지원 실제 디바이스 필요
-- ESP32-S3 펌웨어 테스트 시 ESP32-S3 N16R8 보드 필요:
-  - ESP32-S3-DevkitC-1-N16R8 (공식 보드)
-  - YD-ESP32-S3 N16R8 (호환 보드)
-- 전체 시스템 통합 테스트 시 Android 디바이스, ESP32-S3 보드, PC 모두 필요
+- ESP32-S3 펌웨어 테스트 시 YD-ESP32-S3 N16R8 보드 필요
+- 전체 시스템 통합 테스트 시 Android 디바이스, YD-ESP32-S3 보드, PC 모두 필요
 
 ### 보드별 주의사항
-- **ESP32-S3-DevkitC-1**: UART0 (GPIO43/44) 사용, CP2102N 드라이버 필요
 - **YD-ESP32-S3 N16R8**: UART1 (GPIO17/18) 사용, CH343 드라이버 필요
   - 일부 보드에서 5V 핀 전압 이슈 보고됨 (사용 전 멀티미터로 확인 권장)
-  - USB 포트 위치가 DevkitC-1과 반대
   - 상세 정보: `docs/board/YD-ESP32-S3-N16R8-analysis.md` 참조
