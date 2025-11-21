@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "hal/uart_types.h"
+#include "hal/gpio_types.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
@@ -11,14 +12,15 @@
  *
  * 보드별 UART 구성:
  * - ESP32-S3-DevkitC-1: UART0 (GPIO43/44) - CP2102N USB-UART 브릿지 연결
- * - YD-ESP32-S3 N16R8: UART0 (GPIO43/44) - CH343P USB-UART 브릿지 연결
+ * - YD-ESP32-S3 N16R8: UART1 (GPIO17/18) - Android 통신 전용 (CH343는 플래시용)
  *
- * 두 보드 모두 UART0을 Android 통신에 사용합니다.
- * USB-UART 브릿지를 통해 Android 앱과 1Mbps로 통신합니다.
+ * YD-ESP32-S3 보드 사용 시:
+ * - UART1 (GPIO17/18): Android 앱과 직접 통신 (1Mbps)
+ * - UART0 (GPIO43/44): CH343 USB-UART 브릿지 (펌웨어 플래시 및 디버그 로그)
  */
-#define UART_NUM UART_NUM_0
-#define UART_TX_PIN GPIO_NUM_43     // Android 통신용 TX 핀 (UART0 기본 핀)
-#define UART_RX_PIN GPIO_NUM_44     // Android 통신용 RX 핀 (UART0 기본 핀)
+#define UART_NUM UART_NUM_1
+#define UART_TX_PIN GPIO_NUM_17     // Android 통신용 TX 핀 (YD-ESP32-S3 UART1)
+#define UART_RX_PIN GPIO_NUM_18     // Android 통신용 RX 핀 (YD-ESP32-S3 UART1)
 #define UART_BAUDRATE 1000000       // 1 Mbps
 #define UART_DATA_BITS UART_DATA_8_BITS
 #define UART_PARITY UART_PARITY_DISABLE

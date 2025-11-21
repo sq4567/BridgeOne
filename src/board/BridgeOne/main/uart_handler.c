@@ -12,9 +12,10 @@ static const char *TAG = "UART_HANDLER";
  *
  * 보드별 구성:
  * - ESP32-S3-DevkitC-1: UART0 (GPIO43/44) - CP2102N USB-UART 브릿지
- * - YD-ESP32-S3 N16R8: UART0 (GPIO43/44) - CH343P USB-UART 브릿지
+ * - YD-ESP32-S3 N16R8: UART1 (GPIO17/18) - Android 통신 전용
  *
- * 두 보드 모두 UART0을 사용하여 USB-UART 브릿지를 통해 Android와 통신합니다.
+ * YD-ESP32-S3 보드는 UART1을 Android 직접 통신에 사용합니다.
+ * UART0 (GPIO43/44)는 CH343 USB-UART 브릿지로 펌웨어 플래시와 디버그 로그에 사용됩니다.
  *
  * 초기화 절차:
  * 1. uart_param_config()로 UART 파라미터 설정
