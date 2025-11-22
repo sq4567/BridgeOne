@@ -35,6 +35,63 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **플랫폼**: WPF
 - **주요 역할**: 양방향 통신 및 고급 기능 제공 (매크로, 멀티 커서 등)
 
+## YD-ESP32-S3 N16R8 USB 포트 정의
+
+**⚠️ 중요: 보드에는 2개의 독립적인 USB 포트가 있습니다**
+
+### 포트 1️⃣: CH343P USB-to-UART 브릿지 (USB-C 포트)
+```
+용도: 펌웨어 플래싱 및 시리얼 모니터링
+특징:
+  - 칩셋: WCH Qinheng CH343P
+  - GPIO43 (TX), GPIO44 (RX)
+  - 최대 3 Mbps 속도
+  - 하드웨어 TX/RX LED 내장
+명령어:
+  idf.py -p <포트명> flash        # 펌웨어 플래시
+  idf.py -p <포트명> monitor      # 시리얼 모니터링
+Windows: COM 포트 (예: COM3, COM4)
+Linux/macOS: /dev/ttyUSB0, /dev/ttyACM0
+```
+
+### 포트 2️⃣: ESP32-S3 Native USB OTG (USB 포트, 보드 상단)
+```
+용도: HID 통신 (Windows PC와 마우스/키보드 신호 송수신)
+특징:
+  - GPIO19 (USB_D-), GPIO20 (USB_D+)
+  - TinyUSB 스택 기반
+  - HID Boot Protocol 지원 (BIOS/BitLocker 호환)
+  - CDC 시리얼 통신도 동시 지원
+```
+
+### 사용 시나리오별 연결 가이드
+
+**📱 Android 스마트폰 연결**:
+- **포트**: ESP32-S3 Native USB OTG (포트 2)
+- **케이블**: USB-A to Micro-USB (또는 USB-C, 기기 사양에 따라)
+- **모드**: USB Host (Android) → Device (ESP32-S3)
+
+**🖥️ Windows PC HID 통신**:
+- **포트**: ESP32-S3 Native USB OTG (포트 2)
+- **케이블**: USB-A to Micro-USB
+- **결과**: 장치 관리자에서 "HID 호환 마우스" + "HID 키보드 장치" 표시
+
+**💻 펌웨어 개발 (빌드/플래시/모니터링)**:
+- **포트**: CH343P USB-to-UART (포트 1)
+- **케이블**: USB-A to USB-C
+- **명령어**: `idf.py -p <포트명> flash monitor`
+
+### 포트 결정 방법
+
+```bash
+# 사용 가능한 포트 확인
+idf.py list-ports
+
+# 포트별 식별 방법
+# CH343P (포트 1): "CH343" 또는 "CP210x" 표시
+# Native USB (포트 2): 일반 USB 장치로 표시
+```
+
 ## 주요 개발 명령어
 
 ### Android 앱 개발

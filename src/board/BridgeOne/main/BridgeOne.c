@@ -65,7 +65,9 @@ void usb_task(void* param) {
  */
 void app_main(void) {
     ESP_LOGI(TAG, "BridgeOne Board - USB Composite Device Initialization");
-    
+
+    esp_err_t ret;
+
     // ==================== 1. TinyUSB 디바이스 스택 초기화 ====================
     // tusb_init(): TinyUSB 전체 초기화 (RHPORT 0 자동 설정)
     // 이 함수가 호출되면:
@@ -74,7 +76,7 @@ void app_main(void) {
     // - HID Report Descriptor 콜백: tud_hid_descriptor_report_cb()
     // - String Descriptor 콜백: tud_descriptor_string_cb()
     // 등이 호스트의 디바이스 열거 요청에 응답
-    esp_err_t ret = tusb_init();
+    ret = tusb_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "TinyUSB initialization failed: %s", esp_err_to_name(ret));
         return;

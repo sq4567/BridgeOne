@@ -1264,18 +1264,18 @@ void tud_cdc_rx_cb(uint8_t itf) {
 - **이유**: BIOS/UEFI 호환성 보장
 - **리포트 크기**: Keyboard 8바이트, Mouse 4바이트 고정
 
-**4. VID/PID 설정** (`sdkconfig.defaults`):
+**4. VID/PID 설정** (`usb_descriptors.h`):
 - esp32-cdc-keyboard: Logitech VID(0x046d), PID(0xc07f) 사용
-- BridgeOne: **자체 VID/PID** 또는 **Generic HID VID(0x1209)/PID(0x0001)** 사용 권장
-- **설정 위치**: `sdkconfig.defaults` 또는 `idf.py menuconfig`:
-  ```ini
-  CONFIG_TINYUSB_DESC_CUSTOM_VID=0x1209
-  CONFIG_TINYUSB_DESC_CUSTOM_PID=0x0001
-  CONFIG_TINYUSB_DESC_MANUFACTURER_STRING="BridgeOne"
-  CONFIG_TINYUSB_DESC_PRODUCT_STRING="BridgeOne HID+CDC Bridge"
-  CONFIG_TINYUSB_DESC_SERIAL_STRING="00000001"
-  CONFIG_TINYUSB_DESC_CDC_STRING="BridgeOne Vendor CDC"
+- BridgeOne: **Espressif VID(0x303A)/PID(0x4001)** 사용 (현재 구현)
+- **설정 위치**: `src/board/BridgeOne/main/usb_descriptors.h`:
+  ```c
+  // VID: 0x303A (Espressif 공식 VID)
+  // PID: 0x4001 (BridgeOne 프로젝트용)
+  #define USB_VID             0x303A
+  #define USB_PID             0x4001
   ```
+- **참고**: Native TinyUSB를 사용하므로 `sdkconfig.defaults`에서 VID/PID 설정 불필요
+- **제조사/제품명 커스터마이징** (필요시 `usb_descriptors.c` String Descriptor 수정)
 
 **5. sdkconfig 필수 설정 차이**:
 - esp32-cdc-keyboard: `CONFIG_TINYUSB_HID_COUNT=2` (단일 HID에 2개 리포트)
