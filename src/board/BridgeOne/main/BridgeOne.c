@@ -2,7 +2,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "tusb.h"
+#include "tinyusb.h"  // esp_tinyusb wrapper 헤더
+#include "tusb.h"     // TinyUSB core 헤더 (tud_task 등)
 #include "usb_descriptors.h"
 #include "uart_handler.h"
 #include "hid_handler.h"  // hid_task 함수 선언
@@ -69,19 +70,33 @@ void app_main(void) {
     esp_err_t ret;
 
     // ==================== 1. TinyUSB 디바이스 스택 초기화 ====================
-    // tusb_init(): TinyUSB 전체 초기화 (RHPORT 0 자동 설정)
-    // 이 함수가 호출되면:
+    // esp_tinyusb wrapper를 사용한 초기화
+    // 이 방식의 장점:
+    // - USB PHY를 자동으로 USB OTG 컨트롤러로 전환
+    // - USB Serial/JTAG와의 충돌 방지
+    // - ESP-IDF 시스템과 완벽한 통합
+    //
+    // tinyusb_driver_install()가 호출되면:
+    // - USB PHY가 USB Serial/JTAG에서 USB OTG로 전환됨
     // - Device Descriptor 콜백: tud_descriptor_device_cb()
     // - Configuration Descriptor 콜백: tud_descriptor_configuration_cb()
     // - HID Report Descriptor 콜백: tud_hid_descriptor_report_cb()
     // - String Descriptor 콜백: tud_descriptor_string_cb()
     // 등이 호스트의 디바이스 열거 요청에 응답
-    ret = tusb_init();
+
+    const tinyusb_config_t tusb_cfg = {
+        .device_descriptor = &desc_device,          // Custom device descriptor
+        .string_descriptor = string_desc_arr,       // Custom string descriptors
+        .external_phy = false,                      // Use internal USB PHY
+        .configuration_descriptor = desc_configuration, // Custom configuration
+    };
+
+    ret = tinyusb_driver_install(&tusb_cfg);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "TinyUSB initialization failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "TinyUSB driver installation failed: %s", esp_err_to_name(ret));
         return;
     }
-    ESP_LOGI(TAG, "TinyUSB device stack initialized");
+    ESP_LOGI(TAG, "TinyUSB driver installed (USB PHY switched to USB OTG)");
     
     // ==================== 1.5. UART 통신 초기화 ====================
     // Android와의 UART 통신을 위해 UART 드라이버 초기화

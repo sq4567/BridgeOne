@@ -48,16 +48,8 @@ tusb_desc_device_t const desc_device = {
     .bNumConfigurations = 0x01             // 단일 Configuration 지원
 };
 
-/**
- * Device Descriptor 콜백 함수
- * 
- * TinyUSB에서 호스트가 Device Descriptor를 요청할 때 호출
- * 
- * 반환값: Device Descriptor 배열 포인터
- */
-uint8_t const* tud_descriptor_device_cb(void) {
-    return (uint8_t const*)&desc_device;
-}
+// NOTE: esp_tinyusb wrapper provides its own descriptor callbacks
+// We pass descriptors directly via tinyusb_config_t instead
 
 // ==================== 2. HID Report Descriptors ====================
 /**
@@ -91,12 +83,15 @@ uint8_t const desc_hid_mouse_report[] = {
 
 /**
  * HID Report Descriptor 콜백 함수
- * 
+ *
  * 호스트가 HID Report Descriptor를 요청할 때 호출
- * 
+ *
+ * NOTE: This callback is NOT provided by esp_tinyusb wrapper.
+ * TinyUSB calls this directly, so we must provide it.
+ *
  * 매개변수:
  * - instance: Configuration Descriptor에 정의된 HID 인터페이스 번호
- * 
+ *
  * 반환값: 해당 인터페이스의 HID Report Descriptor 배열 포인터
  */
 uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance) {
@@ -168,20 +163,7 @@ uint8_t const desc_configuration[] = {
     )
 };
 
-/**
- * Configuration Descriptor 콜백 함수
- * 
- * 호스트가 Configuration Descriptor를 요청할 때 호출
- * 
- * 매개변수:
- * - index: Configuration 인덱스 (이 프로젝트는 단일 Configuration만 지원)
- * 
- * 반환값: Configuration Descriptor 배열 포인터
- */
-uint8_t const* tud_descriptor_configuration_cb(uint8_t index) {
-    (void)index;  // 단일 Configuration만 지원하므로 index는 무시
-    return desc_configuration;
-}
+// NOTE: Configuration descriptor is passed via tinyusb_config_t
 
 // ==================== 4. String Descriptors ====================
 /**
@@ -202,50 +184,4 @@ char const* string_desc_arr[] = {
     "BridgeOne Vendor CDC",                  // 4: CDC Interface Description
 };
 
-/**
- * String Descriptor 콜백 함수
- * 
- * 호스트가 String Descriptor를 요청할 때 호출
- * ASCII 문자열을 UTF-16LE 형식으로 변환하여 반환
- * 
- * 매개변수:
- * - index: String Descriptor 인덱스
- * - langid: Language ID (이 프로젝트는 US English만 지원)
- * 
- * 반환값: UTF-16LE 형식의 String Descriptor 배열 포인터
- */
-uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
-    (void)langid;  // 단일 언어만 지원하므로 langid는 무시
-    
-    static uint16_t _desc_str[32];
-    uint8_t chr_count;
-    
-    if (index == 0) {
-        // Language ID Descriptor
-        memcpy(&_desc_str[1], string_desc_arr[0], 2);
-        chr_count = 1;
-    } else {
-        // String Descriptor 인덱스 범위 확인
-        if (index >= sizeof(string_desc_arr) / sizeof(string_desc_arr[0])) {
-            return NULL;
-        }
-        
-        const char* str = string_desc_arr[index];
-        chr_count = strlen(str);
-        if (chr_count > 31) chr_count = 31;  // 최대 31자 제한
-        
-        // ASCII → UTF-16LE 변환
-        // UTF-16LE: 각 ASCII 문자가 2바이트 (LowByte, HighByte)로 확장
-        for (uint8_t i = 0; i < chr_count; i++) {
-            _desc_str[1 + i] = str[i];
-        }
-    }
-    
-    // String Descriptor 헤더 구성
-    // 바이트 0: 크기 (2 + chr_count × 2)
-    // 바이트 1: 타입 (0x03 = String Descriptor)
-    // 구성: (Type << 8) | Length
-    _desc_str[0] = (TUSB_DESC_STRING << 8) | (2 * chr_count + 2);
-    
-    return _desc_str;
-}
+// NOTE: String descriptors are passed via tinyusb_config_t

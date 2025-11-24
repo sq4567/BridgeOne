@@ -50,6 +50,13 @@ typedef enum {
     ITF_NUM_TOTAL                // 총 인터페이스 수: 4개
 } usb_interface_num_t;
 
+// External declarations for descriptors (used by BridgeOne.c)
+extern tusb_desc_device_t const desc_device;
+extern uint8_t const desc_configuration[];
+extern char const* string_desc_arr[];
+extern uint8_t const desc_hid_keyboard_report[];
+extern uint8_t const desc_hid_mouse_report[];
+
 // ==================== 디스크립터 전체 길이 ====================
 /**
  * Configuration Descriptor 총 길이 계산
