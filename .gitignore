@@ -492,3 +492,16 @@ test-results/
 # 개발자 개인 노트
 *.personal.md
 dev-notes/
+
+##############################################
+# ESP-IDF (ESP32-S3 펌웨어)
+##############################################
+
+# ESP-IDF managed components (자동 생성)
+managed_components/
+
+# ESP-IDF build output
+build/
+
+# ESP-IDF sdkconfig backups
+sdkconfig.old
