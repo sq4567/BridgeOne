@@ -55,7 +55,7 @@ Android 앱 ↔ [UART 1Mbps] ↔ ESP32-S3 ↔ [USB HID/CDC] ↔ PC (Windows)
 ```
 ┌─────────────────────┐
 │                     │
-│  [USB-OTG 포트]     │ ← 좌측 상단 (실크스크린: "USB-OTG")
+│  [USB-OTG 포트]     │ ← 좌측 상단 (실크스크린: "USB")
 │  • PC HID 연결      │    → PC와 연결 (마우스/키보드 장치)
 │  • Native USB       │    → USB HID 통신용
 │                     │
