@@ -67,8 +67,8 @@ Linux/macOS: /dev/ttyUSB0, /dev/ttyACM0
 ### 사용 시나리오별 연결 가이드
 
 **📱 Android 스마트폰 연결**:
-- **포트**: ESP32-S3 Native USB OTG (포트 2)
-- **케이블**: USB-A to Micro-USB (또는 USB-C, 기기 사양에 따라)
+- **포트**: CH343P USB-to-UART (포트 1)
+- **케이블**: USB-A to USB-C
 - **모드**: USB Host (Android) → Device (ESP32-S3)
 
 **🖥️ Windows PC HID 통신**:
