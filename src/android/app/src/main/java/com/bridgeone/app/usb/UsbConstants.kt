@@ -17,24 +17,28 @@ object UsbConstants {
     // ========== USB Device Identifiers (ESP32-S3 BridgeOne) ==========
 
     /**
-     * ESP32-S3 USB-UART 브릿지 칩의 Vendor ID.
-     * 
-     * CP2102 (Silicon Labs) UART-to-USB 칩의 VID입니다.
-     * 
-     * **주의**: TinyUSB를 통한 HID 통신이 구현되면,
-     * ESP-IDF의 usb_descriptors.c에서 정의한 Espressif VID (0x303A)로 변경해야 합니다.
+     * ESP32-S3 BridgeOne의 Vendor ID.
+     *
+     * Espressif Systems 공식 VID (0x303A)입니다.
+     * usb_descriptors.h (USB_VID)와 일치해야 합니다.
+     *
+     * 참조: src/board/BridgeOne/main/usb_descriptors.h
      */
-    const val ESP32_S3_VID = 0x10C4
+    const val ESP32_S3_VID = 0x303A
 
     /**
-     * ESP32-S3 USB-UART 브릿지 칩의 Product ID.
-     * 
-     * 현재 보드의 UART 칩 PID입니다.
-     * 
-     * **주의**: TinyUSB를 통한 HID 통신이 구현되면,
-     * ESP-IDF의 usb_descriptors.c에서 정의한 BridgeOne PID (0x4001)로 변경해야 합니다.
+     * ESP32-S3 BridgeOne의 Product ID.
+     *
+     * BridgeOne Composite Device PID (0x4001)입니다.
+     * - HID Boot Keyboard (Interface 0)
+     * - HID Boot Mouse (Interface 1)
+     * - CDC-ACM Serial (Interface 2/3)
+     *
+     * usb_descriptors.h (USB_PID)와 일치해야 합니다.
+     *
+     * 참조: src/board/BridgeOne/main/usb_descriptors.h
      */
-    const val ESP32_S3_PID = 0xEA60
+    const val ESP32_S3_PID = 0x4001
 
     // ========== UART Communication Settings ==========
 

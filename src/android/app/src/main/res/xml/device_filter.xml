@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ESP32-S3 USB Serial Device Filter (VID: 0x303A - Espressif) -->
+    <!-- ESP32-S3 BridgeOne Device Filter (VID: 0x303A - Espressif) -->
+    <!-- PID 0x4001: BridgeOne Composite Device (HID Keyboard + Mouse + CDC) -->
+    <usb-device vendor-id="0x303A" product-id="0x4001" />
+
+    <!-- Legacy PIDs (호환성 유지) -->
     <usb-device vendor-id="0x303A" product-id="0x1001" />
     <usb-device vendor-id="0x303A" product-id="0x8108" />
 </resources>
