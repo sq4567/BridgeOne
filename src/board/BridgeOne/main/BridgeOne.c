@@ -7,6 +7,7 @@
 #include "usb_descriptors.h"
 #include "uart_handler.h"
 #include "hid_handler.h"  // hid_task 함수 선언
+#include "usb_cdc_log.h"  // USB CDC 디버그 로깅
 #include "esp_task_wdt.h"
 
 static const char* TAG = "BridgeOne";
@@ -97,7 +98,21 @@ void app_main(void) {
         return;
     }
     ESP_LOGI(TAG, "TinyUSB driver installed (USB PHY switched to USB OTG)");
-    
+
+    // ==================== 1.2. USB CDC 디버그 로깅 초기화 ====================
+    // ESP_LOG 출력을 Native USB OTG의 CDC 인터페이스로 리다이렉트합니다.
+    // 이를 통해 UART0 (CH343P)를 Android 통신에 사용하면서도
+    // 포트 2️⃣ (Micro-USB)를 통해 PC에서 디버그 로그를 확인할 수 있습니다.
+    //
+    // 물리적 연결:
+    // - 포트 1️⃣ (USB-C, CH343P) → Android 스마트폰 (UART 통신)
+    // - 포트 2️⃣ (Micro-USB, Native USB OTG) → PC (디버그 로그 + HID)
+    if (usb_cdc_log_init()) {
+        ESP_LOGI(TAG, "Debug logs redirected to USB CDC (Port 2, Micro-USB)");
+    } else {
+        ESP_LOGW(TAG, "USB CDC logging init failed, using UART output");
+    }
+
     // ==================== 1.5. UART 통신 초기화 ====================
     // Android와의 UART 통신을 위해 UART 드라이버 초기화
     // 보드별 구성:

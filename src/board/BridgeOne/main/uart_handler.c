@@ -12,10 +12,12 @@ static const char *TAG = "UART_HANDLER";
  *
  * 보드별 구성:
  * - ESP32-S3-DevkitC-1: UART0 (GPIO43/44) - CP2102N USB-UART 브릿지
- * - YD-ESP32-S3 N16R8: UART1 (GPIO17/18) - Android 통신 전용
+ * - YD-ESP32-S3 N16R8: UART0 (GPIO43/44) - CH343P USB-UART 브릿지
  *
- * YD-ESP32-S3 보드는 UART1을 Android 직접 통신에 사용합니다.
- * UART0 (GPIO43/44)는 CH343 USB-UART 브릿지로 펌웨어 플래시와 디버그 로그에 사용됩니다.
+ * Android ↔ ESP32-S3 통신:
+ * - Android는 CH343P (포트 1️⃣, USB-C)를 통해 UART0로 연결됩니다
+ * - VID/PID: 0x1A86:0x55D3 (WCH CH343P)
+ * - 물리적 연결: Android → USB-OTG 케이블 → 포트 1️⃣ → CH343P → GPIO43/44
  *
  * 초기화 절차:
  * 1. uart_param_config()로 UART 파라미터 설정
@@ -45,11 +47,11 @@ int uart_init(void) {
     ESP_LOGI(TAG, "UART parameter configured: %d bps, 8N1", UART_BAUDRATE);
 
     // GPIO 핀 할당
-    // UART0 기본 핀(GPIO43/44)을 명시적으로 설정
+    // UART0 (GPIO43/44) - CH343P USB-to-UART 브릿지 연결
     ret = uart_set_pin(
         UART_NUM,
-        UART_TX_PIN,        // TX 핀 (GPIO43)
-        UART_RX_PIN,        // RX 핀 (GPIO44)
+        UART_TX_PIN,        // TX 핀 (GPIO43, CH343P)
+        UART_RX_PIN,        // RX 핀 (GPIO44, CH343P)
         UART_PIN_NO_CHANGE, // RTS 핀 (미사용)
         UART_PIN_NO_CHANGE  // CTS 핀 (미사용)
     );

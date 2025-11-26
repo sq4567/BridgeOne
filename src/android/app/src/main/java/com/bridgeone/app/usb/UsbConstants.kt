@@ -14,31 +14,27 @@ import com.hoho.android.usbserial.driver.UsbSerialPort
  */
 object UsbConstants {
 
-    // ========== USB Device Identifiers (ESP32-S3 BridgeOne) ==========
+    // ========== USB Device Identifiers (CH343P USB-to-UART Bridge) ==========
 
     /**
-     * ESP32-S3 BridgeOne의 Vendor ID.
+     * CH343P USB-to-UART 브릿지 Vendor ID.
      *
-     * Espressif Systems 공식 VID (0x303A)입니다.
-     * usb_descriptors.h (USB_VID)와 일치해야 합니다.
+     * WCH Qinheng CH343P (0x1A86)입니다.
+     * YD-ESP32-S3 N16R8 보드의 포트 1️⃣ (USB-C)에 연결됩니다.
      *
-     * 참조: src/board/BridgeOne/main/usb_descriptors.h
+     * 참조: docs/board/YD-ESP32-S3-N16R8-analysis.md §2.1.1
      */
-    const val ESP32_S3_VID = 0x303A
+    const val ESP32_S3_VID = 0x1A86
 
     /**
-     * ESP32-S3 BridgeOne의 Product ID.
+     * CH343P USB-to-UART 브릿지 Product ID.
      *
-     * BridgeOne Composite Device PID (0x4001)입니다.
-     * - HID Boot Keyboard (Interface 0)
-     * - HID Boot Mouse (Interface 1)
-     * - CDC-ACM Serial (Interface 2/3)
+     * CH343P USB-to-Serial PID (0x55D3)입니다.
+     * Android는 이 장치를 통해 ESP32-S3 UART0와 통신합니다.
      *
-     * usb_descriptors.h (USB_PID)와 일치해야 합니다.
-     *
-     * 참조: src/board/BridgeOne/main/usb_descriptors.h
+     * 참조: docs/board/YD-ESP32-S3-N16R8-analysis.md §2.1.1
      */
-    const val ESP32_S3_PID = 0x4001
+    const val ESP32_S3_PID = 0x55D3
 
     // ========== UART Communication Settings ==========
 

@@ -9,12 +9,15 @@ import android.util.Log
  * ESP32-S3 보드를 감지하는 헬퍼 클래스입니다.
  *
  * USB 디바이스 목록을 순회하여 VID/PID 필터링을 통해
- * BridgeOne ESP32-S3 디바이스를 자동으로 감지합니다.
+ * CH343P USB-to-UART 브릿지를 자동으로 감지합니다.
+ *
+ * YD-ESP32-S3 N16R8 보드의 포트 1️⃣ (USB-C)에 연결된
+ * CH343P 브릿지를 통해 ESP32-S3과 UART 통신을 수행합니다.
  *
  * 감지 후 자동으로 권한 요청을 트리거합니다.
  *
  * 참조:
- * - UsbConstants: ESP32-S3 VID/PID 상수 정의
+ * - UsbConstants: CH343P VID/PID 상수 정의 (0x1A86:0x55D3)
  * - UsbPermissionReceiver.kt: requestUsbPermission() 함수
  */
 object DeviceDetector {
@@ -22,11 +25,11 @@ object DeviceDetector {
     private const val TAG = "DeviceDetector"
 
     /**
-     * USB 디바이스 목록에서 ESP32-S3 보드를 찾습니다.
+     * USB 디바이스 목록에서 CH343P USB-to-UART 브릿지를 찾습니다.
      *
      * UsbManager의 디바이스 목록을 순회하면서 다음 조건을 확인:
-     * 1. VID가 0x303A (Espressif Systems) 인지 확인
-     * 2. PID가 0x82C5 (BridgeOne) 인지 확인
+     * 1. VID가 0x1A86 (WCH Qinheng CH343P) 인지 확인
+     * 2. PID가 0x55D3 (CH343P USB-to-Serial) 인지 확인
      *
      * **흐름:**
      * 1. usbManager.deviceList를 순회
@@ -39,7 +42,7 @@ object DeviceDetector {
      * - 권한 요청 전에 호출되어 디바이스 존재 여부 확인
      *
      * @param context 현재 앱의 Context (UsbManager 획득용)
-     * @return ESP32-S3 디바이스가 발견되면 UsbDevice 인스턴스, 없으면 null
+     * @return CH343P 디바이스가 발견되면 UsbDevice 인스턴스, 없으면 null
      */
     fun findEsp32s3Device(context: Context): UsbDevice? {
         val usbManager = context.getSystemService(Context.USB_SERVICE) as? UsbManager
@@ -53,21 +56,21 @@ object DeviceDetector {
     }
 
     /**
-     * 제공된 UsbManager를 사용하여 ESP32-S3 보드를 찾습니다.
+     * 제공된 UsbManager를 사용하여 CH343P USB-to-UART 브릿지를 찾습니다.
      *
      * 이 오버로드된 함수는 테스트 또는 기존 UsbManager 인스턴스를 사용할 때
      * 유용합니다.
      *
      * **VID/PID 필터링 로직:**
-     * - VID (Vendor ID): 0x303A (상수: UsbConstants.ESP32_S3_VID)
-     * - PID (Product ID): 0x82C5 (상수: UsbConstants.ESP32_S3_PID)
+     * - VID (Vendor ID): 0x1A86 (상수: UsbConstants.ESP32_S3_VID - WCH CH343P)
+     * - PID (Product ID): 0x55D3 (상수: UsbConstants.ESP32_S3_PID - CH343P Serial)
      *
      * **검증:**
      * - usbManager.deviceList가 null 또는 비어있는 경우 처리
      * - VID/PID 일치 여부를 16진수 형식으로 로그 출력
      *
      * @param usbManager USB 관리자 인스턴스
-     * @return ESP32-S3 디바이스가 발견되면 UsbDevice 인스턴스, 없으면 null
+     * @return CH343P 디바이스가 발견되면 UsbDevice 인스턴스, 없으면 null
      */
     fun findEsp32s3Device(usbManager: UsbManager): UsbDevice? {
         val deviceList = usbManager.deviceList

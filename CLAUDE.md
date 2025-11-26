@@ -41,27 +41,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### 포트 1️⃣: CH343P USB-to-UART 브릿지 (USB-C 포트)
 ```
-용도: 펌웨어 플래싱 및 시리얼 모니터링
+용도: Android 통신 및 펌웨어 플래싱
 특징:
   - 칩셋: WCH Qinheng CH343P
-  - GPIO43 (TX), GPIO44 (RX)
-  - 최대 3 Mbps 속도
+  - GPIO43 (TX), GPIO44 (RX) → UART0
+  - VID/PID: 0x1A86:0x55D3
+  - 최대 3 Mbps 속도 (BridgeOne은 1 Mbps 사용)
   - 하드웨어 TX/RX LED 내장
-명령어:
+
+Android 연결:
+  - Android 스마트폰 → USB-OTG 케이블 → 포트 1️⃣
+  - 표준 CDC-ACM 드라이버 자동 인식
+  - 1Mbps, 8N1 통신
+
+펌웨어 개발:
   idf.py -p <포트명> flash        # 펌웨어 플래시
   idf.py -p <포트명> monitor      # 시리얼 모니터링
 Windows: COM 포트 (예: COM3, COM4)
 Linux/macOS: /dev/ttyUSB0, /dev/ttyACM0
+
+⚠️ 주의: 펌웨어 플래싱 시 Android 연결을 해제해야 합니다.
 ```
 
-### 포트 2️⃣: ESP32-S3 Native USB OTG (USB 포트, 보드 상단)
+### 포트 2️⃣: ESP32-S3 Native USB OTG (Micro-USB 포트, 보드 상단)
 ```
-용도: HID 통신 (Windows PC와 마우스/키보드 신호 송수신)
+용도: HID 통신 (PC와 마우스/키보드 신호) + 디버그 로깅
 특징:
   - GPIO19 (USB_D-), GPIO20 (USB_D+)
   - TinyUSB 스택 기반
   - HID Boot Protocol 지원 (BIOS/BitLocker 호환)
-  - CDC 시리얼 통신도 동시 지원
+  - CDC 시리얼 통신도 동시 지원 (디버그 로그 출력)
+
+디버그 로깅:
+  - ESP_LOG 출력이 이 포트의 CDC 인터페이스로 리다이렉트됨
+  - PC에서 시리얼 터미널(PuTTY, minicom)로 연결하여 로그 확인
+  - Windows: 장치 관리자 → 포트(COM & LPT) → "USB Serial Device (COMx)"
+  - Linux: /dev/ttyACM0
+  - macOS: /dev/cu.usbmodem*
 ```
 
 ### 사용 시나리오별 연결 가이드
@@ -76,10 +92,22 @@ Linux/macOS: /dev/ttyUSB0, /dev/ttyACM0
 - **케이블**: USB-A to Micro-USB
 - **결과**: 장치 관리자에서 "HID 호환 마우스" + "HID 키보드 장치" 표시
 
-**💻 펌웨어 개발 (빌드/플래시/모니터링)**:
+**💻 펌웨어 개발 (빌드/플래시)**:
 - **포트**: CH343P USB-to-UART (포트 1)
 - **케이블**: USB-A to USB-C
-- **명령어**: `idf.py -p <포트명> flash monitor`
+- **명령어**: `idf.py -p <포트명> flash`
+- **주의**: 플래시 전 Android 케이블 분리 필요
+
+**🔧 개발 시 동시 연결 (권장)**:
+```
+Android 스마트폰 ← USB-C → 포트 1️⃣ (UART 통신)
+PC ← Micro-USB → 포트 2️⃣ (디버그 로그 + HID)
+
+결과:
+- Android에서 터치 입력 전송 (UART0 경유)
+- PC에서 디버그 로그 확인 (CDC 시리얼)
+- PC에서 마우스/키보드 동작 (HID)
+```
 
 ### 포트 결정 방법
 
@@ -210,7 +238,7 @@ src/board/BridgeOne/main/
 **주요 특징**:
 - **FreeRTOS 태스크**: `usb_task`, `hid_task`, `uart_task` 등 멀티태스킹
 - **TinyUSB**: HID Keyboard + Mouse + CDC 복합 장치 구현
-- **UART 통신**: 1Mbps 속도로 Android와 통신 (UART1, GPIO17/18)
+- **UART 통신**: 1Mbps 속도로 Android와 통신 (UART0, GPIO43/44, CH343P 브릿지)
 - **복합 프레임**: 8바이트 고정 크기 프레임으로 마우스 및 키보드 입력 전송
 
 ## TinyUSB 설정 가이드 (ESP32-S3)

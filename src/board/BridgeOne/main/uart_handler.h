@@ -11,16 +11,19 @@
  * UART 통신 설정 상수.
  *
  * 보드별 UART 구성:
- * - ESP32-S3-DevkitC-1: UART0 (GPIO43/44) - CP2102N USB-UART 브릿지 연결
- * - YD-ESP32-S3 N16R8: UART1 (GPIO17/18) - Android 통신 전용 (CH343는 플래시용)
+ * - ESP32-S3-DevkitC-1: UART0 (GPIO43/44) - CP2102N USB-UART 브릿지
+ * - YD-ESP32-S3 N16R8: UART0 (GPIO43/44) - CH343P USB-UART 브릿지
  *
- * YD-ESP32-S3 보드 사용 시:
- * - UART1 (GPIO17/18): Android 앱과 직접 통신 (1Mbps)
- * - UART0 (GPIO43/44): CH343 USB-UART 브릿지 (펌웨어 플래시 및 디버그 로그)
+ * Android ↔ ESP32-S3 통신:
+ * - Android는 CH343P (포트 1️⃣, USB-C)를 통해 UART0로 연결됩니다
+ * - VID/PID: 0x1A86:0x55D3 (WCH CH343P)
+ * - 1Mbps, 8N1 통신
+ *
+ * 주의: UART0를 Android 통신에 사용하므로, 펌웨어 플래싱 시 Android 연결을 해제해야 합니다.
  */
-#define UART_NUM UART_NUM_1
-#define UART_TX_PIN GPIO_NUM_17     // Android 통신용 TX 핀 (YD-ESP32-S3 UART1)
-#define UART_RX_PIN GPIO_NUM_18     // Android 통신용 RX 핀 (YD-ESP32-S3 UART1)
+#define UART_NUM UART_NUM_0
+#define UART_TX_PIN GPIO_NUM_43     // CH343P TX 핀 (Android 통신)
+#define UART_RX_PIN GPIO_NUM_44     // CH343P RX 핀 (Android 통신)
 #define UART_BAUDRATE 1000000       // 1 Mbps
 #define UART_DATA_BITS UART_DATA_8_BITS
 #define UART_PARITY UART_PARITY_DISABLE

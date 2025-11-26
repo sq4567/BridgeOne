@@ -118,11 +118,14 @@ OPEN: 완전한 역전압 보호
 
 #### BridgeOne 프로젝트 UART 할당 가능 핀
 ```
-Android ↔ ESP32-S3 UART 통신용 추천 핀:
-  - UART1: GPIO17 (TX), GPIO18 (RX) ← 권장
-  - UART2: GPIO16 (TX), GPIO15 (RX) ← 대안
+Android ↔ ESP32-S3 UART 통신:
+  - UART0: GPIO43 (TX), GPIO44 (RX) ← CH343P 브릿지 활용 (권장)
+  - 연결: Android → USB-OTG → 포트 1️⃣ (USB-C) → CH343P → UART0
+  - VID/PID: 0x1A86:0x55D3
 
-주의: GPIO43/44 (UART0)는 CH343P가 사용 중이므로 피해야 함
+대안 (비권장):
+  - UART1: GPIO17 (TX), GPIO18 (RX) ← 외부 USB-Serial 어댑터 필요
+  - UART2: GPIO16 (TX), GPIO15 (RX) ← 외부 USB-Serial 어댑터 필요
 ```
 
 ### 2.5 PSRAM 구성
@@ -236,13 +239,14 @@ CONFIG_TINYUSB_CDC_ENABLED=y
 
 #### 권장 UART 구성
 ```c
-// Android ↔ ESP32-S3 통신용 UART1
-#define UART_NUM        UART_NUM_1
-#define UART_TX_PIN     GPIO_NUM_17  // ← YD-ESP32-S3에서 사용 가능
-#define UART_RX_PIN     GPIO_NUM_18  // ← YD-ESP32-S3에서 사용 가능
+// Android ↔ ESP32-S3 통신용 UART0 (CH343P 브릿지)
+#define UART_NUM        UART_NUM_0
+#define UART_TX_PIN     GPIO_NUM_43  // CH343P TX 핀
+#define UART_RX_PIN     GPIO_NUM_44  // CH343P RX 핀
 #define UART_BAUD_RATE  1000000      // 1 Mbps
 
-// GPIO43/44 (UART0)는 CH343P가 사용 중이므로 피해야 함
+// CH343P를 통한 Android 연결 (VID:0x1A86, PID:0x55D3)
+// 물리적 연결: Android → USB-OTG → 포트 1️⃣ → CH343P → GPIO43/44
 ```
 
 **검증 필요 사항**:

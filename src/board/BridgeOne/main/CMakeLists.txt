@@ -1,11 +1,12 @@
 idf_component_register(
-    SRCS 
+    SRCS
         "BridgeOne.c"
         "usb_descriptors.c"
         "hid_handler.c"
         "uart_handler.c"
+        "usb_cdc_log.c"
     INCLUDE_DIRS "."
-    REQUIRES 
+    REQUIRES
         tinyusb
         freertos
         driver
