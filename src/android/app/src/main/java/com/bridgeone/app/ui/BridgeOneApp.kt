@@ -1,24 +1,40 @@
 package com.bridgeone.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -29,7 +45,11 @@ import com.bridgeone.app.ui.theme.TextPrimary
 import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.components.KeyboardLayout
 import com.bridgeone.app.ui.utils.ClickDetector
+import com.bridgeone.app.usb.UsbSerialManager
+import com.bridgeone.app.usb.UsbDebugState
+import com.bridgeone.app.usb.UsbDeviceInfo
 import android.util.Log
+import kotlinx.coroutines.delay
 
 /**
  * BridgeOne 앱의 최상위 Composable 함수입니다.
@@ -39,15 +59,56 @@ import android.util.Log
  */
 @Composable
 fun BridgeOneApp() {
+    val context = LocalContext.current
+    val debugState by UsbSerialManager.debugState.collectAsState()
+
+    // 디버그 패널 표시 여부 (기본: 표시)
+    var showDebugPanel by remember { mutableStateOf(true) }
+
+    // 주기적으로 USB 상태 스캔 (2초마다)
+    LaunchedEffect(Unit) {
+        while (true) {
+            UsbSerialManager.scanAndUpdateDebugState(context)
+            delay(2000L)
+        }
+    }
+
     // 전체 화면을 채우는 배경
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        // 메인 콘텐츠
-        MainContent()
+        // 메인 콘텐츠 (하단 정렬)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            MainContent()
+        }
+
+        // 디버그 패널 (상단)
+        if (showDebugPanel) {
+            UsbDebugPanel(
+                debugState = debugState,
+                onClose = { showDebugPanel = false },
+                onRefresh = { UsbSerialManager.scanAndUpdateDebugState(context) },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 32.dp)
+            )
+        } else {
+            // 디버그 패널 열기 버튼 (접었을 때)
+            Text(
+                text = "🔍 USB Debug",
+                color = Color.Gray,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 40.dp, end = 16.dp)
+                    .clickable { showDebugPanel = true }
+            )
+        }
     }
 }
 
@@ -151,5 +212,192 @@ private fun MainContent() {
 private fun BridgeOneAppPreview() {
     BridgeOneTheme {
         BridgeOneApp()
+    }
+}
+
+// ========== USB 디버그 패널 (임시) ==========
+
+/**
+ * USB 디버그 정보를 표시하는 패널.
+ * 연결된 USB 장치 목록과 연결 상태를 실시간으로 표시합니다.
+ */
+@Composable
+private fun UsbDebugPanel(
+    debugState: UsbDebugState,
+    onClose: () -> Unit,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .background(
+                color = Color(0xFF1E1E2E),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .border(
+                width = 1.dp,
+                color = Color(0xFF3E3E5E),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .padding(16.dp)
+    ) {
+        // 헤더
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "🔌 USB Debug Panel",
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "🔄",
+                    fontSize = 18.sp,
+                    modifier = Modifier.clickable { onRefresh() }
+                )
+                Text(
+                    text = "✕",
+                    color = Color.Gray,
+                    fontSize = 18.sp,
+                    modifier = Modifier.clickable { onClose() }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 연결 상태
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "상태:",
+                color = Color.Gray,
+                fontSize = 14.sp
+            )
+            Text(
+                text = debugState.connectionStatus,
+                color = when {
+                    debugState.isConnected -> Color(0xFF4CAF50)  // 녹색
+                    debugState.targetDevice != null -> Color(0xFFFFEB3B)  // 노란색
+                    else -> Color(0xFFFF5722)  // 주황색
+                },
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        // 에러 메시지
+        debugState.lastError?.let { error ->
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "⚠️ $error",
+                color = Color(0xFFFF5722),
+                fontSize = 12.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 타겟 VID/PID 정보
+        Text(
+            text = "찾는 장치: CH343P (VID=0x1A86, PID=0x55D3)",
+            color = Color(0xFF888888),
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 발견된 장치 목록
+        Text(
+            text = "발견된 USB 장치 (${debugState.allDevices.size}개):",
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (debugState.allDevices.isEmpty()) {
+            Text(
+                text = "연결된 USB 장치가 없습니다",
+                color = Color.Gray,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 8.dp)
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.height(120.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(debugState.allDevices) { device ->
+                    UsbDeviceItem(device = device)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * USB 장치 항목 표시
+ */
+@Composable
+private fun UsbDeviceItem(device: UsbDeviceInfo) {
+    val backgroundColor = if (device.isTarget) Color(0xFF2E4A2E) else Color(0xFF2A2A3A)
+    val borderColor = if (device.isTarget) Color(0xFF4CAF50) else Color.Transparent
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(backgroundColor, RoundedCornerShape(8.dp))
+            .border(
+                width = if (device.isTarget) 1.dp else 0.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = if (device.isTarget) "✓ TARGET" else device.deviceName,
+                color = if (device.isTarget) Color(0xFF4CAF50) else Color.White,
+                fontSize = 12.sp,
+                fontWeight = if (device.isTarget) FontWeight.Bold else FontWeight.Normal
+            )
+            Text(
+                text = "${device.vidHex}:${device.pidHex}",
+                color = Color(0xFFAADDFF),
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+
+        device.productName?.let { name ->
+            Text(
+                text = name,
+                color = Color.Gray,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+
+        device.manufacturerName?.let { manufacturer ->
+            Text(
+                text = "제조사: $manufacturer",
+                color = Color(0xFF666666),
+                fontSize = 10.sp
+            )
+        }
     }
 }

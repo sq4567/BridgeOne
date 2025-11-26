@@ -1,6 +1,7 @@
 package com.bridgeone.app.usb
 
 import android.content.Context
+import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.util.Log
 import com.bridgeone.app.protocol.BridgeFrame
@@ -8,6 +9,9 @@ import com.bridgeone.app.usb.UsbConstants
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import java.io.IOException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * USB Serial 통신 싱글톤 매니저
@@ -46,10 +50,40 @@ import java.io.IOException
  * - UsbPermissionReceiver.kt: USB 권한 요청 처리
  * - DeviceDetector.kt: ESP32-S3 디바이스 자동 감지
  */
+/**
+ * USB 디버그 상태 정보 (임시 디버그용)
+ */
+data class UsbDebugState(
+    val allDevices: List<UsbDeviceInfo> = emptyList(),
+    val targetDevice: UsbDeviceInfo? = null,
+    val isConnected: Boolean = false,
+    val connectionStatus: String = "초기화 대기",
+    val lastError: String? = null
+)
+
+/**
+ * USB 장치 정보 (디버그 표시용)
+ */
+data class UsbDeviceInfo(
+    val deviceName: String,
+    val vendorId: Int,
+    val productId: Int,
+    val manufacturerName: String?,
+    val productName: String?,
+    val isTarget: Boolean = false
+) {
+    val vidHex: String get() = "0x${vendorId.toString(16).uppercase().padStart(4, '0')}"
+    val pidHex: String get() = "0x${productId.toString(16).uppercase().padStart(4, '0')}"
+}
+
 object UsbSerialManager {
 
     // ========== 태그 정의 (로그 출력용) ==========
     private const val TAG = "UsbSerialManager"
+
+    // ========== 디버그 상태 (UI 표시용) ==========
+    private val _debugState = MutableStateFlow(UsbDebugState())
+    val debugState: StateFlow<UsbDebugState> = _debugState.asStateFlow()
 
     // ========== 데이터 멤버 (상태 관리) ==========
 
@@ -543,6 +577,78 @@ object UsbSerialManager {
     fun disconnect() {
         closePort()
         Log.i(TAG, "USB connection disconnected")
+    }
+
+    // ========== 디버그 함수 (임시) ==========
+
+    /**
+     * USB 장치 목록을 스캔하고 디버그 상태를 업데이트합니다.
+     * UI에서 현재 연결된 USB 장치들을 표시하기 위해 사용됩니다.
+     *
+     * @param context 현재 앱의 Context
+     */
+    fun scanAndUpdateDebugState(context: Context) {
+        try {
+            val manager = context.getSystemService(Context.USB_SERVICE) as? UsbManager
+            if (manager == null) {
+                _debugState.value = _debugState.value.copy(
+                    connectionStatus = "UsbManager 획득 실패",
+                    lastError = "시스템 서비스 없음"
+                )
+                return
+            }
+
+            val deviceList = manager.deviceList
+            val allDevices = deviceList.values.map { device ->
+                val isTarget = device.vendorId == UsbConstants.ESP32_S3_VID &&
+                        device.productId == UsbConstants.ESP32_S3_PID
+                UsbDeviceInfo(
+                    deviceName = device.deviceName,
+                    vendorId = device.vendorId,
+                    productId = device.productId,
+                    manufacturerName = device.manufacturerName,
+                    productName = device.productName,
+                    isTarget = isTarget
+                )
+            }
+
+            val targetDevice = allDevices.find { it.isTarget }
+
+            val status = when {
+                deviceList.isEmpty() -> "USB 장치 없음"
+                targetDevice != null && isConnected -> "연결됨 ✓"
+                targetDevice != null -> "CH343P 발견 (권한 필요)"
+                else -> "CH343P 미발견 (${deviceList.size}개 장치)"
+            }
+
+            _debugState.value = UsbDebugState(
+                allDevices = allDevices,
+                targetDevice = targetDevice,
+                isConnected = isConnected,
+                connectionStatus = status,
+                lastError = null
+            )
+
+            Log.d(TAG, "Debug state updated: ${allDevices.size} devices, target=${targetDevice != null}, connected=$isConnected")
+
+        } catch (e: Exception) {
+            _debugState.value = _debugState.value.copy(
+                connectionStatus = "스캔 오류",
+                lastError = e.message
+            )
+            Log.e(TAG, "Error scanning USB devices: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 디버그 상태의 연결 상태를 업데이트합니다 (내부용).
+     */
+    private fun updateDebugConnectionStatus(status: String, error: String? = null) {
+        _debugState.value = _debugState.value.copy(
+            isConnected = isConnected,
+            connectionStatus = status,
+            lastError = error
+        )
     }
 }
 
