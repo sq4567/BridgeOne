@@ -192,13 +192,11 @@ Phase 2.2에서 구현된 위 통신 경로의 **정확성, 안정성, 성능**�
 ```
 
 1. **Android → ESP32-S3 연결**:
-   - Android 기기를 ESP32-S3의 **COM 포트** (우측 하단)에 USB-C 케이블 연결
-   - ⚠️ **주의**: USB-OTG 포트가 아닙니다!
+   - Android 기기를 ESP32-S3의 **COM 포트**에 USB-C 케이블 연결
    - Android 앱 빌드 및 설치
 
 2. **ESP32-S3 → Windows PC 연결**:
-   - ESP32-S3의 **USB-OTG 포트** (좌측 상단)를 Windows PC에 USB 케이블로 연결
-   - ⚠️ **주의**: COM 포트가 아닙니다!
+   - ESP32-S3의 **USB-OTG 포트**를 Windows PC에 USB 케이블로 연결
    - Windows 장치 관리자 열기 (devmgmt.msc)
 
 **올바른 연결 상태**:
