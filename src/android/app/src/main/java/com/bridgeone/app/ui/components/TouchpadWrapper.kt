@@ -91,29 +91,33 @@ fun TouchpadWrapper(
                 awaitEachGesture {
                     // 포인터 DOWN 이벤트 처리
                     val down = awaitPointerEvent()
-                    if (down.type == PointerEventType.Press) {
-                        currentTouchPosition.value = down.changes.first().position
-                        previousTouchPosition.value = currentTouchPosition.value
-                        
-                        // Phase 2.2.3.3: DOWN 이벤트 시간 및 위치 기록 (클릭 감지용)
-                        touchDownTime.value = System.currentTimeMillis()
-                        touchDownPosition.value = currentTouchPosition.value
-                        
-                        // Phase 2.2.3.3: 보상된 델타 값 초기화
-                        compensatedDeltaX.value = 0f
-                        compensatedDeltaY.value = 0f
-                        
-                        Log.d(
-                            "TouchpadWrapper",
-                            "DOWN Event - position=(${currentTouchPosition.value.x.toInt()}, ${currentTouchPosition.value.y.toInt()})"
-                        )
-                        
-                        onTouchEvent(
-                            PointerEventType.Press,
-                            currentTouchPosition.value,
-                            previousTouchPosition.value
-                        )
+
+                    // PRESS가 아닌 이벤트(MOVE, RELEASE 등)로 시작하면 제스처 무시
+                    if (down.type != PointerEventType.Press) {
+                        return@awaitEachGesture
                     }
+
+                    currentTouchPosition.value = down.changes.first().position
+                    previousTouchPosition.value = currentTouchPosition.value
+
+                    // Phase 2.2.3.3: DOWN 이벤트 시간 및 위치 기록 (클릭 감지용)
+                    touchDownTime.value = System.currentTimeMillis()
+                    touchDownPosition.value = currentTouchPosition.value
+
+                    // Phase 2.2.3.3: 보상된 델타 값 초기화
+                    compensatedDeltaX.value = 0f
+                    compensatedDeltaY.value = 0f
+
+                    Log.d(
+                        "TouchpadWrapper",
+                        "DOWN Event - position=(${currentTouchPosition.value.x.toInt()}, ${currentTouchPosition.value.y.toInt()})"
+                    )
+
+                    onTouchEvent(
+                        PointerEventType.Press,
+                        currentTouchPosition.value,
+                        previousTouchPosition.value
+                    )
 
                     // 포인터 MOVE 이벤트 처리
                     var moveEvent = awaitPointerEvent()
