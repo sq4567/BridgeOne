@@ -3,6 +3,9 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 
+// 프레임 수신 디버그 로그 활성화 (개발/디버깅 단계에서만)
+#define DEBUG_FRAME_VERBOSE
+
 static const char *TAG = "UART_HANDLER";
 
 /**

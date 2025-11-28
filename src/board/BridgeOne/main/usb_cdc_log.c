@@ -113,3 +113,61 @@ void usb_cdc_log_write(const char* str) {
         tud_cdc_write_flush();
     }
 }
+
+// ==================== TinyUSB CDC 콜백 함수 구현 ====================
+/**
+ * TinyUSB CDC Line State 콜백 함수.
+ *
+ * 호스트가 DTR(Data Terminal Ready) 또는 RTS(Request To Send) 신호를 변경하면 호출됩니다.
+ * DTR=true는 보통 호스트의 시리얼 터미널이 연결되었음을 의미합니다.
+ *
+ * @param itf CDC 인터페이스 번호 (0-based)
+ * @param dtr Data Terminal Ready 상태 (true: 연결됨, false: 연결 해제)
+ * @param rts Request To Send 상태 (일반적으로 사용 안 함)
+ */
+void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
+    (void) rts;  // 사용하지 않는 매개변수
+
+    if (dtr) {
+        // 호스트가 CDC 포트를 열었음 (시리얼 터미널 연결)
+        ESP_LOGI(TAG, "CDC interface %d connected (DTR=true)", itf);
+        usb_cdc_log_write("\n\n=== BridgeOne USB CDC Debug Log ===\n");
+        usb_cdc_log_write("Connected successfully. Logs will appear below.\n\n");
+    } else {
+        // 호스트가 CDC 포트를 닫았음 (시리얼 터미널 연결 해제)
+        ESP_LOGI(TAG, "CDC interface %d disconnected (DTR=false)", itf);
+    }
+}
+
+/**
+ * TinyUSB CDC RX 콜백 함수.
+ *
+ * 호스트로부터 데이터를 수신하면 호출됩니다.
+ * BridgeOne은 디버그 로그 출력만 하므로 수신 데이터를 처리하지 않지만,
+ * 콜백 함수는 반드시 구현되어야 합니다.
+ *
+ * @param itf CDC 인터페이스 번호 (0-based)
+ */
+void tud_cdc_rx_cb(uint8_t itf) {
+    // 수신된 데이터를 버리기 (읽어서 버퍼 비우기)
+    uint8_t buf[64];
+    while (tud_cdc_available()) {
+        tud_cdc_read(buf, sizeof(buf));
+    }
+}
+
+/**
+ * TinyUSB CDC Line Coding 콜백 함수.
+ *
+ * 호스트가 시리얼 통신 설정(baud rate, data bits, stop bits, parity)을 변경하면 호출됩니다.
+ * BridgeOne은 가상 CDC이므로 이 설정을 무시하지만, 콜백 함수는 반드시 구현되어야 합니다.
+ *
+ * @param itf CDC 인터페이스 번호 (0-based)
+ * @param p_line_coding 라인 코딩 설정 구조체 포인터
+ */
+void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* p_line_coding) {
+    // 가상 CDC이므로 설정을 무시 (로그만 출력)
+    ESP_LOGD(TAG, "CDC line coding changed: baud=%lu, bits=%u, stop=%u, parity=%u",
+             p_line_coding->bit_rate, p_line_coding->data_bits,
+             p_line_coding->stop_bits, p_line_coding->parity);
+}

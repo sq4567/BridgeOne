@@ -58,12 +58,13 @@ extern "C" {
 // ==================== HID Configuration ====================
 /**
  * HID (Human Interface Device) Class 활성화
- * 
+ *
  * 설정:
+ * - CFG_TUD_HID: HID 인터페이스 개수 (Keyboard + Mouse = 2개)
  * - CFG_TUD_HID_EP_BUFSIZE: 각 HID 엔드포인트 버퍼 크기 (64 bytes = Full-speed 최대)
  * - CFG_TUD_HID_EP_BUFSIZE: 두 HID 인터페이스(Keyboard, Mouse) 각각에 적용
  */
-#define CFG_TUD_HID         1
+#define CFG_TUD_HID         2
 #define CFG_TUD_HID_EP_BUFSIZE  64
 
 // ==================== CDC Configuration ====================

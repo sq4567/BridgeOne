@@ -2,6 +2,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "driver/uart.h"  // uart_wait_tx_done() 함수 사용
 #include "tinyusb.h"  // esp_tinyusb wrapper 헤더
 #include "tusb.h"     // TinyUSB core 헤더 (tud_task 등)
 #include "usb_descriptors.h"
@@ -98,6 +99,10 @@ void app_main(void) {
         return;
     }
     ESP_LOGI(TAG, "TinyUSB driver installed (USB PHY switched to USB OTG)");
+
+    // UART0 TX 버퍼 플러시 대기 (CDC 전환 전 로그 손실 방지)
+    // uart_wait_tx_done() 대신 간단한 딜레이 사용 (UART 드라이버 초기화 전이므로 안전)
+    vTaskDelay(pdMS_TO_TICKS(50));
 
     // ==================== 1.2. USB CDC 디버그 로깅 초기화 ====================
     // ESP_LOG 출력을 Native USB OTG의 CDC 인터페이스로 리다이렉트합니다.
