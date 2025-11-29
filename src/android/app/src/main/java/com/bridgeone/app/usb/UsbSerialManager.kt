@@ -285,6 +285,14 @@ object UsbSerialManager {
      * - UsbConstants.kt: DELTA_FRAME_SIZE, USB_WRITE_TIMEOUT_MS 상수
      * - usb-serial-for-android: UsbSerialPort.write() API
      */
+    /**
+     * 연속 전송 실패 카운터 (포트 상태 모니터링용)
+     * @Volatile: 멀티스레드 환경에서 가시성 보장 (터치패드 고속 전송 시 race condition 방지)
+     */
+    @Volatile
+    private var consecutiveFailures = 0
+    private const val MAX_CONSECUTIVE_FAILURES = 10
+
     fun sendFrame(frame: BridgeFrame) {
         // 포트 연결 상태 확인
         val port = usbSerialPort
@@ -303,6 +311,9 @@ object UsbSerialManager {
             // IOException이 발생하면 catch 블록에서 처리
             port.write(frameData, UsbConstants.USB_WRITE_TIMEOUT_MS)
 
+            // 전송 성공 시 실패 카운터 리셋
+            consecutiveFailures = 0
+
             // 전송 성공 로그 (프레임 전송 정보)
             Log.d(
                 TAG,
@@ -311,11 +322,18 @@ object UsbSerialManager {
             )
 
         } catch (e: IOException) {
-            // USB 전송 실패 (타임아웃 또는 포트 오류)
-            // 포트 자동 종료 후 예외 던짐
-            Log.e(TAG, "IOException during frame transmission: ${e.message}", e)
-            closePort()
-            throw IllegalStateException("USB transmission failed, port closed", e)
+            // Phase 2.3.2: IOException 발생 시 즉시 포트 닫지 않고 재시도 허용
+            consecutiveFailures++
+            Log.w(TAG, "IOException during frame transmission (failure $consecutiveFailures/$MAX_CONSECUTIVE_FAILURES): ${e.message}")
+
+            // 연속 실패가 임계값을 초과하면 포트 닫기 (심각한 연결 문제)
+            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                Log.e(TAG, "Too many consecutive failures, closing port")
+                closePort()
+                consecutiveFailures = 0
+                throw IllegalStateException("USB transmission failed after $MAX_CONSECUTIVE_FAILURES attempts, port closed", e)
+            }
+            // 단일 실패는 무시하고 다음 프레임 전송 허용 (예외 던지지 않음)
 
         } catch (e: IllegalStateException) {
             // 프레임 크기 또는 포트 연결 상태 검증 실패
