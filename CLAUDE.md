@@ -505,3 +505,80 @@ HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USB\VID_303A&PID_4001\[시리�
 - **YD-ESP32-S3 N16R8**: UART1 (GPIO17/18) 사용, CH343 드라이버 필요
   - 일부 보드에서 5V 핀 전압 이슈 보고됨 (사용 전 멀티미터로 확인 권장)
   - 상세 정보: `docs/board/YD-ESP32-S3-N16R8-analysis.md` 참조
+
+## Claude의 PowerShell 환경 가이드라인
+
+**⚠️ 중요: 이 프로젝트는 Windows PowerShell 환경에서 개발됩니다**
+
+### Unix/Linux 명령어 사용 금지
+- **절대 제안하지 않음**: `grep`, `sed`, `awk`, `cat`, `ls`, `find`, `xargs`, `cut`, `sort` 등 Unix/Linux 명령어 제안 금지
+- **절대 실행하지 않음**: PowerShell 터미널에서 이러한 명령어를 실행하지 않습니다
+- **이유**: Windows PowerShell에서 Unix 명령어 호환성이 불완전하거나 기본으로 제공되지 않을 수 있습니다
+
+### PowerShell 대안 제시
+File/Content 검색이나 처리가 필요한 경우:
+- **파일 찾기**: `Glob` 도구 사용 (Unix `find` 대신)
+- **내용 검색**: `Grep` 도구 사용 (Unix `grep` 대신)
+- **파일 읽기**: `Read` 도구 사용 (Unix `cat` 대신)
+- **파일 편집**: `Edit` 도구 사용 (Unix `sed` 대신)
+- **파일 작성**: `Write` 도구 사용 (Unix `echo` 또는 리다이렉션 대신)
+
+### PowerShell 명령어 선택기
+| 작업 | Unix 명령어 | PowerShell 대안 | Claude 도구 |
+|------|-----------|----------------|-----------|
+| 파일 검색 | `find file.txt` | `Get-Item`, `Get-ChildItem` | `Glob` (권장) |
+| 내용 검색 | `grep "pattern"` | `Select-String` | `Grep` (권장) |
+| 파일 나열 | `ls`, `find` | `Get-ChildItem` (ls 별칭) | `Glob` (권장) |
+| 파일 읽기 | `cat file.txt` | `Get-Content` | `Read` (권장) |
+| 텍스트 처리 | `sed`, `awk` | `ForEach-Object`, `-replace` | `Edit` (권장) |
+| 파일 작성 | `echo > file.txt` | `Set-Content` | `Write` (권장) |
+| 파일 삭제 | `rm`, `del` | `Remove-Item` | (직접 사용 가능) |
+| 디렉토리 생성 | `mkdir` | `New-Item -Type Directory` | (직접 사용 가능) |
+
+### 사용 예시
+
+❌ **절대 이렇게 하지 않음**:
+```powershell
+# grep으로 패턴 검색
+grep -r "TODO" src/
+
+# sed로 파일 수정
+sed -i 's/old/new/g' file.txt
+
+# find로 파일 검색
+find . -name "*.kt" -type f
+```
+
+✅ **대신 이렇게 함**:
+```powershell
+# Grep 도구로 패턴 검색
+# → Claude가 Grep 도구 사용 또는 Select-String 제안
+
+# Edit 도구로 파일 수정
+# → Claude가 Edit 도구 사용
+
+# Glob 도구로 파일 검색
+# → Claude가 Glob 도구 사용 또는 Get-ChildItem 제안
+```
+
+### PowerShell 명령어 사용 가능
+실제 시스템 작업이 필요한 경우 PowerShell 명령어는 사용 가능합니다:
+```powershell
+# 빌드 및 실행 관련
+./gradlew build
+idf.py build
+npm install
+
+# 버전 확인
+java -version
+python --version
+
+# 경로/환경 확인
+echo $env:JAVA_HOME
+Get-ChildItem env:
+```
+
+### 핵심 규칙
+- **도구 우선**: 파일/내용 작업 → Claude 도구 사용 (Glob, Grep, Read, Edit, Write)
+- **PowerShell 사용**: 실제 시스템 명령 (git, gradle, build 등)
+- **Unix 금지**: grep, sed, awk, find, cat 등 절대 제안/실행 금지
