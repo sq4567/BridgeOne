@@ -71,7 +71,10 @@ fun TouchpadWrapper(
     // Phase 2.2.3.3: 보상된 델타 값 저장 (MOVE 이벤트에서 업데이트, RELEASE에서 사용)
     val compensatedDeltaX = remember { mutableStateOf(0f) }
     val compensatedDeltaY = remember { mutableStateOf(0f) }
-    
+
+    // 데드존 탈출 여부 (터치 시작점에서 누적 이동 거리가 임계값을 넘으면 true)
+    val deadZoneEscaped = remember { mutableStateOf(false) }
+
     // Phase 2.2.3.2: 현재 화면의 밀도 정보
     val density = LocalDensity.current
 
@@ -108,6 +111,9 @@ fun TouchpadWrapper(
                     compensatedDeltaX.value = 0f
                     compensatedDeltaY.value = 0f
 
+                    // 데드존 상태 초기화
+                    deadZoneEscaped.value = false
+
                     Log.d(
                         "TouchpadWrapper",
                         "DOWN Event - position=(${currentTouchPosition.value.x.toInt()}, ${currentTouchPosition.value.y.toInt()})"
@@ -125,25 +131,51 @@ fun TouchpadWrapper(
                         previousTouchPosition.value = currentTouchPosition.value
                         currentTouchPosition.value = moveEvent.changes.first().position
                         
-                        // Phase 2.2.3.2: 델타 계산 및 데드존 보상
+                        // Phase 2.2.3.2: 델타 계산
                         val rawDelta = DeltaCalculator.calculateDelta(
                             previousTouchPosition.value,
                             currentTouchPosition.value
                         )
-                        val compensatedDelta = DeltaCalculator.applyDeadZone(
-                            density,
-                            DeltaCalculator.convertDpToPixels(density, rawDelta)
-                        )
-                        
+                        val rawDeltaPixels = DeltaCalculator.convertDpToPixels(density, rawDelta)
+
+                        // 데드존 체크: 터치 시작점에서 현재 위치까지의 누적 거리
+                        if (!deadZoneEscaped.value) {
+                            val distanceFromStart = (currentTouchPosition.value - touchDownPosition.value).getDistance()
+                            val deadZoneThreshold = DeltaCalculator.getDeadZoneThresholdPx(density)
+                            if (distanceFromStart >= deadZoneThreshold) {
+                                deadZoneEscaped.value = true
+                                Log.d("TouchpadWrapper", "DeadZone ESCAPED - distance=${"%.1f".format(distanceFromStart)}px >= threshold=${"%.1f".format(deadZoneThreshold)}px")
+                            }
+                        }
+
+                        // 데드존 탈출 후에만 델타 전송
+                        val finalDelta = if (deadZoneEscaped.value) {
+                            // 데드존 탈출: 범위만 정규화 (-127 ~ 127)
+                            DeltaCalculator.normalizeOnly(rawDeltaPixels)
+                        } else {
+                            // 데드존 내: 무시
+                            Offset.Zero
+                        }
+
                         // Phase 2.2.3.3: 보상된 델타 값을 저장 (RELEASE에서 프레임 생성 시 사용)
-                        compensatedDeltaX.value = compensatedDelta.x
-                        compensatedDeltaY.value = compensatedDelta.y
-                        
-                        // 디버그 로그: 원본 및 보상 후 델타 값
+                        compensatedDeltaX.value = finalDelta.x
+                        compensatedDeltaY.value = finalDelta.y
+
+                        // Phase 2.3.2: MOVE 이벤트마다 드래그 프레임 즉시 전송 (마우스 커서 이동)
+                        if (finalDelta.x != 0f || finalDelta.y != 0f) {
+                            val dragFrame = ClickDetector.createFrame(
+                                buttonState = 0x00u,  // 드래그 중에는 버튼 없음
+                                deltaX = finalDelta.x,
+                                deltaY = finalDelta.y
+                            )
+                            ClickDetector.sendFrame(dragFrame)
+                        }
+
+                        // 디버그 로그: 원본 및 최종 델타 값
                         Log.d(
                             "TouchpadWrapper",
                             "MOVE Event - Raw Delta: (${rawDelta.x.toInt()}, ${rawDelta.y.toInt()}) → " +
-                            "Compensated: (${compensatedDelta.x.toInt()}, ${compensatedDelta.y.toInt()})"
+                            "Final: (${finalDelta.x.toInt()}, ${finalDelta.y.toInt()}) [deadZoneEscaped=${deadZoneEscaped.value}]"
                         )
                         
                         onTouchEvent(
@@ -164,20 +196,24 @@ fun TouchpadWrapper(
                             previousTouchPosition.value,
                             currentTouchPosition.value
                         )
-                        val releaseCompensatedDelta = DeltaCalculator.applyDeadZone(
-                            density,
-                            DeltaCalculator.convertDpToPixels(density, releaseDelta)
-                        )
-                        
+                        val releaseDeltaPixels = DeltaCalculator.convertDpToPixels(density, releaseDelta)
+
+                        // 데드존 탈출 여부에 따라 델타 처리
+                        val releaseFinalDelta = if (deadZoneEscaped.value) {
+                            DeltaCalculator.normalizeOnly(releaseDeltaPixels)
+                        } else {
+                            Offset.Zero
+                        }
+
                         // Phase 2.2.3.3: RELEASE 이벤트에서 보상된 델타 값 업데이트
-                        compensatedDeltaX.value = releaseCompensatedDelta.x
-                        compensatedDeltaY.value = releaseCompensatedDelta.y
-                        
+                        compensatedDeltaX.value = releaseFinalDelta.x
+                        compensatedDeltaY.value = releaseFinalDelta.y
+
                         // 디버그 로그: RELEASE 이벤트의 델타 값
                         Log.d(
                             "TouchpadWrapper",
                             "RELEASE Event - Raw Delta: (${releaseDelta.x.toInt()}, ${releaseDelta.y.toInt()}) → " +
-                            "Compensated: (${releaseCompensatedDelta.x.toInt()}, ${releaseCompensatedDelta.y.toInt()})"
+                            "Final: (${releaseFinalDelta.x.toInt()}, ${releaseFinalDelta.y.toInt()}) [deadZoneEscaped=${deadZoneEscaped.value}]"
                         )
                         
                         // Phase 2.2.3.3: 클릭 감지 및 프레임 생성/전송
@@ -202,6 +238,7 @@ fun TouchpadWrapper(
                         touchDownPosition.value = Offset.Zero
                         compensatedDeltaX.value = 0f
                         compensatedDeltaY.value = 0f
+                        deadZoneEscaped.value = false
                         
                         Log.d(
                             "TouchpadWrapper",

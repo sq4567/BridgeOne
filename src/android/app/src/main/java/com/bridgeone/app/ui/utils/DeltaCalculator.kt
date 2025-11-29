@@ -24,15 +24,15 @@ object DeltaCalculator {
     /**
      * 터치 데드존 임계값 (dp 단위)
      *
-     * 이 값보다 작은 이동은 의도하지 않은 손떨림으로 간주하여 무시합니다.
-     * 단위: 15dp (화면 밀도에 따라 pixel로 변환됨)
+     * 터치 시작점에서 이 값 이상 이동해야 드래그로 인식합니다.
+     * 단위: 5dp (화면 밀도에 따라 pixel로 변환됨)
      *
      * 예시:
-     * - 밀도 1.0x 장치: 15px
-     * - 밀도 1.5x 장치: 22.5px (≈ 23px)
-     * - 밀도 2.0x 장치: 30px
+     * - 밀도 1.0x 장치: 5px
+     * - 밀도 2.0x 장치: 10px
+     * - 밀도 3.0x 장치: 15px
      */
-    private val DEAD_ZONE_THRESHOLD = 15.dp
+    private val DEAD_ZONE_THRESHOLD = 5.dp
 
     /**
      * 델타 값의 최대 절댓값 (signed byte 범위)
@@ -172,6 +172,25 @@ object DeltaCalculator {
             .coerceIn(-MAX_DELTA_VALUE, MAX_DELTA_VALUE)
             .toFloat()
         val normalizedY = compensatedY.toInt()
+            .coerceIn(-MAX_DELTA_VALUE, MAX_DELTA_VALUE)
+            .toFloat()
+
+        return Offset(normalizedX, normalizedY)
+    }
+
+    /**
+     * 데드존 처리 없이 범위 정규화만 수행합니다.
+     *
+     * 데드존을 이미 탈출한 상태에서 델타 값을 -127 ~ 127 범위로 제한합니다.
+     *
+     * @param deltaPixel pixel 단위의 상대 이동값
+     * @return 범위 정규화된 상대 이동값 (-127 ~ 127)
+     */
+    fun normalizeOnly(deltaPixel: Offset): Offset {
+        val normalizedX = deltaPixel.x.toInt()
+            .coerceIn(-MAX_DELTA_VALUE, MAX_DELTA_VALUE)
+            .toFloat()
+        val normalizedY = deltaPixel.y.toInt()
             .coerceIn(-MAX_DELTA_VALUE, MAX_DELTA_VALUE)
             .toFloat()
 
