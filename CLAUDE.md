@@ -74,7 +74,7 @@ Linux/macOS: /dev/ttyUSB0, /dev/ttyACM0
 
 디버그 로깅:
   - ESP_LOG 출력이 이 포트의 CDC 인터페이스로 리다이렉트됨
-  - PC에서 시리얼 터미널(PuTTY, minicom)로 연결하여 로그 확인
+  - PC에서 시리얼 터미널로 연결하여 로그 확인 (Tera Term 권장)
   - Windows: 장치 관리자 → 포트(COM & LPT) → "USB Serial Device (COMx)"
   - Linux: /dev/ttyACM0
   - macOS: /dev/cu.usbmodem*
@@ -118,6 +118,108 @@ idf.py list-ports
 # 포트별 식별 방법
 # CH343P (포트 1): "CH343" 또는 "CP210x" 표시
 # Native USB (포트 2): 일반 USB 장치로 표시
+```
+
+## 하드웨어 연결 방식 약어 정의
+
+개발 시 다양한 연결 시나리오를 빠르게 지칭하기 위해 다음의 표준 약어를 사용합니다:
+
+### 연결 방식 분류
+
+| 약어 | 정식 명칭 | 구성 | 주요 용도 |
+|------|---------|------|---------|
+| **풀 연결** | Full Connection | Android ↔ 포트 1️⃣(COM) + PC ↔ 포트 2️⃣(USB-OTG) | 완전한 통합 테스트, 실제 운영 환경 |
+| **1차 연결** | Primary Connection | Android ↔ 포트 1️⃣(COM) | Android 앱 개발, USB 통신 테스트 |
+| **2차 연결** | Secondary Connection | PC ↔ 포트 2️⃣(USB-OTG) | HID 동작 테스트, 디버그 로그 확인 |
+| **플래시용 연결** | Flash Connection / Debug Connection | PC ↔ 포트 1️⃣(COM) | 펌웨어 플래시, 시리얼 모니터링 |
+
+### 연결 방식별 상세 설명
+
+#### 풀 연결 (Full Connection)
+```
+Android 스마트폰 ←[USB-C]→ 포트 1️⃣ CH343P (COM)
+PC ←[Micro-USB]→ 포트 2️⃣ Native USB-OTG
+
+목적:
+- Android 앱 ↔ ESP32-S3 UART 통신 (완전히 동작)
+- ESP32-S3 ↔ PC HID 통신 (완전히 동작)
+- 디버그 로그 PC에서 확인 (CDC 시리얼)
+- 실제 마우스/키보드 제어 가능
+
+사용 시나리오:
+- E2E 통합 테스트
+- 실제 운영 환경에서의 성능 검증
+- 전체 시스템 동작 확인
+```
+
+#### 1차 연결 (Primary Connection)
+```
+Android 스마트폰 ←[USB-C]→ 포트 1️⃣ CH343P (COM)
+
+목적:
+- Android 앱에서 UART 프레임 전송/수신 테스트
+- USB 시리얼 연결 안정성 확인
+- 터치패드 입력 → UART 전송 검증
+
+사용 시나리오:
+- Android 앱 기능 개발/테스트
+- USB 통신 프로토콜 검증
+- 펌웨어 플래시 없이 Android 측만 테스트
+```
+
+#### 2차 연결 (Secondary Connection)
+```
+PC ←[Micro-USB]→ 포트 2️⃣ Native USB-OTG
+
+목적:
+- ESP32-S3 → PC HID 신호 검증
+- 디버그 로그 확인 (CDC 시리얼)
+- PC에서 마우스/키보드 장치 인식 확인
+
+사용 시나리오:
+- 펌웨어 로직 검증
+- HID 프로토콜 디버깅
+- 하드웨어 초기화 상태 확인
+```
+
+#### 플래시용 연결 (Flash Connection)
+```
+PC ←[USB-C]→ 포트 1️⃣ CH343P (COM)
+
+목적:
+- `idf.py flash` 명령으로 펌웨어 다운로드
+- 펌웨어 빌드 후 보드에 로드
+- 시리얼 모니터로 ESP-IDF 로그 확인
+
+사용 시나리오:
+- 펌웨어 개발 후 보드에 로드
+- 펌웨어 변경 테스트
+- ESP-IDF 로그 디버깅
+
+주의사항:
+- 플래시 중에는 Android 연결 해제 필수
+- 포트 번호 충돌 방지
+```
+
+### 연결 방식 선택 가이드
+
+```yaml
+작업 유형별 추천 연결:
+  Android 앱 기능 개발:
+    추천: 1차 연결
+    설명: Android 측 UART 통신 완전히 검증 가능
+
+  펌웨어 로직 개발:
+    추천: 2차 연결 + 플래시용 연결
+    설명: HID 테스트 + 펌웨어 로깅 동시 확인
+
+  통합 테스트:
+    추천: 풀 연결
+    설명: 전체 시스템 동작 확인
+
+  긴급 디버깅:
+    추천: 풀 연결
+    설명: 모든 레이어의 신호를 동시에 확인 가능
 ```
 
 ## 주요 개발 명령어
@@ -495,6 +597,38 @@ HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USB\VID_303A&PID_4001\[시리�
 - **Android 개발**: Android Studio (최신 버전 권장)
 - **ESP32-S3 개발**: ESP-IDF v5.5+ 설치 필수
 - **Python**: 3.8 이상 (ESP-IDF 요구사항)
+
+### 시리얼 모니터 도구
+
+**⚠️ 중요: `idf.py monitor` 대신 Tera Term을 사용합니다**
+
+`idf.py monitor`는 Windows 환경에서 출력 누락이 발생할 수 있습니다. 안정적인 시리얼 모니터링을 위해 **Tera Term**을 기본 도구로 사용합니다.
+
+**Tera Term 설정:**
+```
+다운로드: https://ttssh2.osdn.jp/index.html.en
+
+Setup → Serial port...
+├─ Port: COMx (ESP32-S3 포트)
+├─ Baud rate: 115200
+├─ Data: 8 bit
+├─ Parity: none
+├─ Stop: 1 bit
+└─ Flow control: none
+```
+
+**용도별 도구 선택:**
+| 용도 | 권장 도구 | 비고 |
+|------|----------|------|
+| 일반 디버그 로그 | **Tera Term** | 안정적, 로그 파일 저장 |
+| HEX/바이너리 분석 | RealTerm | UART 프레임 디버깅 |
+| 다중 포트 모니터링 | CoolTerm | Android + PC 동시 확인 |
+| 플래시 직후 확인 | `idf.py monitor` | ESP-IDF 통합 필요시만 |
+
+**Claude 지침:**
+- 시리얼 모니터링 관련 안내 시 **Tera Term 사용을 우선 제안**
+- `idf.py monitor` 사용은 플래시 직후 빠른 확인 용도로만 권장
+- 로그 분석이 필요한 경우 Tera Term의 로그 파일 저장 기능 활용 안내
 
 ### 테스트
 - Android 앱 테스트 시 USB-OTG 지원 실제 디바이스 필요
