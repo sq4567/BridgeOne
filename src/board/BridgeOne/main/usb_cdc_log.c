@@ -14,19 +14,47 @@ static bool cdc_log_enabled = false;
 static vprintf_like_t original_vprintf = NULL;
 
 // CDC 출력 버퍼 (스레드 안전을 위해 정적 할당)
+// LF → CRLF 변환으로 최대 2배 크기 필요
 #define CDC_LOG_BUFFER_SIZE 512
+#define CDC_OUTPUT_BUFFER_SIZE (CDC_LOG_BUFFER_SIZE * 2)
 static char cdc_log_buffer[CDC_LOG_BUFFER_SIZE];
+static char cdc_output_buffer[CDC_OUTPUT_BUFFER_SIZE];
+
+/**
+ * LF(\n)를 CRLF(\r\n)로 변환하는 헬퍼 함수.
+ *
+ * Windows 터미널(Tera Term 등)은 CRLF를 기대합니다.
+ * LF만 전송하면 줄바꿈 시 커서가 줄 시작으로 돌아가지 않아
+ * 로그가 계단식으로 밀려나가는 현상이 발생합니다.
+ *
+ * @param src 원본 문자열
+ * @param src_len 원본 문자열 길이
+ * @param dst 출력 버퍼 (최대 src_len * 2 크기 필요)
+ * @param dst_size 출력 버퍼 크기
+ * @return 변환된 문자열 길이
+ */
+static int convert_lf_to_crlf(const char* src, int src_len, char* dst, int dst_size) {
+    int j = 0;
+    for (int i = 0; i < src_len && j < dst_size - 1; i++) {
+        if (src[i] == '\n') {
+            // LF 앞에 CR이 없으면 CR 추가
+            if (i == 0 || src[i - 1] != '\r') {
+                if (j < dst_size - 2) {
+                    dst[j++] = '\r';
+                }
+            }
+        }
+        dst[j++] = src[i];
+    }
+    dst[j] = '\0';
+    return j;
+}
 
 /**
  * USB CDC로 로그를 출력하는 커스텀 vprintf 함수.
  *
  * esp_log_set_vprintf()에 등록되어 ESP_LOG 출력을 USB CDC로 리다이렉트합니다.
- *
- * 동작:
- * 1. vsnprintf()로 포맷된 문자열 생성
- * 2. tud_cdc_connected() 확인
- * 3. tud_cdc_write()로 USB CDC에 출력
- * 4. tud_cdc_write_flush()로 즉시 전송
+ * Windows 터미널 호환성을 위해 LF → CRLF 변환이 자동으로 적용됩니다.
  *
  * @param fmt 포맷 문자열
  * @param args 가변 인자 리스트
@@ -48,8 +76,12 @@ static int cdc_vprintf(const char* fmt, va_list args) {
 
     // USB CDC가 연결되어 있는지 확인
     if (tud_cdc_connected()) {
+        // LF → CRLF 변환 (Windows 터미널 호환성)
+        int output_len = convert_lf_to_crlf(cdc_log_buffer, len,
+                                             cdc_output_buffer, CDC_OUTPUT_BUFFER_SIZE);
+
         // CDC로 출력
-        uint32_t written = tud_cdc_write(cdc_log_buffer, len);
+        uint32_t written = tud_cdc_write(cdc_output_buffer, output_len);
 
         // 즉시 전송 (버퍼링 방지)
         tud_cdc_write_flush();
@@ -101,6 +133,14 @@ bool usb_cdc_log_is_enabled(void) {
     return cdc_log_enabled;
 }
 
+/**
+ * USB CDC로 문자열을 직접 출력하는 함수.
+ *
+ * ESP_LOG가 아닌 직접 문자열 출력이 필요할 때 사용합니다.
+ * LF → CRLF 변환이 자동으로 적용됩니다.
+ *
+ * @param str 출력할 문자열 (NULL-terminated)
+ */
 void usb_cdc_log_write(const char* str) {
     if (str == NULL) {
         return;
@@ -109,7 +149,10 @@ void usb_cdc_log_write(const char* str) {
     size_t len = strlen(str);
 
     if (tud_cdc_connected() && len > 0) {
-        tud_cdc_write(str, len);
+        // LF → CRLF 변환 (Windows 터미널 호환성)
+        int output_len = convert_lf_to_crlf(str, (int)len,
+                                             cdc_output_buffer, CDC_OUTPUT_BUFFER_SIZE);
+        tud_cdc_write(cdc_output_buffer, output_len);
         tud_cdc_write_flush();
     }
 }
