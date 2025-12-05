@@ -24,9 +24,9 @@ Android 연결:
   - 1Mbps, 8N1 통신
 
 펌웨어 개발:
-  idf.py -p <포트명> flash        # 펌웨어 플래시
-  idf.py -p <포트명> monitor      # 시리얼 모니터링
-Windows: COM 포트 (예: COM3, COM4)
+  idf.py -p COM8 flash            # 펌웨어 플래시
+  idf.py -p COM8 monitor          # 시리얼 모니터링
+Windows: COM8 (현재 개발 환경 기준)
 Linux/macOS: /dev/ttyUSB0, /dev/ttyACM0
 
 ⚠️ 주의: 펌웨어 플래싱 시 Android 연결을 해제해야 합니다.
@@ -44,7 +44,7 @@ Linux/macOS: /dev/ttyUSB0, /dev/ttyACM0
 디버그 로깅:
   - ESP_LOG 출력이 이 포트의 CDC 인터페이스로 리다이렉트됨
   - PC에서 시리얼 터미널로 연결하여 로그 확인 (Tera Term 권장)
-  - Windows: 장치 관리자 → 포트(COM & LPT) → "USB Serial Device (COMx)"
+  - Windows: COM3 (현재 개발 환경 기준, 장치 관리자 → 포트(COM & LPT) → "USB Serial Device")
   - Linux: /dev/ttyACM0
   - macOS: /dev/cu.usbmodem*
 ```
@@ -62,9 +62,9 @@ Linux/macOS: /dev/ttyUSB0, /dev/ttyACM0
 - **결과**: 장치 관리자에서 "HID 호환 마우스" + "HID 키보드 장치" 표시
 
 **💻 펌웨어 개발 (빌드/플래시)**:
-- **포트**: CH343P USB-to-UART (포트 1)
+- **포트**: CH343P USB-to-UART (포트 1) → **COM8**
 - **케이블**: USB-A to USB-C
-- **명령어**: `idf.py -p <포트명> flash`
+- **명령어**: `idf.py -p COM8 flash`
 - **주의**: 플래시 전 Android 케이블 분리 필요
 
 **🔧 개발 시 동시 연결 (권장)**:
@@ -80,13 +80,19 @@ PC ← Micro-USB → 포트 2️⃣ (디버그 로그 + HID)
 
 ### 포트 결정 방법
 
+**현재 개발 환경 기준 COM 포트 매핑:**
+| 포트 | COM 포트 | 장치 관리자 표시 |
+|------|---------|----------------|
+| 포트 1️⃣ (CH343P) | **COM8** | "USB-Enhanced-SERIAL CH343" |
+| 포트 2️⃣ (USB-OTG) | **COM3** | "USB Serial Device" |
+
 ```bash
 # 사용 가능한 포트 확인
 idf.py list-ports
 
 # 포트별 식별 방법
-# CH343P (포트 1): "CH343" 또는 "CP210x" 표시
-# Native USB (포트 2): 일반 USB 장치로 표시
+# CH343P (포트 1): "CH343" 또는 "CP210x" 표시 → COM8
+# Native USB (포트 2): "USB Serial Device" 표시 → COM3
 ```
 
 ---
@@ -97,7 +103,7 @@ idf.py list-ports
 
 ### 📍 포트별 로그 출력 범위
 
-#### **포트 1️⃣ (COM 포트 - CH343P UART0)**
+#### **포트 1️⃣ (COM8 - CH343P UART0)**
 **항상 볼 수 있는 로그:**
 - ✅ ROM Bootloader 로그 (최초 부팅 메시지)
 - ✅ 2nd Stage Bootloader 로그
@@ -110,7 +116,7 @@ idf.py list-ports
 - `idf.py monitor` 명령어가 연결되는 포트
 - 부팅 실패, 초기화 오류 디버깅에 필수
 
-#### **포트 2️⃣ (USB-OTG CDC)**
+#### **포트 2️⃣ (COM3 - USB-OTG CDC)**
 **볼 수 있는 로그:**
 - ❌ ROM Bootloader 로그 (절대 볼 수 없음)
 - ❌ 2nd Stage Bootloader 로그 (절대 볼 수 없음)
@@ -155,12 +161,12 @@ idf.py list-ports
 
 #### **풀 연결 시 (개발 권장 구성):**
 ```
-Tera Term 인스턴스 1 (포트 1️⃣ - COM 포트):
+Tera Term 인스턴스 1 (포트 1️⃣ - COM8):
   - 용도: 전체 부팅 과정 + 초기화 로그
   - 확인 항목: ROM/Bootloader 메시지, 시스템 크래시, 리셋 원인
   - 보드 레이트: 115200
 
-Tera Term 인스턴스 2 (포트 2️⃣ - USB CDC):
+Tera Term 인스턴스 2 (포트 2️⃣ - COM3):
   - 용도: 애플리케이션 실행 로그 (CDC 초기화 후)
   - 확인 항목: UART 프레임 수신, HID 전송, 디버그 메시지
   - 보드 레이트: 115200
@@ -169,33 +175,33 @@ Tera Term 인스턴스 2 (포트 2️⃣ - USB CDC):
 #### **디버깅 목적별 포트 선택:**
 ```yaml
 부팅 실패 / 시스템 크래시 디버깅:
-  필수 포트: 포트 1️⃣ (COM)
+  필수 포트: 포트 1️⃣ (COM8)
   이유: ROM bootloader, 리셋 원인 확인 필수
 
 USB 초기화 문제 디버깅:
-  필수 포트: 포트 1️⃣ (COM)
+  필수 포트: 포트 1️⃣ (COM8)
   이유: TinyUSB 초기화 전 로그 확인 필수
 
 애플리케이션 로직 디버깅:
-  권장 포트: 포트 2️⃣ (USB CDC) 또는 포트 1️⃣ (COM)
+  권장 포트: 포트 2️⃣ (COM3) 또는 포트 1️⃣ (COM8)
   이유: 양쪽 모두 가능, USB CDC는 HID와 동시 확인 가능
 
 HID 동작 확인:
-  권장 포트: 포트 2️⃣ (USB CDC)
+  권장 포트: 포트 2️⃣ (COM3)
   이유: HID 장치와 같은 USB 포트 사용
 
 UART 프레임 분석:
-  권장 포트: 포트 2️⃣ (USB CDC)
+  권장 포트: 포트 2️⃣ (COM3)
   이유: Android 입력 → UART 수신 → HID 전송 전체 흐름 확인
 ```
 
 ### 🎯 핵심 원칙
 
 **완전한 로그 확인을 위한 원칙:**
-1. **부팅 로그는 항상 포트 1️⃣ (COM)**: ROM bootloader부터 확인 가능
-2. **애플리케이션 로그는 포트 2️⃣ (USB CDC)**: 초기화 후 사용 가능
-3. **문제 발생 시 포트 1️⃣ (COM) 먼저 확인**: 초기화 실패 시 모든 로그가 여기로 출력
-4. **양쪽 포트 동시 모니터링 권장**: 전체 시스템 동작 이해에 유리
+1. **부팅 로그는 항상 포트 1️⃣ (COM8)**: ROM bootloader부터 확인 가능
+2. **애플리케이션 로그는 포트 2️⃣ (COM3)**: 초기화 후 사용 가능
+3. **문제 발생 시 포트 1️⃣ (COM8) 먼저 확인**: 초기화 실패 시 모든 로그가 여기로 출력
+4. **양쪽 포트 동시 모니터링 권장**: COM8 + COM3 전체 시스템 동작 이해에 유리
 
 **흔한 오해:**
 - ❌ "CDC 관련 로그는 USB-OTG로만 볼 수 있다"
