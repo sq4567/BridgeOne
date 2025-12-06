@@ -1,9 +1,13 @@
 #include "usb_cdc_log.h"
 #include "tusb.h"
 #include "esp_log.h"
+#include "esp_system.h"  // esp_restart()
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"  // vTaskDelay()
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <ctype.h>  // tolower()
 
 static const char* TAG = "USB_CDC_LOG";
 
@@ -182,20 +186,107 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
     }
 }
 
+// ==================== CDC 명령 처리 ====================
+// CDC 명령 수신 버퍼
+#define CDC_CMD_BUFFER_SIZE 64
+static char cdc_cmd_buffer[CDC_CMD_BUFFER_SIZE];
+static int cdc_cmd_index = 0;
+
+/**
+ * CDC 명령어 처리 함수.
+ *
+ * 지원 명령어:
+ * - reset, RESET: 소프트웨어 리셋 수행
+ * - help, HELP: 사용 가능한 명령어 목록 출력
+ *
+ * @param cmd NULL-terminated 명령어 문자열
+ */
+static void process_cdc_command(const char* cmd) {
+    // 명령어를 소문자로 변환하여 비교
+    char lower_cmd[CDC_CMD_BUFFER_SIZE];
+    int i = 0;
+    while (cmd[i] && i < CDC_CMD_BUFFER_SIZE - 1) {
+        lower_cmd[i] = tolower((unsigned char)cmd[i]);
+        i++;
+    }
+    lower_cmd[i] = '\0';
+
+    // 명령어 처리
+    if (strcmp(lower_cmd, "reset") == 0 || strcmp(lower_cmd, "reboot") == 0) {
+        usb_cdc_log_write("\r\n*** Resetting ESP32-S3... ***\r\n");
+        vTaskDelay(pdMS_TO_TICKS(100));  // 메시지 전송 대기
+        esp_restart();
+    }
+    else if (strcmp(lower_cmd, "help") == 0 || strcmp(lower_cmd, "?") == 0) {
+        usb_cdc_log_write("\r\n=== BridgeOne CDC Commands ===\r\n");
+        usb_cdc_log_write("  reset, reboot  - Software reset\r\n");
+        usb_cdc_log_write("  help, ?        - Show this help\r\n");
+        usb_cdc_log_write("==============================\r\n");
+    }
+    else if (strlen(lower_cmd) > 0) {
+        usb_cdc_log_write("\r\nUnknown command: ");
+        usb_cdc_log_write(cmd);
+        usb_cdc_log_write("\r\nType 'help' for available commands.\r\n");
+    }
+}
+
 /**
  * TinyUSB CDC RX 콜백 함수.
  *
  * 호스트로부터 데이터를 수신하면 호출됩니다.
- * BridgeOne은 디버그 로그 출력만 하므로 수신 데이터를 처리하지 않지만,
- * 콜백 함수는 반드시 구현되어야 합니다.
+ * 수신된 데이터를 버퍼에 모아서 줄바꿈(\n 또는 \r) 시 명령어로 처리합니다.
+ *
+ * 지원 명령어:
+ * - reset: 소프트웨어 리셋
+ * - help: 명령어 목록
  *
  * @param itf CDC 인터페이스 번호 (0-based)
  */
 void tud_cdc_rx_cb(uint8_t itf) {
-    // 수신된 데이터를 버리기 (읽어서 버퍼 비우기)
     uint8_t buf[64];
+    uint32_t count;
+
     while (tud_cdc_available()) {
-        tud_cdc_read(buf, sizeof(buf));
+        count = tud_cdc_read(buf, sizeof(buf));
+
+        for (uint32_t i = 0; i < count; i++) {
+            char c = (char)buf[i];
+
+            // 에코백 (입력한 문자를 터미널에 표시)
+            if (c >= 32 && c < 127) {
+                char echo[2] = {c, '\0'};
+                usb_cdc_log_write(echo);
+            }
+
+            // Enter 키 (줄바꿈) 처리
+            if (c == '\r' || c == '\n') {
+                cdc_cmd_buffer[cdc_cmd_index] = '\0';
+
+                // 공백 제거 (trim)
+                char* trimmed = cdc_cmd_buffer;
+                while (*trimmed == ' ') trimmed++;
+                char* end = trimmed + strlen(trimmed) - 1;
+                while (end > trimmed && *end == ' ') *end-- = '\0';
+
+                // 명령어 처리
+                process_cdc_command(trimmed);
+
+                // 버퍼 초기화
+                cdc_cmd_index = 0;
+                memset(cdc_cmd_buffer, 0, sizeof(cdc_cmd_buffer));
+            }
+            // Backspace 처리
+            else if (c == 8 || c == 127) {
+                if (cdc_cmd_index > 0) {
+                    cdc_cmd_index--;
+                    usb_cdc_log_write("\b \b");  // 화면에서 문자 삭제
+                }
+            }
+            // 일반 문자 버퍼에 추가
+            else if (c >= 32 && c < 127 && cdc_cmd_index < CDC_CMD_BUFFER_SIZE - 1) {
+                cdc_cmd_buffer[cdc_cmd_index++] = c;
+            }
+        }
     }
 }
 

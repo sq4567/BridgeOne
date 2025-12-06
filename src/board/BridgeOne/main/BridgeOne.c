@@ -8,8 +8,28 @@
 #include "usb_descriptors.h"
 #include "uart_handler.h"
 #include "hid_handler.h"  // hid_task 함수 선언
+#include "hid_test.h"     // HID 테스트 모드
 #include "usb_cdc_log.h"  // USB CDC 디버그 로깅
 #include "esp_task_wdt.h"
+
+// ==================== 테스트 모드 설정 ====================
+/**
+ * HID_TEST_MODE 활성화 방법:
+ * 1. 아래 주석을 해제: #define HID_TEST_MODE
+ * 2. 빌드 및 플래시
+ * 3. PC USB에 연결하면 자동으로 테스트 시작
+ *
+ * 테스트 내용:
+ * - 마우스 원형 이동
+ * - 키보드 "HELLO" 타이핑
+ * - 마우스 클릭
+ * - Ctrl+C 키 조합
+ *
+ * 정상 모드로 돌아가기:
+ * 1. 아래 주석 처리: //#define HID_TEST_MODE
+ * 2. 빌드 및 플래시
+ */
+// #define HID_TEST_MODE  // 주석 해제 시 테스트 모드 활성화
 
 static const char* TAG = "BridgeOne";
 
@@ -119,7 +139,8 @@ void app_main(void) {
     }
 
     // ==================== 1.5. UART 통신 초기화 ====================
-    // Android와의 UART 통신을 위해 UART 드라이버 초기화
+#ifndef HID_TEST_MODE
+    // 정상 모드: Android와의 UART 통신을 위해 UART 드라이버 초기화
     // 보드별 구성:
     // - ESP32-S3-DevkitC-1: UART0 (GPIO43/44, CP2102N 연결)
     // - YD-ESP32-S3 N16R8: UART1 (GPIO17/18, Android 통신 전용)
@@ -130,7 +151,7 @@ void app_main(void) {
         return;
     }
     ESP_LOGI(TAG, "UART initialized (1Mbps, 8N1)");
-    
+
     // ==================== 1.6. FreeRTOS 큐 생성 ====================
     // UART 수신 태스크가 검증된 프레임을 이 큐에 전송합니다.
     // - 큐 크기: UART_FRAME_QUEUE_SIZE (최대 10개 프레임 보관)
@@ -143,6 +164,10 @@ void app_main(void) {
     }
     ESP_LOGI(TAG, "Frame queue created (size=%d, item_size=%u bytes)",
              UART_FRAME_QUEUE_SIZE, sizeof(bridge_frame_t));
+#else
+    // 테스트 모드: UART 초기화 및 큐 생성 건너뛰기
+    ESP_LOGI(TAG, "HID_TEST_MODE enabled - UART and frame queue skipped");
+#endif
     
     // ==================== 2. 시스템 정보 로깅 ====================
     ESP_LOGI(TAG, "Hardware: ESP32-S3 N16R8 (DevkitC-1 or YD-ESP32-S3 compatible)");
@@ -156,7 +181,37 @@ void app_main(void) {
     TaskHandle_t uart_task_handle = NULL;
     TaskHandle_t hid_task_handle = NULL;
     TaskHandle_t usb_task_handle = NULL;
-    
+
+#ifdef HID_TEST_MODE
+    // ==================== 테스트 모드: HID 테스트 태스크 생성 ====================
+    ESP_LOGI(TAG, "Creating HID Test Task (TEST MODE)...");
+
+    // HID 테스트 태스크: Android 없이 자체 테스트 데이터 생성
+    // - 우선순위 5: USB 태스크(4)보다 높음
+    // - Core 0에서 실행
+    // - 스택 크기 4096 bytes: 테스트 로직에 충분
+    static hid_test_type_t test_type = HID_TEST_ALL;  // 모든 테스트 순차 실행
+
+    BaseType_t test_task_created = xTaskCreatePinnedToCore(
+        hid_test_task,      // 태스크 함수
+        "HID_TEST",         // 태스크 이름
+        4096,               // 스택 크기 (bytes)
+        &test_type,         // 테스트 타입 전달
+        5,                  // 우선순위
+        &hid_task_handle,   // 태스크 핸들 저장
+        0                   // Core 0에서 실행
+    );
+
+    if (test_task_created != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create HID test task");
+        return;
+    }
+    ESP_LOGI(TAG, "HID test task created (Core 0, Priority 5)");
+    ESP_LOGI(TAG, "Test mode: Mouse circle + Keyboard 'HELLO' + Click + Ctrl+C");
+
+#else
+    // ==================== 정상 모드: UART + HID 태스크 생성 ====================
+
     // UART 수신 태스크: Android로부터 마우스/키보드 입력 수신
     // - 우선순위 6: USB 태스크(5)보다 높음 (실시간 통신 우선)
     // - Core 0에서 실행: 통신 처리 전담
@@ -170,13 +225,13 @@ void app_main(void) {
         &uart_task_handle,  // 태스크 핸들 저장
         0                   // Core 0에서 실행
     );
-    
+
     if (uart_task_created != pdPASS) {
         ESP_LOGE(TAG, "Failed to create UART task");
         return;
     }
     ESP_LOGI(TAG, "UART task created (Core 0, Priority 6)");
-    
+
     // HID 태스크: UART 큐에서 프레임 수신하여 HID 리포트로 변환 및 전송
     // - 우선순위 5: UART 태스크(6)보다는 낮고, USB 태스크(4)보다는 높음 (데이터 흐름 순서)
     // - Core 0에서 실행: UART와 함께 Core 0에서 집중 처리
@@ -190,12 +245,13 @@ void app_main(void) {
         &hid_task_handle,   // 태스크 핸들 저장
         0                   // Core 0에서 실행
     );
-    
+
     if (hid_task_created != pdPASS) {
         ESP_LOGE(TAG, "Failed to create HID task");
         return;
     }
     ESP_LOGI(TAG, "HID task created (Core 0, Priority 5)");
+#endif
 
     // USB 태스크: TinyUSB 스택 폴링 담당
     // - 우선순위 4: 낮은 우선순위 (데이터 처리 후 최종 전송)
@@ -218,7 +274,19 @@ void app_main(void) {
     ESP_LOGI(TAG, "USB task created (Core 1, Priority 4)");
     
     // ==================== 4. 초기화 완료 ====================
-    ESP_LOGI(TAG, "BridgeOne USB Bridge Ready - Waiting for host connection...");
-    
+#ifdef HID_TEST_MODE
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "BridgeOne HID Test Mode Ready!");
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "Connect to PC via USB and observe:");
+    ESP_LOGI(TAG, "  1. Mouse cursor moving in circle");
+    ESP_LOGI(TAG, "  2. Keyboard typing 'HELLO'");
+    ESP_LOGI(TAG, "  3. Mouse left click");
+    ESP_LOGI(TAG, "  4. Ctrl+C key combination");
+    ESP_LOGI(TAG, "========================================");
+#else
+    ESP_LOGI(TAG, "BridgeOne USB Bridge Ready - Waiting for Android connection...");
+#endif
+
     // 메인 태스크는 idle로 반환 (FreeRTOS 스케줄러가 USB 태스크 실행)
 }
