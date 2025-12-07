@@ -237,6 +237,14 @@ static const char* noise_level_to_str(noise_level_t level) {
     }
 }
 
+// ==================== 모니터링 설정 ====================
+
+/**
+ * @brief 테스트 지속 시간 (초)
+ * 이 시간이 지나면 모니터링이 자동 종료됩니다.
+ */
+#define VMON_TEST_DURATION_SEC  180
+
 // ==================== 모니터링 태스크 ====================
 
 void voltage_monitor_task(void* param) {
@@ -259,12 +267,21 @@ void voltage_monitor_task(void* param) {
 
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "Format: Temp | ADC (noise) | Uptime");
+    ESP_LOGI(TAG, "Test duration: %d seconds", VMON_TEST_DURATION_SEC);
     ESP_LOGI(TAG, "----------------------------------------");
 
-    // 모니터링 루프
+    // 모니터링 루프 (180초 후 자동 종료)
     while (1) {
         voltage_monitor_result_t result;
         voltage_monitor_get_result(&result);
+
+        // 테스트 시간 초과 확인
+        if (result.uptime_sec >= VMON_TEST_DURATION_SEC) {
+            ESP_LOGI(TAG, "----------------------------------------");
+            ESP_LOGI(TAG, "Test completed! Duration: %us", result.uptime_sec);
+            ESP_LOGI(TAG, "========================================");
+            break;
+        }
 
         // 온도 급변 경고
         if (result.temp_warning) {
@@ -295,4 +312,9 @@ void voltage_monitor_task(void* param) {
         // 다음 측정까지 대기
         vTaskDelay(pdMS_TO_TICKS(VMON_INTERVAL_MS));
     }
+
+    // 태스크 정리
+    ESP_LOGI(TAG, "Voltage Monitor Task ended");
+    esp_task_wdt_delete(NULL);
+    vTaskDelete(NULL);
 }
