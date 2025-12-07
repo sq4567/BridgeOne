@@ -9,6 +9,7 @@
 #include "uart_handler.h"
 #include "hid_handler.h"  // hid_task 함수 선언
 #include "hid_test.h"     // HID 테스트 모드
+#include "voltage_monitor.h"  // 전압 모니터링 모드
 #include "usb_cdc_log.h"  // USB CDC 디버그 로깅
 #include "esp_task_wdt.h"
 
@@ -19,17 +20,26 @@
  * 2. 빌드 및 플래시
  * 3. PC USB에 연결하면 자동으로 테스트 시작
  *
- * 테스트 내용:
+ * 테스트 내용 (1회 실행):
  * - 마우스 원형 이동
  * - 키보드 "HELLO" 타이핑
- * - 마우스 클릭
- * - Ctrl+C 키 조합
- *
- * 정상 모드로 돌아가기:
- * 1. 아래 주석 처리: //#define HID_TEST_MODE
- * 2. 빌드 및 플래시
  */
 // #define HID_TEST_MODE  // 주석 해제 시 테스트 모드 활성화
+
+/**
+ * VOLTAGE_MONITOR_MODE 활성화 방법:
+ * 1. 아래 주석을 해제: #define VOLTAGE_MONITOR_MODE
+ * 2. 빌드 및 플래시
+ * 3. 시리얼 터미널로 로그 확인 (115200bps)
+ *
+ * 모니터링 항목:
+ * - 칩 내부 온도 (전원 불안정 시 급변 감지)
+ * - ADC 노이즈 레벨 (전원 노이즈 확인)
+ * - 시스템 가동시간 (리셋/크래시 감지)
+ *
+ * 주의: HID_TEST_MODE와 동시에 활성화하지 마세요.
+ */
+#define VOLTAGE_MONITOR_MODE  // 주석 해제 시 전압 모니터링 모드 활성화
 
 static const char* TAG = "BridgeOne";
 
@@ -125,7 +135,8 @@ void app_main(void) {
     vTaskDelay(pdMS_TO_TICKS(50));
 
     // ==================== 1.2. USB CDC 디버그 로깅 초기화 ====================
-    // ESP_LOG 출력을 Native USB OTG의 CDC 인터페이스로 리다이렉트합니다.
+#if !defined(HID_TEST_MODE) && !defined(VOLTAGE_MONITOR_MODE)
+    // 정상 모드: ESP_LOG 출력을 Native USB OTG의 CDC 인터페이스로 리다이렉트합니다.
     // 이를 통해 UART0 (CH343P)를 Android 통신에 사용하면서도
     // 포트 2️⃣ (Micro-USB)를 통해 PC에서 디버그 로그를 확인할 수 있습니다.
     //
@@ -137,9 +148,18 @@ void app_main(void) {
     } else {
         ESP_LOGW(TAG, "USB CDC logging init failed, using UART output");
     }
+#elif defined(HID_TEST_MODE)
+    // HID 테스트 모드: CDC 리다이렉션 비활성화
+    // 모든 로그를 UART0 (포트 1️⃣, COM8)로 출력하여 단일 포트로 간편하게 모니터링
+    ESP_LOGI(TAG, "HID_TEST_MODE: All logs remain on UART0 (Port 1, COM8)");
+#elif defined(VOLTAGE_MONITOR_MODE)
+    // 전압 모니터링 모드: CDC 리다이렉션 비활성화
+    // 모든 로그를 UART0 (포트 1️⃣)로 출력
+    ESP_LOGI(TAG, "VOLTAGE_MONITOR_MODE: All logs remain on UART0");
+#endif
 
     // ==================== 1.5. UART 통신 초기화 ====================
-#ifndef HID_TEST_MODE
+#if !defined(HID_TEST_MODE) && !defined(VOLTAGE_MONITOR_MODE)
     // 정상 모드: Android와의 UART 통신을 위해 UART 드라이버 초기화
     // 보드별 구성:
     // - ESP32-S3-DevkitC-1: UART0 (GPIO43/44, CP2102N 연결)
@@ -164,9 +184,12 @@ void app_main(void) {
     }
     ESP_LOGI(TAG, "Frame queue created (size=%d, item_size=%u bytes)",
              UART_FRAME_QUEUE_SIZE, sizeof(bridge_frame_t));
-#else
-    // 테스트 모드: UART 초기화 및 큐 생성 건너뛰기
+#elif defined(HID_TEST_MODE)
+    // HID 테스트 모드: UART 초기화 및 큐 생성 건너뛰기
     ESP_LOGI(TAG, "HID_TEST_MODE enabled - UART and frame queue skipped");
+#elif defined(VOLTAGE_MONITOR_MODE)
+    // 전압 모니터링 모드: UART 초기화 및 큐 생성 건너뛰기
+    ESP_LOGI(TAG, "VOLTAGE_MONITOR_MODE enabled - UART and frame queue skipped");
 #endif
     
     // ==================== 2. 시스템 정보 로깅 ====================
@@ -182,7 +205,7 @@ void app_main(void) {
     TaskHandle_t hid_task_handle = NULL;
     TaskHandle_t usb_task_handle = NULL;
 
-#ifdef HID_TEST_MODE
+#if defined(HID_TEST_MODE)
     // ==================== 테스트 모드: HID 테스트 태스크 생성 ====================
     ESP_LOGI(TAG, "Creating HID Test Task (TEST MODE)...");
 
@@ -207,7 +230,33 @@ void app_main(void) {
         return;
     }
     ESP_LOGI(TAG, "HID test task created (Core 0, Priority 5)");
-    ESP_LOGI(TAG, "Test mode: Mouse circle + Keyboard 'HELLO' + Click + Ctrl+C");
+    ESP_LOGI(TAG, "Test mode: Mouse circle + Keyboard 'HELLO' (1 cycle)");
+
+#elif defined(VOLTAGE_MONITOR_MODE)
+    // ==================== 전압 모니터링 모드: 모니터링 태스크 생성 ====================
+    ESP_LOGI(TAG, "Creating Voltage Monitor Task (MONITOR MODE)...");
+
+    // 전압 모니터링 태스크: USB 포트 전원 안정성 테스트
+    // - 우선순위 5: USB 태스크(4)보다 높음
+    // - Core 0에서 실행
+    // - 스택 크기 4096 bytes: ADC + 온도 센서 처리에 충분
+    TaskHandle_t vmon_task_handle = NULL;
+
+    BaseType_t vmon_task_created = xTaskCreatePinnedToCore(
+        voltage_monitor_task,   // 태스크 함수
+        "VMON",                 // 태스크 이름
+        4096,                   // 스택 크기 (bytes)
+        NULL,                   // 매개변수 없음
+        5,                      // 우선순위
+        &vmon_task_handle,      // 태스크 핸들 저장
+        0                       // Core 0에서 실행
+    );
+
+    if (vmon_task_created != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create voltage monitor task");
+        return;
+    }
+    ESP_LOGI(TAG, "Voltage monitor task created (Core 0, Priority 5)");
 
 #else
     // ==================== 정상 모드: UART + HID 태스크 생성 ====================
@@ -274,15 +323,21 @@ void app_main(void) {
     ESP_LOGI(TAG, "USB task created (Core 1, Priority 4)");
     
     // ==================== 4. 초기화 완료 ====================
-#ifdef HID_TEST_MODE
+#if defined(HID_TEST_MODE)
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "BridgeOne HID Test Mode Ready!");
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "Connect to PC via USB and observe:");
     ESP_LOGI(TAG, "  1. Mouse cursor moving in circle");
     ESP_LOGI(TAG, "  2. Keyboard typing 'HELLO'");
-    ESP_LOGI(TAG, "  3. Mouse left click");
-    ESP_LOGI(TAG, "  4. Ctrl+C key combination");
+    ESP_LOGI(TAG, "  (Tests run once and stop)");
+    ESP_LOGI(TAG, "========================================");
+#elif defined(VOLTAGE_MONITOR_MODE)
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "BridgeOne Voltage Monitor Mode Ready!");
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "Monitoring USB port power stability...");
+    ESP_LOGI(TAG, "Check serial terminal for readings.");
     ESP_LOGI(TAG, "========================================");
 #else
     ESP_LOGI(TAG, "BridgeOne USB Bridge Ready - Waiting for Android connection...");

@@ -268,25 +268,20 @@ void hid_test_task(void* param) {
 
             case HID_TEST_ALL:
             default:
-                ESP_LOGI(TAG, "=== Running all tests ===");
+                ESP_LOGI(TAG, "=== Running tests (1 cycle) ===");
 
-                ESP_LOGI(TAG, "Test 1/4: Mouse circle movement");
+                ESP_LOGI(TAG, "Test 1/2: Mouse circle movement");
                 test_mouse_circle_movement();
                 vTaskDelay(pdMS_TO_TICKS(1000));
 
-                ESP_LOGI(TAG, "Test 2/4: Keyboard typing 'HELLO'");
+                ESP_LOGI(TAG, "Test 2/2: Keyboard typing 'HELLO'");
                 test_keyboard_typing_hello();
-                vTaskDelay(pdMS_TO_TICKS(1000));
 
-                ESP_LOGI(TAG, "Test 3/4: Mouse click");
-                test_mouse_click();
-                vTaskDelay(pdMS_TO_TICKS(1000));
+                ESP_LOGI(TAG, "=== All tests completed - Task ending ===");
 
-                ESP_LOGI(TAG, "Test 4/4: Key combination (Ctrl+C)");
-                test_key_combination_ctrl_c();
-
-                ESP_LOGI(TAG, "=== All tests completed ===");
-                vTaskDelay(pdMS_TO_TICKS(5000));  // 5초 대기 후 반복
+                // 워치독 해제 후 태스크 종료
+                esp_task_wdt_delete(NULL);
+                vTaskDelete(NULL);
                 break;
         }
 
