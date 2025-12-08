@@ -24,7 +24,7 @@
  * - 마우스 원형 이동
  * - 키보드 "HELLO" 타이핑
  */
-#define HID_TEST_MODE  // 주석 해제 시 테스트 모드 활성화
+// #define HID_TEST_MODE
 
 /**
  * VOLTAGE_MONITOR_MODE 활성화 방법:
