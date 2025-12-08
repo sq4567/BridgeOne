@@ -24,7 +24,7 @@
  * - 마우스 원형 이동
  * - 키보드 "HELLO" 타이핑
  */
-// #define HID_TEST_MODE  // 주석 해제 시 테스트 모드 활성화
+#define HID_TEST_MODE  // 주석 해제 시 테스트 모드 활성화
 
 /**
  * VOLTAGE_MONITOR_MODE 활성화 방법:
@@ -39,7 +39,7 @@
  *
  * 주의: HID_TEST_MODE와 동시에 활성화하지 마세요.
  */
-#define VOLTAGE_MONITOR_MODE  // 주석 해제 시 전압 모니터링 모드 활성화
+// #define VOLTAGE_MONITOR_MODE
 
 static const char* TAG = "BridgeOne";
 

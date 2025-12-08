@@ -53,32 +53,39 @@ tusb_desc_device_t const desc_device = {
 
 // ==================== 2. HID Report Descriptors ====================
 /**
- * HID Boot Keyboard Report Descriptor (8바이트 고정)
- * 
+ * HID Boot Keyboard Report Descriptor (9바이트: Report ID 1 포함)
+ *
  * 구조:
- * - [0] Modifier keys (Ctrl, Shift, Alt, GUI) - 1 byte
- * - [1] Reserved (0x00) - 1 byte
- * - [2-7] Key codes (6-key rollover) - 6 bytes
- * 
- * TUD_HID_REPORT_DESC_KEYBOARD 매크로: Boot Protocol 표준 준수
+ * - [0] Report ID (1) - 1 byte
+ * - [1] Modifier keys (Ctrl, Shift, Alt, GUI) - 1 byte
+ * - [2] Reserved (0x00) - 1 byte
+ * - [3-8] Key codes (6-key rollover) - 6 bytes
+ *
+ * TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(1)): Report ID 포함 및 Boot Protocol 표준 준수
+ *
+ * 주의: hid_handler.c에서 Report ID 1로 전송하므로 Descriptor에도 명시 필수
  */
 uint8_t const desc_hid_keyboard_report[] = {
-    TUD_HID_REPORT_DESC_KEYBOARD()
+    TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(1))
 };
 
 /**
- * HID Boot Mouse Report Descriptor (4바이트 고정)
- * 
+ * HID Boot Mouse Report Descriptor (6바이트: Report ID 2 포함)
+ *
  * 구조:
- * - [0] Buttons (Left, Right, Middle) - 1 byte
- * - [1] Delta X (-127~127) - 1 byte signed
- * - [2] Delta Y (-127~127) - 1 byte signed
- * - [3] Wheel (-127~127) - 1 byte signed
- * 
- * TUD_HID_REPORT_DESC_MOUSE 매크로: Boot Protocol 표준 준수
+ * - [0] Report ID (2) - 1 byte
+ * - [1] Buttons (Left, Right, Middle) - 1 byte
+ * - [2] Delta X (-127~127) - 1 byte signed
+ * - [3] Delta Y (-127~127) - 1 byte signed
+ * - [4] Wheel (-127~127) - 1 byte signed
+ * - [5] Horizontal Wheel (-127~127) - 1 byte signed
+ *
+ * TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(2)): Report ID 포함 및 Boot Protocol 표준 준수
+ *
+ * 주의: hid_handler.c에서 Report ID 2로 전송하므로 Descriptor에도 명시 필수
  */
 uint8_t const desc_hid_mouse_report[] = {
-    TUD_HID_REPORT_DESC_MOUSE()
+    TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(2))
 };
 
 /**
