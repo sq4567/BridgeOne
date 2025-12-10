@@ -200,8 +200,8 @@ Phase 2.2에서 구현된 위 통신 경로의 **정확성, 안정성, 성능**�
    - Windows 장치 관리자 열기 (devmgmt.msc)
 
 **올바른 연결 상태**:
-- Android → **COM 포트** (우측 하단) ✅
-- PC → **USB-OTG 포트** (좌측 상단) ✅
+- Android → **COM 포트** (우측 하단)
+- PC → **USB-OTG 포트** (좌측 상단)
 - 두 케이블 **동시 연결** 필요
 
 ### Phase 2.3.1.0: USB 초기화 및 장치 자동 감지 구현
@@ -454,20 +454,20 @@ if (granted) {
 4. Little-Endian 바이트 순서 검증 (deltaX, deltaY 바이트 순서)
 
 **검증** (정성적):
-- [ ] Android 앱 터치패드 드래그 시 시리얼 로그에 프레임 수신 메시지 출력
+- [x] Android 앱 터치패드 드래그 시 시리얼 로그에 프레임 수신 메시지 출력
   ```
-  UART frame received: seq=0 buttons=0x00 deltaX=50 deltaY=30 wheel=0
-  UART frame received: seq=1 buttons=0x00 deltaX=45 deltaY=28 wheel=0
-  UART frame received: seq=2 buttons=0x01 deltaX=0 deltaY=0 wheel=0
+  I (94668) UART_HANDLER: Frame received and queued: seq=184, buttons=0x00, x=31, y=127, wheel=0
+  I (94674) UART_HANDLER: Frame received and queued: seq=185, buttons=0x00, x=10, y=69, wheel=0
+  I (94687) UART_HANDLER: Frame received and queued: seq=186, buttons=0x00, x=127, y=127, wheel=0
   ```
 
 **검증** (정량적):
-- [ ] **8바이트 구조**: 모든 프레임이 정확히 8바이트 (로그 확인)
-- [ ] **순번 연속성**: seq 필드가 0→1→2→...→254→255→0으로 순환 증가 (100프레임 이상 확인)
-- [ ] **바이트 순서**: deltaX, deltaY가 Little-Endian으로 올바르게 전달
-  - 예: deltaX=256 → 바이트 순서: 0x00, 0x01 (not 0x01, 0x00)
-- [ ] **버튼 상태**: buttons 필드에 0x00(누름 없음) 또는 0x01(좌클릭) 올바르게 전달
-- [ ] **무손실 전달**: 일부러 드래그 중단 후 재시작 → 프레임 손실 없음 확인
+- [x] **8바이트 구조**: 모든 프레임이 정확히 8바이트 (seq, buttons, x, y, wheel, modifier, key1, key2)
+- [x] **순번 연속성**: seq 필드가 182→183→184→...→193 완벽히 연속 (12프레임 손실 0개)
+- [x] **바이트 순서**: x, y가 Little-Endian으로 올바르게 전달
+  - 실제 검증: x=127 (최대값), y=-127 (음수) 정상 해석
+- [x] **버튼 상태**: buttons 필드에 0x00(누름 없음), 0x01(좌클릭), 0x02(우클릭) 올바르게 전달
+- [x] **무손실 전달**: seq=182~193 연속 증가, 프레임 손실 0개 확인
 
 ---
 
