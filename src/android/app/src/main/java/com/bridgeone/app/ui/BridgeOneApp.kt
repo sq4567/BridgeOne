@@ -2,6 +2,9 @@ package com.bridgeone.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,19 +17,30 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import android.content.Context
+import android.os.Build
+import android.os.Vibrator
+import android.os.VibrationEffect
+import androidx.compose.ui.draw.scale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -115,94 +129,224 @@ fun BridgeOneApp() {
 /**
  * 앱의 메인 콘텐츠를 렌더링합니다.
  *
- * 중앙 하단 영역에 터치패드(160×320dp)와 키보드(240×280dp)를 배치합니다.
- * 터치패드는 마우스 입력, 키보드는 키 입력을 처리합니다.
+ * 버튼을 사용하여 터치패드와 키보드를 전환합니다.
+ * 사용자는 하단의 전환 버튼을 터치하여 두 입력 방식을 전환할 수 있습니다.
+ *
+ * Phase 2.4: 버튼 기반 UI 전환
  */
 @Composable
 private fun MainContent() {
+    // 현재 표시 모드 상태 (0: 터치패드, 1: 키보드)
+    var currentMode by remember { mutableStateOf(0) }
+
     // 활성 키 상태 관리 (키보드의 다중 입력 시각화용)
     val activeKeys = remember { mutableStateOf(setOf<UByte>()) }
-    
+
     // 활성 수정자 키 추적 (BridgeFrame 생성용)
-    // Phase 2.2.4.3: 수정자 키 상태 관리 최적화
     val activeModifierKeys = remember { mutableStateOf(setOf<UByte>()) }
-    
+
+    val context = LocalContext.current
+
     Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Bottom,
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(MaterialTheme.colorScheme.background),
+        verticalArrangement = Arrangement.Bottom,
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 메인 입력 영역: 터치패드 (좌측) + 키보드 (우측) 구성
-        // 중앙 하단 배치: 가로 410dp (160 + 250) × 세로 320dp
-        Row(
-            modifier = Modifier,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.Bottom
+        // 메인 콘텐츠 영역 (위쪽)
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.BottomCenter
         ) {
-            // 터치패드 (좌측): 160×320dp
-            TouchpadWrapper(
-                modifier = Modifier
-            )
-            
-            // 키보드 (우측): 240×280dp
-            KeyboardLayout(
-                onKeyPressed = { keyCode ->
-                    activeKeys.value = activeKeys.value + keyCode
-                    
-                    // Phase 2.2.4.3: 수정자 키인 경우 activeModifierKeys에도 추가
-                    if (keyCode == 0x01.toUByte() ||  // LEFT_CTRL
-                        keyCode == 0x02.toUByte() ||  // LEFT_SHIFT
-                        keyCode == 0x04.toUByte() ||  // LEFT_ALT
-                        keyCode == 0x08.toUByte()) {  // LEFT_GUI
-                        activeModifierKeys.value = activeModifierKeys.value + keyCode
-                    } else {
-                        // 일반 키인 경우, 현재 활성 수정자 키와 함께 프레임 생성 및 전송
-                        try {
-                            val frame = ClickDetector.createKeyboardFrame(
-                                activeModifierKeys = activeModifierKeys.value,
-                                keyCode1 = keyCode,
-                                keyCode2 = 0u
-                            )
-                            ClickDetector.sendFrame(frame)
-                            Log.d("MainContent", "Keyboard frame sent: keyCode=0x${keyCode.toString(16)}, modifiers=0x${activeModifierKeys.value}")
-                        } catch (e: Exception) {
-                            Log.e("MainContent", "Failed to send keyboard frame: ${e.message}", e)
-                        }
-                    }
-                },
-                onKeyReleased = { keyCode ->
-                    activeKeys.value = activeKeys.value - keyCode
-                    
-                    // Phase 2.2.4.3: 수정자 키인 경우 activeModifierKeys에서 제거
-                    if (keyCode == 0x01.toUByte() ||  // LEFT_CTRL
-                        keyCode == 0x02.toUByte() ||  // LEFT_SHIFT
-                        keyCode == 0x04.toUByte() ||  // LEFT_ALT
-                        keyCode == 0x08.toUByte()) {  // LEFT_GUI
-                        activeModifierKeys.value = activeModifierKeys.value - keyCode
-                    } else {
-                        // 일반 키 해제 시에도 프레임 전송 (keyCode=0으로 설정)
-                        // 이를 통해 PC에서 키 해제를 인식
-                        try {
-                            val frame = ClickDetector.createKeyboardFrame(
-                                activeModifierKeys = activeModifierKeys.value,
-                                keyCode1 = 0u,  // 키 해제 표시
-                                keyCode2 = 0u
-                            )
-                            ClickDetector.sendFrame(frame)
-                            Log.d("MainContent", "Keyboard key-release frame sent: modifiers=0x${activeModifierKeys.value}")
-                        } catch (e: Exception) {
-                            Log.e("MainContent", "Failed to send keyboard key-release frame: ${e.message}", e)
-                        }
-                    }
-                },
-                activeKeys = activeKeys.value
+            when (currentMode) {
+                0 -> TouchpadPage()
+                1 -> KeyboardPage(activeKeys, activeModifierKeys)
+            }
+        }
+
+        // 전환 버튼 (하단)
+        Button(
+            onClick = {
+                currentMode = 1 - currentMode  // 0 ↔ 1 전환
+
+                // 햅틱 피드백: 50ms 진동
+                val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(50)
+                }
+
+                // 로그
+                val message = when (currentMode) {
+                    0 -> "터치패드 페이지로 전환"
+                    1 -> "키보드 페이지로 전환"
+                    else -> ""
+                }
+                Log.d("MainContent", message)
+            },
+            modifier = Modifier
+                .padding(16.dp)
+                .size(width = 60.dp, height = 60.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF2196F3)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text(
+                text = if (currentMode == 0) "⌨️" else "🖱️",
+                fontSize = 28.sp
             )
         }
-        
-        // 하단 여백
-        Spacer(modifier = Modifier.size(16.dp))
+
+        // 페이지 표시기 (현재 모드 텍스트)
+        Text(
+            text = if (currentMode == 0) "터치패드" else "키보드",
+            color = Color(0xFFC2C2C2),
+            fontSize = 12.sp,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+    }
+}
+
+/**
+ * 터치패드 페이지
+ *
+ * 터치패드를 화면 최대 크기로 표시합니다.
+ * 1:2 비율을 유지하며 화면 폭의 90%를 사용합니다.
+ */
+@Composable
+private fun TouchpadPage() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(bottom = 16.dp),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        TouchpadWrapper(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .aspectRatio(0.5f)  // 1:2 비율 (가로:세로)
+        )
+    }
+}
+
+/**
+ * 키보드 페이지
+ *
+ * 키보드를 화면 최대 크기로 표시합니다.
+ * 화면 폭 전체를 사용하고 약간 확대된 크기로 표시합니다.
+ */
+@Composable
+private fun KeyboardPage(
+    activeKeys: MutableState<Set<UByte>>,
+    activeModifierKeys: MutableState<Set<UByte>>
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(bottom = 16.dp),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        KeyboardLayout(
+            onKeyPressed = { keyCode ->
+                activeKeys.value = activeKeys.value + keyCode
+
+                // 수정자 키인 경우
+                if (keyCode == 0x01.toUByte() ||  // LEFT_CTRL
+                    keyCode == 0x02.toUByte() ||  // LEFT_SHIFT
+                    keyCode == 0x04.toUByte() ||  // LEFT_ALT
+                    keyCode == 0x08.toUByte()) {  // LEFT_GUI
+                    activeModifierKeys.value = activeModifierKeys.value + keyCode
+                } else {
+                    // 일반 키인 경우, 프레임 생성 및 전송
+                    try {
+                        val frame = ClickDetector.createKeyboardFrame(
+                            activeModifierKeys = activeModifierKeys.value,
+                            keyCode1 = keyCode,
+                            keyCode2 = 0u
+                        )
+                        ClickDetector.sendFrame(frame)
+                        Log.d("KeyboardPage", "Keyboard frame sent: keyCode=0x${keyCode.toString(16)}, modifiers=0x${activeModifierKeys.value}")
+                    } catch (e: Exception) {
+                        Log.e("KeyboardPage", "Failed to send keyboard frame: ${e.message}", e)
+                    }
+                }
+            },
+            onKeyReleased = { keyCode ->
+                activeKeys.value = activeKeys.value - keyCode
+
+                // 수정자 키인 경우
+                if (keyCode == 0x01.toUByte() ||  // LEFT_CTRL
+                    keyCode == 0x02.toUByte() ||  // LEFT_SHIFT
+                    keyCode == 0x04.toUByte() ||  // LEFT_ALT
+                    keyCode == 0x08.toUByte()) {  // LEFT_GUI
+                    activeModifierKeys.value = activeModifierKeys.value - keyCode
+                } else {
+                    // 일반 키 해제 시 프레임 전송
+                    try {
+                        val frame = ClickDetector.createKeyboardFrame(
+                            activeModifierKeys = activeModifierKeys.value,
+                            keyCode1 = 0u,  // 키 해제 표시
+                            keyCode2 = 0u
+                        )
+                        ClickDetector.sendFrame(frame)
+                        Log.d("KeyboardPage", "Keyboard key-release frame sent: modifiers=0x${activeModifierKeys.value}")
+                    } catch (e: Exception) {
+                        Log.e("KeyboardPage", "Failed to send keyboard key-release frame: ${e.message}", e)
+                    }
+                }
+            },
+            activeKeys = activeKeys.value,
+            modifier = Modifier
+                .fillMaxWidth()
+                .scale(1.2f)  // 약간 확대
+        )
+    }
+}
+
+/**
+ * 페이지 인디케이터
+ *
+ * 상단 중앙에 현재 페이지를 나타내는 닷 표시합니다.
+ */
+@Composable
+private fun PageIndicator(
+    currentPage: Int,
+    pageCount: Int,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        repeat(pageCount) { index ->
+            val size by animateFloatAsState(
+                targetValue = if (currentPage == index) 12f else 8f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                ),
+                label = "PageIndicatorSize"
+            )
+
+            Box(
+                modifier = Modifier
+                    .size(size.dp)
+                    .background(
+                        color = if (currentPage == index) {
+                            Color(0xFF2196F3)  // 파란색 (Selected)
+                        } else {
+                            Color(0xFFC2C2C2).copy(alpha = 0.6f)  // 회색 60% (Unselected)
+                        },
+                        shape = CircleShape
+                    )
+            )
+        }
     }
 }
 

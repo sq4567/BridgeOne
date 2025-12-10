@@ -78,16 +78,11 @@ fun TouchpadWrapper(
     // Phase 2.2.3.2: 현재 화면의 밀도 정보
     val density = LocalDensity.current
 
-    // 터치패드의 기본 크기: 가로 160dp, 세로 320dp (1:2 비율)
-    val TOUCHPAD_WIDTH = 160.dp
-    val TOUCHPAD_HEIGHT = 320.dp
-
-    // 모서리 반경: 너비의 3% = 160dp * 0.03 = 4.8dp ≈ 5dp
-    val CORNER_RADIUS = (TOUCHPAD_WIDTH * 0.03f)
+    // 모서리 반경: 고정값 5dp (외부 크기와 무관하게 일정한 반경 유지)
+    val CORNER_RADIUS = 5.dp
 
     Box(
         modifier = modifier
-            .size(TOUCHPAD_WIDTH, TOUCHPAD_HEIGHT)
             .clip(RoundedCornerShape(CORNER_RADIUS))
             .background(Color(0xFF1A1A1A))  // 다크 테마 배경색
             .pointerInput(Unit) {
@@ -275,6 +270,7 @@ fun TouchpadWrapper(
 fun TouchpadWrapperPreview() {
     TouchpadWrapper(
         modifier = Modifier
+            .size(160.dp, 320.dp)
             .background(Color(0xFF0D0D0D))
     )
 }
