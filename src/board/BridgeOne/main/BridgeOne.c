@@ -184,6 +184,11 @@ void app_main(void) {
     }
     ESP_LOGI(TAG, "Frame queue created (size=%d, item_size=%u bytes)",
              UART_FRAME_QUEUE_SIZE, sizeof(bridge_frame_t));
+
+    // ==================== 1.7. HID 리포트 대기 큐 초기화 ====================
+    // USB HID가 busy 상태일 때 리포트를 임시 저장하고, ready 시 재전송
+    // 키 해제/버튼 해제 리포트 누락 방지 (키 stuck, 드래그 stuck 문제 해결)
+    hid_init_queues();
 #elif defined(HID_TEST_MODE)
     // HID 테스트 모드: UART 초기화 및 큐 생성 건너뛰기
     ESP_LOGI(TAG, "HID_TEST_MODE enabled - UART and frame queue skipped");

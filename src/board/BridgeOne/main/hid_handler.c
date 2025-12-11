@@ -17,6 +17,8 @@
 
 #include <string.h>
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "tusb.h"
 #include "class/hid/hid.h"
 #include "hid_handler.h"
@@ -52,14 +54,68 @@ hid_mouse_report_t g_last_mouse_report = {0};
 
 /**
  * @brief 키보드 LED 상태 버퍼
- * 
+ *
  * 역할:
  * - tud_hid_set_report_cb()에서 호스트로부터 수신한 LED 상태 저장
  * - Num Lock(bit0), Caps Lock(bit1), Scroll Lock(bit2)
- * 
+ *
  * 초기값: 0 (모든 LED 꺼짐)
  */
 uint8_t g_hid_keyboard_led_status = 0;
+
+// ==================== HID 리포트 대기 큐 ====================
+
+/**
+ * @brief 키보드 리포트 대기 큐
+ *
+ * USB HID가 busy 상태일 때 키보드 리포트를 임시 저장합니다.
+ * ready 상태가 되면 콜백 또는 hid_task에서 재전송합니다.
+ *
+ * 목적: 키 해제 리포트 누락 방지 (키 stuck 문제 해결)
+ */
+static QueueHandle_t kb_report_queue = NULL;
+
+/**
+ * @brief 마우스 리포트 대기 큐
+ *
+ * USB HID가 busy 상태일 때 마우스 리포트를 임시 저장합니다.
+ * ready 상태가 되면 콜백 또는 hid_task에서 재전송합니다.
+ *
+ * 목적: 마우스 버튼 해제 리포트 누락 방지 (드래그 stuck 문제 해결)
+ */
+static QueueHandle_t mouse_report_queue = NULL;
+
+/**
+ * @brief 리포트 큐 크기
+ *
+ * 키보드/마우스 각각 최대 10개의 리포트를 대기열에 저장할 수 있습니다.
+ * 일반적으로 1-2개만 대기하지만, 버스트 입력 시 여유분 확보.
+ */
+#define HID_REPORT_QUEUE_SIZE 10
+
+/**
+ * @brief HID 리포트 대기 큐 초기화
+ *
+ * 키보드와 마우스 리포트 대기 큐를 생성합니다.
+ * app_main()에서 HID 태스크 생성 전에 호출해야 합니다.
+ */
+void hid_init_queues(void) {
+    // 키보드 리포트 큐 생성
+    kb_report_queue = xQueueCreate(HID_REPORT_QUEUE_SIZE, sizeof(hid_keyboard_report_t));
+    if (kb_report_queue == NULL) {
+        ESP_LOGE(TAG, "Failed to create keyboard report queue");
+    } else {
+        ESP_LOGI(TAG, "Keyboard report queue created (size=%d)", HID_REPORT_QUEUE_SIZE);
+    }
+
+    // 마우스 리포트 큐 생성
+    mouse_report_queue = xQueueCreate(HID_REPORT_QUEUE_SIZE, sizeof(hid_mouse_report_t));
+    if (mouse_report_queue == NULL) {
+        ESP_LOGE(TAG, "Failed to create mouse report queue");
+    } else {
+        ESP_LOGI(TAG, "Mouse report queue created (size=%d)", HID_REPORT_QUEUE_SIZE);
+    }
+}
 
 // ==================== TinyUSB HID 콜백 함수 ====================
 
@@ -172,6 +228,82 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     }
 }
 
+/**
+ * @brief HID Report Complete 콜백 - HID 리포트 전송 완료 시 호출
+ *
+ * TinyUSB가 HID 리포트 전송을 완료하면 이 콜백이 호출됩니다.
+ * 대기 큐에 저장된 리포트가 있으면 즉시 전송을 시도합니다.
+ *
+ * @param instance HID 인터페이스 번호 (0=Keyboard, 1=Mouse)
+ * @param report 전송 완료된 리포트 데이터 (미사용)
+ * @param len 전송된 바이트 수 (미사용)
+ *
+ * 동작:
+ * 1. 전송 완료된 인터페이스 확인 (Keyboard 또는 Mouse)
+ * 2. 해당 인터페이스의 대기 큐에서 리포트 확인
+ * 3. ready 상태면 즉시 전송
+ * 4. 전송 실패 시 큐에 다시 저장
+ */
+void tud_hid_report_complete_cb(uint8_t instance, uint8_t const* report, uint16_t len) {
+    (void)report;  // 미사용
+    (void)len;     // 미사용
+
+    // 키보드 인터페이스 전송 완료
+    if (instance == ITF_NUM_HID_KEYBOARD) {
+        ESP_LOGD(TAG, "Keyboard report transfer completed");
+
+        // 대기 큐에서 리포트 확인 및 전송
+        if (kb_report_queue != NULL) {
+            hid_keyboard_report_t queued_report;
+            if (xQueueReceive(kb_report_queue, &queued_report, 0) == pdTRUE) {
+                // Ready 상태 확인 후 전송
+                if (tud_hid_n_ready(ITF_NUM_HID_KEYBOARD)) {
+                    memcpy(&g_last_kb_report, &queued_report, sizeof(queued_report));
+                    if (tud_hid_n_report(ITF_NUM_HID_KEYBOARD, 1, &queued_report, sizeof(queued_report))) {
+                        ESP_LOGD(TAG, "Queued keyboard report sent (mod=0x%02x, k1=0x%02x)",
+                                 queued_report.modifier, queued_report.keycode[0]);
+                    } else {
+                        // 전송 실패 시 큐 앞에 다시 저장
+                        xQueueSendToFront(kb_report_queue, &queued_report, 0);
+                        ESP_LOGW(TAG, "Failed to send queued keyboard report, re-queued");
+                    }
+                } else {
+                    // Ready가 아니면 큐 앞에 다시 저장
+                    xQueueSendToFront(kb_report_queue, &queued_report, 0);
+                    ESP_LOGD(TAG, "Keyboard still not ready, report re-queued");
+                }
+            }
+        }
+    }
+    // 마우스 인터페이스 전송 완료
+    else if (instance == ITF_NUM_HID_MOUSE) {
+        ESP_LOGD(TAG, "Mouse report transfer completed");
+
+        // 대기 큐에서 리포트 확인 및 전송
+        if (mouse_report_queue != NULL) {
+            hid_mouse_report_t queued_report;
+            if (xQueueReceive(mouse_report_queue, &queued_report, 0) == pdTRUE) {
+                // Ready 상태 확인 후 전송
+                if (tud_hid_n_ready(ITF_NUM_HID_MOUSE)) {
+                    memcpy(&g_last_mouse_report, &queued_report, sizeof(queued_report));
+                    if (tud_hid_n_report(ITF_NUM_HID_MOUSE, 2, &queued_report, sizeof(queued_report))) {
+                        ESP_LOGD(TAG, "Queued mouse report sent (btn=0x%02x, x=%d, y=%d)",
+                                 queued_report.buttons, queued_report.x, queued_report.y);
+                    } else {
+                        // 전송 실패 시 큐 앞에 다시 저장
+                        xQueueSendToFront(mouse_report_queue, &queued_report, 0);
+                        ESP_LOGW(TAG, "Failed to send queued mouse report, re-queued");
+                    }
+                } else {
+                    // Ready가 아니면 큐 앞에 다시 저장
+                    xQueueSendToFront(mouse_report_queue, &queued_report, 0);
+                    ESP_LOGD(TAG, "Mouse still not ready, report re-queued");
+                }
+            }
+        }
+    }
+}
+
 // ==================== HID 헬퍼 함수 ====================
 
 // ==================== HID 리포트 전송 함수 ====================
@@ -195,29 +327,41 @@ bool sendKeyboardReport(const hid_keyboard_report_t* report) {
         ESP_LOGW(TAG, "sendKeyboardReport: report is NULL");
         return false;
     }
-    
+
     uint8_t instance = ITF_NUM_HID_KEYBOARD;
-    
+
     // 1. USB가 마운트되었고, 이전 전송이 완료되었는지 확인
     if (!tud_hid_n_ready(instance)) {
-        ESP_LOGW(TAG, "Keyboard not ready (USB disconnected or buffer full)");
+        // Ready가 아니면 큐에 저장하여 나중에 재전송
+        if (kb_report_queue != NULL) {
+            if (xQueueSend(kb_report_queue, report, 0) == pdPASS) {
+                ESP_LOGD(TAG, "Keyboard not ready, report queued (mod=0x%02x, k1=0x%02x)",
+                         report->modifier, report->keycode[0]);
+                return true;  // 큐 저장 성공 (나중에 재전송됨)
+            } else {
+                ESP_LOGW(TAG, "Keyboard queue full, report dropped (mod=0x%02x, k1=0x%02x)",
+                         report->modifier, report->keycode[0]);
+                return false;
+            }
+        }
+        ESP_LOGW(TAG, "Keyboard not ready and queue not initialized");
         return false;
     }
-    
+
     // 2. 상태 저장 (GET_REPORT 콜백용)
     memcpy(&g_last_kb_report, report, sizeof(hid_keyboard_report_t));
-    
+
     // 3. 리포트 전송
     // Report ID 1: Boot Protocol Keyboard
     if (!tud_hid_n_report(instance, 1, report, sizeof(hid_keyboard_report_t))) {
         ESP_LOGE(TAG, "Failed to send keyboard report");
         return false;
     }
-    
+
     // 디버그 로그: 전송된 키보드 리포트 정보
     ESP_LOGD(TAG, "Keyboard report sent: modifier=0x%02x, keycode[0]=0x%02x, keycode[1]=0x%02x",
              report->modifier, report->keycode[0], report->keycode[1]);
-    
+
     return true;
 }
 
@@ -238,29 +382,41 @@ bool sendMouseReport(const hid_mouse_report_t* report) {
         ESP_LOGW(TAG, "sendMouseReport: report is NULL");
         return false;
     }
-    
+
     uint8_t instance = ITF_NUM_HID_MOUSE;
-    
+
     // 1. USB가 마운트되었고, 이전 전송이 완료되었는지 확인
     if (!tud_hid_n_ready(instance)) {
-        ESP_LOGW(TAG, "Mouse not ready (USB disconnected or buffer full)");
+        // Ready가 아니면 큐에 저장하여 나중에 재전송
+        if (mouse_report_queue != NULL) {
+            if (xQueueSend(mouse_report_queue, report, 0) == pdPASS) {
+                ESP_LOGD(TAG, "Mouse not ready, report queued (btn=0x%02x, x=%d, y=%d)",
+                         report->buttons, report->x, report->y);
+                return true;  // 큐 저장 성공 (나중에 재전송됨)
+            } else {
+                ESP_LOGW(TAG, "Mouse queue full, report dropped (btn=0x%02x)",
+                         report->buttons);
+                return false;
+            }
+        }
+        ESP_LOGW(TAG, "Mouse not ready and queue not initialized");
         return false;
     }
-    
+
     // 2. 상태 저장 (GET_REPORT 콜백용)
     memcpy(&g_last_mouse_report, report, sizeof(hid_mouse_report_t));
-    
+
     // 3. 리포트 전송
     // Report ID 2: Boot Protocol Mouse
     if (!tud_hid_n_report(instance, 2, report, sizeof(hid_mouse_report_t))) {
         ESP_LOGE(TAG, "Failed to send mouse report");
         return false;
     }
-    
+
     // 디버그 로그: 전송된 마우스 리포트 정보
     ESP_LOGD(TAG, "Mouse report sent: buttons=0x%02x, x=%d, y=%d, wheel=%d",
              report->buttons, report->x, report->y, report->wheel);
-    
+
     return true;
 }
 
@@ -291,15 +447,25 @@ bool sendMouseReport(const hid_mouse_report_t* report) {
  *  - keycode1 (바이트 6): 첫 번째 키코드
  *  - keycode2 (바이트 7): 두 번째 키코드
  */
+// 이전 키보드/마우스 상태 추적 (변경 감지용)
+static uint8_t prev_kb_modifier = 0;
+static uint8_t prev_kb_keycode1 = 0;
+static uint8_t prev_kb_keycode2 = 0;
+static uint8_t prev_mouse_buttons = 0;
+
 void processBridgeFrame(const bridge_frame_t* frame) {
     if (frame == NULL) {
         ESP_LOGE(TAG, "processBridgeFrame: frame is NULL");
         return;
     }
-    
+
     // ==================== Keyboard 리포트 생성 및 전송 ====================
-    // 조건: modifier가 0이 아니거나, keycode1/keycode2 중 하나라도 0이 아닐 때
-    if (frame->modifier != 0 || frame->keycode1 != 0 || frame->keycode2 != 0) {
+    // 조건: 이전 상태와 다를 때 (키 눌림 AND 키 해제 모두 감지)
+    bool kb_changed = (frame->modifier != prev_kb_modifier) ||
+                      (frame->keycode1 != prev_kb_keycode1) ||
+                      (frame->keycode2 != prev_kb_keycode2);
+
+    if (kb_changed) {
         // Boot Protocol Keyboard 리포트 구성 (8바이트)
         hid_keyboard_report_t kb_report = {
             .modifier = frame->modifier,    // 바이트 0: Ctrl/Shift/Alt/GUI
@@ -310,15 +476,25 @@ void processBridgeFrame(const bridge_frame_t* frame) {
                 0, 0, 0, 0                  // 나머지는 0 (미사용)
             }
         };
-        
-        if (!sendKeyboardReport(&kb_report)) {
+
+        if (sendKeyboardReport(&kb_report)) {
+            // 전송 성공 시에만 이전 상태 업데이트
+            prev_kb_modifier = frame->modifier;
+            prev_kb_keycode1 = frame->keycode1;
+            prev_kb_keycode2 = frame->keycode2;
+            ESP_LOGD(TAG, "Keyboard state changed: mod=0x%02x, k1=0x%02x, k2=0x%02x",
+                     frame->modifier, frame->keycode1, frame->keycode2);
+        } else {
             ESP_LOGW(TAG, "Failed to send keyboard report (seq=%d)", frame->seq);
         }
     }
-    
+
     // ==================== Mouse 리포트 생성 및 전송 ====================
-    // 조건: buttons/x/y/wheel 중 하나라도 0이 아닐 때
-    if (frame->buttons != 0 || frame->x != 0 || frame->y != 0 || frame->wheel != 0) {
+    // 조건: 이동/휠이 있거나, 버튼 상태가 변경될 때
+    bool mouse_has_movement = (frame->x != 0 || frame->y != 0 || frame->wheel != 0);
+    bool mouse_button_changed = (frame->buttons != prev_mouse_buttons);
+
+    if (mouse_has_movement || mouse_button_changed) {
         // Boot Protocol Mouse 리포트 구성 (4바이트)
         hid_mouse_report_t mouse_report = {
             .buttons = frame->buttons,      // 바이트 0: Left/Right/Middle 버튼
@@ -326,12 +502,18 @@ void processBridgeFrame(const bridge_frame_t* frame) {
             .y = frame->y,                  // 바이트 2: Y축 상대 이동 (-127~127)
             .wheel = frame->wheel           // 바이트 3: 휠 스크롤 (-127~127)
         };
-        
-        if (!sendMouseReport(&mouse_report)) {
+
+        if (sendMouseReport(&mouse_report)) {
+            // 버튼 상태 변경 시에만 이전 상태 업데이트
+            if (mouse_button_changed) {
+                prev_mouse_buttons = frame->buttons;
+                ESP_LOGD(TAG, "Mouse button state changed: btn=0x%02x", frame->buttons);
+            }
+        } else {
             ESP_LOGW(TAG, "Failed to send mouse report (seq=%d)", frame->seq);
         }
     }
-    
+
     // 디버그 로그: 처리된 프레임 정보
     ESP_LOGD(TAG, "Bridge frame processed: seq=%d, kb=[mod=0x%02x, k1=0x%02x, k2=0x%02x], "
              "mouse=[btn=0x%02x, x=%d, y=%d, wheel=%d]",
@@ -368,34 +550,68 @@ void processBridgeFrame(const bridge_frame_t* frame) {
 void hid_task(void* param) {
     // 이 태스크를 Task WDT에 등록 (NULL = 현재 태스크)
     esp_task_wdt_add(NULL);
-    
+
     (void)param;  // 미사용 파라미터 경고 제거
-    
+
     ESP_LOGI(TAG, "HID task started (waiting for frames from UART queue)");
-    
+
     // Phase 2.1.2.1에서 uart_handler.h에 extern QueueHandle_t frame_queue 선언됨
     // Phase 2.1.2.2에서 app_main()의 "1.6" 섹션에서 xQueueCreate() 호출됨
     // 이 frame_queue에서 검증된 프레임을 수신합니다.
-    
+
     bridge_frame_t frame_buffer;
-    
+
     while (1) {
-        // 1. FreeRTOS 큐에서 검증된 프레임 수신
-        // - portMAX_DELAY 대신 100ms 타임아웃 사용 (태스크 응답성 유지)
+        // ==================== 0. 대기 큐 확인 및 재전송 (백업 메커니즘) ====================
+        // 콜백(tud_hid_report_complete_cb)이 동작하지 않을 경우를 대비한 백업
+        // 키보드 대기 큐 확인
+        if (kb_report_queue != NULL) {
+            hid_keyboard_report_t queued_kb_report;
+            if (xQueuePeek(kb_report_queue, &queued_kb_report, 0) == pdTRUE) {
+                if (tud_hid_n_ready(ITF_NUM_HID_KEYBOARD)) {
+                    // 큐에서 제거하고 전송
+                    xQueueReceive(kb_report_queue, &queued_kb_report, 0);
+                    memcpy(&g_last_kb_report, &queued_kb_report, sizeof(queued_kb_report));
+                    if (tud_hid_n_report(ITF_NUM_HID_KEYBOARD, 1, &queued_kb_report, sizeof(queued_kb_report))) {
+                        ESP_LOGD(TAG, "Queued keyboard report sent from hid_task (mod=0x%02x, k1=0x%02x)",
+                                 queued_kb_report.modifier, queued_kb_report.keycode[0]);
+                    }
+                }
+            }
+        }
+
+        // 마우스 대기 큐 확인
+        if (mouse_report_queue != NULL) {
+            hid_mouse_report_t queued_mouse_report;
+            if (xQueuePeek(mouse_report_queue, &queued_mouse_report, 0) == pdTRUE) {
+                if (tud_hid_n_ready(ITF_NUM_HID_MOUSE)) {
+                    // 큐에서 제거하고 전송
+                    xQueueReceive(mouse_report_queue, &queued_mouse_report, 0);
+                    memcpy(&g_last_mouse_report, &queued_mouse_report, sizeof(queued_mouse_report));
+                    if (tud_hid_n_report(ITF_NUM_HID_MOUSE, 2, &queued_mouse_report, sizeof(queued_mouse_report))) {
+                        ESP_LOGD(TAG, "Queued mouse report sent from hid_task (btn=0x%02x, x=%d, y=%d)",
+                                 queued_mouse_report.buttons, queued_mouse_report.x, queued_mouse_report.y);
+                    }
+                }
+            }
+        }
+
+        // ==================== 1. UART 프레임 큐에서 수신 ====================
+        // - 10ms 타임아웃으로 변경 (큐 확인 주기 증가)
         // - xQueueReceive() 반환: pdTRUE(성공) 또는 pdFALSE(타임아웃)
         BaseType_t result = xQueueReceive(
             frame_queue,                    // uart_task에서 전송한 큐
             &frame_buffer,                  // 수신 버퍼
-            pdMS_TO_TICKS(100)              // 100ms 타임아웃
+            pdMS_TO_TICKS(10)               // 10ms 타임아웃 (100ms에서 단축)
         );
-        
+
         if (result == pdTRUE) {
             // 2. 검증된 프레임 처리: Keyboard/Mouse 리포트 생성 및 전송
             processBridgeFrame(&frame_buffer);
-            
+
             // 워치독 리셋 (무한 루프 방지)
             esp_task_wdt_reset();
-            
+
             // 디버그 로그: 큐에서 수신한 프레임
             ESP_LOGV(TAG, "Frame received from queue: seq=%d, "
                      "buttons=0x%02x, x=%d, y=%d, wheel=%d, "
@@ -403,14 +619,15 @@ void hid_task(void* param) {
                      frame_buffer.seq, frame_buffer.buttons,
                      frame_buffer.x, frame_buffer.y, frame_buffer.wheel,
                      frame_buffer.modifier, frame_buffer.keycode1, frame_buffer.keycode2);
-        } 
+        }
         else {
-            // 타임아웃 (정상 상황): 100ms 동안 프레임이 없음
+            // 타임아웃 (정상 상황): 10ms 동안 프레임이 없음
             // 워치독 리셋 (무한 루프 방지)
             esp_task_wdt_reset();
-            
+
             // 다시 대기 (loop 계속)
-            ESP_LOGV(TAG, "HID task: queue receive timeout (no frame for 100ms)");
+            // ESP_LOGV는 너무 자주 호출되므로 주석 처리
+            // ESP_LOGV(TAG, "HID task: queue receive timeout (no frame for 10ms)");
         }
     }
 }

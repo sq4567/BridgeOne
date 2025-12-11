@@ -162,13 +162,28 @@ bool sendMouseReport(const hid_mouse_report_t* report);
 
 /**
  * @brief 현재 키보드 LED 상태 조회
- * 
+ *
  * 호스트로부터 설정된 LED 상태(Num Lock, Caps Lock, Scroll Lock)를 반환
  * 실제 GPIO 제어에 필요
- * 
+ *
  * @return 키보드 LED 상태 비트마스크
  */
 uint8_t hid_get_keyboard_led_status(void);
+
+/**
+ * @brief HID 리포트 대기 큐 초기화
+ *
+ * 키보드와 마우스 리포트 대기 큐를 생성합니다.
+ * USB HID가 busy 상태일 때 리포트를 임시 저장하고,
+ * ready 상태가 되면 재전송합니다.
+ *
+ * 목적:
+ * - 키 해제 리포트 누락 방지 (키 stuck 문제 해결)
+ * - 마우스 버튼 해제 리포트 누락 방지 (드래그 stuck 문제 해결)
+ *
+ * @note app_main()에서 HID 태스크 생성 전에 호출해야 합니다.
+ */
+void hid_init_queues(void);
 
 // ==================== HID 상태 저장소 ====================
 
