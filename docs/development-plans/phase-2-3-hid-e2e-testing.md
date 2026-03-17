@@ -580,22 +580,38 @@ if (granted) {
 3. 미입력 키 없음 확인
 
 **⚠️ Phase 2.3.4.1에서 발견된 사항 반영**:
-- ~~**Del 키 미구현**~~: ✅ Phase 2.3.4.2 진행 중 KeyboardTabFunction에 Del 키(HID 0x4C) 추가 완료 (2026-03-17). 기능 탭 레이아웃: Enter(80dp) + Del(64dp) + Esc(64dp).
+- ~~**Del 키 미구현**~~: ✅ Phase 2.3.4.2 진행 중 KeyboardTabFunction에 Del 키(HID 0x4C) 추가 완료 (2026-03-17). 기능 탭 레이아웃: Enter + Del + Esc (weight 균등 배치).
 - **수정자 키 조합 테스트 방법**: 수정자 키(Ctrl/Shift/Alt)는 단독 탭 시 즉시 해제되므로, **Sticky Hold(500ms 롱프레스)**로 수정자를 유지한 후 일반 키를 눌러야 조합이 작동함.
 
-**검증**:
-- [ ] Windows 메모장에서 키 입력 정상 작동 확인 (사용자 테스트)
-- [ ] Del 키 정상 동작 확인 (✅ 구현 완료, 사용자 테스트 필요)
-- [ ] Esc 키 정상 동작 확인
-- [ ] Enter 키 정상 동작 확인
-- [ ] **키 매핑 정확성 검증**: 모든 키가 Android에서 누른 것과 동일하게 Windows에 입력되는지 확인
-  - [ ] 기능 키: Esc, Enter, Tab, Backspace, Space, Del
-  - [ ] 화살표 키: ↑, ↓, ←, →
-  - [ ] 수정자 키 조합 (Sticky Hold 사용): Ctrl+C, Ctrl+V, Ctrl+Z, Alt+Tab 등
-  - [ ] 잘못된 키 매핑 없음 (예: `a` 누름 → `q` 입력되는 현상 없음)
-- [ ] **미입력 키 확인**: 모든 구현된 키가 Windows에서 정상 입력되는지 확인
-  - [ ] 입력되지 않는 키 없음 (터치 시 Windows 반응 없음 현상)
-  - [ ] 간헐적 미입력 없음 (같은 키를 10회 연속 터치 시 모두 입력됨)
+**🔧 Phase 2.3.4.2 진행 중 UX 개선 (2026-03-17)**:
+- **버튼 내부 사각형 패턴 제거**: KeyboardKeyButton에서 중첩 Button 구조(Box+Button) → 단일 clickable Box로 변경. 투명 Button의 elevation/shadow가 만들던 내부 네모 무늬 해결.
+- **키보드 레이아웃 반응형 전환**: 고정 240×280dp → `fillMaxWidth()` + `weight(1f)` 기반 반응형. 화면 너비에 맞게 자동 조절.
+- **하단 행 잘림 해결**: BridgeOneApp에서 `scale(1.2f)` 제거. scale()이 시각적으로만 확대하고 레이아웃 경계는 유지하여 Shift/Alt/Ctrl 행이 clipping되던 문제 수정.
+- **텍스트 가독성 향상**: 버튼 텍스트 색상 어두운 색(#121212) → 흰색(White). 파란 배경 위 대비 개선.
+- **탭 바 개선**: ScrollableTabRow → TabRow로 변경, 3개 탭 균등 배치.
+- **공통 KeyRow 컴포넌트 추출**: 각 탭의 키 행 반복 코드를 KeyRow로 통합.
+- **레이아웃 표준화**: 5행→4행 압축, Shift를 Z행에 배치, Ctrl/Alt/Space/Enter/한영을 하단행에 배치 (표준 키보드에 가깝게).
+- **누락 키 추가**: F1~F12, Home/End/PgUp/PgDn, Ins, Del, 한/영, 한자, PrtSc, Win, Pause.
+
+**🐛 Phase 2.3.4.2 진행 중 발견/수정 버그 (2026-03-17)**:
+- **A/E 키 미입력 (키코드 충돌)**: 수정자 키 식별에 비트 플래그(Ctrl=0x01, Alt=0x04, GUI=0x08)를 사용했으나, 문자 키코드(A=0x04, E=0x08)와 충돌. 수정자 키 식별자를 HID Usage 표준값(0xE0~0xE7)으로 변경하여 해결.
+- **수정자 키 단독 입력 불가**: 수정자 키 press/release 시 프레임을 전송하지 않아 PC에 신호가 전달되지 않았음. press/release 모두 프레임 전송하도록 수정.
+- **수정자 키 PC에서 해제 안 됨**: 수정자 키 release 시 프레임 미전송 → PC에서 Ctrl 등이 stuck. 모든 키 release 시 통합 프레임 전송으로 해결.
+- **Sticky Hold 즉시 해제**: clickable의 onClick이 손을 뗄 때 발동하여 Sticky Hold 활성화 직후 해제됨. `stickyActivatedDuringPress` 플래그 추가로 활성화 직후의 onClick을 무시하도록 수정.
+
+**검증** (2026-03-17 실기기 검증 완료):
+- [x] Windows 메모장에서 키 입력 정상 작동 확인
+- [x] Del 키 정상 동작 확인
+- [x] Esc 키 정상 동작 확인
+- [x] Enter 키 정상 동작 확인
+- [x] **키 매핑 정확성 검증**: 모든 키가 Android에서 누른 것과 동일하게 Windows에 입력됨
+  - [x] 기능 키: Esc, Enter, Tab, Backspace, Space, Del
+  - [x] 화살표 키: ↑, ↓, ←, →
+  - [x] 수정자 키 조합 (Sticky Hold 사용): Ctrl+C, Ctrl+V, Ctrl+Z, Alt+Tab 등
+  - [x] 잘못된 키 매핑 없음
+- [x] **미입력 키 확인**: 모든 구현된 키가 Windows에서 정상 입력됨
+  - [x] 입력되지 않는 키 없음
+  - [x] 간헐적 미입력 없음
 
 ---
 

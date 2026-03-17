@@ -235,10 +235,35 @@ private fun TouchpadPage() {
 }
 
 /**
+ * 수정자 키 코드 판별 (HID Usage 0xE0-0xE7)
+ *
+ * ⚠️ 이전 코드는 비트 플래그(0x01=Ctrl, 0x04=Alt, 0x08=GUI)를 키 코드로 사용했으나,
+ * 이 값들이 문자 키 코드와 충돌함 (A=0x04, E=0x08 → Alt/GUI로 오인식).
+ * 이제 HID Usage 표준 값(0xE0-0xE7)을 내부 식별자로 사용하고,
+ * 프레임 전송 시 비트 플래그로 변환합니다.
+ */
+private fun isModifierKeyCode(keyCode: UByte): Boolean =
+    keyCode.toInt() in 0xE0..0xE7
+
+/**
+ * 수정자 키 코드(HID Usage) → HID 수정자 비트 플래그 변환
+ */
+private fun modifierBitFlag(keyCode: UByte): UByte = when (keyCode.toInt()) {
+    0xE0 -> 0x01  // Left Ctrl
+    0xE1 -> 0x02  // Left Shift
+    0xE2 -> 0x04  // Left Alt
+    0xE3 -> 0x08  // Left GUI (Win)
+    0xE4 -> 0x10  // Right Ctrl (한자)
+    0xE5 -> 0x20  // Right Shift
+    0xE6 -> 0x40  // Right Alt (한/영)
+    0xE7 -> 0x80  // Right GUI
+    else -> 0x00
+}.toUByte()
+
+/**
  * 키보드 페이지
  *
  * 키보드를 화면 최대 크기로 표시합니다.
- * 화면 폭 전체를 사용하고 약간 확대된 크기로 표시합니다.
  */
 @Composable
 private fun KeyboardPage(
@@ -255,14 +280,22 @@ private fun KeyboardPage(
             onKeyPressed = { keyCode ->
                 activeKeys.value = activeKeys.value + keyCode
 
-                // 수정자 키인 경우
-                if (keyCode == 0x01.toUByte() ||  // LEFT_CTRL
-                    keyCode == 0x02.toUByte() ||  // LEFT_SHIFT
-                    keyCode == 0x04.toUByte() ||  // LEFT_ALT
-                    keyCode == 0x08.toUByte()) {  // LEFT_GUI
-                    activeModifierKeys.value = activeModifierKeys.value + keyCode
+                if (isModifierKeyCode(keyCode)) {
+                    // 수정자 키: 비트 플래그로 변환하여 저장 + 프레임 전송
+                    activeModifierKeys.value = activeModifierKeys.value + modifierBitFlag(keyCode)
+                    try {
+                        val frame = ClickDetector.createKeyboardFrame(
+                            activeModifierKeys = activeModifierKeys.value,
+                            keyCode1 = 0u,
+                            keyCode2 = 0u
+                        )
+                        ClickDetector.sendFrame(frame)
+                        Log.d("KeyboardPage", "Modifier pressed: 0x${keyCode.toString(16)} → bitFlag=0x${modifierBitFlag(keyCode).toString(16)}")
+                    } catch (e: Exception) {
+                        Log.e("KeyboardPage", "Failed to send modifier frame: ${e.message}", e)
+                    }
                 } else {
-                    // 일반 키인 경우, 프레임 생성 및 전송
+                    // 일반 키: 키코드 포함 프레임 전송
                     try {
                         val frame = ClickDetector.createKeyboardFrame(
                             activeModifierKeys = activeModifierKeys.value,
@@ -270,34 +303,33 @@ private fun KeyboardPage(
                             keyCode2 = 0u
                         )
                         ClickDetector.sendFrame(frame)
-                        Log.d("KeyboardPage", "Keyboard frame sent: keyCode=0x${keyCode.toString(16)}, modifiers=0x${activeModifierKeys.value}")
+                        Log.d("KeyboardPage", "Key pressed: 0x${keyCode.toString(16)}, modifiers=${activeModifierKeys.value}")
                     } catch (e: Exception) {
-                        Log.e("KeyboardPage", "Failed to send keyboard frame: ${e.message}", e)
+                        Log.e("KeyboardPage", "Failed to send key frame: ${e.message}", e)
                     }
                 }
             },
             onKeyReleased = { keyCode ->
                 activeKeys.value = activeKeys.value - keyCode
 
-                // 수정자 키인 경우
-                if (keyCode == 0x01.toUByte() ||  // LEFT_CTRL
-                    keyCode == 0x02.toUByte() ||  // LEFT_SHIFT
-                    keyCode == 0x04.toUByte() ||  // LEFT_ALT
-                    keyCode == 0x08.toUByte()) {  // LEFT_GUI
-                    activeModifierKeys.value = activeModifierKeys.value - keyCode
-                } else {
-                    // 일반 키 해제 시 프레임 전송
-                    try {
-                        val frame = ClickDetector.createKeyboardFrame(
-                            activeModifierKeys = activeModifierKeys.value,
-                            keyCode1 = 0u,  // 키 해제 표시
-                            keyCode2 = 0u
-                        )
-                        ClickDetector.sendFrame(frame)
-                        Log.d("KeyboardPage", "Keyboard key-release frame sent: modifiers=0x${activeModifierKeys.value}")
-                    } catch (e: Exception) {
-                        Log.e("KeyboardPage", "Failed to send keyboard key-release frame: ${e.message}", e)
-                    }
+                if (isModifierKeyCode(keyCode)) {
+                    // 수정자 키 해제: 비트 플래그 제거
+                    activeModifierKeys.value = activeModifierKeys.value - modifierBitFlag(keyCode)
+                }
+
+                // 모든 키 해제 시 프레임 전송 (수정자/일반 키 모두)
+                // 수정자: PC에 수정자 해제 알림 (이전에는 누락되어 Ctrl이 stuck되던 문제)
+                // 일반 키: PC에 키 해제 알림
+                try {
+                    val frame = ClickDetector.createKeyboardFrame(
+                        activeModifierKeys = activeModifierKeys.value,
+                        keyCode1 = 0u,
+                        keyCode2 = 0u
+                    )
+                    ClickDetector.sendFrame(frame)
+                    Log.d("KeyboardPage", "Key released: 0x${keyCode.toString(16)}, modifiers=${activeModifierKeys.value}")
+                } catch (e: Exception) {
+                    Log.e("KeyboardPage", "Failed to send release frame: ${e.message}", e)
                 }
             },
             activeKeys = activeKeys.value,

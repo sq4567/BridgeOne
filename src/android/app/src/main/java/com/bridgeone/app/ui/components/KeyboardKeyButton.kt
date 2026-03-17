@@ -72,6 +72,9 @@ fun KeyboardKeyButton(
 ) {
     var isStickyLatched by remember { mutableStateOf(false) }
     var stickyHoldProgressInternal by remember { mutableStateOf(0f) }
+    // Sticky Hold가 현재 누르기 중에 활성화되었는지 추적
+    // true면 손을 뗄 때 onClick이 실행되어도 해제하지 않음 (다음 탭에서 해제)
+    var stickyActivatedDuringPress by remember { mutableStateOf(false) }
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -94,6 +97,7 @@ fun KeyboardKeyButton(
             }
             if (isPressed && System.currentTimeMillis() - startTime >= STICKY_HOLD_THRESHOLD_MS) {
                 isStickyLatched = true
+                stickyActivatedDuringPress = true
                 onKeyPressed?.invoke(keyCode)
                 Log.d("KeyboardKeyButton", "Sticky Hold latched: $keyLabel (0x${keyCode.toString(16)})")
             }
@@ -128,11 +132,17 @@ fun KeyboardKeyButton(
                 indication = null,
                 enabled = isEnabled
             ) {
-                if (isStickyLatched) {
+                if (stickyActivatedDuringPress) {
+                    // Sticky Hold 활성화 직후의 손 뗌 — 무시 (latched 상태 유지)
+                    stickyActivatedDuringPress = false
+                    Log.d("KeyboardKeyButton", "Sticky Hold kept on release: $keyLabel")
+                } else if (isStickyLatched) {
+                    // 이미 latched 상태에서 다시 탭 — 해제
                     onKeyReleased?.invoke(keyCode)
                     isStickyLatched = false
                     Log.d("KeyboardKeyButton", "Sticky Hold released: $keyLabel (0x${keyCode.toString(16)})")
                 } else {
+                    // 일반 탭 (짧게 눌렀다 뗌)
                     onKeyPressed?.invoke(keyCode)
                     onKeyReleased?.invoke(keyCode)
                     Log.d("KeyboardKeyButton", "Key tapped: $keyLabel (0x${keyCode.toString(16)})")
