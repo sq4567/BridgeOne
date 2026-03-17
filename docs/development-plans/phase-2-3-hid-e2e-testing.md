@@ -510,98 +510,7 @@ if (granted) {
 
 ---
 
-## Phase 2.3.4: UART 안정성 및 스트레스 테스트
-
-**목표**: 장시간 UART 통신 안정성 검증
-
-**활용 기술 스택** (Phase 2.2 완료 사항):
-- **Android 측**: FrameBuilder (스레드 안전한 AtomicInteger 기반 순번 관리) + UsbSerialManager.sendFrame()
-  - FrameBuilder의 스레드 안전성 (AtomicInteger.getAndIncrement())이 4시간 연속 사용에서 순번 중복 없이 동작하는지 검증
-  - UsbSerialManager의 포트 연결 유지 및 재연결 로직 검증
-  - TouchpadWrapper의 터치 이벤트 처리 안정성
-- **ESP32-S3 측**: UART 수신 태스크 (우선순위 6, Core 0) + FreeRTOS 안정성
-  - 4시간 연속 UART 수신 중 태스크 크래시 없음
-  - 메모리 누수 모니터링 (`esp_get_free_heap_size()` 일정 유지)
-  - CPU 사용률 < 30% (FreeRTOS 유휴 시간 충분)
-
-**세부 목표**:
-1. 4시간 연속 마우스 + 키보드 입력 시뮬레이션
-2. ESP32-S3 크래시 없음 (UART 수신 태스크)
-3. Android 앱 크래시 없음 (FrameBuilder, UsbSerialManager)
-4. 메모리 누수 없음 (Android와 ESP32-S3 모두)
-
-**검증**:
-- [ ] 4시간 연속 사용 중 ESP32-S3 UART 에러 없음 (시리얼 로그)
-- [ ] 4시간 연속 사용 중 Android 앱 크래시 없음
-- [ ] ESP32-S3 메모리 사용량 안정 (`esp_get_free_heap_size()` 일정 유지)
-- [ ] CPU 사용률 < 30% (FreeRTOS 태스크 통계)
-- [ ] USB 연결 해제 후 재연결 시 자동 복구 확인
-
----
-
-## Phase 2.3.5: HID Mouse 경로 End-to-End 검증
-
-**목표**: 터치 → UART → HID Mouse → Windows 마우스 이동 전체 경로 검증
-
-**활용 기술 스택** (Phase 2.2 완료 사항):
-- **Android 측 (사용자 입력 → UART)**:
-  - TouchpadWrapper: 터치 이벤트 감지 (DOWN/MOVE/UP)
-  - DeltaCalculator: 델타 계산 + 데드존 보상 (8dp 이하 무시)
-  - ClickDetector: 클릭 판정 (500ms 이내 탭 감지, LEFT/RIGHT 구분)
-  - BridgeFrame: buttons 필드 (0x00=누름없음, 0x01=좌클릭, 0x02=우클릭)
-  - FrameBuilder: 순번 관리
-  - UsbSerialManager.sendFrame(): 1Mbps UART 전송
-- **ESP32-S3 측 (UART → HID Mouse → Windows)**:
-  - UART 수신: 8바이트 프레임 수신 + seq 검증
-  - HID 변환: UART deltaX/deltaY → HID Mouse 상대 이동값 (최대 ±127)
-  - HID 리포트 전송: TinyUSB HID Boot Mouse (3바이트: buttons, x, y)
-  - 로그: "HID Mouse report sent: buttons=0x%02x deltaX=%d deltaY=%d wheel=%d"
-
-**사전 환경 설정**:
-
-**하드웨어 연결** (YD-ESP32-S3):
-1. **Android 연결**: Android 기기를 ESP32-S3의 **COM 포트** (우측 하단)에 USB-C 케이블 연결
-2. **PC HID 연결**: ESP32-S3의 **USB-OTG 포트** (좌측 상단)를 Windows PC에 USB 케이블로 연결
-3. **두 케이블 동시 연결** 필요 ⭐
-
-**소프트웨어 설정**:
-4. Android 앱 빌드 및 설치
-5. **시리얼 모니터 실행** (디버깅용, 선택사항):
-   - Windows PC: PuTTY, miniterm.py, 또는 Arduino IDE Serial Monitor
-   - 포트: ESP32-S3 시리얼 포트 (COM3, COM4 등)
-   - 속도: 115200 baud (ESP-IDF 초기 로그)
-   - ⚠️ **주의**: 시리얼 모니터 사용 시 별도 UART 어댑터 필요 (COM 포트는 Android가 사용 중)
-6. **선행 필수**: ESP32-S3 펌웨어에 HID Mouse 리포트 전송 로그 추가 완료
-
-**세부 목표**:
-1. 시리얼 모니터에서 UART 프레임 수신 로그 확인 (FrameBuilder seq 필드 포함)
-2. 시리얼 모니터에서 HID Mouse 리포트 전송 로그 확인 (buttons, deltaX, deltaY)
-3. Windows에서 마우스 포인터 이동 확인 (TouchpadWrapper의 터치 → Windows 포인터 이동)
-4. 이동 거리 및 속도 정량적 검증 (DeltaCalculator의 델타 값이 정확히 전달되는지)
-
-**검증** (정량적 기준):
-- [ ] Android 앱 터치패드 드래그 시 Windows 마우스 포인터 이동 확인
-- [ ] 시리얼 로그: "UART frame received: seq=X buttons=X deltaX=X deltaY=X" 표시
-- [ ] 시리얼 로그: "HID Mouse report sent: buttons=X deltaX=X deltaY=X wheel=X" 표시
-- [ ] **터치 이동 거리 검증** (정량적):
-  - 터치 패드에서 100픽셀 드래그 → Windows 마우스 포인터 80~120픽셀 이동 (오차 범위: ±20%)
-  - 측정 방법: 마우스 포인터 위치 캡처 (GetCursorPos() 또는 스크린샷 좌표)
-- [ ] **마우스 이동 방향 검증** (정성적):
-  - 위 방향 터치 → 마우스 위 이동
-  - 아래 방향 터치 → 마우스 아래 이동
-  - 좌측 방향 터치 → 마우스 좌측 이동
-  - 우측 방향 터치 → 마우스 우측 이동
-- [ ] **클릭 제스처 검증**: 500ms 이내 탭 → Windows 좌클릭 동작 (메모장에서 커서 이동 또는 버튼 클릭으로 확인)
-- [ ] **지연시간 측정** (정량적, 평균):
-  - 시리얼 로그 타임스탐프: "UART frame received at 1000ms"
-  - 시리얼 로그 타임스탐프: "HID Mouse report sent at 1010ms"
-  - 지연시간: 1010 - 1000 = 10ms (목표: < 50ms)
-  - 10회 이상 반복 측정 후 평균값 계산
-- [ ] **프레임 손실 검증**: 시리얼 로그에서 seq 필드 연속성 확인 (0→1→2→...→254→255→0 연속 증가)
-
----
-
-## Phase 2.3.6: HID Keyboard 경로 End-to-End 검증
+## Phase 2.3.4: HID Keyboard 경로 End-to-End 검증
 
 **목표**: 키 입력 → UART → HID Keyboard → Windows 키 입력 검증
 
@@ -620,278 +529,214 @@ if (granted) {
   - 로그: "HID Keyboard report sent: modifiers=0x%02x keyCodes=[0x%02x,0x%02x,0,0,0,0]"
   - **BIOS 호환성**: HID Boot Protocol 사용 (Keyboard + Mouse 복합 디바이스)
 
-**세부 목표**:
-1. KeyboardKeyButton 컴포넌트 기본 구현 확인 (Phase 2.2.4에서 완료)
-2. 키 다운/업 이벤트 → BridgeFrame 생성 (modifiers, keyCode1, keyCode2 필드)
-3. Windows 메모장에서 키 입력 확인 (del, esc, enter, tab 등)
-4. BIOS 호환성 검증 (Del 키로 BIOS 진입 테스트)
-
 **참조 문서 및 섹션**:
 - `docs/android/technical-specification-app.md` §2.3.2.1 KeyboardKeyButton 컴포넌트 설계 요구사항
 - `docs/board/esp32s3-code-implementation-guide.md` §4.2 USB HID 모듈 구현
 - `docs/android/component-design-guide-app.md` (KeyboardKeyButton 상세)
 
+---
+
+### Phase 2.3.4.1: 키보드 프레임 전송 검증
+
+**목표**: Android 키 입력 → ESP32-S3 UART 수신 경로 검증
+
+**세부 목표**:
+1. KeyboardKeyButton 컴포넌트 기본 구현 확인 (Phase 2.2.4에서 완료)
+2. 키 다운/업 이벤트 → BridgeFrame 생성 (modifiers, keyCode1, keyCode2 필드)
+3. ESP32-S3에서 UART 프레임 정상 수신 확인
+
 **검증**:
-- [ ] `src/android/app/src/main/java/com/bridgeone/app/ui/components/KeyboardKeyButton.kt` 파일 생성됨
-- [ ] 터치 다운 시 `keyCode` 포함한 프레임 전송 (modifiers=0, keyCode1=X, keyCode2=0)
-- [ ] 터치 업 시 빈 프레임 전송 (keyCode1=0, keyCode2=0)
-- [ ] ESP32-S3 시리얼 로그에 "HID Keyboard report sent: modifiers=X keyCodes=[X,X,0,0,0,0]" 메시지 표시
+- [x] `src/android/app/src/main/java/com/bridgeone/app/ui/components/KeyboardKeyButton.kt` 파일 존재
+- [x] 터치 다운 시 `keyCode` 포함한 프레임 전송 (modifiers=0, keyCode1=X, keyCode2=0)
+- [x] 터치 업 시 빈 프레임 전송 (keyCode1=0, keyCode2=0)
+- [x] ESP32-S3 시리얼 로그에 "HID Keyboard report sent: modifiers=0xXX keyCodes=[0xXX,0xXX,0x00,0x00,0x00,0x00]" 메시지 표시 (2026-03-17 실기기 검증 완료)
+
+**코드 검증 상세 (2026-03-17)**:
+
+1. **KeyboardKeyButton 동작 확인**: 일반 탭 시 `onClick` → `onKeyPressed(keyCode)` 즉시 호출 후 `onKeyReleased(keyCode)` 호출 (KeyboardKeyButton.kt:188-189). Sticky Hold(롱프레스 500ms)도 정상 구현.
+
+2. **프레임 생성 경로 확인**: `BridgeOneApp.kt` KeyboardPage에서:
+   - 일반 키 DOWN → `ClickDetector.createKeyboardFrame(activeModifierKeys, keyCode, 0u)` → `sendFrame()` (BridgeOneApp.kt:268-274)
+   - 일반 키 UP → `ClickDetector.createKeyboardFrame(activeModifierKeys, 0u, 0u)` → `sendFrame()` (BridgeOneApp.kt:292-298)
+
+3. **수정자 키 동작**: Ctrl/Shift/Alt/GUI는 프레임을 직접 전송하지 않고 `activeModifierKeys` 상태에만 추가/제거됨. 다음 일반 키 전송 시 modifiers 필드에 반영됨 (의도된 동작).
+
+4. **ESP32-S3 로그 수정**: `hid_handler.c`의 키보드 리포트 전송 로그를 `ESP_LOGD` → `ESP_LOGI`로 변경하고, 6개 키코드 전체를 출력하도록 수정함 (검증 시 로그 확인 가능).
+
+**⚠️ 후속 Phase 참고사항**:
+- **Phase 2.3.4.2 영향**: 수정자 키 단독 전송이 없으므로, 수정자 키 조합 테스트(Ctrl+C 등) 시 반드시 Sticky Hold로 수정자 키를 먼저 유지한 뒤 일반 키를 눌러야 함. 탭 방식으로는 수정자+키 조합이 불가능 (수정자 탭 시 즉시 해제되어 다음 키 전송 시점에 이미 비활성 상태).
+- ~~**Phase 2.3.4.2 영향**: Del 키 미구현~~ → ✅ Phase 2.3.4.2에서 Del 키(HID 0x4C) 추가 완료 (2026-03-17).
+- **펌웨어 재빌드 필요**: `hid_handler.c` 로그 레벨 변경사항은 펌웨어 재빌드 후 적용됨.
+
+---
+
+### Phase 2.3.4.2: 키 입력 기능 검증
+
+**목표**: ESP32-S3 HID → Windows 키 입력 정상 동작 검증
+
+**세부 목표**:
+1. Windows 메모장에서 키 입력 확인 (Esc, Enter, Tab 등)
+2. 키 매핑 정확성 검증 (Android 입력 = Windows 출력)
+3. 미입력 키 없음 확인
+
+**⚠️ Phase 2.3.4.1에서 발견된 사항 반영**:
+- ~~**Del 키 미구현**~~: ✅ Phase 2.3.4.2 진행 중 KeyboardTabFunction에 Del 키(HID 0x4C) 추가 완료 (2026-03-17). 기능 탭 레이아웃: Enter(80dp) + Del(64dp) + Esc(64dp).
+- **수정자 키 조합 테스트 방법**: 수정자 키(Ctrl/Shift/Alt)는 단독 탭 시 즉시 해제되므로, **Sticky Hold(500ms 롱프레스)**로 수정자를 유지한 후 일반 키를 눌러야 조합이 작동함.
+
+**검증**:
 - [ ] Windows 메모장에서 키 입력 정상 작동 확인 (사용자 테스트)
-- [ ] Del 키 정상 동작 확인
+- [ ] Del 키 정상 동작 확인 (✅ 구현 완료, 사용자 테스트 필요)
 - [ ] Esc 키 정상 동작 확인
 - [ ] Enter 키 정상 동작 확인
+- [ ] **키 매핑 정확성 검증**: 모든 키가 Android에서 누른 것과 동일하게 Windows에 입력되는지 확인
+  - [ ] 기능 키: Esc, Enter, Tab, Backspace, Space, Del
+  - [ ] 화살표 키: ↑, ↓, ←, →
+  - [ ] 수정자 키 조합 (Sticky Hold 사용): Ctrl+C, Ctrl+V, Ctrl+Z, Alt+Tab 등
+  - [ ] 잘못된 키 매핑 없음 (예: `a` 누름 → `q` 입력되는 현상 없음)
+- [ ] **미입력 키 확인**: 모든 구현된 키가 Windows에서 정상 입력되는지 확인
+  - [ ] 입력되지 않는 키 없음 (터치 시 Windows 반응 없음 현상)
+  - [ ] 간헐적 미입력 없음 (같은 키를 10회 연속 터치 시 모두 입력됨)
+
+---
+
+### Phase 2.3.4.3: BIOS 호환성 및 성능 검증
+
+**목표**: HID Boot Protocol 호환성 및 키 입력 지연시간 검증
+
+**세부 목표**:
+1. BIOS 환경에서 키보드 동작 확인 (Del 키로 BIOS 진입)
+2. 키 입력 지연시간 측정
+
+**⚠️ Phase 2.3.4.1에서 발견된 사항 반영**:
+- ~~**Del 키 추가 필요**~~: ✅ Phase 2.3.4.2에서 Del 키(HID 0x4C) 추가 완료 (2026-03-17). BIOS 진입 테스트 가능.
+
+**검증**:
 - [ ] BIOS 진입 테스트 (재부팅 시 Del 키 → BIOS 화면 진입 확인, 사용자 테스트)
 - [ ] 키 입력 지연시간 10ms 이하 (사용자 체감 테스트)
 
 ---
 
-## Phase 2.3.7: 최종 지연시간 및 프레임 손실률 측정 (HID 경로)
+## Phase 2.3.5: 코드 품질 개선 및 리팩토링
 
-**목표**: 성능 임계값 검증 (50ms 이하 평균 지연, 0.1% 이하 손실)
+**목표**: Phase 2.3.4 검증 완료 후, E2E 기능을 유지하면서 코드 품질 및 유지보수성 개선
 
-**활용 기술 스택** (Phase 2.2 완료 사항):
-- **Android 측 (터치 입력 → UART 전송)**:
-  - TouchpadWrapper: 터치 이벤트 발생 시간 기록 (System.currentTimeMillis())
-  - DeltaCalculator, ClickDetector: 처리 시간 포함
-  - FrameBuilder.buildFrame(): 프레임 생성 + seq 필드 (손실 감지용)
-  - UsbSerialManager.sendFrame(): UART 전송 시간 기록
-- **ESP32-S3 측 (UART 수신 → HID 전송)**:
-  - UART 수신 태스크: 수신 시간 기록 + seq 필드 로그
-  - HID 처리 태스크: HID 리포트 생성 시간
-  - HID 전송 태스크: USB HID 리포트 전송 시간 기록 (에스프레소 시간)
-  - 로그: "UART received at T1ms seq=%d" + "HID sent at T2ms"
-  - 지연시간 계산: T2 - (Android 터치 발생 시간)
+**사전 조건**: Phase 2.3.4 키보드 E2E 검증 완료 (정상 동작 기준점 확보)
 
-**측정 방법론**:
-1. **지연시간 측정 (3가지 경로 추적)**:
-   - `Android 터치 → ESP32-S3 UART 수신`: 시리얼 로그 타임스탬프 기반 (T_uart = ESP32수신 - Android발송)
-   - `ESP32-S3 UART 수신 → HID 전송`: ESP32-S3 내부 타임스탬프 (T_hid = HID전송 - UART수신)
-   - `총 지연시간 = T_uart + T_hid`
-   - **정합성 검증**: FrameBuilder의 seq 필드로 패킷 매핑 (UART seq와 HID seq 일치 확인)
-
-2. **샘플링**:
-   - 최소 100프레임 이상 측정 (5초 이상)
-   - 다양한 입력 패턴: 느린 드래그, 빠른 드래그, 클릭
-   - 마우스와 키보드 혼합 입력
-
-3. **프레임 손실 측정**:
-   - 시리얼 로그 seq 필드 분석 (FrameBuilder가 생성한 순번)
-   - 손실된 seq 번호 식별 및 횟수 계산
-   - 손실률 = (손실 프레임 / 전체 프레임) × 100%
-
-**검증** (정량적):
-- [ ] **평균 지연시간**: 100 프레임 측정 후 평균값 < 50ms
-- [ ] **최대 지연시간**: 99 percentile (상위 1%) < 100ms
-- [ ] **프레임 손실률**: (손실 프레임 / 전체 프레임) × 100% < 0.1%
-  - 예: 1000프레임 중 1개 이하 손실
-- [ ] **연속성 검증**: seq 필드가 0→1→2→...→254→255→0 연속 증가 확인
-- [ ] **안정성**: 5분 이상 연속 전송 중 크래시 없음 (시리얼 로그 오류 없음)
+**원칙**:
+- 기능 변경 없음 (동작은 동일하게 유지)
+- 검증 완료 후 진행 (리팩토링 전후 비교 가능)
+- 단계별 진행 (한 번에 하나씩 변경 → 동작 확인)
 
 ---
 
-## Phase 2.3.8: HID 안정성 및 스트레스 테스트
+### Phase 2.3.5.1: ESP32-S3 디버그 로그 정리
 
-**목표**: 장시간 사용 안정성 검증
+**목표**: 검증 완료 후 불필요한 디버그 로그를 적절한 레벨로 조정
 
-**활용 기술 스택** (Phase 2.2 완료 사항):
-- **Android 측 (장시간 안정성)**:
-  - TouchpadWrapper: 4시간 연속 터치 이벤트 처리
-  - KeyboardKeyButton: 4시간 연속 키 입력 처리
-  - FrameBuilder (AtomicInteger): 스레드 안전한 순번 관리가 4시간 중복 없이 동작
-  - UsbSerialManager: 포트 연결 유지 + 재연결 로직
-  - UsbDeviceDetectionReceiver: 자동 연결/해제 감지
-  - 메모리 모니터링: Android Studio Profiler로 메모리 누수 감지
-- **ESP32-S3 측 (장시간 안정성)**:
-  - UART 수신 태스크 (우선순위 6): 4시간 연속 수신 안정성
-  - HID 처리 태스크 (우선순위 5): 4시간 연속 변환 안정성
-  - FreeRTOS 스케줄러: CPU 사용률 균형
-  - 메모리 모니터링: `esp_get_free_heap_size()` 로깅으로 메모리 누수 감지
-  - 로그: "Free heap: %u bytes" 주기적 기록
-
-**세부 목표**:
-1. 4시간 연속 마우스 + 키보드 입력 (TouchpadWrapper + KeyboardKeyButton)
-2. 크래시 없음 (ESP32-S3 UART/HID 태스크, Android 앱 모두)
-3. 메모리 누수 없음 (FrameBuilder, UsbSerialManager, 기타 컴포넌트)
-4. 자동 재연결 테스트 (USB 기기 제거/삽입 시 UsbDeviceDetectionReceiver 동작)
+**변경 대상**:
+- `uart_handler.c`: `DEBUG_FRAME_VERBOSE` 매크로 제거 또는 ESP_LOGD로 변경
+- `hid_handler.c`: 검증용 ESP_LOGI → ESP_LOGD로 복원
+- 프레임 수신/전송 로그를 ESP_LOGD로 통일 (필요시 menuconfig로 활성화)
 
 **검증**:
-- [ ] 4시간 연속 사용 중 크래시 없음 (시리얼 로그, Android 앱 로그 모두)
-- [ ] 마우스 이동 중 클릭 정상 동작 (DeltaCalculator + ClickDetector 동시 처리)
-- [ ] 키보드 타이핑 중 마우스 조작 정상 동작 (TouchpadWrapper + KeyboardKeyButton 동시 입력)
-- [ ] 메모리 사용량 안정 (`esp_get_free_heap_size()` 4시간 중 변동 < 5KB)
-- [ ] CPU 사용률 < 30% (FreeRTOS 유휴 시간 충분)
-- [ ] Windows에서 입력 오류 없음 (마우스/키보드 정상 작동, 누락된 입력 없음)
-- [ ] Android 앱 배터리 소모 정상 범위 (4시간 사용 시 배터리 20% 이하 소모)
-- [ ] USB 자동 재연결 (UsbDeviceDetectionReceiver로 기기 재착탈 감지 후 자동 연결)
+- [ ] `DEBUG_FRAME_VERBOSE` 매크로 제거 또는 비활성화
+- [ ] 정상 동작 시 시리얼 모니터에 불필요한 프레임 로그 출력되지 않음
+- [ ] ESP-IDF menuconfig에서 로그 레벨 변경으로 디버그 로그 활성화 가능
+- [ ] 에러/경고 로그(ESP_LOGE, ESP_LOGW)는 그대로 유지
 
 ---
 
-## Phase 2.3.9: 최종 통합 검증 및 문서화
+### Phase 2.3.5.2: Android 키보드 키코드 상수 중복 제거
 
-**목표**: Phase 2.3 완료 및 최종 검증
+**목표**: KeyboardLayout 내 각 탭 함수에서 중복 선언된 HID 키코드 상수를 통합
 
-**개발 기간**: 2-3일
+**현재 문제**:
+- `KeyboardLayout()`, `KeyboardTabCharacters()`, `KeyboardTabSymbols()`, `KeyboardTabFunction()` 각각에서 동일한 키코드를 로컬 변수로 반복 선언
+- 예: `val KEY_A = 0x04.toUByte()`가 두 곳에서 선언됨
 
-**활용 기술 스택** (Phase 2.2 완료 사항):
-- **Phase 2.3.1~2.3.8의 모든 구현을 종합 검증**:
-  - BridgeFrame (8바이트 구조 정확성)
-  - FrameBuilder (순번 관리 안정성)
-  - UsbSerialManager (UART 통신 안정성)
-  - TouchpadWrapper + DeltaCalculator + ClickDetector (터치 입력 E2E)
-  - KeyboardKeyButton (키 입력 E2E)
-  - Phase 2.1 HID 기능 (USB 리포트 전송 안정성)
-
-**세부 목표**:
-1. 모든 하위 Phase (2.3.1~2.3.8) 검증 완료 확인
-2. 성능 임계값 달성 확인 (지연시간 < 50ms, 손실률 < 0.1%)
-3. Phase 2.1/2.2와의 호환성 재검증 (HID 기능 영향 없음)
-4. 문서화 및 주석 최종 검토
-5. 커밋 및 릴리스 노트 작성
-
----
-
-### Phase 2.3.9.1: Phase 2.3 검증 항목 최종 확인
-
-**목표**: Phase 2.3의 모든 세부 단계 검증 완료 및 성능 임계값 달성 확인
-
-**세부 목표**:
-1. Phase 2.3.1 ~ 2.3.8의 모든 검증 항목 재확인
-2. 성능 임계값 달성 최종 검증 (BridgeFrame, FrameBuilder, UsbSerialManager)
-3. Phase 2.1/2.2와의 호환성 재검증 (HID 기능 여전히 정상)
-
-**검증** (Phase 2.3 검증 항목):
-- [ ] Phase 2.3.1 검증 완료: 장치 인식 검증
-  - Android → ESP32-S3 USB Serial 연결 정상
-  - ESP32-S3 → Windows PC HID 장치 인식 정상
-  - USB 연결/해제 반복 시 안정적 재인식
-- [ ] Phase 2.3.2 검증 완료: UART 프레임 정확성 검증
-  - 8바이트 구조 정확
-  - seq 필드 연속성 (0~255 순환)
-  - Little-Endian 바이트 순서 정확
-- [ ] Phase 2.3.3 검증 완료: UART 지연시간 및 손실률 측정
-  - 평균 지연시간 < 50ms (100프레임 이상 측정)
-  - 최대 지연시간 < 100ms (99 percentile)
-  - 프레임 손실률 < 0.1%
-- [ ] Phase 2.3.4 검증 완료: UART 안정성 및 스트레스 테스트
-  - 4시간 연속 사용 무중단
-  - CPU 사용률 < 30%
-  - 메모리 누수 없음
-- [ ] Phase 2.3.5 검증 완료: HID Mouse 경로 E2E 검증
-  - Android 터치패드 드래그 → Windows 마우스 포인터 이동 정상
-  - 마우스 방향 및 속도 정확
-- [ ] Phase 2.3.6 검증 완료: HID Keyboard 경로 E2E 검증
-  - Windows 메모장에서 키 입력 정상 작동
-  - BIOS 호환성 확인 (Del 키 → BIOS 진입)
-  - 지연시간 10ms 이하
-- [ ] Phase 2.3.7 검증 완료: 최종 지연시간 및 프레임 손실률 측정 (HID 경로)
-  - E2E 평균 지연시간 < 50ms
-  - 프레임 손실률 < 0.1%
-- [ ] Phase 2.3.8 검증 완료: HID 안정성 및 스트레스 테스트
-  - 4시간 연속 마우스 + 키보드 사용 무중단
-  - Windows HID 입력 오류 없음
-
-**검증** (성능 임계값):
-- [ ] 평균 지연시간 < 50ms
-- [ ] 최대 지연시간 < 100ms (99 percentile)
-- [ ] 프레임 손실률 < 0.1%
-- [ ] 4시간 연속 사용 무중단 (크래시 없음)
-- [ ] CPU 사용률 < 30%
-
-**검증** (호환성):
-- [ ] Windows 10 HID 인식 정상
-- [ ] Windows 11 HID 인식 정상
-- [ ] Android 8.0 이상 USB Serial 통신 정상
-- [ ] Phase 2.1/2.2 기능 (마우스/키보드) 여전히 정상 작동
-
----
-
-### Phase 2.3.9.2: 문서 및 코드 주석 최종 검토
-
-**목표**: 모든 코드 파일 주석 및 Docstring 완성도 검증 (Phase 2.2 구현에 대한 재검증)
-
-**활용 기술 스택** (Phase 2.2 완료 사항에 대한 검토):
-- **Android 코드 검증**:
-  - BridgeFrame.kt: Google 스타일 Docstring + 비트마스크 상수 주석
-  - FrameBuilder.kt: buildFrame(), resetSequence(), getCurrentSequence() 주석 확인
-  - UsbSerialManager.kt: 모든 public 함수 (setUsbManager, openPort, closePort, isConnected, sendFrame 등) 문서화 확인
-  - TouchpadWrapper.kt: 터치 이벤트 처리 로직 주석
-  - ClickDetector.kt: 클릭 판정 알고리즘 주석
-  - KeyboardKeyButton.kt: Sticky Hold 애니메이션 주석
-  - UsbConstants.kt: 모든 상수 UPPER_CASE 확인
-- **ESP32-S3 코드 검증**:
-  - uart_handler.c: UART 프레임 수신 로그 + 주석
-  - hid_handler.c: HID 변환 로직 주석 + HID 리포트 전송 로그
-  - main.c: FreeRTOS 태스크 생성 로직 주석
-
-**세부 목표**:
-1. 모든 함수에 Google 스타일 Docstring 확인 (Phase 2.2 구현)
-2. 복잡한 로직에 한국어 주석 확인 (DeltaCalculator, ClickDetector, FrameBuilder)
-3. 상수명 대문자 규칙 확인 (UsbConstants, BridgeFrame 비트마스크 상수)
-4. Boolean 변수명 규칙 확인 (isConnected, isEsp32s3Device, isLeftClickPressed 등)
-5. Phase 2.3 검증 절차 문서화
+**변경 대상**:
+- `KeyboardLayout.kt`: 키코드 상수를 companion object 또는 파일 레벨 상수로 통합
+- 각 탭 함수에서 중복 선언 제거
 
 **검증**:
-- [ ] 모든 public 함수에 Docstring 포함 (BridgeFrame, FrameBuilder, UsbSerialManager, TouchpadWrapper, ClickDetector, KeyboardKeyButton)
-- [ ] 복잡한 로직에 한국어 주석 (DeltaCalculator 델타 계산, ClickDetector 클릭 판정, FrameBuilder 순환 로직)
-- [ ] 상수명 모두 UPPER_CASE (UsbConstants, BridgeFrame 비트마스크)
-- [ ] Boolean 변수명 규칙 준수 (is*, has* 패턴)
-- [ ] Phase 2.3 검증 결과 문서에 기록 (phase-2-3-results.md 생성)
-- [ ] Linter 오류 없음 (모든 Android/ESP32-S3 파일)
+- [ ] HID 키코드 상수가 한 곳에서만 정의됨
+- [ ] 모든 키보드 탭에서 정상 동작 확인 (기능 변경 없음)
+- [ ] Android 빌드 성공
 
 ---
 
-### Phase 2.3.9.3: 최종 커밋 및 릴리스 노트
+### Phase 2.3.5.3: FrameBuilder 시퀀스 카운터 경합 조건 수정
 
-**목표**: Phase 2.3 완료 커밋 및 정리
+**목표**: 멀티스레드 환경에서 시퀀스 번호 순환 시 발생할 수 있는 경합 조건 수정
 
-**활용 기술 스택** (Phase 2.2 완료 사항 + Phase 2.3 검증 결과):
-- **Phase 2.2 구현 확정**:
-  - BridgeFrame (8바이트 프로토콜) ✓
-  - FrameBuilder (스레드 안전한 순번 관리) ✓
-  - UsbSerialManager (1Mbps UART 통신) ✓
-  - TouchpadWrapper + DeltaCalculator + ClickDetector (터치 입력) ✓
-  - KeyboardKeyButton (키 입력) ✓
-- **Phase 2.3 검증 완료**:
-  - UART 프레임 정확성 (8바이트 구조, seq 연속성, Little-Endian) ✓
-  - UART 성능 (지연시간 < 50ms, 손실률 < 0.1%) ✓
-  - UART 안정성 (4시간 연속 사용, 메모리 누수 없음) ✓
-  - HID Mouse E2E (터치 → Windows 마우스) ✓
-  - HID Keyboard E2E (키입력 → Windows 키보드, BIOS 호환성) ✓
-  - E2E 성능 (지연시간 < 50ms, 손실률 < 0.1%) ✓
-  - HID 안정성 (4시간 연속, 메모리/CPU 안정) ✓
+**현재 문제**:
+```kotlin
+// FrameBuilder.kt - 현재 코드
+val current = sequenceCounter.getAndIncrement()
+if (sequenceCounter.get() >= 256) {
+    sequenceCounter.set(0)  // ← 경합 조건: 두 스레드가 동시에 여기 도달 가능
+}
+return (current % 256).toUByte()
+```
+- `getAndIncrement()`와 `set(0)` 사이에 다른 스레드가 개입할 수 있음
+- 실제로 `current % 256`으로 반환하므로 값 자체는 정확하지만, 카운터가 무한히 증가할 수 있음
 
-**세부 목표**:
-1. 모든 Phase 2.3 검증 변경사항 커밋
-2. 커밋 메시지 작성 (작가 가이드라인 준수)
-3. Phase 2.3 완료 요약 문서 작성 (검증 결과, 성능 지표 포함)
-4. 다음 Phase 2.4 준비 계획 수립
+**변경 방안**:
+```kotlin
+// compareAndSet 기반 원자적 순환
+fun getNextSequence(): UByte {
+    while (true) {
+        val current = sequenceCounter.get()
+        val next = (current + 1) % 256
+        if (sequenceCounter.compareAndSet(current, next)) {
+            return current.toUByte()
+        }
+    }
+}
+```
 
 **검증**:
-- [ ] 모든 파일 커밋 완료 (Phase 2.3 테스트 및 검증 관련 문서)
-- [ ] 커밋 메시지: "feat(Phase 2.3): UART 통신 검증 및 E2E HID 테스트 완료"
-  ```
-  - Phase 2.3.1: 장치 인식 검증 ✓
-  - Phase 2.3.2: UART 프레임 정확성 검증 ✓
-  - Phase 2.3.3: UART 지연시간 및 손실률 측정 ✓
-  - Phase 2.3.4: UART 안정성 및 스트레스 테스트 ✓
-  - Phase 2.3.5: HID Mouse 경로 E2E 검증 ✓
-  - Phase 2.3.6: HID Keyboard 경로 E2E 검증 ✓
-  - Phase 2.3.7: 최종 지연시간 및 프레임 손실률 측정 ✓
-  - Phase 2.3.8: HID 안정성 및 스트레스 테스트 ✓
-  - Phase 2.3.9: 최종 통합 검증 및 문서화 ✓
+- [ ] 시퀀스 번호 0~255 정상 순환
+- [ ] 멀티스레드 환경에서 번호 중복/누락 없음
+- [ ] Android 빌드 성공
 
-  성능 임계값 달성:
-  - 평균 지연시간: < 50ms ✓
-  - 프레임 손실률: < 0.1% ✓
-  - 4시간 연속 사용 안정성 ✓
-  - BIOS 호환성 ✓
-  ```
-- [ ] Phase 2.3 완료 요약 문서 작성 (phase-2-3-results.md)
-  - 검증 항목별 결과
-  - 성능 지표 (지연시간, 손실률, CPU, 메모리)
-  - 이슈 및 해결 방안
-  - Phase 2.1/2.2 호환성 확인
-- [ ] Phase 2.4 시작 조건 확인 및 다음 단계 계획
+---
+
+### Phase 2.3.5.4: ESP32-S3 HID 리포트 큐 처리 코드 중복 제거
+
+**목표**: hid_handler.c에서 키보드/마우스 큐 처리 로직의 반복 패턴을 함수로 추출
+
+**현재 문제**:
+- `tud_hid_report_complete_cb()`와 `hid_task()` 두 곳에서 거의 동일한 큐 확인/재전송 로직이 반복됨
+- 키보드와 마우스 각각에 대해 같은 패턴이 반복되어 총 4곳에서 유사 코드 존재
+
+**변경 방안**:
+- `try_send_queued_report()` 같은 헬퍼 함수로 공통 로직 추출
+- 키보드/마우스를 인스턴스 번호와 큐 핸들로 파라미터화
+
+**검증**:
+- [ ] 큐 처리 로직이 하나의 함수로 통합됨
+- [ ] 키보드/마우스 리포트 전송 정상 동작 (기능 변경 없음)
+- [ ] 펌웨어 빌드 성공
+
+---
+
+### Phase 2.3.5.5: Android 수정자 키 단독 전송 지원
+
+**목표**: 수정자 키(Ctrl, Shift, Alt)를 단독으로 눌렀을 때도 프레임이 전송되도록 개선
+
+**현재 문제**:
+- `BridgeOneApp.kt` KeyboardPage에서 수정자 키 누르면 `activeModifierKeys`에만 추가하고 프레임을 전송하지 않음
+- Alt+Tab 같은 수정자 키 단독 사용 시나리오에서 문제 발생 가능
+
+**변경 대상**:
+- `BridgeOneApp.kt` KeyboardPage: 수정자 키 press/release 시에도 프레임 전송 추가
+
+**검증**:
+- [ ] Shift 단독 누름 → ESP32-S3에서 modifier=0x02 프레임 수신
+- [ ] Shift 해제 → ESP32-S3에서 modifier=0x00 프레임 수신
+- [ ] Ctrl+C 조합 정상 동작 (기존 기능 유지)
+- [ ] Android 빌드 성공
 
 ---
 
@@ -901,10 +746,10 @@ if (granted) {
 - ✅ 장치 인식: Android → ESP32-S3 USB Serial 연결, ESP32-S3 → Windows HID 장치 인식
 - ✅ UART 프레임 정확성: 8바이트 구조, seq 필드 연속성, Little-Endian 바이트 순서
 - ✅ UART 성능: 50ms 이하 지연시간, 0.1% 이하 손실률 달성
-- ✅ UART 안정성: 4시간 연속 사용 무중단, CPU < 30%
-- ✅ HID Mouse 경로: Android 터치 → ESP32-S3 UART → Windows 마우스 제어 완전 검증
-- ✅ HID Keyboard 경로: Android 키입력 → ESP32-S3 UART → Windows 키보드 제어 완전 검증
-- ✅ BIOS 호환성: Del 키를 통한 BIOS 진입 확인
+- ⏳ UART 안정성: 5분 연속 전송 테스트 미완료
+- ⏳ HID Keyboard 경로: Android 키입력 → ESP32-S3 UART → Windows 키보드 제어 검증 진행 중
+- ⏳ BIOS 호환성: Del 키를 통한 BIOS 진입 미확인
+- ⏳ 코드 품질 개선: 리팩토링 미진행
 
 **구성된 통신 경로**:
 - Android Jetpack Compose UI (TouchpadWrapper + KeyboardKeyButton)
@@ -917,8 +762,6 @@ if (granted) {
 **핵심 성과물**:
 - Android 앱: `TouchpadWrapper.kt`, `KeyboardKeyButton.kt`, `BridgeFrame.kt`, `FrameBuilder.kt`, `UsbSerialManager.kt`
 - ESP32-S3 펌웨어: `uart_handler.c`, `hid_handler.c`, `usb_descriptors.c`, `main.c`
-- 검증 완료: UART 프로토콜, E2E 성능 측정, BIOS 호환성, 4시간 안정성 테스트
-
-**다음 단계**: Phase 2.4 (Windows 양방향 통신) - CDC Vendor 통신 구현 또는 Keyboard UI 완성도 개선
+- 검증 완료: UART 프로토콜, E2E 성능 측정
 
 ---

@@ -358,9 +358,11 @@ bool sendKeyboardReport(const hid_keyboard_report_t* report) {
         return false;
     }
 
-    // 디버그 로그: 전송된 키보드 리포트 정보
-    ESP_LOGD(TAG, "Keyboard report sent: modifier=0x%02x, keycode[0]=0x%02x, keycode[1]=0x%02x",
-             report->modifier, report->keycode[0], report->keycode[1]);
+    // 키보드 리포트 전송 로그 (Phase 2.3.4.1 검증용 - INFO 레벨)
+    ESP_LOGI(TAG, "HID Keyboard report sent: modifiers=0x%02X keyCodes=[0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X]",
+             report->modifier,
+             report->keycode[0], report->keycode[1], report->keycode[2],
+             report->keycode[3], report->keycode[4], report->keycode[5]);
 
     return true;
 }

@@ -34,7 +34,6 @@ import android.content.Context
 import android.os.Build
 import android.os.Vibrator
 import android.os.VibrationEffect
-import androidx.compose.ui.draw.scale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -302,9 +301,7 @@ private fun KeyboardPage(
                 }
             },
             activeKeys = activeKeys.value,
-            modifier = Modifier
-                .fillMaxWidth()
-                .scale(1.2f)  // 약간 확대
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }
