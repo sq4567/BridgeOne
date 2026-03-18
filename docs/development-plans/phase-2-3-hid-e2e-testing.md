@@ -796,41 +796,20 @@ fun getNextSequence(): UByte {
 
 ---
 
-### Phase 2.3.5.4: ESP32-S3 HID 리포트 큐 처리 코드 중복 제거
+### Phase 2.3.5.4: ESP32-S3 HID 리포트 큐 처리 코드 중복 제거 ✅
 
 **목표**: hid_handler.c에서 키보드/마우스 큐 처리 로직의 반복 패턴을 함수로 추출
 
-**현재 문제**:
-- `tud_hid_report_complete_cb()`와 `hid_task()` 두 곳에서 거의 동일한 큐 확인/재전송 로직이 반복됨
-- 키보드와 마우스 각각에 대해 같은 패턴이 반복되어 총 4곳에서 유사 코드 존재
-
-**변경 방안**:
-- `try_send_queued_report()` 같은 헬퍼 함수로 공통 로직 추출
-- 키보드/마우스를 인스턴스 번호와 큐 핸들로 파라미터화
+**변경 내용**:
+- `try_send_queued_report(instance, report_id, queue, last_report, report_size)` 헬퍼 함수 추출
+- `tud_hid_report_complete_cb()`: 키보드/마우스 각각 ~20줄 → 3줄 호출로 축소
+- `hid_task()` 백업 메커니즘: 키보드/마우스 각각 ~12줄 → 3줄 호출로 축소
+- 기존 콜백의 Receive→재큐 방식을 Peek→Ready확인→Receive 방식으로 통일 (더 안전)
 
 **검증**:
-- [ ] 큐 처리 로직이 하나의 함수로 통합됨
-- [ ] 키보드/마우스 리포트 전송 정상 동작 (기능 변경 없음)
-- [ ] 펌웨어 빌드 성공
-
----
-
-### Phase 2.3.5.5: Android 수정자 키 단독 전송 지원
-
-**목표**: 수정자 키(Ctrl, Shift, Alt)를 단독으로 눌렀을 때도 프레임이 전송되도록 개선
-
-**현재 문제**:
-- `BridgeOneApp.kt` KeyboardPage에서 수정자 키 누르면 `activeModifierKeys`에만 추가하고 프레임을 전송하지 않음
-- Alt+Tab 같은 수정자 키 단독 사용 시나리오에서 문제 발생 가능
-
-**변경 대상**:
-- `BridgeOneApp.kt` KeyboardPage: 수정자 키 press/release 시에도 프레임 전송 추가
-
-**검증**:
-- [ ] Shift 단독 누름 → ESP32-S3에서 modifier=0x02 프레임 수신
-- [ ] Shift 해제 → ESP32-S3에서 modifier=0x00 프레임 수신
-- [ ] Ctrl+C 조합 정상 동작 (기존 기능 유지)
-- [ ] Android 빌드 성공
+- [x] 큐 처리 로직이 하나의 함수(`try_send_queued_report`)로 통합됨
+- [x] 펌웨어 빌드 및 플래시 성공
+- [x] 키보드/마우스 리포트 전송 정상 동작 확인 (기능 변경 없음)
 
 ---
 
