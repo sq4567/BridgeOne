@@ -813,6 +813,78 @@ fun getNextSequence(): UByte {
 
 ---
 
+## Phase 2.3.6: 터치패드 입력 파이프라인 최적화
+
+**목표**: 터치 샘플링 레이트를 최대한 활용하여 마우스 커서 이동의 부드러움 개선
+
+**문제 분석**:
+- Compose의 `awaitPointerEvent()`는 Compose 프레임 단위(60~120Hz)로만 터치 이벤트를 전달
+- 스마트폰의 터치 하드웨어는 120~360Hz로 샘플링하지만, Compose 프레임 사이의 중간 샘플은 버려짐
+- 결과: 커서 이동 시 "중간이 비어있는" 느낌, 부드러운 곡선 대신 직선 점프
+- 추가로 `sendFrame()`이 동기식 `port.write()`를 호출하여 터치 이벤트 루프를 블로킹
+
+### Phase 2.3.6.1: Historical 터치 샘플 처리
+
+**변경 내용**:
+- `TouchpadWrapper.kt`의 MOVE 이벤트 처리 루프에서 `PointerInputChange.historical` API 활용
+- Compose 프레임 사이의 중간 터치 샘플(historical)과 현재 위치를 모두 순회하여 프레임 전송
+- `@OptIn(ExperimentalComposeUiApi::class)` 어노테이션 추가 (BOM 2024.09.00에서 experimental)
+
+**변경 전**:
+```kotlin
+// Compose 프레임당 1개 위치만 처리
+currentTouchPosition.value = moveEvent.changes.first().position
+// → 델타 계산 → 프레임 전송 (1프레임/Compose프레임)
+```
+
+**변경 후**:
+```kotlin
+val change = moveEvent.changes.first()
+val allPositions = change.historical.map { it.position } + change.position
+for (pos in allPositions) {
+    // → 모든 중간 샘플 + 현재 위치에 대해 델타 계산 → 프레임 전송
+}
+```
+
+**파일 변경**: `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
+
+**역효과 분석**:
+- historical 데이터가 없는 기기: 빈 리스트 → 기존과 동일하게 동작 (역효과 없음)
+- historical 데이터가 있는 기기: 중간 샘플 추가 처리 → 항상 더 부드러움
+- UART 부하: 8바이트 × 360Hz = 2.88KB/s (1Mbps의 2.3%, 병목 아님)
+
+### Phase 2.3.6.2: 비동기 UART 전송 큐
+
+**변경 내용**:
+- `UsbSerialManager.sendFrame()`을 동기식 `port.write()` 직접 호출에서 `LinkedBlockingQueue` 기반 비동기 전송으로 변경
+- 전용 백그라운드 스레드(`BridgeOne-UART-Sender`)가 큐에서 프레임을 꺼내 전송
+- `sendFrame()`은 큐에 `offer()`만 수행 (논블로킹)
+- 큐 용량 64개 (360Hz/60Hz ≈ 6개/프레임, 약 10프레임분 버퍼)
+- 큐가 가득 차면 가장 오래된 프레임 제거 후 추가 (오래된 델타는 이미 지연되어 무의미)
+
+**전송 스레드 생명주기**:
+- `openPort()` 성공 시 `startSenderThread()` 호출
+- `closePort()` 시 `stopSenderThread()` 호출 (interrupt + queue clear)
+- Daemon 스레드 + `Thread.MAX_PRIORITY` (UART 전송 지연 최소화)
+
+**연속 실패 처리**: 기존 로직 유지 (10회 연속 실패 시 포트 자동 닫기)
+
+**파일 변경**: `src/android/app/src/main/java/com/bridgeone/app/usb/UsbSerialManager.kt`
+
+**검증**:
+- [x] Android 빌드 성공 (2026-03-18)
+- [x] 터치패드 드래그 시 커서 이동 부드러움 개선 확인 (2026-03-18 사용자 체감 테스트)
+- [x] 빠른 드래그 시 커서 끊김 감소 확인 (2026-03-18 사용자 체감 테스트)
+- [x] 클릭/우클릭 정상 동작 — 기존 기능 회귀 없음 (2026-03-18 사용자 테스트)
+- [x] USB 연결/해제 시 전송 스레드 정상 시작/종료 (2026-03-18 사용자 테스트)
+
+**후속 Phase 영향도**:
+| 영향받는 Phase | 우선순위 | 변경 내용 |
+|---------------|---------|---------|
+| Phase 3+ | 🟢 무영향 | 비동기 큐는 내부 구현 변경, 외부 API(`sendFrame`) 시그니처 동일 |
+
+---
+
 ## 📊 Phase 2.3 성과물
 
 **검증 완료 항목**:
@@ -824,7 +896,8 @@ fun getNextSequence(): UByte {
 - ✅ BIOS 호환성: HID Boot Protocol 호환성 검증 완료 (모든 키 BIOS 환경 정상 동작)
 - ✅ 키 입력 지연시간: 핫 패스 로그 제거 후 체감 즉각 반응 확인
 - ✅ 터치패드 클릭: 드래그 시 오클릭 방지 및 클릭 후 버튼 해제 프레임 전송 수정 완료
-- ⏳ 코드 품질 개선: 리팩토링 미진행
+- ✅ 코드 품질 개선: 시퀀스 카운터 경합 조건 수정, HID 큐 처리 중복 제거 완료
+- ✅ 터치패드 입력 최적화: historical 터치 샘플 처리 + 비동기 UART 전송 큐 구현
 
 **구성된 통신 경로**:
 - Android Jetpack Compose UI (TouchpadWrapper + KeyboardKeyButton)

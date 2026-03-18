@@ -9,6 +9,7 @@ import com.bridgeone.app.usb.UsbConstants
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import java.io.IOException
+import java.util.concurrent.LinkedBlockingQueue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -192,6 +193,7 @@ object UsbSerialManager {
             )
 
             isConnected = true
+            startSenderThread()
             Log.d(TAG, "USB Serial port opened successfully: ${device.deviceName} (1Mbps, 8N1)")
 
         } catch (e: Exception) {
@@ -224,6 +226,7 @@ object UsbSerialManager {
         } catch (e: Exception) {
             Log.e(TAG, "Error closing USB Serial port: ${e.message}", e)
         } finally {
+            stopSenderThread()
             usbSerialPort = null
             isConnected = false
         }
@@ -285,53 +288,99 @@ object UsbSerialManager {
      * - UsbConstants.kt: DELTA_FRAME_SIZE, USB_WRITE_TIMEOUT_MS 상수
      * - usb-serial-for-android: UsbSerialPort.write() API
      */
+    // ========== 비동기 전송 큐 (Phase 2.3.6) ==========
+
+    /**
+     * 프레임 전송 큐.
+     * UI 스레드(터치 이벤트 루프)는 큐에 프레임을 넣기만 하고,
+     * 전용 백그라운드 스레드가 큐에서 꺼내 UART로 전송합니다.
+     * 이를 통해 터치 이벤트 루프가 port.write() 블로킹에 영향받지 않습니다.
+     *
+     * 큐 용량 64: 360Hz 터치 / 60Hz Compose = 최대 ~6개/프레임.
+     * 64개면 약 10프레임분 버퍼로 충분한 여유.
+     */
+    private val frameQueue = LinkedBlockingQueue<ByteArray>(64)
+
+    /**
+     * 전송 전용 백그라운드 스레드.
+     * 포트가 열릴 때 시작, 닫힐 때 종료.
+     */
+    @Volatile
+    private var senderThread: Thread? = null
+
     /**
      * 연속 전송 실패 카운터 (포트 상태 모니터링용)
-     * @Volatile: 멀티스레드 환경에서 가시성 보장 (터치패드 고속 전송 시 race condition 방지)
      */
     @Volatile
     private var consecutiveFailures = 0
     private const val MAX_CONSECUTIVE_FAILURES = 10
 
+    /**
+     * 전송 스레드를 시작합니다.
+     * 포트가 열린 후 호출됩니다.
+     */
+    private fun startSenderThread() {
+        stopSenderThread()
+        frameQueue.clear()
+        senderThread = Thread({
+            Log.d(TAG, "Sender thread started")
+            while (!Thread.currentThread().isInterrupted) {
+                try {
+                    val frameData = frameQueue.take() // 큐가 비어있으면 블로킹 대기
+                    val port = usbSerialPort
+                    if (port == null || !isConnected) continue
+
+                    port.write(frameData, UsbConstants.USB_WRITE_TIMEOUT_MS)
+                    consecutiveFailures = 0
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                } catch (e: IOException) {
+                    consecutiveFailures++
+                    Log.w(TAG, "IOException in sender thread (failure $consecutiveFailures/$MAX_CONSECUTIVE_FAILURES): ${e.message}")
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        Log.e(TAG, "Too many consecutive failures, closing port from sender thread")
+                        closePort()
+                        break
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Unexpected error in sender thread: ${e.message}", e)
+                }
+            }
+            Log.d(TAG, "Sender thread stopped")
+        }, "BridgeOne-UART-Sender").apply {
+            isDaemon = true
+            priority = Thread.MAX_PRIORITY // UART 전송 지연 최소화
+            start()
+        }
+    }
+
+    /**
+     * 전송 스레드를 중지합니다.
+     */
+    private fun stopSenderThread() {
+        senderThread?.interrupt()
+        senderThread = null
+        frameQueue.clear()
+    }
+
     fun sendFrame(frame: BridgeFrame) {
         // 포트 연결 상태 확인
-        val port = usbSerialPort
-        check(port != null && isConnected) { "USB Serial port is not connected" }
+        check(usbSerialPort != null && isConnected) { "USB Serial port is not connected" }
 
-        try {
-            // BridgeFrame을 8바이트 ByteArray로 직렬화
-            val frameData = frame.toByteArray()
+        // BridgeFrame을 8바이트 ByteArray로 직렬화
+        val frameData = frame.toByteArray()
 
-            // 프레임 크기 검증 (내부 안전장치)
-            check(frameData.size == UsbConstants.DELTA_FRAME_SIZE) {
-                "Invalid frame size: ${frameData.size}, expected: ${UsbConstants.DELTA_FRAME_SIZE}"
-            }
+        // 프레임 크기 검증
+        check(frameData.size == UsbConstants.DELTA_FRAME_SIZE) {
+            "Invalid frame size: ${frameData.size}, expected: ${UsbConstants.DELTA_FRAME_SIZE}"
+        }
 
-            // USB Serial 포트로 데이터 전송 (Phase 2.1.8.4에서 확인: write()는 void 반환)
-            // IOException이 발생하면 catch 블록에서 처리
-            port.write(frameData, UsbConstants.USB_WRITE_TIMEOUT_MS)
-
-            // 전송 성공 시 실패 카운터 리셋
-            consecutiveFailures = 0
-
-        } catch (e: IOException) {
-            // Phase 2.3.2: IOException 발생 시 즉시 포트 닫지 않고 재시도 허용
-            consecutiveFailures++
-            Log.w(TAG, "IOException during frame transmission (failure $consecutiveFailures/$MAX_CONSECUTIVE_FAILURES): ${e.message}")
-
-            // 연속 실패가 임계값을 초과하면 포트 닫기 (심각한 연결 문제)
-            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                Log.e(TAG, "Too many consecutive failures, closing port")
-                closePort()
-                consecutiveFailures = 0
-                throw IllegalStateException("USB transmission failed after $MAX_CONSECUTIVE_FAILURES attempts, port closed", e)
-            }
-            // 단일 실패는 무시하고 다음 프레임 전송 허용 (예외 던지지 않음)
-
-        } catch (e: IllegalStateException) {
-            // 프레임 크기 또는 포트 연결 상태 검증 실패
-            Log.e(TAG, "Frame validation failed: ${e.message}", e)
-            throw e
+        // 큐에 추가 (논블로킹). 큐가 가득 차면 가장 오래된 프레임 제거 후 추가.
+        // 오래된 프레임은 이미 지연된 델타이므로 버려도 커서 위치에 영향 없음.
+        if (!frameQueue.offer(frameData)) {
+            frameQueue.poll() // 가장 오래된 프레임 제거
+            frameQueue.offer(frameData)
         }
     }
 

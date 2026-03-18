@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.bridgeone.app.ui.utils.DeltaCalculator
@@ -50,6 +51,7 @@ import com.bridgeone.app.ui.utils.getDistance
  *   - currentPosition: 현재 터치 위치
  *   - previousPosition: 이전 터치 위치 (델타 계산용)
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TouchpadWrapper(
     modifier: Modifier = Modifier,
@@ -117,48 +119,55 @@ fun TouchpadWrapper(
                     // 포인터 MOVE 이벤트 처리
                     var moveEvent = awaitPointerEvent()
                     while (moveEvent.type == PointerEventType.Move) {
-                        previousTouchPosition.value = currentTouchPosition.value
-                        currentTouchPosition.value = moveEvent.changes.first().position
-                        
-                        // Phase 2.2.3.2: 델타 계산
-                        // Compose pointerInput 좌표는 이미 px 단위이므로 dp→px 변환 불필요
-                        val rawDelta = DeltaCalculator.calculateDelta(
-                            previousTouchPosition.value,
-                            currentTouchPosition.value
-                        )
+                        val change = moveEvent.changes.first()
 
-                        // 데드존 체크: 터치 시작점에서 현재 위치까지의 누적 거리
-                        if (!deadZoneEscaped.value) {
-                            val distanceFromStart = (currentTouchPosition.value - touchDownPosition.value).getDistance()
-                            val deadZoneThreshold = DeltaCalculator.getDeadZoneThresholdPx(density)
-                            if (distanceFromStart >= deadZoneThreshold) {
-                                deadZoneEscaped.value = true
+                        // Phase 2.3.6: historical 터치 샘플 + 현재 위치를 모두 처리
+                        // Compose는 프레임 단위로 이벤트를 전달하므로, 프레임 사이의
+                        // 중간 터치 샘플은 historical에 담겨 있음. 이를 모두 처리하면
+                        // 터치 샘플링 레이트를 최대한 활용하여 부드러운 커서 이동 가능.
+                        val allPositions = change.historical.map { it.position } + change.position
+
+                        for (pos in allPositions) {
+                            previousTouchPosition.value = currentTouchPosition.value
+                            currentTouchPosition.value = pos
+
+                            // Phase 2.2.3.2: 델타 계산
+                            val rawDelta = DeltaCalculator.calculateDelta(
+                                previousTouchPosition.value,
+                                currentTouchPosition.value
+                            )
+
+                            // 데드존 체크: 터치 시작점에서 현재 위치까지의 누적 거리
+                            if (!deadZoneEscaped.value) {
+                                val distanceFromStart = (currentTouchPosition.value - touchDownPosition.value).getDistance()
+                                val deadZoneThreshold = DeltaCalculator.getDeadZoneThresholdPx(density)
+                                if (distanceFromStart >= deadZoneThreshold) {
+                                    deadZoneEscaped.value = true
+                                }
+                            }
+
+                            // 데드존 탈출 후에만 델타 전송
+                            val finalDelta = if (deadZoneEscaped.value) {
+                                DeltaCalculator.normalizeOnly(rawDelta)
+                            } else {
+                                Offset.Zero
+                            }
+
+                            // 보상된 델타 값 저장 (RELEASE에서 사용)
+                            compensatedDeltaX.value = finalDelta.x
+                            compensatedDeltaY.value = finalDelta.y
+
+                            // 드래그 프레임 즉시 전송
+                            if (finalDelta.x != 0f || finalDelta.y != 0f) {
+                                val dragFrame = ClickDetector.createFrame(
+                                    buttonState = 0x00u,
+                                    deltaX = finalDelta.x,
+                                    deltaY = finalDelta.y
+                                )
+                                ClickDetector.sendFrame(dragFrame)
                             }
                         }
 
-                        // 데드존 탈출 후에만 델타 전송
-                        val finalDelta = if (deadZoneEscaped.value) {
-                            // 데드존 탈출: 범위만 정규화 (-127 ~ 127)
-                            DeltaCalculator.normalizeOnly(rawDelta)
-                        } else {
-                            // 데드존 내: 무시
-                            Offset.Zero
-                        }
-
-                        // Phase 2.2.3.3: 보상된 델타 값을 저장 (RELEASE에서 프레임 생성 시 사용)
-                        compensatedDeltaX.value = finalDelta.x
-                        compensatedDeltaY.value = finalDelta.y
-
-                        // Phase 2.3.2: MOVE 이벤트마다 드래그 프레임 즉시 전송 (마우스 커서 이동)
-                        if (finalDelta.x != 0f || finalDelta.y != 0f) {
-                            val dragFrame = ClickDetector.createFrame(
-                                buttonState = 0x00u,  // 드래그 중에는 버튼 없음
-                                deltaX = finalDelta.x,
-                                deltaY = finalDelta.y
-                            )
-                            ClickDetector.sendFrame(dragFrame)
-                        }
-                        
                         onTouchEvent(
                             PointerEventType.Move,
                             currentTouchPosition.value,
