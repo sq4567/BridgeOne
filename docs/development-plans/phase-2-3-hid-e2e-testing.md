@@ -744,22 +744,18 @@ Android의 `Log.d()`는 동기식으로 각각 1-5ms 소요되어 총 8-40ms의 
 
 ---
 
-### Phase 2.3.5.2: Android 키보드 키코드 상수 중복 제거
+### Phase 2.3.5.2: Android 키보드 키코드 상수 중복 제거 ✅ (이전 작업에서 완료됨)
 
 **목표**: KeyboardLayout 내 각 탭 함수에서 중복 선언된 HID 키코드 상수를 통합
 
-**현재 문제**:
-- `KeyboardLayout()`, `KeyboardTabCharacters()`, `KeyboardTabSymbols()`, `KeyboardTabFunction()` 각각에서 동일한 키코드를 로컬 변수로 반복 선언
-- 예: `val KEY_A = 0x04.toUByte()`가 두 곳에서 선언됨
-
-**변경 대상**:
-- `KeyboardLayout.kt`: 키코드 상수를 companion object 또는 파일 레벨 상수로 통합
-- 각 탭 함수에서 중복 선언 제거
+**결과**: 이전 Phase 2.2.4 키보드 레이아웃 최적화 과정에서 이미 완료됨.
+- `KeyboardLayout.kt` 43~121행에 파일 레벨 `private val`로 모든 HID 키코드 상수가 통합되어 있음
+- 각 탭 함수(`KeyboardTabCharacters`, `KeyboardTabSymbols`, `KeyboardTabFunction`)에서 로컬 중복 선언 없이 파일 레벨 상수를 직접 참조
 
 **검증**:
-- [ ] HID 키코드 상수가 한 곳에서만 정의됨
-- [ ] 모든 키보드 탭에서 정상 동작 확인 (기능 변경 없음)
-- [ ] Android 빌드 성공
+- [x] HID 키코드 상수가 한 곳에서만 정의됨 → `KeyboardLayout.kt` 43~121행에 통합 확인
+- [x] 모든 키보드 탭에서 정상 동작 확인 (기능 변경 없음) → 코드 리뷰 확인
+- [x] Android 빌드 성공 → 코드 변경 없음, 기존 빌드 상태 유지
 
 ---
 
@@ -794,9 +790,9 @@ fun getNextSequence(): UByte {
 ```
 
 **검증**:
-- [ ] 시퀀스 번호 0~255 정상 순환
-- [ ] 멀티스레드 환경에서 번호 중복/누락 없음
-- [ ] Android 빌드 성공
+- [x] 시퀀스 번호 0~255 정상 순환 — `compareAndSet` 기반으로 `(current + 1) % 256` 원자적 순환 구현
+- [x] 멀티스레드 환경에서 번호 중복/누락 없음 — CAS 루프로 경합 시 자동 재시도
+- [x] Android 빌드 성공
 
 ---
 

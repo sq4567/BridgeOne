@@ -36,15 +36,13 @@ object FrameBuilder {
      * @return 0~255 범위의 시퀀스 번호
      */
     private fun getNextSequence(): UByte {
-        // getAndIncrement()로 현재 값을 가져온 후 증가
-        val current = sequenceCounter.getAndIncrement()
-        
-        // 256이 되면 0으로 리셋 (0~255 순환)
-        if (sequenceCounter.get() >= 256) {
-            sequenceCounter.set(0)
+        while (true) {
+            val current = sequenceCounter.get()
+            val next = (current + 1) % 256
+            if (sequenceCounter.compareAndSet(current, next)) {
+                return current.toUByte()
+            }
         }
-        
-        return (current % 256).toUByte()
     }
 
     /**
