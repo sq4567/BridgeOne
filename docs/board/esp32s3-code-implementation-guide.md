@@ -858,7 +858,10 @@ void app_main(void) {
 - **HID 태스크** (우선순위 9, Core 0): HID 리포트 생성 및 전송
 - **CDC 태스크** (우선순위 8, Core 1): Vendor CDC 명령 처리 및 중계
 - **USB 태스크** (우선순위 5, Core 1): TinyUSB 스택 처리 (tud_task 호출)
+- **매크로 태스크** (우선순위 2, Core 1): Native Macro 시퀀스 실행 (§4.6.3 참조)
 - **모니터링 태스크** (우선순위 1, Core 1): 시스템 상태 모니터링
+
+**우선순위 설계 원칙**: 실시간 입력(UART → HID)이 항상 매크로 실행보다 우선 처리됩니다. 매크로 태스크는 가장 낮은 실행 우선순위를 가지며, `frame_queue`에 실시간 입력 데이터가 있을 경우 즉시 양보합니다.
 
 **태스크별 스택 크기 요구사항**:
 ```c
@@ -866,6 +869,7 @@ void app_main(void) {
 #define HID_TASK_STACK_SIZE     4096  // HID 리포트 생성
 #define CDC_TASK_STACK_SIZE     4096  // JSON 파싱 (512B 버퍼 × 2)
 #define USB_TASK_STACK_SIZE     4096  // TinyUSB 스택 처리
+#define MACRO_TASK_STACK_SIZE   3072  // NVS 로드 + 액션 실행 버퍼
 #define MONITOR_TASK_STACK_SIZE 2048  // 경량 모니터링
 ```
 
@@ -874,6 +878,10 @@ void app_main(void) {
 **메인 데이터 플로우**:
 ```
 UART ISR → Ring Buffer → Frame Parser → Protocol Router → HID/CDC Interfaces
+                                              ↓
+                                      seq=0xFF 감지 시
+                                              ↓
+                                    Extended Command Handler → macro_cmd_queue → Macro Task → USB HID 직접 전송
 ```
 
 **버퍼 구조 요구사항**:
@@ -2001,6 +2009,349 @@ bool verifyCRC16(const VendorCDCFrame* msg) {
 - **대기 큐 관리**: 완료된 요청의 정리 및 자원 해제
 - **Android 포맷**: UART 통신에 적합한 프레임 형식으로 변환
 - **오류 복구**: 응답 처리 실패 시 적절한 오류 알림 전송
+
+### 4.6 Native Macro 모듈 구현 (ESP-IDF)
+
+> **개요**: Native Macro 모듈은 Android 앱에서 업로드된 HID 입력 시퀀스를 NVS에 저장하고, 실행 요청 시 USB HID 리포트로 직접 재생합니다. 전체 실행 경로가 ESP32-S3 내부에서 완결되므로 Windows 서버 없이도 동작하며, PC는 이를 실제 하드웨어 입력과 동일하게 처리합니다.
+
+#### 4.6.1 매크로 데이터 구조
+
+**매크로 액션 (4바이트 고정 크기)**:
+
+```c
+// macro_handler.h
+typedef enum {
+    MACRO_ACTION_KEY_DOWN    = 0x01,  // 키 누름: param1=modifier, param2=keycode
+    MACRO_ACTION_KEY_UP      = 0x02,  // 키 뗌: param1=modifier, param2=keycode
+    MACRO_ACTION_KEY_TAP     = 0x03,  // 키 탭(누름+뗌): param1=modifier, param2=keycode
+    MACRO_ACTION_MOUSE_DOWN  = 0x10,  // 마우스 버튼 누름: param1=button_mask
+    MACRO_ACTION_MOUSE_UP    = 0x11,  // 마우스 버튼 뗌: param1=button_mask
+    MACRO_ACTION_MOUSE_CLICK = 0x12,  // 마우스 클릭: param1=button_mask
+    MACRO_ACTION_MOUSE_MOVE  = 0x13,  // 마우스 이동: param1=deltaX(int8), param2=deltaY(int8)
+    MACRO_ACTION_MOUSE_WHEEL = 0x14,  // 휠 스크롤: param1=wheel(int8)
+    MACRO_ACTION_DELAY_MS    = 0x20,  // 딜레이: param1=delay_high, param2=delay_low (최대 65535ms)
+    MACRO_ACTION_DELAY_SHORT = 0x21,  // 짧은 딜레이: param1=delay_10ms 단위 (최대 2550ms)
+    MACRO_ACTION_END         = 0xFF,  // 시퀀스 종료 마커
+} macro_action_type_t;
+
+typedef struct __attribute__((packed)) {
+    uint8_t type;    // macro_action_type_t
+    uint8_t param1;  // 파라미터 1 (타입에 따라 의미 변경)
+    uint8_t param2;  // 파라미터 2 (타입에 따라 의미 변경)
+    uint8_t param3;  // 파라미터 3 (예약)
+} macro_action_t;   // 정확히 4바이트
+```
+
+**액션 타입별 파라미터 매핑**:
+
+| type | 이름 | param1 | param2 | param3 |
+|------|------|--------|--------|--------|
+| 0x01 | KEY_DOWN | HID modifier (bit0=LCtrl, bit1=LShift, bit2=LAlt, bit3=LGUI) | HID keycode | 0 |
+| 0x02 | KEY_UP | HID modifier | HID keycode | 0 |
+| 0x03 | KEY_TAP | HID modifier | HID keycode | 0 |
+| 0x10 | MOUSE_DOWN | button_mask (bit0=Left, bit1=Right, bit2=Middle) | 0 | 0 |
+| 0x11 | MOUSE_UP | button_mask | 0 | 0 |
+| 0x12 | MOUSE_CLICK | button_mask | 0 | 0 |
+| 0x13 | MOUSE_MOVE | deltaX (int8, -128~127) | deltaY (int8, -128~127) | 0 |
+| 0x14 | MOUSE_WHEEL | wheel (int8, 양수=위, 음수=아래) | 0 | 0 |
+| 0x20 | DELAY_MS | delay_high (상위 8비트) | delay_low (하위 8비트) | 0 |
+| 0x21 | DELAY_SHORT | 딜레이값 × 10ms | 0 | 0 |
+| 0xFF | END | 0 | 0 | 0 |
+
+**매크로 헤더 (38바이트 고정 크기)**:
+
+```c
+typedef struct __attribute__((packed)) {
+    uint8_t  macro_id;       // 매크로 ID (0~63)
+    uint8_t  name_len;       // 이름 길이 (바이트, 최대 31)
+    char     name[31];       // UTF-8 이름 (null-terminated)
+    uint8_t  action_count;   // 액션 수 (최대 255, END 마커 제외)
+    uint8_t  flags;          // bit0=반복 활성화, bit1=토글 모드
+    uint8_t  repeat_count;   // 반복 횟수 (0=무한, 1~255=횟수 지정)
+    uint8_t  reserved[2];    // 확장용 예약 (0으로 채움)
+} macro_header_t;             // 정확히 38바이트
+```
+
+**전체 매크로 저장 구조**:
+```
+[macro_header_t (38B)] + [macro_action_t × action_count (각 4B)] + [END 액션 (4B)]
+예시 (Ctrl+C, 3액션): 38 + 4×3 + 4 = 54바이트
+```
+
+#### 4.6.2 UART 확장 프레임 처리
+
+**seq=0xFF 확장 마커**:
+
+기존 8바이트 `bridge_frame_t` 구조를 변경하지 않고, `seq` 필드가 `0xFF`인 프레임을 확장 명령으로 해석합니다. 기존 시퀀스 번호는 0~254 범위를 사용합니다(255개, 기존 0~255의 1개 감소로 기능적 영향 없음).
+
+**확장 프레임 구조 (8바이트, 기존 프레임과 동일 크기)**:
+
+```
+바이트 0: 0xFF           (확장 명령 마커 - seq 필드 위치)
+바이트 1: command        (명령 코드)
+바이트 2: param0         (파라미터 0)
+바이트 3: param1         (파라미터 1)
+바이트 4: param2         (파라미터 2)
+바이트 5: param3         (파라미터 3)
+바이트 6: param4         (파라미터 4)
+바이트 7: checksum       (바이트 0~6의 XOR 체크섬)
+```
+
+**확장 명령 코드**:
+
+| command | 이름 | param0 | param1 | param2 | param3 | param4 |
+|---------|------|--------|--------|--------|--------|--------|
+| 0x01 | MACRO_EXECUTE | macro_id | 0 | 0 | 0 | 0 |
+| 0x02 | MACRO_STOP | 0 | 0 | 0 | 0 | 0 |
+| 0x10 | MACRO_UPLOAD_START | macro_id | total_chunks | action_count | flags | repeat |
+| 0x11 | MACRO_UPLOAD_CHUNK | chunk_idx | action.type | action.param1 | action.param2 | action.param3 |
+| 0x12 | MACRO_UPLOAD_NAME | chunk_idx | char[0] | char[1] | char[2] | char[3] |
+| 0x13 | MACRO_UPLOAD_END | macro_id | checksum_xor | 0 | 0 | 0 |
+| 0x14 | MACRO_DELETE | macro_id | 0 | 0 | 0 | 0 |
+| 0xF0 | ACK (ESP32→Android) | orig_command | status | 0 | 0 | 0 |
+
+**status 코드 (ACK 응답)**:
+
+| status | 의미 |
+|--------|------|
+| 0x00 | 성공 |
+| 0x01 | 매크로 미존재 |
+| 0x02 | 최대 실행 시간 초과 |
+| 0x03 | USB HID 전송 실패 |
+| 0x04 | NVS 저장 실패 |
+| 0x05 | 체크섬 오류 |
+
+**uart_handler.c 분기 로직**:
+
+```c
+// uart_task() 내부 - 기존 프레임 처리 로직 이전에 삽입
+if (received_frame.seq == 0xFF) {
+    // 확장 명령 프레임 → 확장 처리기로 분기
+    process_extended_frame(&received_frame);
+} else {
+    // 기존 입력 프레임 → frame_queue로 전달 (기존 로직 유지)
+    validate_and_enqueue_frame(&received_frame);
+}
+```
+
+#### 4.6.3 매크로 실행 엔진
+
+**macro_task 설계**:
+
+```c
+// macro_handler.c
+#define MACRO_MAX_RUNTIME_MS    300000  // 최대 실행 시간 5분
+#define MACRO_ACTION_MIN_DELAY  1       // 액션 간 최소 딜레이 (ms, CPU 독점 방지)
+
+typedef enum {
+    MACRO_CMD_EXECUTE = 0x01,
+    MACRO_CMD_STOP    = 0x02,
+} macro_cmd_code_t;
+
+typedef struct {
+    macro_cmd_code_t command;
+    uint8_t          macro_id;
+} macro_cmd_t;
+
+QueueHandle_t macro_cmd_queue;  // app_main()에서 생성
+
+void macro_task(void* param) {
+    macro_cmd_t cmd;
+    while (1) {
+        if (xQueueReceive(macro_cmd_queue, &cmd, pdMS_TO_TICKS(100)) == pdTRUE) {
+            if (cmd.command == MACRO_CMD_EXECUTE) {
+                execute_macro(cmd.macro_id);
+            } else if (cmd.command == MACRO_CMD_STOP) {
+                macro_current_state = MACRO_STATE_IDLE;
+                send_release_all_reports();  // stuck 방지
+            }
+        }
+    }
+}
+```
+
+**실행 흐름**:
+
+```c
+static void execute_macro(uint8_t macro_id) {
+    macro_header_t header;
+    macro_action_t actions[256];
+
+    // 1. NVS에서 매크로 데이터 로드
+    if (!load_macro_from_nvs(macro_id, &header, actions)) {
+        send_ack(0x01, 0x01);  // 매크로 미존재 응답
+        return;
+    }
+
+    macro_current_state = MACRO_STATE_RUNNING;
+    uint8_t repeat = header.repeat_count;
+
+    do {
+        for (int i = 0; i < header.action_count; i++) {
+            // 중지 요청 확인
+            if (macro_current_state != MACRO_STATE_RUNNING) {
+                send_release_all_reports();
+                return;
+            }
+            // 실시간 입력 우선: frame_queue에 데이터 있으면 양보
+            while (uxQueueMessagesWaiting(frame_queue) > 0) {
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
+            execute_action(&actions[i]);
+        }
+        if (repeat > 0) repeat--;
+    } while (repeat != 0 && macro_current_state == MACRO_STATE_RUNNING);
+
+    send_release_all_reports();
+    macro_current_state = MACRO_STATE_IDLE;
+    send_ack(0x01, 0x00);  // 실행 완료 응답
+}
+```
+
+**액션 실행 함수 (핵심 케이스)**:
+
+```c
+static void execute_action(const macro_action_t* action) {
+    switch (action->type) {
+        case MACRO_ACTION_KEY_TAP: {
+            hid_keyboard_report_t kb = {.modifier = action->param1,
+                                        .keycode = {action->param2}};
+            sendKeyboardReport(&kb);
+            vTaskDelay(pdMS_TO_TICKS(10));  // 10ms 누름 유지
+            memset(&kb, 0, sizeof(kb));
+            sendKeyboardReport(&kb);
+            break;
+        }
+        case MACRO_ACTION_MOUSE_MOVE: {
+            hid_mouse_report_t mouse = {.x = (int8_t)action->param1,
+                                        .y = (int8_t)action->param2};
+            sendMouseReport(&mouse);
+            break;
+        }
+        case MACRO_ACTION_DELAY_MS: {
+            uint16_t ms = ((uint16_t)action->param1 << 8) | action->param2;
+            vTaskDelay(pdMS_TO_TICKS(ms));
+            break;
+        }
+        // ... (KEY_DOWN, KEY_UP, MOUSE_DOWN/UP/CLICK, WHEEL, DELAY_SHORT 등)
+    }
+    vTaskDelay(pdMS_TO_TICKS(MACRO_ACTION_MIN_DELAY));  // CPU 독점 방지
+}
+```
+
+**안전 장치**:
+
+```c
+static void send_release_all_reports(void) {
+    // 모든 키/버튼 해제 - stuck key 방지
+    hid_keyboard_report_t kb = {0};
+    sendKeyboardReport(&kb);
+    hid_mouse_report_t mouse = {0};
+    sendMouseReport(&mouse);
+}
+```
+
+#### 4.6.4 NVS 저장/로드
+
+**NVS 네임스페이스 설계**:
+
+```
+네임스페이스: "macros"
+키 형식:
+  "macro_count"  → uint8_t  (현재 저장된 매크로 수)
+  "m00_hdr"      → blob     (macro_header_t, 38바이트)
+  "m00_act"      → blob     (macro_action_t 배열, 최대 1024바이트)
+  "m01_hdr" ~ "m63_hdr"    (최대 64개)
+  "m01_act" ~ "m63_act"
+```
+
+**용량 계산**:
+- 헤더: 38B × 64 = 2,432B
+- 액션 (평균 50개): 4B × 50 × 64 = 12,800B
+- 총계: ~15KB < 기본 NVS 파티션 24KB (충분)
+
+**저장/로드 구현**:
+
+```c
+bool save_macro_to_nvs(const macro_header_t* header,
+                       const macro_action_t* actions) {
+    nvs_handle_t handle;
+    char hdr_key[8], act_key[8];
+    snprintf(hdr_key, sizeof(hdr_key), "m%02d_hdr", header->macro_id);
+    snprintf(act_key, sizeof(act_key), "m%02d_act", header->macro_id);
+
+    ESP_ERROR_CHECK(nvs_open("macros", NVS_READWRITE, &handle));
+    esp_err_t err = nvs_set_blob(handle, hdr_key, header, sizeof(macro_header_t));
+    if (err == ESP_OK) {
+        size_t act_size = (header->action_count + 1) * sizeof(macro_action_t);
+        err = nvs_set_blob(handle, act_key, actions, act_size);
+    }
+    nvs_commit(handle);
+    nvs_close(handle);
+    return err == ESP_OK;
+}
+```
+
+#### 4.6.5 매크로 업로드 수신 처리
+
+Android에서 ESP32-S3로 매크로를 업로드하는 시퀀스:
+
+```
+Android                                ESP32-S3
+   |                                       |
+   |-- UPLOAD_START (id, chunks, ...) ---->|  업로드 컨텍스트 초기화
+   |<-- ACK(0x10, 0x00) ------------------|
+   |                                       |
+   |-- UPLOAD_NAME(0, char[4]) ----------->|  이름 첫 4바이트 수신
+   |-- UPLOAD_NAME(1, char[4]) ----------->|  이름 다음 4바이트 수신
+   |-- ...                                 |
+   |                                       |
+   |-- UPLOAD_CHUNK(0, action) ----------->|  첫 번째 액션 수신
+   |-- UPLOAD_CHUNK(1, action) ----------->|  두 번째 액션 수신
+   |-- ...                                 |
+   |-- UPLOAD_CHUNK(N, action) ----------->|  마지막 액션 수신
+   |                                       |
+   |-- UPLOAD_END (id, checksum) --------->|  NVS에 일괄 저장
+   |<-- ACK(0x13, 0x00 또는 0x04) --------|  저장 성공/실패
+```
+
+**업로드 상태 머신**: 모든 액션을 RAM 버퍼에 수신한 뒤 UPLOAD_END 수신 시 한 번에 NVS에 저장합니다 (NVS 쓰기 횟수 최소화, 업로드 중 일관성 보장).
+
+#### 4.6.6 ESP32-S3 → Android 응답 (UART TX)
+
+ESP32-S3에서 Android로 ACK를 전송할 때 UART TX 채널을 사용합니다 (UART0는 양방향 가능):
+
+```c
+static void send_ack(uint8_t orig_command, uint8_t status) {
+    uint8_t frame[8] = {0xFF, 0xF0, orig_command, status, 0, 0, 0, 0};
+    uint8_t checksum = 0;
+    for (int i = 0; i < 7; i++) checksum ^= frame[i];
+    frame[7] = checksum;
+    uart_write_bytes(UART_PORT_NUM, frame, 8);
+}
+```
+
+Android의 `UsbSerialManager`는 수신 스레드에서 ACK 프레임(seq=0xFF)을 감지하여 처리합니다.
+
+#### 4.6.7 신규/수정 파일 목록
+
+**신규 파일**:
+
+| 파일 | 내용 |
+|------|------|
+| `main/macro_handler.c` | 매크로 실행 엔진, NVS 저장/로드, ACK 전송 |
+| `main/macro_handler.h` | macro_action_t, macro_header_t, macro_cmd_t, 상수 정의 |
+| `main/extended_handler.c` | 확장 프레임 라우팅, 업로드 상태 머신 |
+| `main/extended_handler.h` | 확장 명령 코드 enum, process_extended_frame() 선언 |
+
+**수정 파일**:
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `main/uart_handler.c` | seq=0xFF 분기 로직 추가 (`process_extended_frame()` 호출) |
+| `main/uart_handler.h` | `extern QueueHandle_t frame_queue;` 추가 (macro_task 참조용) |
+| `main/BridgeOne.c` | `macro_cmd_queue` 생성, `macro_task` 생성 (`xTaskCreatePinnedToCore`) |
+| `main/CMakeLists.txt` | `macro_handler.c`, `extended_handler.c` 소스 목록 추가 |
 
 ## 5. 성능 최적화 전략
 

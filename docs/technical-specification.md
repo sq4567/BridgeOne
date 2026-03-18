@@ -705,7 +705,7 @@ BridgeOne 시스템의 각 플랫폼별 핵심 로직과 구현 세부사항은 
 - **ESP32-S3**: 프로토콜 변환, USB 브릿지 역할, 메시지 중계
 - **Windows 서버**: 고급 기능 처리, 멀티 커서 관리, 시스템 통합
 
-#### 4.4.1 매크로 실행
+#### 4.4.1 Software Macro 실행 (Orbit 연동)
 
 ##### 4.4.1.1 매크로 실행 플로우 전체 시퀀스
 
@@ -760,6 +760,65 @@ BridgeOne 시스템의 각 플랫폼별 핵심 로직과 구현 세부사항은 
 | **Named Pipe 끊김** | Windows 서버 | 3초 | `PIPE_DISCONNECTED` | 자동 재연결 시도 (최대 3회), 실패 시 Orbit 재시작 권장 |
 
 각 플랫폼의 상세한 구현 명세와 기술적 요구사항은 해당 참조 문서에서 확인할 수 있습니다.
+
+#### 4.4.2 Native Macro 실행 (HID 직접 전송)
+
+> **개요**: Native Macro는 ESP32-S3가 미리 저장된 HID 입력 시퀀스를 USB HID 리포트로 직접 재생하는 방식입니다. PC 입장에서는 실제 USB HID 하드웨어 입력과 구분이 불가능하여, 커널 레벨 안티치트 시스템 등 소프트웨어 기반 입력 차단을 우회합니다.
+
+##### 4.4.2.1 Native Macro 실행 플로우 전체 시퀀스
+
+```
+1. Android 앱: MacroButton 탭 (macro_id: 0~63)
+   ↓ UART 확장 프레임 전송: [0xFF][0x01][macro_id][0x00][0x00][0x00][0x00][checksum]
+
+2. ESP32-S3: seq=0xFF 감지 → 확장 명령 처리기로 분기
+   ↓ macro_cmd_queue에 MACRO_EXECUTE 명령 전송
+
+3. ESP32-S3 macro_task: NVS에서 매크로 데이터 로드
+   ↓ 액션 시퀀스 순차 실행
+   ↓ 각 액션마다 USB HID 리포트 직접 전송 (키/마우스)
+   ↓ PC가 Raw Input으로 수신 (하드웨어 입력과 동일)
+
+4. ESP32-S3: 실행 완료 → UART TX로 ACK 응답 전송
+   ↓ [0xFF][0xF0][0x01][0x00][0x00][0x00][0x00][checksum]
+
+5. Android 앱: ACK 수신 → UI 업데이트 (완료 햅틱 + 시각 피드백)
+```
+
+**플랫폼별 책임**:
+- **Android 앱**: MacroButton 탭 감지, 확장 프레임 전송, ACK 수신 및 UI 업데이트
+- **ESP32-S3**: 매크로 저장(NVS), 실행 엔진, USB HID 직접 전송
+- **Windows 서버**: 관여하지 않음 (Windows 서버 없이도 동작)
+- **PC**: Raw Input으로 수신 (하드웨어 입력과 동일하게 처리)
+
+##### 4.4.2.2 Native Macro 오류 처리
+
+| 오류 유형 | 감지 위치 | 응답 시간 | 오류 코드 | 복구 전략 |
+|----------|----------|----------|----------|---------|
+| **매크로 미존재** | ESP32-S3 | 즉시 | `0x01` (ACK status) | Android 앱에 즉시 알림, 업로드 권장 |
+| **실행 중 중단 요청** | ESP32-S3 | 즉시 | - | 전체 키/버튼 해제 리포트 전송 후 중단 |
+| **최대 실행 시간 초과** | ESP32-S3 | 300초 후 | `0x02` (ACK status) | 전체 키/버튼 해제 리포트 전송 후 종료 |
+| **USB HID 전송 실패** | ESP32-S3 | 즉시 | `0x03` (ACK status) | HID 리포트 큐에 보관 후 재전송 |
+| **확장 프레임 체크섬 오류** | ESP32-S3 | 즉시 | - | 프레임 무시, 로그 기록 |
+
+##### 4.4.2.3 Software Macro와 Native Macro 비교
+
+| 항목 | Software Macro | Native Macro |
+|------|---------------|-------------|
+| **실행 경로** | Android → ESP32 → Vendor CDC → Windows → Orbit → SendInput | Android → ESP32 → USB HID 직접 전송 |
+| **저장 위치** | Orbit 프로그램 | ESP32-S3 NVS Flash |
+| **Windows 서버 필요** | 필수 | 불필요 |
+| **안티치트 우회** | 불가 (소프트웨어 입력 주입) | 가능 (하드웨어 입력과 동일) |
+| **지원 기능 범위** | 키보드/마우스 + OS 레벨 조작 (파일 실행 등) | 키보드/마우스 HID 입력만 |
+| **최대 매크로 수** | Orbit 저장소 제한 없음 | ESP32-S3 NVS (최대 64개) |
+| **최대 액션 수** | Orbit 제한 | 매크로당 최대 255개 |
+| **실행 지연** | 전체 경유 시 ~50ms + Orbit 처리 시간 | ESP32 내부 처리만 (~1ms) |
+| **매크로 편집** | Orbit 프로그램에서 | Android 앱 내 편집 화면 |
+
+각 플랫폼의 상세한 구현 명세는 해당 참조 문서에서 확인할 수 있습니다:
+- **Android**: `docs/android/technical-specification-app.md` §2.9
+- **ESP32-S3**: `docs/board/esp32s3-code-implementation-guide.md` §4.6
+- **Windows (관계 설명)**: `docs/windows/technical-specification-server.md` §3.10.10
 
 ## 5. 외부 프레임워크/라이브러리 분석
 

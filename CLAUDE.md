@@ -149,8 +149,18 @@ src/board/BridgeOne/main/
 - `YD-ESP32-S3-N16R8-analysis.md`: YD-ESP32-S3 보드 분석 및 호환성 평가
 - `YD-ESP32-S3-migration-guide.md`: YD-ESP32-S3 보드 마이그레이션 가이드
 
+### Windows 서버 관련 문서 (`docs/windows/`)
+- `technical-specification-server.md`: Windows 서버 기술 명세서 (§3.10: Software Macro + §3.10.10: Native Macro 관계)
+- `design-guide-server.md`: 서버 앱 디자인 가이드
+
 ### 개발 계획 문서 (`docs/development-plans/`)
 - `phase-*-*.md`: 단계별 개발 계획 및 체크리스트
+
+### Native Macro 관련 문서 (각 플랫폼 문서에 분산)
+- **시스템 전체 플로우**: `docs/technical-specification.md` §4.4.2
+- **ESP32-S3 구현 명세**: `docs/board/esp32s3-code-implementation-guide.md` §4.6
+- **Android 구현 명세**: `docs/android/technical-specification-app.md` §2.9
+- **Windows 서버 관계**: `docs/windows/technical-specification-server.md` §3.10.10
 
 ## Git 워크플로우
 

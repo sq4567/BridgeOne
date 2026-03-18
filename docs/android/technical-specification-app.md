@@ -2443,6 +2443,152 @@ class AdaptiveTransmissionRate {
 - 복잡한 학습 없이 즉시 사용 가능성 검증
 - 오류 상황에서의 사용자 안내 정확성 확인
 
+### 2.9 Native Macro 기능 구현 요구사항
+
+> **개요**: Native Macro는 미리 정의된 HID 입력 시퀀스를 ESP32-S3에 저장하고, 단일 탭으로 실행하는 기능입니다. Android 앱은 매크로 편집/관리/업로드를 담당하고, 실제 실행은 ESP32-S3 내부에서 완결됩니다.
+
+#### 2.9.1 매크로 데이터 모델
+
+**Android 측 데이터 클래스**:
+
+```kotlin
+// data/MacroAction.kt
+data class MacroAction(
+    val type: Int,    // macro_action_type_t와 동일 (0x01~0xFF)
+    val param1: Int,
+    val param2: Int,
+    val param3: Int
+)
+
+// data/MacroEntity.kt (Room DB 엔티티)
+@Entity(tableName = "macros")
+data class MacroEntity(
+    @PrimaryKey val macroId: Int,      // 0~63 (ESP32-S3 NVS 슬롯 번호)
+    val name: String,                  // 매크로 이름 (최대 31자)
+    val actionsJson: String,           // JSON 직렬화된 List<MacroAction>
+    val flags: Int,                    // bit0=반복, bit1=토글
+    val repeatCount: Int,              // 0=무한, 1~255
+    val isOnDevice: Boolean,           // ESP32-S3에 동기화 완료 여부
+    val lastModified: Long             // 마지막 수정 시각 (epoch ms)
+)
+```
+
+**Room 데이터베이스 요구사항**:
+- `AppDatabase`에 `macros` 테이블 추가
+- `MacroDao`: insert, update, delete, getAllMacros, getMacroById 기본 CRUD 제공
+- `isOnDevice=false`인 매크로는 다음 USB 연결 시 자동 업로드 큐에 등록
+
+#### 2.9.2 매크로 관리 UI
+
+**매크로 페이지 구성**:
+
+`currentMode`를 기존 0(터치패드)/1(키보드) 2-way에서 0/1/2(매크로) 3-way로 확장합니다.
+
+**매크로 실행 화면 (기본 뷰)**:
+- 저장된 매크로를 그리드로 표시 (4열 × N행)
+- 각 버튼 최소 크기: 80×60dp (BridgeOne 접근성 기준)
+- 탭: 즉시 실행 (MACRO_EXECUTE 확장 프레임 전송)
+- 롱프레스(500ms): 편집 화면으로 이동
+- 실행 중인 매크로: 버튼 색상 변경 + 진행 표시
+- 하단 고정 버튼: "전체 중지" (MACRO_STOP 확장 프레임 전송)
+
+**접근성 준수 요구사항**:
+- 최소 터치 영역: 80×60dp
+- 햅틱 피드백: 실행 시작/완료/오류 각각 다른 패턴
+- 시각적 피드백: 실행 중 버튼 하이라이트
+- 단일 터치: 탭 한 번으로 매크로 실행 완결
+
+#### 2.9.3 매크로 편집 화면
+
+**편집 UI 요구사항**:
+- 매크로 이름 입력 (최대 31자)
+- 액션 리스트: 스크롤 가능, 드래그 앤 드롭 순서 변경
+- 액션 추가: 액션 타입 선택 다이얼로그 → 파라미터 입력
+- 각 액션 표시: 타입 아이콘 + 파라미터 요약 텍스트
+- 반복 설정: 횟수 또는 무한 반복 선택
+- "저장" 버튼: Room DB에 저장 (isOnDevice=false 표시)
+- "기기에 업로드" 버튼: ESP32-S3에 즉시 업로드
+
+#### 2.9.4 매크로 녹화 모드
+
+**녹화 흐름**:
+1. 편집 화면에서 "녹화 시작" 버튼 탭
+2. 터치패드/키보드 페이지로 전환 (녹화 중 배너 표시)
+3. 터치패드 움직임 → `MOUSE_MOVE` 액션으로 기록 (타이밍 포함)
+4. 키보드 입력 → `KEY_TAP`/`KEY_DOWN`/`KEY_UP` 액션으로 기록
+5. "녹화 중지" 버튼 탭 → 편집 화면으로 복귀
+6. 기록된 액션 리스트 편집 가능 (불필요한 액션 삭제, 딜레이 조정)
+
+#### 2.9.5 UART 프로토콜 확장 (Android 측)
+
+**ExtendedFrameBuilder.kt 요구사항**:
+
+```kotlin
+// protocol/ExtendedFrameBuilder.kt (신규)
+object ExtendedFrameBuilder {
+    private const val EXTENDED_MARKER = 0xFF.toByte()
+
+    fun buildMacroExecute(macroId: Int): ByteArray  // MACRO_EXECUTE (0x01)
+    fun buildMacroStop(): ByteArray                  // MACRO_STOP (0x02)
+    fun buildUploadStart(macroId: Int, actionCount: Int,
+                         flags: Int, repeat: Int): ByteArray
+    fun buildUploadChunk(chunkIdx: Int, action: MacroAction): ByteArray
+    fun buildUploadName(chunkIdx: Int, nameBytes: ByteArray): ByteArray
+    fun buildUploadEnd(macroId: Int, checksum: Byte): ByteArray
+    fun buildMacroDelete(macroId: Int): ByteArray
+
+    private fun xorChecksum(frame: ByteArray): Byte  // 바이트 0~6의 XOR
+}
+```
+
+**UsbSerialManager.kt 수정사항**:
+- `sendRawFrame(frameData: ByteArray)` 메서드 추가: 8바이트 ByteArray를 기존 `frameQueue`에 직접 삽입 (BridgeFrame 변환 없이)
+- ACK 수신 처리: 수신 스레드에서 seq=0xFF인 수신 프레임을 감지하여 콜백 호출
+
+**FrameBuilder.kt 수정사항**:
+- `getNextSequence()` 범위를 `% 256`에서 `% 255`로 변경 (0~254 사용, 0xFF 예약)
+
+#### 2.9.6 매크로 업로드 프로토콜
+
+**MacroUploader.kt 업로드 시퀀스**:
+
+```
+1. UPLOAD_START 프레임 전송 (macro_id, action_count, flags, repeat)
+2. 이름을 4바이트씩 분할하여 UPLOAD_NAME 프레임 전송 (최대 8개 청크)
+3. 각 액션에 대해 UPLOAD_CHUNK 프레임 전송 (action_count개)
+4. UPLOAD_END 프레임 전송 (체크섬 포함)
+5. ACK 수신 대기 (타임아웃: 5초)
+6. 성공 시 Room DB의 isOnDevice=true 업데이트
+```
+
+**오류 처리**:
+- 타임아웃 또는 ACK status≠0x00 시 최대 3회 재시도
+- 업로드 중 USB 연결 끊김 시 isOnDevice=false 유지, 재연결 후 자동 재시도
+
+#### 2.9.7 신규/수정 파일 목록
+
+**신규 파일**:
+
+| 파일 | 내용 |
+|------|------|
+| `protocol/ExtendedFrameBuilder.kt` | 확장 프레임 빌더 (EXECUTE, STOP, 업로드 시퀀스) |
+| `macro/MacroUploader.kt` | ESP32-S3로 매크로 업로드 로직 |
+| `macro/MacroRecorder.kt` | 터치패드/키보드 입력 → 액션 변환 녹화기 |
+| `data/MacroDatabase.kt` | Room 데이터베이스 정의 |
+| `data/MacroEntity.kt` | Room 엔티티 및 MacroAction 데이터 클래스 |
+| `data/MacroDao.kt` | Room DAO (CRUD 쿼리) |
+| `data/MacroRepository.kt` | ViewModel에서 사용하는 데이터 저장소 추상화 |
+| `ui/components/MacroPage.kt` | 매크로 실행 그리드 화면 Composable |
+| `ui/components/MacroEditScreen.kt` | 매크로 편집/녹화 화면 Composable |
+
+**수정 파일**:
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `protocol/FrameBuilder.kt` | 시퀀스 범위 `% 256` → `% 255` (0xFF 예약) |
+| `usb/UsbSerialManager.kt` | `sendRawFrame()` 추가, ACK 수신 콜백 추가 |
+| `ui/BridgeOneApp.kt` | `currentMode` 3-way 전환 (0=터치패드, 1=키보드, 2=매크로), MacroPage 통합 |
+
 ---
 
 ## 3. 상수 및 임계값 정의
@@ -2612,7 +2758,15 @@ class AdaptiveTransmissionRate {
 
 | 상수명 | 값 | 단위 | 설명 | 사용 위치 |
 |--------|----|----|------|--------|
-| `MACRO_TIMEOUT_MS` | 30000 | ms | 매크로 실행 타임아웃 | Macro Execution |
+| `MACRO_TIMEOUT_MS` | 30000 | ms | Software Macro 실행 타임아웃 (Orbit 응답 대기) | Software Macro |
+| `NATIVE_MACRO_MAX_COUNT` | 64 | 개 | ESP32-S3 NVS 슬롯 최대 수 | Native Macro |
+| `NATIVE_MACRO_MAX_ACTIONS` | 255 | 개 | 매크로당 최대 액션 수 | Native Macro |
+| `NATIVE_MACRO_MAX_NAME_LEN` | 31 | 자 | 매크로 이름 최대 길이 (UTF-8 바이트) | Native Macro |
+| `EXTENDED_FRAME_MARKER` | 0xFF | - | UART 확장 프레임 마커 (seq 필드) | ExtendedFrameBuilder |
+| `UART_SEQ_MAX` | 254 | - | 유효 시퀀스 번호 최댓값 (0xFF 예약으로 255→254) | FrameBuilder |
+| `MACRO_UPLOAD_TIMEOUT_MS` | 5000 | ms | 업로드 ACK 수신 타임아웃 | MacroUploader |
+| `MACRO_UPLOAD_RETRY_COUNT` | 3 | 회 | 업로드 실패 시 최대 재시도 횟수 | MacroUploader |
+| `MACRO_ACK_CMD` | 0xF0 | - | ESP32-S3→Android ACK 명령 코드 | UsbSerialManager |
 
 ### 3.9 성능 및 품질 상수
 

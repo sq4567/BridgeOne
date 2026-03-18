@@ -1872,6 +1872,30 @@ Named Pipe 수신 → JSON 파싱
 - **오류 로그**: JSON 파싱 실패, Named Pipe 연결 끊김, 타임아웃 발생
 - **통계 로그**: 매크로 실행 횟수, 평균 응답 시간, 오류 발생 빈도
 
+#### 3.10.10 Software Macro와 Native Macro의 관계
+
+> **개요**: BridgeOne은 두 가지 매크로 실행 방식을 지원합니다. 본 §3.10이 다루는 **Software Macro (Orbit 연동)**와, Windows 서버를 경유하지 않는 **Native Macro (HID 직접 전송)**입니다. 두 방식은 독립적으로 동작하며, 사용자가 매크로 생성 시 방식을 선택합니다.
+
+**실행 경로 비교**:
+
+| 항목 | Software Macro (본 섹션) | Native Macro |
+|------|-------------------------|-------------|
+| **실행 경로** | Android → ESP32 → Vendor CDC → Windows 서버 → Orbit → SendInput | Android → ESP32 → USB HID 직접 전송 |
+| **Windows 서버 관여** | 필수 (요청 중계, 결과 전달) | **관여하지 않음** |
+| **안티치트 우회** | 불가 (소프트웨어 입력 주입) | 가능 (하드웨어 입력과 동일) |
+| **지원 기능 범위** | 키보드/마우스 + OS 레벨 조작 | 키보드/마우스 HID 입력만 |
+| **매크로 저장 위치** | Orbit 프로그램 | ESP32-S3 NVS Flash (최대 64개) |
+
+**Windows 서버의 역할 한정**:
+- Windows 서버는 Native Macro의 실행, 저장, 편집 과정에 일체 관여하지 않습니다.
+- Native Macro 실행 트리거는 UART 확장 프레임(`seq=0xFF`)으로 Android에서 ESP32-S3로 직접 전달되며, Vendor CDC를 경유하지 않습니다.
+- Windows 서버가 실행 중이지 않아도 Native Macro는 정상 동작합니다.
+
+**상세 설계 참조**:
+- Android 구현: `docs/android/technical-specification-app.md` §2.9
+- ESP32-S3 구현: `docs/board/esp32s3-code-implementation-guide.md` §4.6
+- 시스템 전체 플로우: `docs/technical-specification.md` §4.4.2
+
 ## 4. 주요 기술 플로우
 
 ### 4.1 초기 설치 및 설정 기술 플로우
