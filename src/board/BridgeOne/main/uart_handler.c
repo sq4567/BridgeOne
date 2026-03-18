@@ -3,8 +3,9 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 
-// 프레임 수신 디버그 로그 활성화 (개발/디버깅 단계에서만)
-#define DEBUG_FRAME_VERBOSE
+// 프레임 수신 디버그 로그 (검증 완료 후 비활성화)
+// 필요시 주석 해제하거나 ESP-IDF menuconfig에서 로그 레벨을 DEBUG로 변경
+// #define DEBUG_FRAME_VERBOSE
 
 static const char *TAG = "UART_HANDLER";
 

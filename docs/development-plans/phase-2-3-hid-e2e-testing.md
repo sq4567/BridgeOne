@@ -728,17 +728,19 @@ Android의 `Log.d()`는 동기식으로 각각 1-5ms 소요되어 총 8-40ms의 
 - 이 로그 제거로 **추가 5-10ms 지연 개선 가능** (체감 지연시간 최종 목표 달성에 중요)
 
 **변경 대상**:
-- `uart_handler.c`: `DEBUG_FRAME_VERBOSE` 매크로 제거 또는 ESP_LOGD로 변경
-- `hid_handler.c`: 검증용 ESP_LOGI → ESP_LOGD로 복원 (특히 `sendKeyboardReport()` 내 ESP_LOGI)
+- `uart_handler.c`: `DEBUG_FRAME_VERBOSE` 매크로 주석 처리로 비활성화 (필요시 주석 해제 가능)
+- `hid_handler.c`: `sendKeyboardReport()` 내 ESP_LOGI → ESP_LOGD 변경
+- `hid_handler.c`: `tud_hid_set_report_cb()` LED 상태 로그 ESP_LOGI → ESP_LOGD 변경 (추가 발견 - 매 LED 업데이트마다 출력되어 불필요)
 - 프레임 수신/전송 로그를 ESP_LOGD로 통일 (필요시 menuconfig로 활성화)
 
 **검증**:
-- [ ] `DEBUG_FRAME_VERBOSE` 매크로 제거 또는 비활성화
-- [ ] `hid_handler.c`의 `sendKeyboardReport()` 내 ESP_LOGI → ESP_LOGD 변경
-- [ ] 정상 동작 시 시리얼 모니터에 불필요한 프레임 로그 출력되지 않음
-- [ ] ESP-IDF menuconfig에서 로그 레벨 변경으로 디버그 로그 활성화 가능
-- [ ] 에러/경고 로그(ESP_LOGE, ESP_LOGW)는 그대로 유지
-- [ ] 지연시간 재측정: 체감 10ms 이하 달성 확인
+- [x] `DEBUG_FRAME_VERBOSE` 매크로 제거 또는 비활성화 → 주석 처리로 비활성화 완료
+- [x] `hid_handler.c`의 `sendKeyboardReport()` 내 ESP_LOGI → ESP_LOGD 변경
+- [x] `hid_handler.c`의 `tud_hid_set_report_cb()` LED 로그 ESP_LOGI → ESP_LOGD 변경 (추가 발견)
+- [x] 정상 동작 시 시리얼 모니터에 불필요한 프레임 로그 출력되지 않음 → 유저 검증 완료
+- [x] ESP-IDF menuconfig에서 로그 레벨 변경으로 디버그 로그 활성화 가능 → 유저 검증 완료
+- [x] 에러/경고 로그(ESP_LOGE, ESP_LOGW)는 그대로 유지 → 코드 확인 완료
+- [x] 지연시간 재측정: 체감 10ms 이하 달성 확인 → 유저 검증 완료
 
 ---
 

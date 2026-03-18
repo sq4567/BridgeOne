@@ -217,7 +217,7 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
             uint8_t leds = buffer[0];
             g_hid_keyboard_led_status = leds;
             
-            ESP_LOGI(TAG, "Keyboard LEDs: NumLock=%d, CapsLock=%d, ScrollLock=%d",
+            ESP_LOGD(TAG, "Keyboard LEDs: NumLock=%d, CapsLock=%d, ScrollLock=%d",
                      (leds & KEYBOARD_LED_NUMLOCK) ? 1 : 0,
                      (leds & KEYBOARD_LED_CAPSLOCK) ? 1 : 0,
                      (leds & KEYBOARD_LED_SCROLLLOCK) ? 1 : 0);
@@ -358,8 +358,8 @@ bool sendKeyboardReport(const hid_keyboard_report_t* report) {
         return false;
     }
 
-    // 키보드 리포트 전송 로그 (Phase 2.3.4.1 검증용 - INFO 레벨)
-    ESP_LOGI(TAG, "HID Keyboard report sent: modifiers=0x%02X keyCodes=[0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X]",
+    // 키보드 리포트 전송 로그 (검증 완료 후 DEBUG 레벨로 변경)
+    ESP_LOGD(TAG, "HID Keyboard report sent: modifiers=0x%02X keyCodes=[0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X]",
              report->modifier,
              report->keycode[0], report->keycode[1], report->keycode[2],
              report->keycode[3], report->keycode[4], report->keycode[5]);
