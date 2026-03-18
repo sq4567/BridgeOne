@@ -247,14 +247,7 @@ object ClickDetector {
             modifiers = 0u,                     // Phase 2.2.4에서 키보드 수정자 키 추가
             keyCode1 = 0u,                      // Phase 2.2.4에서 첫 번째 키코드 추가
             keyCode2 = 0u                       // Phase 2.2.4에서 두 번째 키코드 추가
-        ).also { frame ->
-            // 생성된 프레임 정보 로깅 (디버그)
-            Log.d(
-                TAG,
-                "createFrame: seq=${frame.seq}, buttons=0x${frame.buttons.toString(16).padStart(2, '0')}, " +
-                    "dx=${frame.deltaX}, dy=${frame.deltaY}"
-            )
-        }
+        )
     }
 
     /**
@@ -317,15 +310,7 @@ object ClickDetector {
             modifiers = modifiersByte,          // 계산된 수정자 키 비트
             keyCode1 = keyCode1,                // 첫 번째 키코드
             keyCode2 = keyCode2                 // 두 번째 키코드 (선택사항)
-        ).also { frame ->
-            // 생성된 프레임 정보 로깅 (디버그)
-            Log.d(
-                TAG,
-                "createKeyboardFrame: seq=${frame.seq}, modifiers=0x${frame.modifiers.toString(16).padStart(2, '0')}, " +
-                    "keyCode1=0x${frame.keyCode1.toString(16).padStart(2, '0')}, " +
-                    "keyCode2=0x${frame.keyCode2.toString(16).padStart(2, '0')}"
-            )
-        }
+        )
     }
 
     /**
@@ -356,10 +341,7 @@ object ClickDetector {
     fun sendFrame(frame: BridgeFrame) {
         try {
             // Phase 2.2.2.4: UsbSerialManager를 통해 UART로 전송
-            // sendFrame() 내부에서 IOException 처리 및 포트 자동 종료 수행
             com.bridgeone.app.usb.UsbSerialManager.sendFrame(frame)
-
-            Log.d(TAG, "Frame sent successfully - seq=${frame.seq}")
 
         } catch (e: IllegalStateException) {
             // USB 포트가 연결되지 않았거나 전송 실패

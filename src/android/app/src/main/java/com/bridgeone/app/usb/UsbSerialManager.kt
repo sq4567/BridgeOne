@@ -314,13 +314,6 @@ object UsbSerialManager {
             // 전송 성공 시 실패 카운터 리셋
             consecutiveFailures = 0
 
-            // 전송 성공 로그 (프레임 전송 정보)
-            Log.d(
-                TAG,
-                "Frame sent successfully - seq=${frame.seq}, buttons=${frame.buttons}, " +
-                    "dx=${frame.deltaX}, dy=${frame.deltaY}, size=${UsbConstants.DELTA_FRAME_SIZE}"
-            )
-
         } catch (e: IOException) {
             // Phase 2.3.2: IOException 발생 시 즉시 포트 닫지 않고 재시도 허용
             consecutiveFailures++

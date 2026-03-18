@@ -20,7 +20,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.bridgeone.app.ui.utils.DeltaCalculator
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.ui.utils.getDistance
-import android.util.Log
 
 /**
  * TouchpadWrapper Composable
@@ -109,11 +108,6 @@ fun TouchpadWrapper(
                     // 데드존 상태 초기화
                     deadZoneEscaped.value = false
 
-                    Log.d(
-                        "TouchpadWrapper",
-                        "DOWN Event - position=(${currentTouchPosition.value.x.toInt()}, ${currentTouchPosition.value.y.toInt()})"
-                    )
-
                     onTouchEvent(
                         PointerEventType.Press,
                         currentTouchPosition.value,
@@ -127,11 +121,11 @@ fun TouchpadWrapper(
                         currentTouchPosition.value = moveEvent.changes.first().position
                         
                         // Phase 2.2.3.2: 델타 계산
+                        // Compose pointerInput 좌표는 이미 px 단위이므로 dp→px 변환 불필요
                         val rawDelta = DeltaCalculator.calculateDelta(
                             previousTouchPosition.value,
                             currentTouchPosition.value
                         )
-                        val rawDeltaPixels = DeltaCalculator.convertDpToPixels(density, rawDelta)
 
                         // 데드존 체크: 터치 시작점에서 현재 위치까지의 누적 거리
                         if (!deadZoneEscaped.value) {
@@ -139,14 +133,13 @@ fun TouchpadWrapper(
                             val deadZoneThreshold = DeltaCalculator.getDeadZoneThresholdPx(density)
                             if (distanceFromStart >= deadZoneThreshold) {
                                 deadZoneEscaped.value = true
-                                Log.d("TouchpadWrapper", "DeadZone ESCAPED - distance=${"%.1f".format(distanceFromStart)}px >= threshold=${"%.1f".format(deadZoneThreshold)}px")
                             }
                         }
 
                         // 데드존 탈출 후에만 델타 전송
                         val finalDelta = if (deadZoneEscaped.value) {
                             // 데드존 탈출: 범위만 정규화 (-127 ~ 127)
-                            DeltaCalculator.normalizeOnly(rawDeltaPixels)
+                            DeltaCalculator.normalizeOnly(rawDelta)
                         } else {
                             // 데드존 내: 무시
                             Offset.Zero
@@ -165,13 +158,6 @@ fun TouchpadWrapper(
                             )
                             ClickDetector.sendFrame(dragFrame)
                         }
-
-                        // 디버그 로그: 원본 및 최종 델타 값
-                        Log.d(
-                            "TouchpadWrapper",
-                            "MOVE Event - Raw Delta: (${rawDelta.x.toInt()}, ${rawDelta.y.toInt()}) → " +
-                            "Final: (${finalDelta.x.toInt()}, ${finalDelta.y.toInt()}) [deadZoneEscaped=${deadZoneEscaped.value}]"
-                        )
                         
                         onTouchEvent(
                             PointerEventType.Move,
@@ -187,15 +173,15 @@ fun TouchpadWrapper(
                         currentTouchPosition.value = moveEvent.changes.first().position
                         
                         // Phase 2.2.3.2: RELEASE 이벤트 시에도 델타 계산
+                        // Compose pointerInput 좌표는 이미 px 단위이므로 dp→px 변환 불필요
                         val releaseDelta = DeltaCalculator.calculateDelta(
                             previousTouchPosition.value,
                             currentTouchPosition.value
                         )
-                        val releaseDeltaPixels = DeltaCalculator.convertDpToPixels(density, releaseDelta)
 
                         // 데드존 탈출 여부에 따라 델타 처리
                         val releaseFinalDelta = if (deadZoneEscaped.value) {
-                            DeltaCalculator.normalizeOnly(releaseDeltaPixels)
+                            DeltaCalculator.normalizeOnly(releaseDelta)
                         } else {
                             Offset.Zero
                         }
@@ -203,30 +189,36 @@ fun TouchpadWrapper(
                         // Phase 2.2.3.3: RELEASE 이벤트에서 보상된 델타 값 업데이트
                         compensatedDeltaX.value = releaseFinalDelta.x
                         compensatedDeltaY.value = releaseFinalDelta.y
-
-                        // 디버그 로그: RELEASE 이벤트의 델타 값
-                        Log.d(
-                            "TouchpadWrapper",
-                            "RELEASE Event - Raw Delta: (${releaseDelta.x.toInt()}, ${releaseDelta.y.toInt()}) → " +
-                            "Final: (${releaseFinalDelta.x.toInt()}, ${releaseFinalDelta.y.toInt()}) [deadZoneEscaped=${deadZoneEscaped.value}]"
-                        )
                         
                         // Phase 2.2.3.3: 클릭 감지 및 프레임 생성/전송
-                        val pressDuration = System.currentTimeMillis() - touchDownTime.value
-                        val movement = (currentTouchPosition.value - touchDownPosition.value).getDistance()
-                        
-                        // detectClick로 클릭 타입 판정
-                        val buttonState = ClickDetector.detectClick(pressDuration, movement)
-                        
+                        // 데드존을 벗어나 드래그가 발생했으면 클릭 무시
+                        val buttonState = if (deadZoneEscaped.value) {
+                            0x00u.toUByte()  // 드래그 → 클릭 아님
+                        } else {
+                            val pressDuration = System.currentTimeMillis() - touchDownTime.value
+                            val movement = (currentTouchPosition.value - touchDownPosition.value).getDistance()
+                            ClickDetector.detectClick(pressDuration, movement)
+                        }
+
                         // 프레임 생성 (자동 시퀀스 번호 할당)
                         val frame = ClickDetector.createFrame(
                             buttonState = buttonState,
                             deltaX = compensatedDeltaX.value,
                             deltaY = compensatedDeltaY.value
                         )
-                        
+
                         // UART로 프레임 전송
                         ClickDetector.sendFrame(frame)
+
+                        // 클릭 시 버튼 해제 프레임 즉시 전송 (PC에서 홀드 방지)
+                        if (buttonState != 0x00u.toUByte()) {
+                            val releaseFrame = ClickDetector.createFrame(
+                                buttonState = 0x00u.toUByte(),
+                                deltaX = 0f,
+                                deltaY = 0f
+                            )
+                            ClickDetector.sendFrame(releaseFrame)
+                        }
                         
                         // 터치 상태 초기화
                         touchDownTime.value = 0L
@@ -234,12 +226,6 @@ fun TouchpadWrapper(
                         compensatedDeltaX.value = 0f
                         compensatedDeltaY.value = 0f
                         deadZoneEscaped.value = false
-                        
-                        Log.d(
-                            "TouchpadWrapper",
-                            "RELEASE Event - pressDuration=$pressDuration ms, movement=${movement.toInt()} dp, " +
-                            "buttonState=0x${buttonState.toString(16).padStart(2, '0')}"
-                        )
                         
                         onTouchEvent(
                             PointerEventType.Release,

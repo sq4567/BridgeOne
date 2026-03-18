@@ -290,7 +290,6 @@ private fun KeyboardPage(
                             keyCode2 = 0u
                         )
                         ClickDetector.sendFrame(frame)
-                        Log.d("KeyboardPage", "Modifier pressed: 0x${keyCode.toString(16)} → bitFlag=0x${modifierBitFlag(keyCode).toString(16)}")
                     } catch (e: Exception) {
                         Log.e("KeyboardPage", "Failed to send modifier frame: ${e.message}", e)
                     }
@@ -303,7 +302,6 @@ private fun KeyboardPage(
                             keyCode2 = 0u
                         )
                         ClickDetector.sendFrame(frame)
-                        Log.d("KeyboardPage", "Key pressed: 0x${keyCode.toString(16)}, modifiers=${activeModifierKeys.value}")
                     } catch (e: Exception) {
                         Log.e("KeyboardPage", "Failed to send key frame: ${e.message}", e)
                     }
@@ -318,8 +316,6 @@ private fun KeyboardPage(
                 }
 
                 // 모든 키 해제 시 프레임 전송 (수정자/일반 키 모두)
-                // 수정자: PC에 수정자 해제 알림 (이전에는 누락되어 Ctrl이 stuck되던 문제)
-                // 일반 키: PC에 키 해제 알림
                 try {
                     val frame = ClickDetector.createKeyboardFrame(
                         activeModifierKeys = activeModifierKeys.value,
@@ -327,7 +323,6 @@ private fun KeyboardPage(
                         keyCode2 = 0u
                     )
                     ClickDetector.sendFrame(frame)
-                    Log.d("KeyboardPage", "Key released: 0x${keyCode.toString(16)}, modifiers=${activeModifierKeys.value}")
                 } catch (e: Exception) {
                     Log.e("KeyboardPage", "Failed to send release frame: ${e.message}", e)
                 }
