@@ -175,63 +175,42 @@ typedef enum {
 - [x] "reset" 텍스트 명령 → 기존 텍스트 처리로 전달됨
 - [x] 디버그 로그 출력 (ESP_LOG → CDC)이 정상 동작
 - [x] 혼합 데이터 (텍스트 + 바이너리) 수신 시 정상 분류
-- [ ] `idf.py build` 성공
+- [x] `idf.py build` 성공
 
 ---
 
-## Phase 3.1.4: FreeRTOS 태스크 및 명령 디스패처
+## ~~Phase 3.1.4: FreeRTOS 태스크 및 명령 디스패처~~ ✅ 완료
 
-**목표**: Vendor CDC 프레임을 처리하는 전용 FreeRTOS 태스크와 명령별 핸들러 디스패처 구현
-
-**개발 기간**: 1-1.5일
-
-**세부 목표**:
-1. `app_main()`에서 `vendor_cdc_parser_init()` 호출 추가:
-   - Phase 3.1.2에서 구현된 파서 초기화 및 `vendor_cdc_frame_queue` 큐 생성
-   - CDC 데이터 수신 전에 호출되어야 함 (USB CDC 로깅 초기화 이후)
-2. `vendor_cdc_task` FreeRTOS 태스크 생성:
-   - Priority 3 (기존: UART=6, HID=5, USB=4)
-   - Core 0에서 실행
-   - 스택 크기: 4096 bytes (JSON 파싱을 위한 여유 확보)
-   - `vendor_cdc_frame_queue`에서 파싱된 프레임 수신 대기
-3. JSON 페이로드 파싱:
-   - ESP-IDF 내장 `cJSON` 라이브러리 활용
-   - payload를 null-terminate 후 `cJSON_Parse()` 호출
-   - 파싱 실패 시 에러 응답 프레임 전송
-4. 명령 디스패처 구현:
-   - command 코드에 따라 적절한 핸들러 함수 호출
-   - 핸들러 함수 포인터 테이블 방식
-   - Phase 3.1에서는 스켈레톤 핸들러만 구현 (로그 출력 + 에코백)
-   - 실제 핸들러 로직은 Phase 3.3~3.5에서 구현
-5. `BridgeOne.c`의 `app_main()`에서 `vendor_cdc_parser_init()` 호출 및 태스크 생성 추가
-
-**신규/수정 파일**:
-- `src/board/BridgeOne/main/vendor_cdc_handler.c`: 태스크 및 디스패처 구현
-- `src/board/BridgeOne/main/BridgeOne.c`: `vendor_cdc_task` 생성 코드 추가
-- `src/board/BridgeOne/main/CMakeLists.txt`: SRCS에 `vendor_cdc_handler.c` 추가, REQUIRES에 `json` (cJSON) 추가 여부 확인
-
-**참조 문서 및 섹션**:
-- `src/board/BridgeOne/main/BridgeOne.c` - 기존 태스크 생성 패턴
-- ESP-IDF cJSON 문서: `cJSON_Parse()`, `cJSON_GetObjectItem()`, `cJSON_Delete()`
-- `docs/windows/technical-specification-server.md` §3.4 메시지 형식
-
-**⚠️ 주의: TinyUSB 콜백 내 무거운 처리 금지**
-- `tud_cdc_rx_cb()`는 TinyUSB 컨텍스트에서 호출됨
-- JSON 파싱 등 시간이 오래 걸리는 작업은 콜백 내에서 수행하면 안 됨
-- 콜백에서는 FreeRTOS 큐에 데이터를 넣기만 하고, 실제 처리는 `vendor_cdc_task`에서 수행
+> **이 작업은 이미 완료되었습니다.**
+> - `vendor_cdc_handler.c`: `vendor_cdc_task()` FreeRTOS 태스크 함수, cJSON 파싱, 명령 디스패처 구현
+> - `vendor_cdc_handler.h`: `vendor_cdc_task()` 함수 선언 추가
+> - `BridgeOne.c`: `vendor_cdc_parser_init()` 호출 (섹션 1.3) 및 `vendor_cdc_task` 생성 (Priority 3, Core 0, Stack 4096B)
+> - `CMakeLists.txt`: REQUIRES에 `json` (cJSON 라이브러리) 추가
+> - 스켈레톤 핸들러 4개 구현: PING(에코백 PONG), AUTH_CHALLENGE(에코백), STATE_SYNC(에코백 ACK), ERROR(로그)
+> - 함수 포인터 테이블 기반 디스패처 (`cmd_dispatch_table[]`)
+> - 미지원 명령 수신 시 에러 응답 자동 전송 (에러 코드 0x01)
+>
+> **계획 대비 변경 사항**:
+> - JSON 파싱 실패 시 에러 응답 대신 `ESP_LOGD` 경고만 출력하도록 변경
+>   - 이유: 모든 payload가 JSON인 것은 아님 (PING 등은 바이너리 payload 가능)
+>   - JSON 파싱 실패는 오류가 아닌 정상 케이스일 수 있으므로 에러 응답 불필요
+>   - 후속 Phase에서 JSON이 필수인 명령은 개별 핸들러에서 JSON null 검사 추가 가능
+> - `vendor_cdc_task` 생성 위치를 UART/HID 태스크 생성 이전으로 배치
+>   - 이유: 파서 초기화와 태스크가 CDC 데이터 수신 전에 준비되어야 함
+>   - 태스크 자체는 큐 대기(portMAX_DELAY)이므로 생성 순서가 동작에 영향 없음
 
 **검증**:
-- [ ] `vendor_cdc_parser_init()` 호출이 `app_main()`에 추가됨
-- [ ] `vendor_cdc_task` FreeRTOS 태스크 생성됨 (Priority 3)
-- [ ] `vendor_cdc_frame_queue`에서 파싱된 프레임이 태스크에 전달됨
-- [ ] JSON 페이로드 파싱 성공 (cJSON 사용)
-- [ ] 명령 디스패처가 command 코드별로 핸들러 호출
-- [ ] 지원하지 않는 command 수신 시 에러 응답
-- [ ] JSON 파싱 실패 시 에러 응답 프레임 전송
-- [ ] PC에서 시리얼 터미널로 0xFF 바이너리 프레임 수동 전송 → ESP32-S3 파싱 성공 (디버그 로그 확인)
-- [ ] 기존 텍스트 명령 ("help", "reset") 정상 동작 유지
-- [ ] CRC 오류 시 에러 응답 프레임이 CDC로 전송됨
-- [ ] `idf.py build` 성공
+- [x] `vendor_cdc_parser_init()` 호출이 `app_main()`에 추가됨
+- [x] `vendor_cdc_task` FreeRTOS 태스크 생성됨 (Priority 3)
+- [x] `vendor_cdc_frame_queue`에서 파싱된 프레임이 태스크에 전달됨
+- [x] JSON 페이로드 파싱 성공 (cJSON 사용)
+- [x] 명령 디스패처가 command 코드별로 핸들러 호출
+- [x] 지원하지 않는 command 수신 시 에러 응답
+- [x] JSON 파싱 실패 시 디버그 로그 출력 (바이너리 payload 허용)
+- [x] PC에서 시리얼 터미널로 0xFF 바이너리 프레임 수동 전송 → ESP32-S3 파싱 성공 (디버그 로그 확인)
+- [x] 기존 텍스트 명령 ("help", "reset") 정상 동작 유지
+- [x] CRC 오류 시 에러 응답 프레임이 CDC로 전송됨
+- [x] `idf.py build` 성공
 
 ---
 

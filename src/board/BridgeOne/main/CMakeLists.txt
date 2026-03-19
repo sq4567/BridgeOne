@@ -15,6 +15,7 @@ idf_component_register(
         driver
         esp_timer
         esp_adc
+        json
 )
 
 # TinyUSB 설정: tusb_config.h 파일 포함 경로 및 컴파일 정의

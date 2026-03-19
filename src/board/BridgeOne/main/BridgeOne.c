@@ -11,6 +11,7 @@
 #include "hid_test.h"     // HID 테스트 모드
 #include "voltage_monitor.h"  // 전압 모니터링 모드
 #include "usb_cdc_log.h"  // USB CDC 디버그 로깅
+#include "vendor_cdc_handler.h"  // Vendor CDC 프로토콜 처리
 #include "esp_task_wdt.h"
 
 // ==================== 테스트 모드 설정 ====================
@@ -148,6 +149,15 @@ void app_main(void) {
     } else {
         ESP_LOGW(TAG, "USB CDC logging init failed, using UART output");
     }
+
+    // ==================== 1.3. Vendor CDC 파서 초기화 ====================
+    // CDC 데이터 수신 전에 파서 상태 머신 및 프레임 큐를 초기화합니다.
+    // tud_cdc_rx_cb()에서 vendor_cdc_parser_feed()가 호출되기 전에 완료되어야 합니다.
+    if (vendor_cdc_parser_init()) {
+        ESP_LOGI(TAG, "Vendor CDC parser initialized");
+    } else {
+        ESP_LOGE(TAG, "Vendor CDC parser init failed");
+    }
 #elif defined(HID_TEST_MODE)
     // HID 테스트 모드: CDC 리다이렉션 비활성화
     // 모든 로그를 UART0 (포트 1️⃣, COM8)로 출력하여 단일 포트로 간편하게 모니터링
@@ -264,7 +274,29 @@ void app_main(void) {
     ESP_LOGI(TAG, "Voltage monitor task created (Core 0, Priority 5)");
 
 #else
-    // ==================== 정상 모드: UART + HID 태스크 생성 ====================
+    // ==================== 정상 모드: UART + HID + Vendor CDC 태스크 생성 ====================
+
+    // Vendor CDC 태스크: CDC 프레임 처리 (JSON 파싱 + 명령 디스패칭)
+    // - 우선순위 3: 가장 낮은 우선순위 (실시간 입력 처리보다 후순위)
+    // - Core 0에서 실행
+    // - 스택 크기 4096 bytes: cJSON 파싱을 위한 여유 확보
+    TaskHandle_t vcdc_task_handle = NULL;
+
+    BaseType_t vcdc_task_created = xTaskCreatePinnedToCore(
+        vendor_cdc_task,    // 태스크 함수
+        "VCDC",             // 태스크 이름
+        4096,               // 스택 크기 (bytes)
+        NULL,               // 매개변수
+        3,                  // 우선순위 (UART=6, HID=5, USB=4 보다 낮음)
+        &vcdc_task_handle,  // 태스크 핸들 저장
+        0                   // Core 0에서 실행
+    );
+
+    if (vcdc_task_created != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create Vendor CDC task");
+        return;
+    }
+    ESP_LOGI(TAG, "Vendor CDC task created (Core 0, Priority 3)");
 
     // UART 수신 태스크: Android로부터 마우스/키보드 입력 수신
     // - 우선순위 6: USB 태스크(5)보다 높음 (실시간 통신 우선)

@@ -18,6 +18,7 @@
 #include "tusb.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "cJSON.h"
 #include <string.h>
 
 static const char *TAG = "VENDOR_CDC";
@@ -316,6 +317,164 @@ void vendor_cdc_parser_feed(const uint8_t *data, uint32_t len)
                 parser_state_reset();
             }
             break;
+        }
+    }
+}
+
+// ==================== 명령 핸들러 (스켈레톤) ====================
+
+/**
+ * PING 명령 핸들러.
+ * Server→ESP: Keep-alive ping 수신 → PONG 응답 전송.
+ */
+static void handle_cmd_ping(const vendor_cdc_frame_t *frame, cJSON *json)
+{
+    ESP_LOGI(TAG, "PING received (payload_len=%u)", frame->payload_len);
+
+    // PONG 응답: 수신한 payload를 그대로 에코백
+    vendor_cdc_send_frame(VCDC_CMD_PONG, frame->payload, frame->payload_len);
+}
+
+/**
+ * AUTH_CHALLENGE 명령 핸들러 (스켈레톤).
+ * Server→ESP: 인증 챌린지 수신. 실제 로직은 Phase 3.3에서 구현.
+ */
+static void handle_cmd_auth_challenge(const vendor_cdc_frame_t *frame, cJSON *json)
+{
+    ESP_LOGI(TAG, "AUTH_CHALLENGE received (payload_len=%u) - skeleton handler", frame->payload_len);
+
+    // 스켈레톤: 에코백으로 수신 확인
+    vendor_cdc_send_frame(VCDC_CMD_AUTH_RESPONSE, frame->payload, frame->payload_len);
+}
+
+/**
+ * STATE_SYNC 명령 핸들러 (스켈레톤).
+ * Server→ESP: 상태 동기화 요청. 실제 로직은 Phase 3.4에서 구현.
+ */
+static void handle_cmd_state_sync(const vendor_cdc_frame_t *frame, cJSON *json)
+{
+    ESP_LOGI(TAG, "STATE_SYNC received (payload_len=%u) - skeleton handler", frame->payload_len);
+
+    // 스켈레톤: ACK 에코백
+    vendor_cdc_send_frame(VCDC_CMD_STATE_SYNC_ACK, frame->payload, frame->payload_len);
+}
+
+/**
+ * ERROR 명령 핸들러.
+ * 양방향: 오류 응답 수신 시 로그 출력.
+ */
+static void handle_cmd_error(const vendor_cdc_frame_t *frame, cJSON *json)
+{
+    if (frame->payload_len >= 2) {
+        ESP_LOGW(TAG, "ERROR received: original_cmd=0x%02X, error_code=0x%02X",
+                 frame->payload[0], frame->payload[1]);
+    } else {
+        ESP_LOGW(TAG, "ERROR received (payload_len=%u)", frame->payload_len);
+    }
+}
+
+// ==================== 명령 디스패처 ====================
+
+/** 명령 핸들러 함수 포인터 타입 */
+typedef void (*vcdc_cmd_handler_t)(const vendor_cdc_frame_t *frame, cJSON *json);
+
+/** 명령 코드 → 핸들러 매핑 테이블 엔트리 */
+typedef struct {
+    uint8_t             command;
+    vcdc_cmd_handler_t  handler;
+    const char         *name;
+} vcdc_cmd_entry_t;
+
+/** 명령 핸들러 디스패치 테이블 */
+static const vcdc_cmd_entry_t cmd_dispatch_table[] = {
+    { VCDC_CMD_PING,            handle_cmd_ping,            "PING"           },
+    { VCDC_CMD_AUTH_CHALLENGE,   handle_cmd_auth_challenge,  "AUTH_CHALLENGE" },
+    { VCDC_CMD_STATE_SYNC,       handle_cmd_state_sync,      "STATE_SYNC"    },
+    { VCDC_CMD_ERROR,            handle_cmd_error,           "ERROR"         },
+};
+
+#define CMD_DISPATCH_TABLE_SIZE \
+    (sizeof(cmd_dispatch_table) / sizeof(cmd_dispatch_table[0]))
+
+/**
+ * 명령 코드에 해당하는 핸들러를 찾아 호출.
+ *
+ * @param frame 파싱된 프레임
+ * @param json  JSON 파싱 결과 (payload가 없거나 JSON이 아니면 NULL)
+ * @return true: 핸들러 발견 및 호출, false: 미지원 명령
+ */
+static bool dispatch_command(const vendor_cdc_frame_t *frame, cJSON *json)
+{
+    for (size_t i = 0; i < CMD_DISPATCH_TABLE_SIZE; i++) {
+        if (cmd_dispatch_table[i].command == frame->command) {
+            ESP_LOGD(TAG, "Dispatching command: %s (0x%02X)",
+                     cmd_dispatch_table[i].name, frame->command);
+            cmd_dispatch_table[i].handler(frame, json);
+            return true;
+        }
+    }
+    return false;
+}
+
+// ==================== Vendor CDC 태스크 ====================
+
+void vendor_cdc_task(void *param)
+{
+    (void)param;
+
+    ESP_LOGI(TAG, "Vendor CDC task started");
+
+    vendor_cdc_frame_t frame;
+
+    while (1) {
+        // 큐에서 파싱된 프레임 대기 (무한 대기)
+        if (xQueueReceive(vendor_cdc_frame_queue, &frame, portMAX_DELAY) != pdPASS) {
+            continue;
+        }
+
+        ESP_LOGI(TAG, "Frame received: cmd=0x%02X, payload_len=%u, crc=0x%04X",
+                 frame.command, frame.payload_len, frame.crc16);
+
+        // JSON 페이로드 파싱 (payload가 있는 경우)
+        cJSON *json = NULL;
+
+        if (frame.payload_len > 0) {
+            // payload를 null-terminate (버퍼에 여유 있음: VCDC_MAX_PAYLOAD_SIZE=448)
+            // 안전을 위해 범위 검사
+            if (frame.payload_len < VCDC_MAX_PAYLOAD_SIZE) {
+                frame.payload[frame.payload_len] = '\0';
+            } else {
+                frame.payload[VCDC_MAX_PAYLOAD_SIZE - 1] = '\0';
+            }
+
+            json = cJSON_Parse((const char *)frame.payload);
+
+            if (json == NULL) {
+                // JSON 파싱 실패: 바이너리 payload일 수 있으므로 경고만 출력
+                // (모든 payload가 JSON인 것은 아님)
+                ESP_LOGD(TAG, "Payload is not JSON (cmd=0x%02X, len=%u)",
+                         frame.command, frame.payload_len);
+            } else {
+                ESP_LOGD(TAG, "JSON parsed OK (cmd=0x%02X)", frame.command);
+            }
+        }
+
+        // 명령 디스패처 호출
+        if (!dispatch_command(&frame, json)) {
+            ESP_LOGW(TAG, "Unknown command: 0x%02X (payload_len=%u)",
+                     frame.command, frame.payload_len);
+
+            // 미지원 명령 에러 응답
+            uint8_t err_payload[2] = {
+                frame.command,  // 원래 명령 코드
+                0x01            // 에러 코드: 미지원 명령
+            };
+            vendor_cdc_send_frame(VCDC_CMD_ERROR, err_payload, sizeof(err_payload));
+        }
+
+        // cJSON 메모리 해제
+        if (json != NULL) {
+            cJSON_Delete(json);
         }
     }
 }

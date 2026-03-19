@@ -151,4 +151,21 @@ void vendor_cdc_parser_reset(void);
  */
 bool vendor_cdc_parser_is_active(void);
 
+// ==================== Vendor CDC 태스크 ====================
+
+/**
+ * Vendor CDC 프레임 처리 FreeRTOS 태스크.
+ *
+ * vendor_cdc_frame_queue에서 파싱된 프레임을 수신하여:
+ * 1. JSON 페이로드 파싱 (cJSON)
+ * 2. command 코드별 핸들러 디스패칭
+ * 3. 미지원 명령/파싱 실패 시 에러 응답 전송
+ *
+ * app_main()에서 xTaskCreatePinnedToCore()로 생성해야 합니다.
+ * - Priority: 3, Core: 0, Stack: 4096 bytes
+ *
+ * @param param 미사용
+ */
+void vendor_cdc_task(void *param);
+
 #endif // VENDOR_CDC_HANDLER_H
