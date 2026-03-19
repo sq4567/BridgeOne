@@ -24,6 +24,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 
 // ==================== 프레임 상수 ====================
 
@@ -102,5 +104,41 @@ uint16_t vendor_cdc_crc16(const uint8_t *data, size_t length);
  * @return true: 전송 성공, false: 실패 (페이로드 초과 또는 CDC 미연결)
  */
 bool vendor_cdc_send_frame(uint8_t command, const uint8_t *payload, uint16_t payload_len);
+
+// ==================== 프레임 파싱 상태 머신 ====================
+
+/** 파싱된 Vendor CDC 프레임을 수신하는 FreeRTOS 큐 */
+extern QueueHandle_t vendor_cdc_frame_queue;
+
+/**
+ * Vendor CDC 프레임 파서 초기화.
+ *
+ * 파싱 상태 머신을 초기 상태로 설정하고 FreeRTOS 큐를 생성합니다.
+ * app_main()에서 CDC 데이터 수신 전에 호출해야 합니다.
+ *
+ * @return true: 초기화 성공, false: 큐 생성 실패
+ */
+bool vendor_cdc_parser_init(void);
+
+/**
+ * 바이트 스트림을 파서에 공급.
+ *
+ * CDC RX 콜백에서 수신된 바이트를 상태 머신에 공급합니다.
+ * 완전한 프레임이 파싱되면 CRC16 검증 후 vendor_cdc_frame_queue에 전달합니다.
+ *
+ * 상태 머신 흐름:
+ * WAIT_HEADER → READ_COMMAND → READ_LENGTH → READ_PAYLOAD → READ_CRC → (큐 전달 후 리셋)
+ *
+ * @param data 수신된 바이트 버퍼
+ * @param len 바이트 수
+ */
+void vendor_cdc_parser_feed(const uint8_t *data, uint32_t len);
+
+/**
+ * 파서 상태 리셋.
+ *
+ * 파싱 중 오류 발생 또는 외부 타임아웃 시 상태 머신을 초기 상태로 되돌립니다.
+ */
+void vendor_cdc_parser_reset(void);
 
 #endif // VENDOR_CDC_HANDLER_H

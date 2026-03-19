@@ -127,45 +127,29 @@ typedef enum {
 
 ---
 
-## Phase 3.1.2: 프레임 파싱 상태 머신 구현
+## ~~Phase 3.1.2: 프레임 파싱 상태 머신 구현~~ ✅ 완료
 
-**목표**: CDC 수신 스트림에서 Vendor CDC 바이너리 프레임을 정확히 추출하는 상태 머신 구현
-
-**개발 기간**: 1일
-
-**세부 목표**:
-1. 프레임 파싱 상태 머신 구현:
-   ```
-   WAIT_HEADER → READ_COMMAND → READ_LENGTH → READ_PAYLOAD → READ_CRC → FRAME_COMPLETE
-       ↑                                                                      │
-       └──────────────────────── (검증 후 리셋) ──────────────────────────────┘
-   ```
-   - `WAIT_HEADER`: 0xFF 바이트 대기. 0xFF가 아닌 바이트는 무시 (디버그 텍스트로 간주)
-   - `READ_COMMAND`: command 바이트 1개 읽기
-   - `READ_LENGTH`: 2바이트 length 읽기 (Little-Endian)
-   - `READ_PAYLOAD`: length만큼 payload 읽기 (최대 448B)
-   - `READ_CRC`: 2바이트 CRC16 읽기 (Little-Endian) 및 검증
-   - `FRAME_COMPLETE`: 검증 성공 시 FreeRTOS 큐에 프레임 전달
-2. 파싱 실패 처리:
-   - length > 448: 에러 로그 + 상태 리셋
-   - CRC 불일치: 에러 응답 프레임 전송 + 상태 리셋
-   - 타임아웃 (프레임 수신 중 500ms 이상 데이터 없음): 상태 리셋
-3. 파싱 버퍼:
-   - 정적 버퍼 사용 (최대 프레임 크기 454B)
-   - 메모리 동적 할당 금지 (임베디드 환경 안정성)
-
-**참조 문서 및 섹션**:
-- `docs/windows/technical-specification-server.md` §2.3.3 Vendor CDC 오류 처리
-- `src/board/BridgeOne/main/uart_handler.c` - 기존 UART 프레임 파싱 패턴 참조
+> **이 작업은 이미 완료되었습니다.**
+> - `vendor_cdc_handler.c`: 5단계 상태 머신 (`WAIT_HEADER` → `READ_COMMAND` → `READ_LENGTH` → `READ_PAYLOAD` → `READ_CRC`) 구현됨
+> - `vendor_cdc_handler.h`: 파서 API 3개 함수 선언 (`vendor_cdc_parser_init`, `vendor_cdc_parser_feed`, `vendor_cdc_parser_reset`)
+> - `vendor_cdc_frame_queue`: FreeRTOS 큐 (5개 프레임, 정적 컨텍스트) 생성됨
+> - CRC 불일치 시 `VCDC_CMD_ERROR` 에러 응답 프레임 자동 전송
+> - 500ms 타임아웃 감지 (`esp_timer_get_time()` 기반)
+> - 모든 버퍼 정적 할당 (동적 메모리 할당 없음)
+>
+> **계획 대비 변경 사항**:
+> - `FRAME_COMPLETE`는 별도 상태가 아닌 `READ_CRC` 완료 시 즉시 처리하는 방식으로 구현 (불필요한 상태 전이 제거)
+> - `vendor_cdc_parser_init()` 함수가 큐 생성을 담당하므로, Phase 3.1.4에서 `app_main()`에 `vendor_cdc_parser_init()` 호출을 추가해야 함
+> - 파서는 `vendor_cdc_parser_feed()` 함수를 통해 바이트 배열을 받으므로, Phase 3.1.3에서 `tud_cdc_rx_cb()`가 수신 바이트를 이 함수에 전달하면 됨
 
 **검증**:
-- [ ] 파싱 상태 머신 5단계 구현됨
-- [ ] 올바른 프레임 수신 시 FreeRTOS 큐에 전달됨
-- [ ] length > 448 시 에러 처리 및 상태 리셋
-- [ ] CRC 불일치 시 에러 응답 프레임 전송
-- [ ] 파싱 중 타임아웃 시 상태 리셋
-- [ ] 정적 버퍼 사용 (동적 할당 없음)
-- [ ] `idf.py build` 성공
+- [x] 파싱 상태 머신 5단계 구현됨
+- [x] 올바른 프레임 수신 시 FreeRTOS 큐에 전달됨
+- [x] length > 448 시 에러 처리 및 상태 리셋
+- [x] CRC 불일치 시 에러 응답 프레임 전송
+- [x] 파싱 중 타임아웃 시 상태 리셋
+- [x] 정적 버퍼 사용 (동적 할당 없음)
+- [x] `idf.py build` 성공
 
 ---
 
@@ -177,24 +161,25 @@ typedef enum {
 
 **세부 목표**:
 1. `usb_cdc_log.c`의 `tud_cdc_rx_cb()` 수정:
-   - CDC 수신 버퍼에서 데이터 읽기
-   - 첫 바이트가 `0xFF`이면 → `vendor_cdc_handler`의 프레임 파서로 위임
-   - 첫 바이트가 `0xFF`가 아니면 → 기존 텍스트 명령 처리 유지 ("reset", "help")
+   - CDC 수신 버퍼에서 읽은 바이트를 `vendor_cdc_parser_feed()`에 전달
+   - 파서가 내부적으로 0xFF(프레임 시작)와 일반 텍스트를 자동 분류함
+   - 기존 텍스트 명령 처리 ("reset", "help")는 파서가 무시하는 비-0xFF 바이트를 별도 처리
 2. 혼합 데이터 처리:
    - CDC 버퍼에 텍스트와 바이너리가 연속으로 들어올 수 있음
-   - 바이트 단위로 분류하여 적절한 핸들러로 전달
+   - 파서의 `WAIT_HEADER` 상태에서 0xFF가 아닌 바이트는 자동 무시됨
+   - 텍스트 명령 처리를 위해 비-0xFF 바이트는 기존 텍스트 버퍼에도 추가
 3. 기존 디버그 로그 출력(ESP_LOG → CDC)은 변경 없이 유지
 
 **수정 파일**:
-- `src/board/BridgeOne/main/usb_cdc_log.c`: `tud_cdc_rx_cb()` 수정
-- `src/board/BridgeOne/main/usb_cdc_log.h`: `vendor_cdc_handler.h` 인클루드 추가
+- `src/board/BridgeOne/main/usb_cdc_log.c`: `tud_cdc_rx_cb()` 수정, `vendor_cdc_handler.h` 인클루드 추가
 
 **참조 문서 및 섹션**:
 - `src/board/BridgeOne/main/usb_cdc_log.c` - 기존 CDC RX 처리 코드
+- `src/board/BridgeOne/main/vendor_cdc_handler.h` - `vendor_cdc_parser_feed()` API
 - TinyUSB CDC API: `tud_cdc_read()`, `tud_cdc_available()`
 
 **검증**:
-- [ ] 0xFF로 시작하는 바이너리 → vendor_cdc_handler로 전달됨
+- [ ] 0xFF로 시작하는 바이너리 → `vendor_cdc_parser_feed()`로 전달됨
 - [ ] "help" 텍스트 명령 → 기존 텍스트 처리로 전달됨
 - [ ] "reset" 텍스트 명령 → 기존 텍스트 처리로 전달됨
 - [ ] 디버그 로그 출력 (ESP_LOG → CDC)이 정상 동작
@@ -210,21 +195,24 @@ typedef enum {
 **개발 기간**: 1-1.5일
 
 **세부 목표**:
-1. `vendor_cdc_task` FreeRTOS 태스크 생성:
+1. `app_main()`에서 `vendor_cdc_parser_init()` 호출 추가:
+   - Phase 3.1.2에서 구현된 파서 초기화 및 `vendor_cdc_frame_queue` 큐 생성
+   - CDC 데이터 수신 전에 호출되어야 함 (USB CDC 로깅 초기화 이후)
+2. `vendor_cdc_task` FreeRTOS 태스크 생성:
    - Priority 3 (기존: UART=6, HID=5, USB=4)
    - Core 0에서 실행
    - 스택 크기: 4096 bytes (JSON 파싱을 위한 여유 확보)
-   - FreeRTOS 큐에서 파싱된 프레임 수신 대기
-2. JSON 페이로드 파싱:
+   - `vendor_cdc_frame_queue`에서 파싱된 프레임 수신 대기
+3. JSON 페이로드 파싱:
    - ESP-IDF 내장 `cJSON` 라이브러리 활용
    - payload를 null-terminate 후 `cJSON_Parse()` 호출
    - 파싱 실패 시 에러 응답 프레임 전송
-3. 명령 디스패처 구현:
+4. 명령 디스패처 구현:
    - command 코드에 따라 적절한 핸들러 함수 호출
    - 핸들러 함수 포인터 테이블 방식
    - Phase 3.1에서는 스켈레톤 핸들러만 구현 (로그 출력 + 에코백)
    - 실제 핸들러 로직은 Phase 3.3~3.5에서 구현
-4. `BridgeOne.c`의 `app_main()`에서 태스크 생성 추가
+5. `BridgeOne.c`의 `app_main()`에서 `vendor_cdc_parser_init()` 호출 및 태스크 생성 추가
 
 **신규/수정 파일**:
 - `src/board/BridgeOne/main/vendor_cdc_handler.c`: 태스크 및 디스패처 구현
@@ -242,8 +230,9 @@ typedef enum {
 - 콜백에서는 FreeRTOS 큐에 데이터를 넣기만 하고, 실제 처리는 `vendor_cdc_task`에서 수행
 
 **검증**:
+- [ ] `vendor_cdc_parser_init()` 호출이 `app_main()`에 추가됨
 - [ ] `vendor_cdc_task` FreeRTOS 태스크 생성됨 (Priority 3)
-- [ ] 파싱된 프레임이 큐를 통해 태스크에 전달됨
+- [ ] `vendor_cdc_frame_queue`에서 파싱된 프레임이 태스크에 전달됨
 - [ ] JSON 페이로드 파싱 성공 (cJSON 사용)
 - [ ] 명령 디스패처가 command 코드별로 핸들러 호출
 - [ ] 지원하지 않는 command 수신 시 에러 응답
