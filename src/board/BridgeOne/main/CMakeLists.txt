@@ -6,6 +6,7 @@ idf_component_register(
         "hid_test.c"
         "uart_handler.c"
         "usb_cdc_log.c"
+        "vendor_cdc_handler.c"
         "voltage_monitor.c"
     INCLUDE_DIRS "."
     REQUIRES

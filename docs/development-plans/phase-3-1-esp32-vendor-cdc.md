@@ -53,19 +53,11 @@ Phase 3.1에서는 이 단일 CDC 인터페이스를 **디버그 로깅과 Vendo
 
 ---
 
-## 사전 조치: 시퀀스 번호 범위 제한
+## ~~사전 조치: 시퀀스 번호 범위 제한~~ ✅ 완료 (커밋 2dfcde6)
 
-### 배경
-
-Phase 3.6에서 ESP32-S3 → Android 역방향 UART 알림 프레임(0xFE 헤더)을 도입합니다. 현재 UART 입력 프레임의 seq 필드는 0~255 전체를 순환하므로, seq=0xFE인 프레임과 역방향 알림 프레임이 **충돌**합니다.
-
-### 조치
-
-Phase 3.1 시작 시 seq 범위를 **0~253으로 제한**하여 0xFE와 0xFF를 프로토콜 예약 바이트로 확보합니다.
-
-**수정 대상**:
-- `src/android/app/src/main/java/com/bridgeone/app/protocol/FrameBuilder.kt`: `% 256` → `% 254`
-- `src/board/BridgeOne/main/uart_handler.c`: seq 검증 시 0xFE/0xFF는 무효 프레임으로 처리
+> **이 작업은 이미 완료되었습니다.**
+> - `FrameBuilder.kt`: `SEQ_MODULUS = 254` (0~253 순환) 적용됨
+> - `uart_handler.c`: 0xFE/0xFF 예약 바이트 무효 프레임 처리 적용됨
 
 ### 예약 바이트 정의
 | 바이트 | 용도 |
@@ -123,15 +115,15 @@ typedef enum {
 - `docs/board/esp32s3-code-implementation-guide.md` §1.3 USB Composite 디바이스 설계 계약
 
 **검증**:
-- [ ] `vendor_cdc_handler.h` 파일 생성됨
-- [ ] `vendor_cdc_handler.c` 파일 생성됨
-- [ ] Vendor CDC 프레임 구조체 정의됨 (header, command, length, payload, crc16)
-- [ ] 명령 코드 열거형 정의됨 (8개 명령)
-- [ ] CRC16-CCITT 함수 구현됨 (다항식 0x1021, 초기값 0x0000)
-- [ ] CRC16 계산 범위가 payload만인 것을 확인
-- [ ] `vendor_cdc_send_frame()` 함수 구현됨
-- [ ] 최대 페이로드 크기 448B 제한 검증 로직 포함
-- [ ] `idf.py build` 성공
+- [x] `vendor_cdc_handler.h` 파일 생성됨
+- [x] `vendor_cdc_handler.c` 파일 생성됨
+- [x] Vendor CDC 프레임 구조체 정의됨 (header, command, length, payload, crc16)
+- [x] 명령 코드 열거형 정의됨 (8개 명령)
+- [x] CRC16-CCITT 함수 구현됨 (다항식 0x1021, 초기값 0x0000)
+- [x] CRC16 계산 범위가 payload만인 것을 확인
+- [x] `vendor_cdc_send_frame()` 함수 구현됨
+- [x] 최대 페이로드 크기 448B 제한 검증 로직 포함
+- [x] `idf.py build` 성공
 
 ---
 
