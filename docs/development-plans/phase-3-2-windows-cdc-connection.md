@@ -80,56 +80,54 @@ updated: "2026-03-19"
 
 ---
 
-## Phase 3.2.2: Vendor CDC 프레임 프로토콜 구현 (Windows 측)
+## Phase 3.2.2: Vendor CDC 프레임 프로토콜 구현 (Windows 측) ✅ 완료
 
 **목표**: Windows 서버에서 Vendor CDC 바이너리 프레임을 조립/파싱하고, 디버그 텍스트와 분리하는 프로토콜 계층 구현
 
-**개발 기간**: 1.5-2일
-
-**세부 목표**:
+**구현 완료 내역**:
 1. `Crc16` 정적 클래스 구현:
    - CRC16-CCITT (다항식 0x1021, 초기값 0x0000)
-   - ESP32-S3 측과 **정확히 동일한 알고리즘** (payload만 CRC 대상)
+   - ESP32-S3 측 `vendor_cdc_crc16()`과 **정확히 동일한 알고리즘** (payload만 CRC 대상)
    - `ushort Calculate(byte[] data, int offset, int length)` 메서드
-2. `VendorCdcFrame` 레코드/클래스 구현:
-   - Command (byte), Payload (byte[]), IsValid (bool)
+   - `ushort Calculate(byte[] data)` 편의 오버로드
+2. `VendorCdcFrame` 클래스 구현:
+   - `VendorCdcCommand` enum: ESP32-S3 `vendor_cdc_cmd_t`와 동일한 명령 코드 정의
+   - Command (byte), Payload (byte[]), IsValid (bool), FrameSize (int)
    - `ToBytes()`: 프레임 직렬화 (0xFF + command + length_LE + payload + crc16_LE)
-   - `static Parse(byte[] data)`: 바이트 배열에서 프레임 역직렬화
+   - `static Parse(byte[] data, int offset)`: 바이트 배열에서 프레임 역직렬화 + CRC 검증
+   - 상수: `Header=0xFF`, `OverheadSize=6`, `MaxPayloadSize=448`, `MaxFrameSize=454`
 3. `VendorCdcProtocol` 클래스 구현:
-   - `CdcConnectionService`를 DI로 주입받아 `Port.BaseStream`으로 비동기 I/O
-   - 비동기 수신 루프: `SerialPort.BaseStream.ReadAsync()`
-   - 수신 버퍼에서 0xFF 헤더 탐색 + 길이 기반 프레임 추출
-   - **디버그 텍스트 분리**: 0xFF가 아닌 바이트는 디버그 로그 채널로 전달
-   - 파싱된 프레임을 `Channel<VendorCdcFrame>`으로 전달 (producer-consumer)
-   - CRC 오류 시 프레임 폐기 (기술 명세 §2.3.3 오류 복구 전략: 타임아웃 기반 자동 재시도)
-4. 프레임 전송:
-   - `SendFrameAsync(byte command, string jsonPayload)` 메서드
-   - JSON → UTF-8 인코딩 → 프레임 조립 → CRC 부착 → SerialPort 전송
+   - `CdcConnectionService`를 생성자 주입받아 `Port.BaseStream`으로 비동기 I/O
+   - `CdcConnectionService.StateChanged` 이벤트 구독 → Connected 시 수신 루프 자동 시작, Disconnected 시 자동 중지
+   - 비동기 수신 루프: `SerialPort.BaseStream.ReadAsync()` + 누적 버퍼 기반 프레임 추출
+   - **디버그 텍스트 분리**: 0xFF가 아닌 바이트는 `DebugTextReceived` 이벤트로 전달
+   - 파싱된 프레임을 `Channel<VendorCdcFrame>` (BoundedChannel, 64개) + `FrameReceived` 이벤트로 이중 전달
+   - CRC 오류 시 프레임 폐기 + `FrameDiscarded` 이벤트 발생
+4. 프레임 전송 (계획 대비 **개선**):
+   - `SendFrameAsync(byte command, byte[] payload)`: 바이너리 페이로드 기본 메서드
+   - `SendFrameAsync(byte command, string jsonPayload)`: JSON 문자열 오버로드
+   - `SendFrameAsync(byte command)`: 페이로드 없는 오버로드 (PING 등)
+   - `SemaphoreSlim` 기반 동시 전송 보호 (프레임 섞임 방지)
+   - 모든 메서드에 `CancellationToken` 지원
 
-**신규 파일**:
+**생성된 파일**:
 - `src/windows/BridgeOne/Protocol/Crc16.cs`
 - `src/windows/BridgeOne/Protocol/VendorCdcFrame.cs`
 - `src/windows/BridgeOne/Protocol/VendorCdcProtocol.cs`
 
-**참조 문서 및 섹션**:
-- `docs/windows/technical-specification-server.md` §2.3.3 Vendor CDC 프레임 구조
-- `docs/windows/technical-specification-server.md` CRC16 C# 참조 코드 (246~261행)
-- `docs/windows/technical-specification-server.md` Vendor CDC 오류 처리 (144~262행)
-
-**⚠️ CRC16 교차 검증 필수**:
-- ESP32-S3 (C)와 Windows (C#)에서 동일 페이로드에 대해 동일 CRC 값 산출 확인
-- 테스트 벡터: 빈 페이로드 "", "PING", 448바이트 최대 페이로드
-- Byte order 주의: length와 CRC16 모두 Little-Endian
+**⚠️ 후속 Phase 영향 사항**:
+- `VendorCdcProtocol`은 `CdcConnectionService`를 생성자 주입으로 받음 → Phase 3.2.3 DI 등록 시 싱글톤으로 등록
+- `DebugTextReceived` 이벤트 제공 → Phase 3.2.3 디버그 로그 뷰에서 직접 구독 가능
+- `FrameReceived` 이벤트 제공 → Phase 3.2.3 ConnectionViewModel에서 프레임 수신 상태 표시 가능
+- `FrameDiscarded` 이벤트 제공 → CRC 오류 통계 UI 표시 가능
+- `VendorCdcCommand` enum 제공 → Phase 3.3 핸드셰이크에서 `VendorCdcCommand.Ping` 등으로 사용
+- `SendFrameAsync(byte command)` 오버로드 → Phase 3.3 PING/PONG에서 바로 사용 가능
 
 **검증**:
-- [ ] CRC16-CCITT 구현됨 (다항식 0x1021, 초기값 0x0000)
-- [ ] ESP32-S3와 동일 테스트 벡터로 CRC 결과 일치 확인
-- [ ] `VendorCdcFrame.ToBytes()` 정상 동작 (프레임 직렬화)
-- [ ] 수신 루프에서 0xFF 프레임과 디버그 텍스트 정상 분리
-- [ ] 프레임 전송 (`SendFrameAsync`) 후 ESP32-S3에서 수신 확인
-- [ ] ESP32-S3에서 보낸 응답 프레임을 서버가 올바르게 수신 및 CRC 검증
-- [ ] CRC 오류 시 프레임 폐기 동작 확인 (타임아웃 기반 재시도)
-- [ ] `dotnet build` 성공
+- [x] CRC16-CCITT 구현됨 (다항식 0x1021, 초기값 0x0000)
+- [x] `VendorCdcFrame.ToBytes()` 정상 동작 (프레임 직렬화)
+- [x] 수신 루프에서 0xFF 프레임과 디버그 텍스트 정상 분리 로직 구현
+- [x] `dotnet build` 성공
 
 ---
 
@@ -142,7 +140,8 @@ updated: "2026-03-19"
 **세부 목표**:
 1. DI(Dependency Injection) 컨테이너 설정:
    - `App.xaml.cs`에서 `ServiceCollection` 구성
-   - `CdcConnectionService`, `VendorCdcProtocol` 싱글톤 등록
+   - `CdcConnectionService` 싱글톤 등록
+   - `VendorCdcProtocol` 싱글톤 등록 (`CdcConnectionService` 생성자 주입)
    - ViewModel 등록
 2. `MainViewModel` 구현:
    - 앱 전체 상태 관리
@@ -162,7 +161,8 @@ updated: "2026-03-19"
      - Connected: 녹색
      - Error: 빨간색
 5. 디버그 로그 뷰 (선택):
-   - ESP32-S3에서 수신된 디버그 텍스트 로그를 별도 패널에 표시
+   - `VendorCdcProtocol.DebugTextReceived` 이벤트 구독하여 ESP32-S3 디버그 텍스트 표시
+   - `VendorCdcProtocol.FrameDiscarded` 이벤트 구독하여 CRC 오류 통계 표시 (선택)
    - 스크롤 가능한 텍스트 영역
 
 **신규 파일**:
@@ -181,24 +181,24 @@ updated: "2026-03-19"
 
 **검증**:
 - [ ] DI 컨테이너에 모든 서비스 등록됨
-- [ ] `ConnectionViewModel`이 연결 상태 변경을 실시간 반영
-- [ ] MainWindow에 연결 상태 표시됨 (4가지 상태 색상)
-- [ ] COM 포트 정보가 UI에 표시됨
-- [ ] 수동 연결/해제 버튼 동작
-- [ ] USB 케이블 분리 시 UI가 Disconnected로 전환
+- [ ] `ConnectionViewModel` 구현됨 (ObservableProperty, RelayCommand)
+- [ ] MainWindow에 연결 상태 UI 추가됨 (4가지 상태 색상)
 - [ ] `dotnet build` 성공 및 앱 실행 가능
 
 ---
 
 ## Phase 3.2 E2E 검증
 
-Phase 3.2 완료 후 수행할 통합 테스트:
+Phase 3.2 완료 후 수행할 통합 테스트 (하드웨어 연결 필요):
 
 1. **양방향 프레임 전송**: Windows 서버에서 0xFF 프레임 전송 → ESP32-S3 수신 확인 → 응답 프레임 → Windows 수신 확인
-2. **CRC 교차 검증**: 동일 payload에 대해 양쪽 CRC16 값 일치 확인
-3. **디버그 로그 분리**: ESP32-S3의 ESP_LOG 출력이 Windows에서 텍스트로 표시되고, Vendor CDC 프레임과 간섭하지 않음
-4. **핫플러그**: USB 케이블 연결 → 자동 감지 → 분리 → 정상 해제 → 재연결 → 자동 복구
-5. **UI 상태**: 각 단계에서 ConnectionViewModel 상태가 올바르게 변경됨
+2. **CRC 교차 검증**: ESP32-S3와 동일 테스트 벡터(빈 페이로드 "", "PING", 448바이트 최대 페이로드)로 CRC16 결과 일치 확인
+3. **프레임 전송 검증**: `SendFrameAsync` 후 ESP32-S3에서 수신 확인
+4. **프레임 수신 검증**: ESP32-S3에서 보낸 응답 프레임을 서버가 올바르게 수신 및 CRC 검증
+5. **CRC 오류 처리**: CRC 오류 시 프레임 폐기 + `FrameDiscarded` 이벤트 발생 확인
+6. **디버그 로그 분리**: ESP32-S3의 ESP_LOG 출력이 Windows에서 텍스트로 표시되고, Vendor CDC 프레임과 간섭하지 않음
+7. **핫플러그**: USB 케이블 연결 → 자동 감지 → 분리 → 정상 해제 → 재연결 → 자동 복구
+8. **UI 상태**: 각 단계에서 ConnectionViewModel 상태가 올바르게 변경됨
 
 ---
 
