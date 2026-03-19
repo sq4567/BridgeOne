@@ -180,10 +180,10 @@ updated: "2026-03-19"
 - CommunityToolkit.Mvvm 문서: `ObservableObject`, `RelayCommand`, Source Generators
 
 **검증**:
-- [ ] DI 컨테이너에 모든 서비스 등록됨
-- [ ] `ConnectionViewModel` 구현됨 (ObservableProperty, RelayCommand)
-- [ ] MainWindow에 연결 상태 UI 추가됨 (4가지 상태 색상)
-- [ ] `dotnet build` 성공 및 앱 실행 가능
+- [x] DI 컨테이너에 모든 서비스 등록됨
+- [x] `ConnectionViewModel` 구현됨 (ObservableProperty, RelayCommand)
+- [x] MainWindow에 연결 상태 UI 추가됨 (4가지 상태 색상)
+- [x] `dotnet build` 성공 및 앱 실행 가능
 
 ---
 
