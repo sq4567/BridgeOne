@@ -1,4 +1,5 @@
 #include "usb_cdc_log.h"
+#include "vendor_cdc_handler.h"
 #include "tusb.h"
 #include "esp_log.h"
 #include "esp_system.h"  // esp_restart()
@@ -234,11 +235,14 @@ static void process_cdc_command(const char* cmd) {
  * TinyUSB CDC RX 콜백 함수.
  *
  * 호스트로부터 데이터를 수신하면 호출됩니다.
- * 수신된 데이터를 버퍼에 모아서 줄바꿈(\n 또는 \r) 시 명령어로 처리합니다.
+ * 바이너리 프레임(0xFF 시작)과 텍스트 명령을 자동 분류합니다:
+ * - 바이너리 프레임 → vendor_cdc_parser_feed()로 전달
+ * - 텍스트 명령 → 기존 텍스트 버퍼에 축적 후 명령어 처리
  *
- * 지원 명령어:
- * - reset: 소프트웨어 리셋
- * - help: 명령어 목록
+ * 분류 로직:
+ * 1. 각 바이트를 파서에 먼저 공급
+ * 2. 파서가 WAIT_HEADER 상태였고 바이트가 0xFF가 아니면 → 텍스트로 처리
+ * 3. 파서가 활성 상태이거나 0xFF이면 → 바이너리로 처리 (텍스트 무시)
  *
  * @param itf CDC 인터페이스 번호 (0-based)
  */
@@ -250,7 +254,23 @@ void tud_cdc_rx_cb(uint8_t itf) {
         count = tud_cdc_read(buf, sizeof(buf));
 
         for (uint32_t i = 0; i < count; i++) {
-            char c = (char)buf[i];
+            uint8_t byte = buf[i];
+
+            // 파서가 바이너리 프레임 수신 중인지 확인 (공급 전 상태)
+            bool parser_was_active = vendor_cdc_parser_is_active();
+
+            // 모든 바이트를 파서에 공급 (파서가 내부적으로 0xFF/비-0xFF 분류)
+            vendor_cdc_parser_feed(&byte, 1);
+
+            // 바이너리 프레임에 속하는 바이트는 텍스트 처리 건너뜀
+            // - 파서가 이미 활성 상태였거나 (프레임 수신 중)
+            // - 0xFF로 새 프레임이 시작된 경우
+            if (parser_was_active || byte == VCDC_FRAME_HEADER) {
+                continue;
+            }
+
+            // === 이하 텍스트 명령 처리 (기존 로직 유지) ===
+            char c = (char)byte;
 
             // 에코백 (입력한 문자를 터미널에 표시)
             if (c >= 32 && c < 127) {

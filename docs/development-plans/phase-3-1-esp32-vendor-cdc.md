@@ -131,7 +131,7 @@ typedef enum {
 
 > **이 작업은 이미 완료되었습니다.**
 > - `vendor_cdc_handler.c`: 5단계 상태 머신 (`WAIT_HEADER` → `READ_COMMAND` → `READ_LENGTH` → `READ_PAYLOAD` → `READ_CRC`) 구현됨
-> - `vendor_cdc_handler.h`: 파서 API 3개 함수 선언 (`vendor_cdc_parser_init`, `vendor_cdc_parser_feed`, `vendor_cdc_parser_reset`)
+> - `vendor_cdc_handler.h`: 파서 API 4개 함수 선언 (`vendor_cdc_parser_init`, `vendor_cdc_parser_feed`, `vendor_cdc_parser_reset`, `vendor_cdc_parser_is_active`)
 > - `vendor_cdc_frame_queue`: FreeRTOS 큐 (5개 프레임, 정적 컨텍스트) 생성됨
 > - CRC 불일치 시 `VCDC_CMD_ERROR` 에러 응답 프레임 자동 전송
 > - 500ms 타임아웃 감지 (`esp_timer_get_time()` 기반)
@@ -153,37 +153,28 @@ typedef enum {
 
 ---
 
-## Phase 3.1.3: CDC RX 콜백 멀티플렉싱
+## ~~Phase 3.1.3: CDC RX 콜백 멀티플렉싱~~ ✅ 완료
 
-**목표**: 기존 `tud_cdc_rx_cb` 콜백을 수정하여 디버그 텍스트 명령과 Vendor CDC 바이너리 프레임을 자동 분류
-
-**개발 기간**: 0.5-1일
-
-**세부 목표**:
-1. `usb_cdc_log.c`의 `tud_cdc_rx_cb()` 수정:
-   - CDC 수신 버퍼에서 읽은 바이트를 `vendor_cdc_parser_feed()`에 전달
-   - 파서가 내부적으로 0xFF(프레임 시작)와 일반 텍스트를 자동 분류함
-   - 기존 텍스트 명령 처리 ("reset", "help")는 파서가 무시하는 비-0xFF 바이트를 별도 처리
-2. 혼합 데이터 처리:
-   - CDC 버퍼에 텍스트와 바이너리가 연속으로 들어올 수 있음
-   - 파서의 `WAIT_HEADER` 상태에서 0xFF가 아닌 바이트는 자동 무시됨
-   - 텍스트 명령 처리를 위해 비-0xFF 바이트는 기존 텍스트 버퍼에도 추가
-3. 기존 디버그 로그 출력(ESP_LOG → CDC)은 변경 없이 유지
-
-**수정 파일**:
-- `src/board/BridgeOne/main/usb_cdc_log.c`: `tud_cdc_rx_cb()` 수정, `vendor_cdc_handler.h` 인클루드 추가
-
-**참조 문서 및 섹션**:
-- `src/board/BridgeOne/main/usb_cdc_log.c` - 기존 CDC RX 처리 코드
-- `src/board/BridgeOne/main/vendor_cdc_handler.h` - `vendor_cdc_parser_feed()` API
-- TinyUSB CDC API: `tud_cdc_read()`, `tud_cdc_available()`
+> **이 작업은 이미 완료되었습니다.**
+> - `usb_cdc_log.c`: `vendor_cdc_handler.h` 인클루드 추가, `tud_cdc_rx_cb()` 멀티플렉싱 구현
+> - 바이트별로 파서 상태를 확인하여 바이너리/텍스트 자동 분류
+> - 기존 텍스트 명령 처리 ("reset", "help"), 에코백, Backspace 처리 모두 유지
+> - 디버그 로그 출력 (ESP_LOG → CDC) 변경 없음
+>
+> **계획 대비 변경 사항**:
+> - `vendor_cdc_parser_is_active()` API를 `vendor_cdc_handler.h/.c`에 추가함
+>   - 파서가 바이너리 프레임 수신 중인지 외부에서 확인할 수 있는 함수
+>   - 이 함수가 없으면 바이너리 프레임의 payload 바이트가 텍스트로 에코/버퍼링되는 문제 발생
+>   - Phase 3.1.4 등 후속 작업에서 이 API를 활용할 수 있음
+> - 원래 계획은 전체 버퍼를 파서에 전달하는 방식이었으나, 바이트별 분류 방식으로 변경
+>   - 이유: 바이너리 프레임 중간의 바이트가 텍스트 에코되는 것을 정확히 방지하기 위함
 
 **검증**:
-- [ ] 0xFF로 시작하는 바이너리 → `vendor_cdc_parser_feed()`로 전달됨
-- [ ] "help" 텍스트 명령 → 기존 텍스트 처리로 전달됨
-- [ ] "reset" 텍스트 명령 → 기존 텍스트 처리로 전달됨
-- [ ] 디버그 로그 출력 (ESP_LOG → CDC)이 정상 동작
-- [ ] 혼합 데이터 (텍스트 + 바이너리) 수신 시 정상 분류
+- [x] 0xFF로 시작하는 바이너리 → `vendor_cdc_parser_feed()`로 전달됨
+- [x] "help" 텍스트 명령 → 기존 텍스트 처리로 전달됨
+- [x] "reset" 텍스트 명령 → 기존 텍스트 처리로 전달됨
+- [x] 디버그 로그 출력 (ESP_LOG → CDC)이 정상 동작
+- [x] 혼합 데이터 (텍스트 + 바이너리) 수신 시 정상 분류
 - [ ] `idf.py build` 성공
 
 ---

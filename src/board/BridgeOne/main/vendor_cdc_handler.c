@@ -182,6 +182,11 @@ void vendor_cdc_parser_reset(void)
     parser_state_reset();
 }
 
+bool vendor_cdc_parser_is_active(void)
+{
+    return parser_ctx.state != VCDC_PARSE_WAIT_HEADER;
+}
+
 void vendor_cdc_parser_feed(const uint8_t *data, uint32_t len)
 {
     for (uint32_t i = 0; i < len; i++) {

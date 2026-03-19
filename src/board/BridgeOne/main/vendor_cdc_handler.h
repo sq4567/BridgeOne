@@ -141,4 +141,14 @@ void vendor_cdc_parser_feed(const uint8_t *data, uint32_t len);
  */
 void vendor_cdc_parser_reset(void);
 
+/**
+ * 파서가 바이너리 프레임을 수신 중인지 확인.
+ *
+ * CDC RX 콜백에서 바이트별 텍스트/바이너리 분류에 사용합니다.
+ * WAIT_HEADER 상태가 아니면 바이너리 프레임 수신 중으로 판단합니다.
+ *
+ * @return true: 바이너리 프레임 수신 중, false: 대기 상태 (텍스트 처리 가능)
+ */
+bool vendor_cdc_parser_is_active(void);
+
 #endif // VENDOR_CDC_HANDLER_H
