@@ -210,7 +210,7 @@ object ClickDetector {
      * **주의사항:**
      * - deltaX, deltaY는 명시적으로 .toByte() 변환 필수 (Type Safety)
      * - Phase 2.2.1.3에서 검증된 stread-safe FrameBuilder 사용
-     * - 프레임 시퀀스 번호는 0~255 범위에서 자동 순환
+     * - 프레임 시퀀스 번호는 0~253 범위에서 자동 순환 (0xFE/0xFF 예약)
      *
      * @param buttonState 마우스 버튼 상태 (0x00 ~ 0x07)
      *   - getButtonState()의 반환값 직접 전달 가능

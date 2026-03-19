@@ -98,30 +98,44 @@ int uart_init(void) {
 QueueHandle_t frame_queue = NULL;
 
 /**
+ * 시퀀스 번호 최대값 (exclusive).
+ * 0xFE(역방향 알림 프레임 헤더, Phase 3.6)와 0xFF(미래 예약)를
+ * 프로토콜 예약 바이트로 확보하기 위해 시퀀스 번호 범위를 0~253으로 제한합니다.
+ */
+#define SEQ_MODULUS 254
+
+/**
  * 프레임 시퀀스 번호 검증.
  *
  * Android로부터 수신한 프레임의 시퀀스 번호가 올바른 순서대로
- * 증가하는지 검증합니다. 0~255 범위에서 순환합니다.
+ * 증가하는지 검증합니다. 0~253 범위에서 순환합니다.
+ * 0xFE와 0xFF는 프로토콜 예약 바이트이므로 무효 프레임으로 처리합니다.
  *
  * @param current_seq 수신한 시퀀스 번호
- * @param expected_seq 예상되는 다음 시퀀스 번호 (0~255)
- * @return 시퀀스 번호가 올바르면 true, 그렇지 않으면 false
+ * @param expected_seq 예상되는 다음 시퀀스 번호 (0~253)
+ * @return 시퀀스 번호가 유효하면(0x00~0xFD) true, 예약 바이트(0xFE/0xFF)이면 false
  */
 static bool validateSequenceNumber(uint8_t current_seq, uint8_t* expected_seq) {
+    // 예약 바이트 검사: 0xFE(역방향 알림 헤더), 0xFF(미래 예약)
+    if (current_seq >= SEQ_MODULUS) {
+        ESP_LOGW(TAG, "Invalid seq: 0x%02X (reserved byte), frame discarded", current_seq);
+        return false;
+    }
+
     if (current_seq != *expected_seq) {
         // 프레임 손실 감지: 예상되는 번호와 실제 번호가 다름
-        uint8_t lost_frames = (current_seq - *expected_seq) & 0xFF;
+        uint8_t lost_frames = (current_seq - *expected_seq + SEQ_MODULUS) % SEQ_MODULUS;
         ESP_LOGW(TAG, "Frame loss detected: Expected seq=%u, Got seq=%u, Lost frames=%u",
                  *expected_seq, current_seq, lost_frames);
-        
+
         // 예상 시퀀스를 현재 값으로 업데이트 (다음 프레임 검증용)
         *expected_seq = current_seq;
     }
-    
-    // 다음 프레임의 예상 시퀀스 번호 계산 (0~255 순환)
-    *expected_seq = (current_seq + 1) & 0xFF;
-    
-    return true;  // 시퀀스 번호는 항상 유효함 (손실 감지만 수행)
+
+    // 다음 프레임의 예상 시퀀스 번호 계산 (0~253 순환)
+    *expected_seq = (current_seq + 1) % SEQ_MODULUS;
+
+    return true;
 }
 
 /**
@@ -216,9 +230,13 @@ void uart_task(void* param) {
             continue;
         }
         
-        // 시퀀스 번호 검증 (손실 감지)
-        validateSequenceNumber(frame_buffer.seq, &expected_seq);
-        
+        // 시퀀스 번호 검증 (예약 바이트 거부 + 손실 감지)
+        if (!validateSequenceNumber(frame_buffer.seq, &expected_seq)) {
+            // 0xFE/0xFF 등 예약 바이트가 seq에 있는 무효 프레임 폐기
+            esp_task_wdt_reset();
+            continue;
+        }
+
         // 프레임 유효성 검증
         if (!validateBridgeFrame(&frame_buffer)) {
             // 유효성 검증 실패 시 프레임 폐기

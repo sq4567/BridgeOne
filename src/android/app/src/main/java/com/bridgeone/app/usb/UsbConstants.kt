@@ -105,9 +105,9 @@ object UsbConstants {
 
     /**
      * 순번(sequence number) 최대값.
-     * 0~255 범위에서 순환하여 패킷 유실을 감지합니다.
-     * CLAUDE.md "UART 델타 프레임" 섹션: "순번 (유실 감지용)"
+     * 0~253 범위에서 순환하여 패킷 유실을 감지합니다.
+     * 0xFE(역방향 알림 프레임 헤더)와 0xFF(미래 예약)는 프로토콜 예약 바이트입니다.
      */
-    const val MAX_SEQUENCE_NUMBER = 255
+    const val MAX_SEQUENCE_NUMBER = 253
 }
 
