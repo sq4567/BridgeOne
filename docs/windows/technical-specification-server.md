@@ -137,10 +137,12 @@ Interface 3: CDC-ACM Data      (0x0A/0x00/0x00)
 | **인코딩** | UTF-8 (JSON 페이로드) | UTF-8 (JSON) |
 | **전송 방향** | 양방향 | 양방향 |
 | **오류 검증** | CRC16 + length 필드 | JSON 파싱만 |
-| **재전송 메커니즘** | CRC 오류 시 자동 재전송 (최대 3회) | 없음 (애플리케이션 레벨 처리) |
+| **오류 복구** | CRC 오류 시 프레임 폐기, 타임아웃에 의해 해당 단계 자동 재시도 | 없음 (애플리케이션 레벨 처리) |
 | **연결 유형** | USB CDC 가상 시리얼 포트 | 윈도우 Named Pipe |
 
 **Vendor CDC 오류 처리** (Phase 2 통신 안정화):
+> **오류 복구 전략**: CRC 오류 시 별도 재전송 요청 없이 프레임을 폐기합니다. `SendErrorResponseAsync`는 진단/로깅 목적으로 전송되며, 송신측은 응답 타임아웃에 의해 해당 단계를 자동으로 재시도합니다.
+
 ```csharp
 public async Task<bool> ProcessVendorCdcFrameAsync(byte[] frameData)
 {

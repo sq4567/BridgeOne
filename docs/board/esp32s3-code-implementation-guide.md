@@ -298,7 +298,8 @@ bool parseVendorCDCFrameByte(uint8_t byte, VendorCDCFrame** outFrame) {
                     frameParser.bufferIndex = 0;
                     return true;  // 프레임 추출 성공
                 } else {
-                    // CRC 검증 실패 → CRC_ERROR 응답 전송
+                    // CRC 검증 실패 → 프레임 폐기 + 진단용 CRC_ERROR 응답 전송
+                    // 재전송 트리거 아님: 송신측이 응답 타임아웃으로 자동 재시도
                     ESP_LOGE(TAG, "CRC mismatch: received 0x%04X, calculated 0x%04X", receivedChecksum, calculatedChecksum);
                     sendCrcErrorResponse();
                     frameParser.state = FRAME_STATE_SEARCH_HEADER;
@@ -1722,7 +1723,9 @@ void handleVendorCommand(const VendorCDCFrame* msg) {
     ctx.json_commands_processed++;
 }
 
-// Phase 2 통신 안정화: CRC 오류 응답 전송 함수
+// Phase 2 통신 안정화: CRC 오류 진단 응답 전송 함수
+// 주의: 이 응답은 로깅/디버깅 목적이며, 재전송을 트리거하지 않음.
+// 송신측은 응답 타임아웃에 의해 해당 단계를 자동으로 재시도함.
 void sendCrcErrorResponse(void) {
     const char* errorJson = 
         "{"
