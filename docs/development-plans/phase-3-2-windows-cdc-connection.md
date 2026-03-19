@@ -33,53 +33,50 @@ updated: "2026-03-19"
 
 ---
 
-## Phase 3.2.1: USB CDC Serial Port 자동 감지 및 연결
+## Phase 3.2.1: USB CDC Serial Port 자동 감지 및 연결 ✅ 완료
 
 **목표**: Windows에서 ESP32-S3 동글의 CDC 가상 COM 포트를 자동 감지하고 SerialPort로 연결
 
-**개발 기간**: 1.5-2일
-
-**세부 목표**:
+**구현 완료 내역**:
 1. NuGet 패키지 추가:
-   - `System.IO.Ports`: SerialPort 클래스
-   - `System.Management`: WMI 쿼리 (USB 장치 정보 조회)
+   - `System.IO.Ports` v9.0.3: SerialPort 클래스
+   - `System.Management` v9.0.3: WMI 쿼리 (USB 장치 정보 조회)
 2. `CdcConnectionService` 클래스 구현:
-   - WMI를 통한 USB 장치 열거 (`ManagementObjectSearcher`)
+   - WMI `Win32_PnPEntity`를 통한 USB 장치 열거
    - VID=0x303A / PID=0x4001 필터로 ESP32-S3 CDC 장치 검색
-   - CDC 인터페이스의 COM 포트 번호 매핑 (레지스트리 또는 WMI `Win32_PnPEntity`)
-   - SerialPort 열기 (CDC는 baud rate 무관하나, 형식상 115200 설정)
-   - 연결/해제 상태 이벤트 발생 (`IObservable<ConnectionState>` 또는 이벤트)
+   - 장치 이름에서 COM 포트 번호 추출 (예: "USB Serial Device (COM3)" → "COM3")
+   - SerialPort 열기 (115200, 8N1, DTR/RTS 활성화)
+   - C# 이벤트 기반 연결 상태 알림 (`StateChanged`, `ErrorOccurred`)
+   - `ConnectionState` enum: Disconnected / Connecting / Connected / Error
+   - `Port` 프로퍼티를 public으로 노출 (Phase 3.2.2에서 `BaseStream` 접근용)
 3. USB 핫플러그 감지:
    - `WqlEventQuery`로 `__InstanceCreationEvent` / `__InstanceDeletionEvent` 모니터링
-   - 장치 연결 시 자동 COM 포트 감지 및 연결 시도
-   - 장치 제거 시 SerialPort 정리 및 연결 해제 이벤트
+   - 장치 연결 시 1.5초 대기 후 자동 COM 포트 감지 및 연결 시도
+   - 장치 제거 시 SerialPort 정리 및 연결 해제
+   - `SynchronizationContext`를 통한 UI 스레드 안전성 보장
+4. `DeviceInfo` 모델 클래스:
+   - Vid, Pid, ComPort, Description, SerialNumber, PnpDeviceId 필드
 
-**신규 파일**:
+**생성된 파일**:
 - `src/windows/BridgeOne/Services/CdcConnectionService.cs`
 - `src/windows/BridgeOne/Models/DeviceInfo.cs`
 
-**수정 파일**:
+**수정된 파일**:
 - `src/windows/BridgeOne/BridgeOne.csproj`: NuGet 패키지 추가
 
-**참조 문서 및 섹션**:
-- `docs/windows/technical-specification-server.md` §2.1 USB 인터페이스 계약
-- `docs/windows/technical-specification-server.md` §3.1 연결 관리 기술 구현
-- `src/board/BridgeOne/main/usb_descriptors.c` - VID/PID 및 인터페이스 구성 참조
-
-**⚠️ COM 포트 감지 주의사항**:
-- ESP32-S3 USB Composite 장치는 HID + CDC로 인식됨
-- Windows는 CDC-ACM에 대해 `usbser.sys` 드라이버를 자동 할당
-- COM 포트 번호는 동적 할당되므로 매번 WMI 쿼리로 찾아야 함
-- 간혹 CDC 드라이버 할당 실패 시 → 대안으로 LibUsbDotNet 직접 접근 고려
+**⚠️ 후속 Phase 영향 사항**:
+- `CdcConnectionService.Port` (public `SerialPort?`)로 Phase 3.2.2에서 `BaseStream` 직접 접근 가능
+- `ConnectionState`는 `CdcConnectionService.ConnectionState`로 참조 (내부 enum)
+- 상태 변경 구독은 `StateChanged` 이벤트 사용 (IObservable 아님)
 
 **검증**:
-- [ ] `CdcConnectionService` 클래스 구현됨
-- [ ] VID=0x303A / PID=0x4001 장치의 CDC COM 포트 자동 감지
-- [ ] SerialPort 열기/닫기 정상 동작
-- [ ] USB 핫플러그: 장치 연결 시 자동 감지
-- [ ] USB 핫플러그: 장치 제거 시 자동 cleanup
-- [ ] COM 포트 미발견 시 적절한 오류 처리
-- [ ] `dotnet build` 성공
+- [x] `CdcConnectionService` 클래스 구현됨
+- [x] VID=0x303A / PID=0x4001 장치의 CDC COM 포트 자동 감지
+- [x] SerialPort 열기/닫기 정상 동작
+- [x] USB 핫플러그: 장치 연결 시 자동 감지
+- [x] USB 핫플러그: 장치 제거 시 자동 cleanup
+- [x] COM 포트 미발견 시 적절한 오류 처리
+- [x] `dotnet build` 성공
 
 ---
 
@@ -99,11 +96,12 @@ updated: "2026-03-19"
    - `ToBytes()`: 프레임 직렬화 (0xFF + command + length_LE + payload + crc16_LE)
    - `static Parse(byte[] data)`: 바이트 배열에서 프레임 역직렬화
 3. `VendorCdcProtocol` 클래스 구현:
+   - `CdcConnectionService`를 DI로 주입받아 `Port.BaseStream`으로 비동기 I/O
    - 비동기 수신 루프: `SerialPort.BaseStream.ReadAsync()`
    - 수신 버퍼에서 0xFF 헤더 탐색 + 길이 기반 프레임 추출
    - **디버그 텍스트 분리**: 0xFF가 아닌 바이트는 디버그 로그 채널로 전달
    - 파싱된 프레임을 `Channel<VendorCdcFrame>`으로 전달 (producer-consumer)
-   - CRC 오류 시 자동 재전송 요청 (최대 3회)
+   - CRC 오류 시 프레임 폐기 (기술 명세 §2.3.3 오류 복구 전략: 타임아웃 기반 자동 재시도)
 4. 프레임 전송:
    - `SendFrameAsync(byte command, string jsonPayload)` 메서드
    - JSON → UTF-8 인코딩 → 프레임 조립 → CRC 부착 → SerialPort 전송
@@ -130,7 +128,7 @@ updated: "2026-03-19"
 - [ ] 수신 루프에서 0xFF 프레임과 디버그 텍스트 정상 분리
 - [ ] 프레임 전송 (`SendFrameAsync`) 후 ESP32-S3에서 수신 확인
 - [ ] ESP32-S3에서 보낸 응답 프레임을 서버가 올바르게 수신 및 CRC 검증
-- [ ] CRC 오류 시 재전송 요청 로직 동작 확인 (최대 3회)
+- [ ] CRC 오류 시 프레임 폐기 동작 확인 (타임아웃 기반 재시도)
 - [ ] `dotnet build` 성공
 
 ---
@@ -150,11 +148,11 @@ updated: "2026-03-19"
    - 앱 전체 상태 관리
    - 하위 ViewModel 생성 및 관리
 3. `ConnectionViewModel` 구현 (CommunityToolkit.Mvvm 활용):
-   - `[ObservableProperty]` 연결 상태: Disconnected / Connecting / Connected / Error
+   - `[ObservableProperty]` 연결 상태: `CdcConnectionService.ConnectionState` enum 사용
    - `[ObservableProperty]` COM 포트 정보
    - `[ObservableProperty]` 디바이스 정보 (펌웨어 버전 등)
    - `[RelayCommand]` 수동 연결/해제
-   - `CdcConnectionService` 상태 변경 구독
+   - `CdcConnectionService.StateChanged` 이벤트 구독 (C# 이벤트 기반)
 4. MainWindow UI 업데이트:
    - 상태바에 연결 정보 표시 (COM 포트, 연결 상태 아이콘)
    - "Hello World" 텍스트 → 연결 상태 대시보드로 교체
