@@ -31,6 +31,23 @@ updated: "2026-03-19"
 - 끊김 시 ESP32-S3가 자체적으로 IDLE 상태 복귀
 - 지수 백오프 자동 재연결
 
+### ⚠️ Phase 3.3.3 구현에서 적용된 사항 (Phase 3.5 영향)
+
+1. **ESP32-S3 지원 기능 목록이 `vendor_cdc_handler.c`에 `supported_features[]` 배열로 하드코딩됨**:
+   - 현재 값: `{"wheel", "drag", "right_click"}`.
+   - `is_feature_supported()` 헬퍼 함수로 지원 여부를 판별.
+   - Phase 3.5에서 모드별 기능 필터링 시, `connection_state_get_features()`로 수락된 기능 목록을 조회하면 이 배열에 있는 기능만 반환됨.
+   - Phase 4+에서 `multi_cursor`, `macro`, `extended_keyboard` 등 새 기능을 추가할 때는 이 배열에 항목을 추가해야 함.
+
+2. **`connection_state_set_features()`가 State Sync 핸들러에서 실제로 호출됨**:
+   - Phase 3.3.1에서 함수를 정의만 해두었고, Phase 3.3.3에서 실제 데이터를 채워 호출하도록 구현 완료.
+   - `connection_features_t`에 `requested[]`, `requested_count`, `accepted[]`, `accepted_count`, `keepalive_ms` 모두 정상 저장됨.
+   - Phase 3.5.1에서 `connection_state_get_features()`로 수락된 기능을 조회하여 모드별 세부 제어에 활용 가능.
+   - IDLE 복귀 시 features가 자동 초기화되므로 Essential 모드 복귀 시 별도 정리 코드 불필요.
+
+3. **State Sync 완료 시 ESP32-S3 상태가 `CONN_STATE_CONNECTED`로 전이됨**:
+   - Phase 3.5.1의 모드 전환 트리거 조건 (`CONN_STATE_CONNECTED` 진입 시 → `BRIDGE_MODE_STANDARD`)이 정상 동작할 기반이 마련됨.
+
 ### 📌 이전 Phase에서의 참고 사항
 
 - **Phase 3.2.4에서 수정된 payload 버퍼 +1 확장**: `vendor_cdc_handler.c`의 payload 버퍼가 `VCDC_MAX_PAYLOAD_SIZE + 1`로 변경됨. Phase 3.5에서 `vendor_cdc_handler.c`를 직접 수정하지 않으므로 영향 없음

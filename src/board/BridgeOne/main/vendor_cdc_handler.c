@@ -488,16 +488,167 @@ static void handle_cmd_auth_challenge(const vendor_cdc_frame_t *frame, cJSON *js
     }
 }
 
+/** ESP32-S3가 지원하는 기능 목록 */
+static const char *supported_features[] = {
+    "wheel",        // HID 리포트에 wheel 필드 있음
+    "drag",         // buttons 필드의 지속 상태
+    "right_click",  // buttons bit1
+};
+#define SUPPORTED_FEATURES_COUNT \
+    (sizeof(supported_features) / sizeof(supported_features[0]))
+
+/** 기본 Keep-alive 주기 (ms) */
+#define DEFAULT_KEEPALIVE_MS  500
+
 /**
- * STATE_SYNC 명령 핸들러 (스켈레톤).
- * Server→ESP: 상태 동기화 요청. 실제 로직은 Phase 3.4에서 구현.
+ * 기능이 ESP32-S3에서 지원되는지 확인.
+ *
+ * @param feature 기능 이름 문자열
+ * @return true: 지원됨, false: 미지원
+ */
+static bool is_feature_supported(const char *feature)
+{
+    for (size_t i = 0; i < SUPPORTED_FEATURES_COUNT; i++) {
+        if (strcmp(feature, supported_features[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * STATE_SYNC 명령 핸들러.
+ * Server→ESP: 기능 협상 및 Keep-alive 주기 합의.
+ *
+ * 수신 JSON: {"command":"STATE_SYNC","features":["wheel","drag",...],"keepalive_ms":500}
+ * 응답 JSON: {"command":"STATE_SYNC_ACK","accepted_features":["wheel","drag","right_click"],"mode":"standard"}
  */
 static void handle_cmd_state_sync(const vendor_cdc_frame_t *frame, cJSON *json)
 {
-    ESP_LOGI(TAG, "STATE_SYNC received (payload_len=%u) - skeleton handler", frame->payload_len);
+    ESP_LOGI(TAG, "STATE_SYNC received (payload_len=%u)", frame->payload_len);
 
-    // 스켈레톤: ACK 에코백
-    vendor_cdc_send_frame(VCDC_CMD_STATE_SYNC_ACK, frame->payload, frame->payload_len);
+    // JSON 페이로드 필수
+    if (json == NULL) {
+        ESP_LOGE(TAG, "STATE_SYNC: JSON payload required");
+        connection_state_reset();
+        return;
+    }
+
+    // 상태 전이: AUTH_OK → SYNC_PENDING
+    if (!connection_state_transition(CONN_STATE_SYNC_PENDING)) {
+        ESP_LOGE(TAG, "STATE_SYNC: State transition to SYNC_PENDING failed (current=%s)",
+                 connection_state_name(connection_state_get()));
+        connection_state_reset();
+        return;
+    }
+    ESP_LOGI(TAG, "State: %s", connection_state_name(connection_state_get()));
+
+    // features 배열 추출
+    cJSON *features_arr = cJSON_GetObjectItemCaseSensitive(json, "features");
+
+    // keepalive_ms 추출 (기본값: 500ms)
+    uint16_t keepalive_ms = DEFAULT_KEEPALIVE_MS;
+    cJSON *keepalive_item = cJSON_GetObjectItemCaseSensitive(json, "keepalive_ms");
+    if (cJSON_IsNumber(keepalive_item)) {
+        int val = keepalive_item->valueint;
+        if (val > 0 && val <= UINT16_MAX) {
+            keepalive_ms = (uint16_t)val;
+        }
+    }
+    ESP_LOGI(TAG, "STATE_SYNC: keepalive_ms=%u", keepalive_ms);
+
+    // 기능 협상: 서버 요청 기능 중 지원 가능한 것만 수락
+    connection_features_t negotiated;
+    memset(&negotiated, 0, sizeof(negotiated));
+    negotiated.keepalive_ms = keepalive_ms;
+
+    if (cJSON_IsArray(features_arr)) {
+        int arr_size = cJSON_GetArraySize(features_arr);
+
+        for (int i = 0; i < arr_size && negotiated.requested_count < CONN_MAX_FEATURES; i++) {
+            cJSON *item = cJSON_GetArrayItem(features_arr, i);
+            if (!cJSON_IsString(item) || item->valuestring == NULL) {
+                continue;
+            }
+
+            const char *feature_name = item->valuestring;
+
+            // 요청 목록에 추가
+            strncpy(negotiated.requested[negotiated.requested_count],
+                    feature_name, CONN_FEATURE_NAME_MAX - 1);
+            negotiated.requested[negotiated.requested_count][CONN_FEATURE_NAME_MAX - 1] = '\0';
+            negotiated.requested_count++;
+
+            // 지원 여부 확인 → 수락 목록에 추가
+            if (is_feature_supported(feature_name) &&
+                negotiated.accepted_count < CONN_MAX_FEATURES) {
+                strncpy(negotiated.accepted[negotiated.accepted_count],
+                        feature_name, CONN_FEATURE_NAME_MAX - 1);
+                negotiated.accepted[negotiated.accepted_count][CONN_FEATURE_NAME_MAX - 1] = '\0';
+                negotiated.accepted_count++;
+                ESP_LOGI(TAG, "STATE_SYNC: feature '%s' → accepted", feature_name);
+            } else {
+                ESP_LOGI(TAG, "STATE_SYNC: feature '%s' → rejected", feature_name);
+            }
+        }
+    }
+
+    // STATE_SYNC_ACK JSON 생성
+    cJSON *ack_json = cJSON_CreateObject();
+    if (ack_json == NULL) {
+        ESP_LOGE(TAG, "STATE_SYNC: Failed to create ACK JSON");
+        connection_state_reset();
+        return;
+    }
+
+    cJSON_AddStringToObject(ack_json, "command", "STATE_SYNC_ACK");
+
+    cJSON *accepted_arr = cJSON_CreateArray();
+    if (accepted_arr != NULL) {
+        for (uint8_t i = 0; i < negotiated.accepted_count; i++) {
+            cJSON_AddItemToArray(accepted_arr,
+                                 cJSON_CreateString(negotiated.accepted[i]));
+        }
+        cJSON_AddItemToObject(ack_json, "accepted_features", accepted_arr);
+    }
+
+    cJSON_AddStringToObject(ack_json, "mode", "standard");
+
+    char *ack_str = cJSON_PrintUnformatted(ack_json);
+    cJSON_Delete(ack_json);
+
+    if (ack_str == NULL) {
+        ESP_LOGE(TAG, "STATE_SYNC: Failed to serialize ACK JSON");
+        connection_state_reset();
+        return;
+    }
+
+    // STATE_SYNC_ACK 프레임 전송
+    bool send_ok = vendor_cdc_send_frame(
+        VCDC_CMD_STATE_SYNC_ACK,
+        (const uint8_t *)ack_str,
+        (uint16_t)strlen(ack_str)
+    );
+
+    free(ack_str);
+
+    if (send_ok) {
+        // 기능 협상 결과 저장
+        connection_state_set_features(&negotiated);
+
+        // 상태 전이: SYNC_PENDING → CONNECTED
+        if (connection_state_transition(CONN_STATE_CONNECTED)) {
+            ESP_LOGI(TAG, "STATE_SYNC_ACK sent, State: %s (accepted=%u/%u features)",
+                     connection_state_name(connection_state_get()),
+                     negotiated.accepted_count, negotiated.requested_count);
+        } else {
+            ESP_LOGE(TAG, "State transition to CONNECTED failed");
+            connection_state_reset();
+        }
+    } else {
+        ESP_LOGE(TAG, "STATE_SYNC_ACK send failed");
+        connection_state_reset();
+    }
 }
 
 /**

@@ -335,14 +335,35 @@ Windows 서버                          ESP32-S3 동글
 - `docs/android/styleframe-essential.md` §8 상태 머신
 
 **검증**:
-- [ ] Authentication 성공 후 State Sync 진행
-- [ ] ESP32-S3가 지원 가능한 기능만 수락하여 응답
-- [ ] Windows 서버가 수락된 기능 목록 저장
+- [x] Authentication 성공 후 State Sync 진행
+- [x] ESP32-S3가 지원 가능한 기능만 수락하여 응답
+- [x] Windows 서버가 수락된 기능 목록 저장
 - [ ] 전체 핸드셰이크 (Auth + Sync) 2초 이내 완료
-- [ ] 핸드셰이크 완료 시 ESP32-S3 상태가 CONNECTED
-- [ ] 핸드셰이크 실패 시 최대 3회 재시도 (지수 백오프)
-- [ ] 3회 실패 후 Disconnected 상태 복귀
-- [ ] Windows UI에 핸드셰이크 진행 상태 표시
+- [x] 핸드셰이크 완료 시 ESP32-S3 상태가 CONNECTED
+- [x] 핸드셰이크 실패 시 최대 3회 재시도 (지수 백오프)
+- [x] 3회 실패 후 Disconnected 상태 복귀
+- [x] Windows UI에 핸드셰이크 진행 상태 표시
+
+### ⚠️ Phase 3.3.3 구현 시 변경/결정 사항 (후속 작업 영향)
+
+1. **`SyncResult` 타입을 `HandshakeResult`와 별도로 정의**:
+   - 계획에서는 `HandshakeResult`만 언급했지만, `StateSyncAsync()`의 반환 타입으로 `SyncResult` 클래스를 별도 추가함.
+   - `SyncResult`는 `AcceptedFeatures` (string[])과 `Mode` (string)을 포함.
+   - `HandshakeResult`는 Auth+Sync 전체 결과를 포함하며, `FailReason` enum (`AuthFailed`, `SyncFailed`, `MaxRetriesExceeded`)으로 실패 사유를 구분.
+
+2. **`HandshakeResult`에 디바이스 정보 포함**:
+   - 계획의 `HandshakeResult.Connected(syncResult.AcceptedFeatures)` 시그니처 대신, `Connected(acceptedFeatures, mode, deviceName, fwVersion)` 형태로 구현.
+   - Auth 단계에서 획득한 디바이스 정보도 핸드셰이크 결과에 포함시켜 호출자가 별도로 `HandshakeService` 프로퍼티를 조회하지 않아도 됨.
+
+3. **`ConnectionViewModel` 핸드셰이크 상태 반영은 미구현**:
+   - 계획에서 `ConnectionViewModel.cs` 수정을 포함했으나, 현재 ConnectionViewModel은 CdcConnectionService의 Connected/Disconnected 상태만 반영하는 구조.
+   - `PerformHandshakeAsync()`를 ConnectionViewModel에서 호출하려면 CdcConnectionService에 핸드셰이크 통합이 필요 (Phase 3.4 또는 별도 작업으로 처리 권장).
+   - 후속 작업에서 CdcConnectionService의 Connect 흐름에 핸드셰이크를 삽입하는 방식으로 통합 예정.
+
+4. **ESP32-S3 지원 기능 목록을 `vendor_cdc_handler.c`에 static 배열로 정의**:
+   - `supported_features[]` = {"wheel", "drag", "right_click"} 으로 하드코딩.
+   - `is_feature_supported()` 헬퍼 함수로 지원 여부 판별.
+   - Phase 4+에서 새 기능 추가 시 이 배열에 항목만 추가하면 됨.
 
 ---
 

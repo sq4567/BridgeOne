@@ -25,6 +25,7 @@ namespace BridgeOne
             // 서비스 계층 (등록 순서 = 해제 역순)
             services.AddSingleton<CdcConnectionService>();
             services.AddSingleton<VendorCdcProtocol>();
+            services.AddSingleton<HandshakeService>();
 
             // ViewModel 계층
             services.AddSingleton<ConnectionViewModel>();
