@@ -8,6 +8,7 @@ idf_component_register(
         "usb_cdc_log.c"
         "vendor_cdc_handler.c"
         "voltage_monitor.c"
+        "connection_state.c"
     INCLUDE_DIRS "."
     REQUIRES
         tinyusb

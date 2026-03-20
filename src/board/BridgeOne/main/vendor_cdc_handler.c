@@ -15,6 +15,7 @@
  */
 
 #include "vendor_cdc_handler.h"
+#include "connection_state.h"
 #include "tusb.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -351,16 +352,140 @@ static void handle_cmd_ping(const vendor_cdc_frame_t *frame, cJSON *json)
     vendor_cdc_send_frame(VCDC_CMD_PONG, frame->payload, frame->payload_len);
 }
 
+/** 지원 프로토콜 버전 */
+#define AUTH_PROTOCOL_VERSION "1.0"
+
+/** 디바이스 펌웨어 버전 */
+#define AUTH_FW_VERSION "1.0.0"
+
 /**
- * AUTH_CHALLENGE 명령 핸들러 (스켈레톤).
- * Server→ESP: 인증 챌린지 수신. 실제 로직은 Phase 3.3에서 구현.
+ * 인증 검증 함수 (모듈화).
+ * 현재는 단순 에코백 방식: challenge를 그대로 반환.
+ * 추후 HMAC-SHA256 등으로 교체 가능한 구조.
+ *
+ * @param challenge 서버로부터 수신한 챌린지 문자열
+ * @param out_response 응답 문자열을 저장할 버퍼
+ * @param out_len 버퍼 크기
+ * @return true: 검증 성공 (응답 생성 완료), false: 실패
+ */
+static bool auth_verify(const char *challenge, char *out_response, size_t out_len)
+{
+    if (challenge == NULL || out_response == NULL || out_len == 0) {
+        return false;
+    }
+
+    // 에코백 방식: challenge를 그대로 response로 복사
+    size_t challenge_len = strlen(challenge);
+    if (challenge_len >= out_len) {
+        ESP_LOGE(TAG, "Challenge too long for response buffer: %u >= %u",
+                 (unsigned)challenge_len, (unsigned)out_len);
+        return false;
+    }
+
+    strncpy(out_response, challenge, out_len - 1);
+    out_response[out_len - 1] = '\0';
+    return true;
+}
+
+/**
+ * AUTH_CHALLENGE 명령 핸들러.
+ * Server→ESP: 인증 챌린지 수신 → 에코백 응답 전송.
+ *
+ * 수신 JSON: {"command":"AUTH_CHALLENGE","challenge":"<hex>","version":"1.0"}
+ * 응답 JSON: {"command":"AUTH_RESPONSE","response":"<echo>","device":"BridgeOne","fw_version":"1.0.0"}
  */
 static void handle_cmd_auth_challenge(const vendor_cdc_frame_t *frame, cJSON *json)
 {
-    ESP_LOGI(TAG, "AUTH_CHALLENGE received (payload_len=%u) - skeleton handler", frame->payload_len);
+    ESP_LOGI(TAG, "AUTH_CHALLENGE received (payload_len=%u)", frame->payload_len);
 
-    // 스켈레톤: 에코백으로 수신 확인
-    vendor_cdc_send_frame(VCDC_CMD_AUTH_RESPONSE, frame->payload, frame->payload_len);
+    // JSON 페이로드 필수
+    if (json == NULL) {
+        ESP_LOGE(TAG, "AUTH_CHALLENGE: JSON payload required");
+        connection_state_reset();
+        return;
+    }
+
+    // 상태 전이: IDLE → AUTH_PENDING
+    if (!connection_state_transition(CONN_STATE_AUTH_PENDING)) {
+        ESP_LOGE(TAG, "AUTH_CHALLENGE: State transition to AUTH_PENDING failed (current=%s)",
+                 connection_state_name(connection_state_get()));
+        connection_state_reset();
+        return;
+    }
+    ESP_LOGI(TAG, "State: %s", connection_state_name(connection_state_get()));
+
+    // challenge 필드 추출
+    cJSON *challenge_item = cJSON_GetObjectItemCaseSensitive(json, "challenge");
+    if (!cJSON_IsString(challenge_item) || challenge_item->valuestring == NULL) {
+        ESP_LOGE(TAG, "AUTH_CHALLENGE: 'challenge' field missing or invalid");
+        connection_state_reset();
+        return;
+    }
+    const char *challenge = challenge_item->valuestring;
+
+    // version 필드로 프로토콜 버전 호환성 확인
+    cJSON *version_item = cJSON_GetObjectItemCaseSensitive(json, "version");
+    if (cJSON_IsString(version_item) && version_item->valuestring != NULL) {
+        ESP_LOGI(TAG, "AUTH_CHALLENGE: protocol version=%s", version_item->valuestring);
+        // 현재는 버전 체크를 경고 수준으로만 처리 (호환성 유지)
+        if (strcmp(version_item->valuestring, AUTH_PROTOCOL_VERSION) != 0) {
+            ESP_LOGW(TAG, "Protocol version mismatch: server=%s, device=%s",
+                     version_item->valuestring, AUTH_PROTOCOL_VERSION);
+        }
+    }
+
+    // 인증 검증 (에코백)
+    char response[128];
+    if (!auth_verify(challenge, response, sizeof(response))) {
+        ESP_LOGE(TAG, "AUTH_CHALLENGE: auth_verify() failed");
+        connection_state_reset();
+        return;
+    }
+
+    // AUTH_RESPONSE JSON 생성
+    cJSON *resp_json = cJSON_CreateObject();
+    if (resp_json == NULL) {
+        ESP_LOGE(TAG, "AUTH_CHALLENGE: Failed to create response JSON");
+        connection_state_reset();
+        return;
+    }
+
+    cJSON_AddStringToObject(resp_json, "command", "AUTH_RESPONSE");
+    cJSON_AddStringToObject(resp_json, "response", response);
+    cJSON_AddStringToObject(resp_json, "device", "BridgeOne");
+    cJSON_AddStringToObject(resp_json, "fw_version", AUTH_FW_VERSION);
+
+    char *resp_str = cJSON_PrintUnformatted(resp_json);
+    cJSON_Delete(resp_json);
+
+    if (resp_str == NULL) {
+        ESP_LOGE(TAG, "AUTH_CHALLENGE: Failed to serialize response JSON");
+        connection_state_reset();
+        return;
+    }
+
+    // AUTH_RESPONSE 프레임 전송
+    bool send_ok = vendor_cdc_send_frame(
+        VCDC_CMD_AUTH_RESPONSE,
+        (const uint8_t *)resp_str,
+        (uint16_t)strlen(resp_str)
+    );
+
+    free(resp_str);
+
+    if (send_ok) {
+        // 상태 전이: AUTH_PENDING → AUTH_OK
+        if (connection_state_transition(CONN_STATE_AUTH_OK)) {
+            ESP_LOGI(TAG, "AUTH_RESPONSE sent, State: %s",
+                     connection_state_name(connection_state_get()));
+        } else {
+            ESP_LOGE(TAG, "State transition to AUTH_OK failed");
+            connection_state_reset();
+        }
+    } else {
+        ESP_LOGE(TAG, "AUTH_RESPONSE send failed");
+        connection_state_reset();
+    }
 }
 
 /**

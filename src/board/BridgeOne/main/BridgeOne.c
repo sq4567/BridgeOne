@@ -12,6 +12,7 @@
 #include "voltage_monitor.h"  // 전압 모니터링 모드
 #include "usb_cdc_log.h"  // USB CDC 디버그 로깅
 #include "vendor_cdc_handler.h"  // Vendor CDC 프로토콜 처리
+#include "connection_state.h"    // 연결 상태 머신
 #include "esp_task_wdt.h"
 
 // ==================== 테스트 모드 설정 ====================
@@ -157,6 +158,15 @@ void app_main(void) {
         ESP_LOGI(TAG, "Vendor CDC parser initialized");
     } else {
         ESP_LOGE(TAG, "Vendor CDC parser init failed");
+    }
+
+    // ==================== 1.4. 연결 상태 머신 초기화 ====================
+    // 핸드셰이크 프로토콜(AUTH, STATE_SYNC)의 상태를 관리합니다.
+    // Vendor CDC 파서 초기화 직후, 프레임 처리 태스크 시작 전에 호출해야 합니다.
+    if (connection_state_init()) {
+        ESP_LOGI(TAG, "Connection state machine initialized");
+    } else {
+        ESP_LOGE(TAG, "Connection state machine init failed");
     }
 
     // ==================== CRC16 교차 검증 (테스트 후 삭제) ====================

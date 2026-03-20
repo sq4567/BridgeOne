@@ -163,12 +163,12 @@ Windows 서버                          ESP32-S3 동글
 - `docs/windows/technical-specification-server.md` §3.2 핸드셰이크 프로토콜
 
 **검증**:
-- [ ] `connection_state.h/c` 파일 생성됨
-- [ ] 6가지 연결 상태 열거형 정의됨
-- [ ] 상태 전이 함수 구현됨 (유효하지 않은 전이 거부)
-- [ ] FreeRTOS 뮤텍스로 스레드 안전성 보장
-- [ ] 상태 변경 콜백 등록 및 호출 동작
-- [ ] `idf.py build` 성공
+- [x] `connection_state.h/c` 파일 생성됨
+- [x] 6가지 연결 상태 열거형 정의됨 (+`CONN_STATE_COUNT` 센티넬 값 추가)
+- [x] 상태 전이 함수 구현됨 (2차원 `transition_table`로 유효하지 않은 전이 거부)
+- [x] FreeRTOS 뮤텍스로 스레드 안전성 보장
+- [x] 상태 변경 콜백 등록 및 호출 동작 (뮤텍스 해제 후 호출 → 데드락 방지)
+- [x] `idf.py build` 성공
 
 ---
 
@@ -183,9 +183,12 @@ Windows 서버                          ESP32-S3 동글
 ### ESP32-S3 측
 
 1. `vendor_cdc_handler.c`에 `CMD_AUTH_CHALLENGE` (0x01) 핸들러 추가:
+   - `connection_state.h` include 추가
    - JSON 페이로드에서 `challenge` 필드 추출
    - `version` 필드로 프로토콜 버전 호환성 확인
-   - 상태를 `AUTH_PENDING` → `AUTH_OK`로 전환
+   - 상태 전이: `connection_state_transition(CONN_STATE_AUTH_PENDING)` → 처리 → `connection_state_transition(CONN_STATE_AUTH_OK)`
+   - 실패/타임아웃 시: `connection_state_reset()` 호출로 IDLE 복귀 (어떤 상태에서든 무조건 IDLE로 돌아가는 편의 함수)
+   - 로그 출력 시 `connection_state_name()` 사용하여 상태 이름 문자열로 표시 (예: `ESP_LOGI(TAG, "State: %s", connection_state_name(connection_state_get()))`)
    - 에코백 응답 전송:
      ```json
      {
@@ -225,18 +228,35 @@ Windows 서버                          ESP32-S3 동글
 - `src/windows/BridgeOne/Services/EchoBackVerifier.cs`
 
 **수정 파일**:
-- `src/board/BridgeOne/main/vendor_cdc_handler.c`: AUTH_CHALLENGE 핸들러 추가
+- `src/board/BridgeOne/main/vendor_cdc_handler.c`: AUTH_CHALLENGE 핸들러 추가, `connection_state.h` include
+- `src/board/BridgeOne/main/BridgeOne.c`: `connection_state_init()` 호출 추가 (Vendor CDC 파서 초기화 직후)
 
 **참조 문서 및 섹션**:
 - `docs/windows/technical-specification-server.md` §3.2 Phase 1: Authentication
 
 **검증**:
-- [ ] Windows 서버가 AUTH_CHALLENGE 전송 → ESP32-S3가 AUTH_RESPONSE 응답
-- [ ] 응답의 challenge 에코백 일치 확인
-- [ ] 인증 성공 시 ESP32-S3 상태가 AUTH_OK
-- [ ] 인증 실패 시 (잘못된 응답) 적절한 오류 처리
-- [ ] 1초 타임아웃 초과 시 재시도
-- [ ] `IAuthVerifier` 인터페이스로 인증 로직 교체 가능 확인
+- [x] Windows 서버가 AUTH_CHALLENGE 전송 → ESP32-S3가 AUTH_RESPONSE 응답
+- [x] 응답의 challenge 에코백 일치 확인
+- [x] 인증 성공 시 ESP32-S3 상태가 AUTH_OK
+- [x] 인증 실패 시 (잘못된 응답) 적절한 오류 처리
+- [x] 1초 타임아웃 초과 시 재시도
+- [x] `IAuthVerifier` 인터페이스로 인증 로직 교체 가능 확인
+
+### ⚠️ Phase 3.3.2 구현 시 변경/결정 사항 (Phase 3.3.3 영향)
+
+1. **ESP32-S3 `auth_verify()` 함수를 `vendor_cdc_handler.c` 내부에 static으로 구현**:
+   - 계획에서는 "별도 분리"라고 했지만, 현재 호출처가 하나뿐이므로 별도 파일 생성 없이 같은 파일 내 static 함수로 구현.
+   - Phase 3.3.3에서 STATE_SYNC 핸들러도 동일 패턴(같은 파일 내 핸들러 함수)으로 구현하면 됨.
+
+2. **`HandshakeService`에 재시도 로직 미포함**:
+   - Phase 3.3.2에서는 단일 `AuthenticateAsync()` 호출을 구현.
+   - 재시도 정책(최대 3회, 지수 백오프)은 Phase 3.3.3의 `PerformHandshakeAsync()` 오케스트레이션에서 구현 예정.
+   - Phase 3.3.3에서 `HandshakeService`에 `PerformHandshakeAsync()` 추가 시 재시도 루프를 포함할 것.
+
+3. **`HandshakeService`는 `VendorCdcProtocol`의 `FrameReader` Channel을 직접 소비**:
+   - AUTH_RESPONSE 외의 프레임은 건너뛰는 방식으로 구현됨.
+   - Phase 3.3.3에서 `StateSyncAsync()`도 동일 패턴으로 `FrameReader`에서 STATE_SYNC_ACK를 대기하면 됨.
+   - 주의: 핸드셰이크 진행 중에는 다른 곳에서 `FrameReader`를 동시에 소비하지 않아야 함.
 
 ---
 
@@ -260,7 +280,9 @@ Windows 서버                          ESP32-S3 동글
      - `macro`: 미지원 (Phase 4+ 구현 예정)
      - `extended_keyboard`: 미지원 (Phase 4+ 구현 예정)
    - Keep-alive 주기 저장 (기본 500ms)
-   - 상태를 `SYNC_PENDING` → `CONNECTED`로 전환
+   - 상태 전이: `connection_state_transition(CONN_STATE_SYNC_PENDING)` → 처리 → `connection_state_transition(CONN_STATE_CONNECTED)`
+   - 실패/타임아웃 시: `connection_state_reset()` 호출로 IDLE 복귀 (features도 자동 초기화되므로 별도 정리 코드 불필요)
+   - 로그 출력 시 `connection_state_name()` 사용하여 현재 상태를 문자열로 표시
    - ACK 응답 전송:
      ```json
      {
@@ -269,7 +291,7 @@ Windows 서버                          ESP32-S3 동글
        "mode": "standard"
      }
      ```
-2. 수락된 기능 목록을 `connection_state`에 저장
+2. 수락된 기능 목록을 `connection_state_set_features()` 호출로 저장 (IDLE 복귀 시 자동 초기화됨)
 
 ### Windows 서버 측
 
@@ -281,6 +303,8 @@ Windows 서버                          ESP32-S3 동글
    - 모드 상태를 "standard"로 전환
 2. 전체 핸드셰이크 오케스트레이션:
    ```csharp
+   // 참고: Phase 3.3.2에서 AuthenticateAsync()는 AuthResult를 반환하도록 구현됨.
+   // HandshakeResult는 Phase 3.3.3에서 새로 정의할 타입.
    public async Task<HandshakeResult> PerformHandshakeAsync(CancellationToken ct)
    {
        // Phase 1: Authentication
@@ -300,9 +324,10 @@ Windows 서버                          ESP32-S3 동글
    - 3회 모두 실패 시 Disconnected 상태로 복귀
 
 **수정 파일**:
-- `src/board/BridgeOne/main/vendor_cdc_handler.c`: STATE_SYNC 핸들러 추가
-- `src/board/BridgeOne/main/connection_state.c`: 기능 협상 결과 저장
-- `src/windows/BridgeOne/Services/HandshakeService.cs`: StateSyncAsync 추가
+- `src/board/BridgeOne/main/vendor_cdc_handler.c`: `handle_cmd_state_sync` 스켈레톤을 실제 구현으로 교체 (Phase 3.3.2의 `handle_cmd_auth_challenge` 패턴 참고)
+- `src/board/BridgeOne/main/connection_state.c`: 수정 불필요 (Phase 3.3.1에서 `connection_state_set_features()` 이미 구현됨, 호출만 하면 됨)
+- `src/board/BridgeOne/main/BridgeOne.c`: 수정 불필요 (Phase 3.3.2에서 `connection_state_init()` 호출 이미 추가됨)
+- `src/windows/BridgeOne/Services/HandshakeService.cs`: `StateSyncAsync()`, `PerformHandshakeAsync()` 추가 + `HandshakeResult` 타입 정의
 - `src/windows/BridgeOne/ViewModels/ConnectionViewModel.cs`: 핸드셰이크 상태 반영
 
 **참조 문서 및 섹션**:
