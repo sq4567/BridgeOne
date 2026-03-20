@@ -72,7 +72,7 @@ typedef struct {
     uint8_t  header;                            // 항상 0xFF
     uint8_t  command;                           // vendor_cdc_cmd_t 값
     uint16_t payload_len;                       // 페이로드 길이 (Little-Endian, 0~448)
-    uint8_t  payload[VCDC_MAX_PAYLOAD_SIZE];    // 페이로드 데이터
+    uint8_t  payload[VCDC_MAX_PAYLOAD_SIZE + 1]; // 페이로드 데이터 (+1: JSON null 종료용)
     uint16_t crc16;                             // CRC16-CCITT (Little-Endian)
 } vendor_cdc_frame_t;
 

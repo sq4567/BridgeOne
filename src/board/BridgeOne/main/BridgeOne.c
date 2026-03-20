@@ -158,6 +158,24 @@ void app_main(void) {
     } else {
         ESP_LOGE(TAG, "Vendor CDC parser init failed");
     }
+
+    // ==================== CRC16 교차 검증 (테스트 후 삭제) ====================
+    {
+        // 벡터1: 빈 페이로드
+        uint16_t crc1 = vendor_cdc_crc16(NULL, 0);
+        ESP_LOGI(TAG, "[CRC TEST] Vector1 Empty     → CRC=0x%04X", crc1);
+
+        // 벡터2: "PING" (4바이트)
+        const uint8_t ping_data[] = {'P', 'I', 'N', 'G'};
+        uint16_t crc2 = vendor_cdc_crc16(ping_data, 4);
+        ESP_LOGI(TAG, "[CRC TEST] Vector2 \"PING\"    → CRC=0x%04X", crc2);
+
+        // 벡터3: 448바이트 순차 데이터 (0x00~0xFF 반복)
+        uint8_t seq_data[448];
+        for (int i = 0; i < 448; i++) seq_data[i] = (uint8_t)(i & 0xFF);
+        uint16_t crc3 = vendor_cdc_crc16(seq_data, 448);
+        ESP_LOGI(TAG, "[CRC TEST] Vector3 448B seq  → CRC=0x%04X", crc3);
+    }
 #elif defined(HID_TEST_MODE)
     // HID 테스트 모드: CDC 리다이렉션 비활성화
     // 모든 로그를 UART0 (포트 1️⃣, COM8)로 출력하여 단일 포트로 간편하게 모니터링

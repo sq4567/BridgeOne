@@ -301,7 +301,7 @@ public sealed class CdcConnectionService : IDisposable
             // 장치 연결 감지
             var insertQuery = new WqlEventQuery(
                 "__InstanceCreationEvent",
-                TimeSpan.FromSeconds(2),
+                TimeSpan.FromSeconds(1),
                 "TargetInstance ISA 'Win32_PnPEntity'"
             );
             _insertWatcher = new ManagementEventWatcher(insertQuery);
@@ -311,7 +311,7 @@ public sealed class CdcConnectionService : IDisposable
             // 장치 해제 감지
             var removeQuery = new WqlEventQuery(
                 "__InstanceDeletionEvent",
-                TimeSpan.FromSeconds(2),
+                TimeSpan.FromSeconds(1),
                 "TargetInstance ISA 'Win32_PnPEntity'"
             );
             _removeWatcher = new ManagementEventWatcher(removeQuery);
@@ -361,10 +361,15 @@ public sealed class CdcConnectionService : IDisposable
 
         Debug.WriteLine($"[CdcConnectionService] BridgeOne 장치 연결 감지: {pnpDeviceId}");
 
-        // CDC COM 포트가 준비될 때까지 약간 대기 (usbser.sys 드라이버 로드 시간)
-        Task.Delay(1500).ContinueWith(_ =>
+        // CDC COM 포트가 준비될 때까지 대기 (usbser.sys 드라이버 로드 시간)
+        // 500ms 후 1차 시도, 실패 시 500ms 후 재시도
+        Task.Delay(500).ContinueWith(_ =>
         {
-            PostToSyncContext(() => TryScanAndConnect());
+            PostToSyncContext(() =>
+            {
+                if (!TryScanAndConnect())
+                    Task.Delay(500).ContinueWith(__ => PostToSyncContext(() => TryScanAndConnect()));
+            });
         });
     }
 

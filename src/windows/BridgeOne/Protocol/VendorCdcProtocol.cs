@@ -109,6 +109,30 @@ public sealed class VendorCdcProtocol : IDisposable
         CancellationToken cancellationToken = default)
         => SendFrameAsync(command, Array.Empty<byte>(), cancellationToken);
 
+    /// <summary>
+    /// 이미 직렬화된 raw 바이트를 그대로 전송합니다 (테스트 전용).
+    /// CRC를 의도적으로 틀리게 보내는 등 진단 용도로 사용합니다.
+    /// </summary>
+    public async Task SendRawBytesAsync(byte[] rawBytes,
+        CancellationToken cancellationToken = default)
+    {
+        var stream = _connection.Port?.BaseStream
+            ?? throw new InvalidOperationException("SerialPort가 연결되어 있지 않습니다.");
+
+        await _sendLock.WaitAsync(cancellationToken);
+        try
+        {
+            await stream.WriteAsync(rawBytes, cancellationToken);
+            await stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
+
+        Debug.WriteLine($"[VendorCdcProtocol] TX RAW: {rawBytes.Length}B");
+    }
+
     // ==================== 수신 루프 ====================
 
     private void StartReceiveLoop()

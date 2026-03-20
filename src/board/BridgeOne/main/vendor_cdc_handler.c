@@ -19,6 +19,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "cJSON.h"
+#include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "VENDOR_CDC";
@@ -91,6 +92,21 @@ bool vendor_cdc_send_frame(uint8_t command, const uint8_t *payload, uint16_t pay
     frame_buf[frame_len++] = (uint8_t)(crc & 0xFF);
     frame_buf[frame_len++] = (uint8_t)((crc >> 8) & 0xFF);
 
+    // CDC TX FIFO 가용 공간 확인 (부족 시 최대 20ms 대기)
+    uint32_t available = tud_cdc_write_available();
+    if (available < frame_len) {
+        tud_cdc_write_flush();
+        for (int i = 0; i < 20 && tud_cdc_write_available() < frame_len; i++) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+        available = tud_cdc_write_available();
+        if (available < frame_len) {
+            ESP_LOGW(TAG, "TX FIFO insufficient: avail=%lu need=%u (cmd=0x%02X)",
+                     (unsigned long)available, frame_len, command);
+            return false;
+        }
+    }
+
     // CDC 전송
     uint32_t written = tud_cdc_write(frame_buf, frame_len);
     tud_cdc_write_flush();
@@ -124,7 +140,7 @@ typedef struct {
     uint8_t  command;
     uint16_t payload_len;
     uint16_t payload_received;
-    uint8_t  payload[VCDC_MAX_PAYLOAD_SIZE];
+    uint8_t  payload[VCDC_MAX_PAYLOAD_SIZE + 1]; // +1: JSON null 종료용
     uint8_t  length_buf[2];
     uint8_t  length_bytes_read;
     uint8_t  crc_buf[2];
@@ -439,13 +455,8 @@ void vendor_cdc_task(void *param)
         cJSON *json = NULL;
 
         if (frame.payload_len > 0) {
-            // payload를 null-terminate (버퍼에 여유 있음: VCDC_MAX_PAYLOAD_SIZE=448)
-            // 안전을 위해 범위 검사
-            if (frame.payload_len < VCDC_MAX_PAYLOAD_SIZE) {
-                frame.payload[frame.payload_len] = '\0';
-            } else {
-                frame.payload[VCDC_MAX_PAYLOAD_SIZE - 1] = '\0';
-            }
+            // payload를 null-terminate (버퍼는 VCDC_MAX_PAYLOAD_SIZE+1이므로 항상 안전)
+            frame.payload[frame.payload_len] = '\0';
 
             json = cJSON_Parse((const char *)frame.payload);
 

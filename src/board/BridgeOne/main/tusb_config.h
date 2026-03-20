@@ -78,8 +78,8 @@ extern "C" {
  * - CFG_TUD_CDC_EP_BUFSIZE: 각 CDC 엔드포인트 버퍼 (64 bytes)
  */
 #define CFG_TUD_CDC         1
-#define CFG_TUD_CDC_RX_BUFSIZE  512
-#define CFG_TUD_CDC_TX_BUFSIZE  512
+#define CFG_TUD_CDC_RX_BUFSIZE  1024   // 512→1024: 454B 프레임 + 여유 공간 확보
+#define CFG_TUD_CDC_TX_BUFSIZE  1024   // 512→1024: 454B ACK + 디버그 로그 동시 전송
 #define CFG_TUD_CDC_EP_BUFSIZE  64
 
 // ==================== OS Configuration ====================
@@ -102,7 +102,7 @@ extern "C" {
  * - 1: 기본 로깅 (디버그)
  * - 2: 상세 로깅 (개발)
  */
-#define CFG_TUSB_DEBUG      2
+#define CFG_TUSB_DEBUG      0   // 2→0: TinyUSB 내부 로그 비활성화 (CDC TX 버퍼 절약)
 
 // ==================== Additional Features ====================
 /**
