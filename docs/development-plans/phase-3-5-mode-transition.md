@@ -31,6 +31,11 @@ updated: "2026-03-19"
 - 끊김 시 ESP32-S3가 자체적으로 IDLE 상태 복귀
 - 지수 백오프 자동 재연결
 
+### 📌 이전 Phase에서의 참고 사항
+
+- **Phase 3.2.4에서 수정된 payload 버퍼 +1 확장**: `vendor_cdc_handler.c`의 payload 버퍼가 `VCDC_MAX_PAYLOAD_SIZE + 1`로 변경됨. Phase 3.5에서 `vendor_cdc_handler.c`를 직접 수정하지 않으므로 영향 없음
+- **Phase 3.5는 주로 `connection_state.c/h` (신규)와 `hid_handler.c`를 수정**: Phase 3.2.4 변경 파일과 겹치지 않음
+
 ---
 
 ## 모드 전환 개요

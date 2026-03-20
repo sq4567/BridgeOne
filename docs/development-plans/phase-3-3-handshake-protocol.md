@@ -30,6 +30,22 @@ updated: "2026-03-19"
 - 디버그 텍스트와 Vendor CDC 바이너리 프레임이 간섭 없이 공존
 - MVVM 아키텍처 기반 연결 상태 UI 구축
 
+### ⚠️ Phase 3.2 E2E 검증에서 발견/수정된 사항 (Phase 3.3 영향)
+
+1. **ESP32 payload 버퍼 +1 확장 (수정 완료)**:
+   - `vendor_cdc_handler.c`에서 `payload[VCDC_MAX_PAYLOAD_SIZE]` → `payload[VCDC_MAX_PAYLOAD_SIZE + 1]`로 변경
+   - 448B 최대 페이로드 시 null-terminate가 마지막 바이트를 덮어쓰는 버그 수정
+   - Phase 3.3에서 JSON 페이로드 파싱 시 안전하게 동작함
+
+2. **CDC TX FIFO 대기 로직 추가 (수정 완료)**:
+   - `vendor_cdc_send_frame()`에서 FIFO 가용 공간 부족 시 최대 20ms 대기 후 전송
+   - Phase 3.3 AUTH_RESPONSE, STATE_SYNC_ACK 응답 프레임의 전송 안정성 향상
+
+3. **ConnectionViewModel 비대화 (조치 필요)**:
+   - Phase 3.2.4에서 진단 코드 330줄이 `ConnectionViewModel`에 추가됨 (`RunCrcVerification`, `RunTransmissionDiag`, `RunCrcErrorTest` 등)
+   - Phase 3.3에서 핸드셰이크 상태 관리를 같은 ViewModel에 추가하면 단일 책임 원칙 위반
+   - **권장**: Phase 3.3.3 시작 전 진단 코드를 `DiagnosticsViewModel`로 분리하거나, 핸드셰이크 로직을 `HandshakeService`에 집중하여 ViewModel은 상태 바인딩만 담당
+
 ---
 
 ## 핸드셰이크 프로토콜 개요

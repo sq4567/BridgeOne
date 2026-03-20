@@ -30,6 +30,18 @@ updated: "2026-03-19"
 - 핸드셰이크 완료 시 ESP32-S3 상태: CONNECTED (Standard 모드)
 - 기능 협상 결과 저장 (wheel, drag, right_click 등)
 
+### ⚠️ Phase 3.2 E2E 검증에서 적용된 사항 (Phase 3.4 영향)
+
+1. **CDC TX FIFO 대기 로직 (이미 적용됨)**:
+   - `vendor_cdc_send_frame()`에서 FIFO 부족 시 최대 20ms 대기 후 전송
+   - Phase 3.4 PONG 응답의 < 5ms 지연 요구에 긍정적 영향: FIFO 부족으로 인한 프레임 누락 방지
+   - 단, 20ms 대기가 발생하면 5ms 목표를 초과할 수 있으므로, PONG 응답은 가능한 경량으로 유지할 것
+
+2. **ConnectionViewModel 비대화 주의**:
+   - Phase 3.2.4 진단 코드(330줄) + Phase 3.3 핸드셰이크 상태가 이미 `ConnectionViewModel`에 존재
+   - Phase 3.4에서 RTT/연결 품질 표시를 추가하면 ViewModel이 더 비대해짐
+   - **권장**: RTT/품질 로직은 `KeepAliveService`에 구현하고, ViewModel은 바인딩 프로퍼티만 노출
+
 ---
 
 ## Keep-alive 프로토콜 개요
