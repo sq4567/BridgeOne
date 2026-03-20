@@ -203,9 +203,9 @@
 
                     <!-- 우측: 버튼 그룹 -->
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <!-- CRC 오류 테스트 버튼 -->
-                        <Button Content="CRC 오류"
-                                Command="{Binding Connection.RunCrcErrorTestCommand}"
+                        <!-- 핸드셰이크 테스트 버튼 -->
+                        <Button Content="핸드셰이크"
+                                Command="{Binding Connection.RunHandshakeTestCommand}"
                                 Padding="16,8"
                                 FontSize="14"
                                 Cursor="Hand"
@@ -216,101 +216,21 @@
                                     <Setter Property="Template">
                                         <Setter.Value>
                                             <ControlTemplate TargetType="Button">
-                                                <Border x:Name="CrcErrBorder"
-                                                        Background="#6B1A1A"
+                                                <Border x:Name="HsBorder"
+                                                        Background="#6B4A1A"
                                                         CornerRadius="6"
                                                         Padding="{TemplateBinding Padding}"
                                                         BorderThickness="1"
-                                                        BorderBrush="#8A2D2D">
+                                                        BorderBrush="#8A6A2D">
                                                     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                                                 </Border>
                                                 <ControlTemplate.Triggers>
                                                     <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter TargetName="CrcErrBorder" Property="Background" Value="#902222" />
+                                                        <Setter TargetName="HsBorder" Property="Background" Value="#906022" />
                                                     </Trigger>
                                                     <Trigger Property="IsEnabled" Value="False">
-                                                        <Setter TargetName="CrcErrBorder" Property="Background" Value="#2A2A2A" />
-                                                        <Setter TargetName="CrcErrBorder" Property="BorderBrush" Value="#3A3A3A" />
-                                                        <Setter Property="Foreground" Value="#666666" />
-                                                    </Trigger>
-                                                </ControlTemplate.Triggers>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-
-                        <!-- 전송 진단 버튼 -->
-                        <Button Content="전송 진단"
-                                Command="{Binding Connection.RunTransmissionDebugCommand}"
-                                Padding="16,8"
-                                FontSize="14"
-                                Cursor="Hand"
-                                Margin="0,0,8,0">
-                            <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Foreground" Value="#FFFFFF" />
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border x:Name="DbgBorder"
-                                                        Background="#4A1A6B"
-                                                        CornerRadius="6"
-                                                        Padding="{TemplateBinding Padding}"
-                                                        BorderThickness="1"
-                                                        BorderBrush="#6A2D8A">
-                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                </Border>
-                                                <ControlTemplate.Triggers>
-                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter TargetName="DbgBorder" Property="Background" Value="#602290" />
-                                                    </Trigger>
-                                                    <Trigger Property="IsEnabled" Value="False">
-                                                        <Setter TargetName="DbgBorder" Property="Background" Value="#2A2A2A" />
-                                                        <Setter TargetName="DbgBorder" Property="BorderBrush" Value="#3A3A3A" />
-                                                        <Setter Property="Foreground" Value="#666666" />
-                                                    </Trigger>
-                                                </ControlTemplate.Triggers>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-
-                        <!-- CRC 검증 버튼 -->
-                        <Button Content="CRC 검증"
-                                Command="{Binding Connection.RunCrcVerificationCommand}"
-                                Padding="16,8"
-                                FontSize="14"
-                                Cursor="Hand"
-                                Margin="0,0,8,0">
-                            <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Foreground" Value="#FFFFFF" />
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border x:Name="CrcBorder"
-                                                        Background="#1A3D6B"
-                                                        CornerRadius="6"
-                                                        Padding="{TemplateBinding Padding}"
-                                                        BorderThickness="1"
-                                                        BorderBrush="#2D5A8A">
-                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                </Border>
-                                                <ControlTemplate.Triggers>
-                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter TargetName="CrcBorder" Property="Background" Value="#225090" />
-                                                        <Setter TargetName="CrcBorder" Property="BorderBrush" Value="#3468A8" />
-                                                    </Trigger>
-                                                    <Trigger Property="IsPressed" Value="True">
-                                                        <Setter TargetName="CrcBorder" Property="Background" Value="#15345B" />
-                                                    </Trigger>
-                                                    <Trigger Property="IsEnabled" Value="False">
-                                                        <Setter TargetName="CrcBorder" Property="Background" Value="#2A2A2A" />
-                                                        <Setter TargetName="CrcBorder" Property="BorderBrush" Value="#3A3A3A" />
+                                                        <Setter TargetName="HsBorder" Property="Background" Value="#2A2A2A" />
+                                                        <Setter TargetName="HsBorder" Property="BorderBrush" Value="#3A3A3A" />
                                                         <Setter Property="Foreground" Value="#666666" />
                                                     </Trigger>
                                                 </ControlTemplate.Triggers>

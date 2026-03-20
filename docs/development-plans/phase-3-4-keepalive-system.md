@@ -30,6 +30,24 @@ updated: "2026-03-19"
 - 핸드셰이크 완료 시 ESP32-S3 상태: CONNECTED (Standard 모드)
 - 기능 협상 결과 저장 (wheel, drag, right_click 등)
 
+### ⚠️ Phase 3.3.3 구현에서 적용된 사항 (Phase 3.4 영향)
+
+1. **`HandshakeService`에 `PerformHandshakeAsync()` 오케스트레이션 메서드가 추가됨**:
+   - Auth + State Sync 전체 핸드셰이크를 한 번에 수행하며, 실패 시 최대 3회 재시도(지수 백오프 1초→2초→4초)를 내장하고 있음.
+   - Phase 3.4에서 Keep-alive 실패 후 재연결 시, `PerformHandshakeAsync()`를 호출하면 재시도 로직을 별도로 구현할 필요 없음.
+   - 반환 타입: `HandshakeResult` (Success, FailReason, AcceptedFeatures, Mode, DeviceName, FirmwareVersion 포함).
+
+2. **`SyncResult` 타입이 추가됨 (계획에 없던 신규 타입)**:
+   - `StateSyncAsync()`의 반환 타입으로 `SyncResult` 클래스가 `HandshakeService.cs`에 정의됨.
+   - `SyncResult`에 `AcceptedFeatures` (string[])과 `Mode` (string)이 포함되어, Keep-alive 서비스가 현재 활성 기능을 참조할 수 있음.
+
+3. **`HandshakeFailReason` enum 추가 (`AuthFailed`, `SyncFailed`, `MaxRetriesExceeded`)**:
+   - Phase 3.4에서 재연결 시 핸드셰이크 실패 원인을 `HandshakeResult.FailReason`으로 구분하여 UI 메시지를 다르게 표시할 수 있음.
+
+4. **`ConnectionViewModel`에 핸드셰이크 흐름 통합이 아직 안 됨**:
+   - Phase 3.3.3에서 `ConnectionViewModel.cs` 수정을 계획했으나, CdcConnectionService와의 통합이 선행되어야 해서 미구현.
+   - Phase 3.4에서 `KeepAliveService`를 구현할 때 CdcConnectionService의 Connect 흐름에 `PerformHandshakeAsync()` 호출을 삽입하고, 그 결과를 ConnectionViewModel에 반영하는 것을 권장.
+
 ### ⚠️ Phase 3.2 E2E 검증에서 적용된 사항 (Phase 3.4 영향)
 
 1. **CDC TX FIFO 대기 로직 (이미 적용됨)**:
