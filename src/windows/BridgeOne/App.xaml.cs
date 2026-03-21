@@ -26,6 +26,7 @@ namespace BridgeOne
             services.AddSingleton<CdcConnectionService>();
             services.AddSingleton<VendorCdcProtocol>();
             services.AddSingleton<HandshakeService>();
+            services.AddSingleton<KeepAliveService>();
 
             // ViewModel 계층
             services.AddSingleton<ConnectionViewModel>();
@@ -49,6 +50,9 @@ namespace BridgeOne
         {
             if (_serviceProvider != null)
             {
+                // Keep-alive 서비스 중지 (재연결 루프 정리)
+                _serviceProvider.GetService<KeepAliveService>()?.Stop();
+
                 // 연결 서비스 명시적 중지 (핫플러그 워처 정리)
                 _serviceProvider.GetService<CdcConnectionService>()?.Stop();
 

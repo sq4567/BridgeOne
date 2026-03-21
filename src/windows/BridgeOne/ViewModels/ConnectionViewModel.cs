@@ -20,6 +20,7 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
     private readonly CdcConnectionService _connectionService;
     private readonly VendorCdcProtocol _protocol;
     private readonly HandshakeService _handshakeService;
+    private readonly KeepAliveService _keepAliveService;
     private readonly StringBuilder _debugLogBuilder = new();
     private const int MaxDebugLogLines = 200;
     private bool _disposed;
@@ -49,6 +50,19 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string _debugLog = string.Empty;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RttDisplayText))]
+    private double _lastRttMs = -1;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RttDisplayText))]
+    private double _averageRttMs = -1;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(QualityDisplayText))]
+    [NotifyPropertyChangedFor(nameof(QualityBrush))]
+    private ConnectionQuality _connectionQuality = ConnectionQuality.Unknown;
+
     // ==================== Computed Properties ====================
 
     /// <summary>연결 상태에 따른 색상 브러시</summary>
@@ -76,13 +90,49 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
     public bool IsDeviceInfoVisible => ConnectionState == ConnectionState.Connected && !string.IsNullOrEmpty(ComPort);
     public string ToggleButtonText => IsConnected ? "연결 해제" : "연결";
 
+    /// <summary>RTT 표시 텍스트 (예: "RTT: 5ms (평균 4.2ms)")</summary>
+    public string RttDisplayText
+    {
+        get
+        {
+            if (LastRttMs < 0) return "RTT: --";
+            if (AverageRttMs < 0) return $"RTT: {LastRttMs:F0}ms";
+            return $"RTT: {LastRttMs:F0}ms (평균 {AverageRttMs:F1}ms)";
+        }
+    }
+
+    /// <summary>연결 품질 표시 텍스트</summary>
+    public string QualityDisplayText => ConnectionQuality switch
+    {
+        ConnectionQuality.Good => "양호",
+        ConnectionQuality.Fair => "보통",
+        ConnectionQuality.Unstable => "불안정",
+        ConnectionQuality.Disconnected => "끊김",
+        _ => "--"
+    };
+
+    /// <summary>연결 품질에 따른 색상 브러시</summary>
+    public SolidColorBrush QualityBrush => ConnectionQuality switch
+    {
+        ConnectionQuality.Good => new SolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81)),         // Green
+        ConnectionQuality.Fair => new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)),         // Amber
+        ConnectionQuality.Unstable => new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44)),     // Red
+        ConnectionQuality.Disconnected => new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80)), // Gray
+        _ => new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80))
+    };
+
     // ==================== Constructor ====================
 
-    public ConnectionViewModel(CdcConnectionService connectionService, VendorCdcProtocol protocol, HandshakeService handshakeService)
+    public ConnectionViewModel(
+        CdcConnectionService connectionService,
+        VendorCdcProtocol protocol,
+        HandshakeService handshakeService,
+        KeepAliveService keepAliveService)
     {
         _connectionService = connectionService;
         _protocol = protocol;
         _handshakeService = handshakeService;
+        _keepAliveService = keepAliveService;
 
         // CdcConnectionService 이벤트 (UI 스레드에서 발생)
         _connectionService.StateChanged += OnConnectionStateChanged;
@@ -92,6 +142,13 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
         _protocol.DebugTextReceived += OnDebugTextReceived;
         _protocol.FrameReceived += OnFrameReceived;
         _protocol.FrameDiscarded += OnFrameDiscarded;
+
+        // KeepAliveService 이벤트 (백그라운드 스레드에서 발생 → Dispatcher 필요)
+        _keepAliveService.RttUpdated += OnRttUpdated;
+        _keepAliveService.QualityChanged += OnQualityChanged;
+        _keepAliveService.ConnectionLost += OnKeepAliveConnectionLost;
+        _keepAliveService.Reconnected += OnKeepAliveReconnected;
+        _keepAliveService.StatusLog += OnKeepAliveStatusLog;
 
         // 초기 상태 동기화
         SyncFromCurrentState();
@@ -143,6 +200,10 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
                 AppendDebugLog($"  펌웨어: {result.FirmwareVersion ?? "(없음)"}");
                 AppendDebugLog($"  모드: {result.Mode}");
                 AppendDebugLog($"  수락된 기능: [{string.Join(", ", result.AcceptedFeatures)}]");
+
+                // 핸드셰이크 성공 → Keep-alive 자동 시작
+                _keepAliveService.Start();
+                AppendDebugLog("[Keep-alive] 자동 시작됨");
             }
             else
             {
@@ -189,6 +250,15 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
     {
         ConnectionState = e.NewState;
         UpdateDeviceInfo();
+
+        // 연결 해제 시 Keep-alive 중지
+        if (e.NewState == ConnectionState.Disconnected || e.NewState == ConnectionState.Error)
+        {
+            _keepAliveService.Stop();
+            LastRttMs = -1;
+            AverageRttMs = -1;
+            ConnectionQuality = ConnectionQuality.Unknown;
+        }
     }
 
     /// <summary>오류 발생 (UI 스레드)</summary>
@@ -206,6 +276,11 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
     /// <summary>프레임 수신 (백그라운드 스레드 → Dispatcher 마샬링)</summary>
     private void OnFrameReceived(object? sender, VendorCdcFrame frame)
     {
+        // Keep-alive 동작 중 PONG 프레임은 KeepAliveService가 처리하므로 로그 생략
+        // (0.5초마다 PONG이 수신되어 디버그 로그가 폭주하는 것을 방지)
+        if (frame.Command == (byte)VendorCdcCommand.Pong && _keepAliveService.IsRunning)
+            return;
+
         var cmdName = frame.Command switch
         {
             (byte)VendorCdcCommand.Pong => "PONG",
@@ -229,6 +304,51 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
     {
         Application.Current.Dispatcher.BeginInvoke(() =>
             AppendDebugLog($"[CRC 오류] cmd=0x{frame.Command:X2}, payload={frame.Payload.Length}B"));
+    }
+
+    // ==================== KeepAliveService Event Handlers ====================
+
+    private void OnRttUpdated(object? sender, RttUpdatedEventArgs e)
+    {
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            LastRttMs = e.CurrentRttMs;
+            AverageRttMs = e.AverageRttMs;
+        });
+    }
+
+    private void OnQualityChanged(object? sender, ConnectionQuality quality)
+    {
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            ConnectionQuality = quality;
+        });
+    }
+
+    private void OnKeepAliveConnectionLost(object? sender, EventArgs e)
+    {
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            AppendDebugLog("[Keep-alive] 연결 끊김 감지 → 자동 재연결 시작");
+            LastRttMs = -1;
+            AverageRttMs = -1;
+        });
+    }
+
+    private void OnKeepAliveReconnected(object? sender, EventArgs e)
+    {
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            AppendDebugLog("[Keep-alive] 재연결 성공! Keep-alive 재시작됨");
+        });
+    }
+
+    private void OnKeepAliveStatusLog(object? sender, string message)
+    {
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            AppendDebugLog($"[Keep-alive] {message}");
+        });
     }
 
     // ==================== Private Helpers ====================
@@ -279,5 +399,10 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
         _protocol.DebugTextReceived -= OnDebugTextReceived;
         _protocol.FrameReceived -= OnFrameReceived;
         _protocol.FrameDiscarded -= OnFrameDiscarded;
+        _keepAliveService.RttUpdated -= OnRttUpdated;
+        _keepAliveService.QualityChanged -= OnQualityChanged;
+        _keepAliveService.ConnectionLost -= OnKeepAliveConnectionLost;
+        _keepAliveService.Reconnected -= OnKeepAliveReconnected;
+        _keepAliveService.StatusLog -= OnKeepAliveStatusLog;
     }
 }

@@ -144,17 +144,42 @@ PING 전송 → 1초 내 PONG 미수신 → 실패 카운트 +1
 - `docs/windows/technical-specification-server.md` §3.1 연결 관리 기술 구현
 
 **검증**:
-- [ ] 핸드셰이크 완료 후 0.5초 주기 PING 자동 시작
-- [ ] PONG 응답 수신 시 RTT 정상 계산
-- [ ] 연속 3회 PONG 미수신 시 `ConnectionLost` 이벤트 발생
-- [ ] 연결 끊김 후 지수 백오프 재연결 시도
-- [ ] 재연결 성공 시 Keep-alive 재시작
-- [ ] UI에 RTT 및 연결 품질 표시
-- [ ] `dotnet build` 성공
+- [x] 핸드셰이크 완료 후 0.5초 주기 PING 자동 시작
+- [x] PONG 응답 수신 시 RTT 정상 계산
+- [x] 연속 3회 PONG 미수신 시 `ConnectionLost` 이벤트 발생
+- [x] 연결 끊김 후 지수 백오프 재연결 시도
+- [x] 재연결 성공 시 Keep-alive 재시작
+- [x] UI에 RTT 및 연결 품질 표시
+- [x] `dotnet build` 성공
 
 ---
 
 ## Phase 3.4.2: ESP32-S3 PING/PONG 핸들러 및 자체 타임아웃
+
+### ⚠️ Phase 3.4.1 구현에서 적용된 사항 (Phase 3.4.2 영향)
+
+1. **`HandshakeService.cs`는 수정하지 않음**:
+   - 계획에서는 HandshakeService를 Keep-alive와 연동하기 위해 수정하도록 되어 있었으나, `KeepAliveService`가 DI로 `HandshakeService`를 직접 주입받아 `PerformHandshakeAsync()`를 호출하는 방식으로 구현하여 HandshakeService 자체 수정이 불필요했음.
+   - Phase 3.4.2에서 HandshakeService 수정을 참조하는 부분이 있다면 무시해도 됨.
+
+2. **`ConnectionViewModel`에서 핸드셰이크-Keep-alive 연동이 완료됨**:
+   - Phase 3.3.3에서 미구현이었던 "핸드셰이크 흐름 통합"이 Phase 3.4.1에서 구현됨.
+   - `RunHandshakeTestAsync()` 성공 시 `_keepAliveService.Start()` 자동 호출.
+   - 연결 상태가 `Disconnected`/`Error`로 변경 시 `_keepAliveService.Stop()` 자동 호출.
+
+3. **PING 전송 시 JSON 페이로드 포함**:
+   - 기존 수동 PING 테스트(`SendPingAsync`)는 페이로드 없이 전송했으나, `KeepAliveService`는 `{"command":"PING","timestamp":<unix_ms>}` JSON 페이로드를 포함하여 전송함.
+   - Phase 3.4.2의 ESP32-S3 PING 핸들러는 페이로드 없는 PING과 JSON 페이로드 PING 모두 처리할 수 있어야 함.
+
+4. **`ConnectionQuality` enum 및 이벤트 타입이 `KeepAliveService.cs`에 정의됨**:
+   - `ConnectionQuality` (Unknown, Good, Fair, Unstable, Disconnected)
+   - `RttUpdatedEventArgs` (CurrentRttMs, AverageRttMs)
+   - `ReconnectAttemptEventArgs` (Attempt, DelaySeconds)
+   - Phase 3.4.2에서 이 타입들을 참조할 필요 없음 (서버 측 전용).
+
+5. **재연결 시 `CdcConnectionService.TryScanAndConnect()` 호출**:
+   - `KeepAliveService`가 재연결 시 CDC 포트를 다시 스캔하므로, ESP32-S3 측에서 USB 재열거가 필요한 경우 타이밍에 주의.
+   - ESP32-S3는 CONNECTED → IDLE 전환 후에도 USB CDC 포트를 유지해야 서버 재연결이 가능.
 
 **목표**: ESP32-S3에서 PING 수신 시 즉시 PONG 응답 및 서버 타임아웃 감지
 
