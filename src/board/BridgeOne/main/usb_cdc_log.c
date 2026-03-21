@@ -1,5 +1,6 @@
 #include "usb_cdc_log.h"
 #include "vendor_cdc_handler.h"
+#include "connection_state.h"
 #include "tusb.h"
 #include "esp_log.h"
 #include "esp_system.h"  // esp_restart()
@@ -184,6 +185,13 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
     } else {
         // 호스트가 CDC 포트를 닫았음 (시리얼 터미널 연결 해제)
         ESP_LOGI(TAG, "CDC interface %d disconnected (DTR=false)", itf);
+
+        // 서버가 CDC 포트를 닫으면 즉시 IDLE 상태로 전환 (Essential 모드 복귀)
+        // 서버 비정상 종료 시에도 OS가 DTR=false를 보내므로 빠른 감지 가능
+        if (connection_state_get() != CONN_STATE_IDLE) {
+            ESP_LOGW(TAG, "DTR released while connected, reverting to Essential mode");
+            connection_state_reset();
+        }
     }
 }
 

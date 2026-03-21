@@ -48,6 +48,23 @@ updated: "2026-03-19"
 3. **State Sync 완료 시 ESP32-S3 상태가 `CONN_STATE_CONNECTED`로 전이됨**:
    - Phase 3.5.1의 모드 전환 트리거 조건 (`CONN_STATE_CONNECTED` 진입 시 → `BRIDGE_MODE_STANDARD`)이 정상 동작할 기반이 마련됨.
 
+### ⚠️ Phase 3.4.2 구현에서 적용된 사항 (Phase 3.5 영향)
+
+1. **Keep-alive 타임아웃 로직이 `connection_state.c`가 아닌 `vendor_cdc_handler.c`에 구현됨**:
+   - `vendor_cdc_handler.c`에 `s_last_ping_time_us` 변수와 `KEEPALIVE_TIMEOUT_US` (3초) 상수가 정의됨.
+   - CONNECTED 상태에서 3초간 PING 미수신 시 `connection_state_reset()` 호출 → IDLE 전환.
+   - Phase 3.5.1에서 `connection_state`의 상태 변경 콜백(IDLE 진입 → `BRIDGE_MODE_ESSENTIAL`)을 등록하면, Keep-alive 타임아웃 시 자동으로 모드 전환이 트리거됨.
+   - `connection_state.c`에는 Keep-alive 관련 함수가 없으므로, Phase 3.5.1에서 `connection_state.c/h`를 수정할 때 Keep-alive 타이머를 고려할 필요 없음.
+
+2. **DTR=false 시 `connection_state_reset()`이 `usb_cdc_log.c`에서 호출됨**:
+   - `tud_cdc_line_state_cb()`에서 DTR 해제 감지 → 즉시 IDLE 전환.
+   - Phase 3.5.1의 모드 전환 콜백이 이 경로에서도 정상 트리거됨 (CDC 해제 → IDLE → BRIDGE_MODE_ESSENTIAL).
+   - 모드 전환 다이어그램의 "DTR=false" 트리거 경로가 이미 구현 완료.
+
+3. **`vendor_cdc_task` 큐 대기가 `portMAX_DELAY` → `pdMS_TO_TICKS(100)`으로 변경됨**:
+   - 100ms 주기로 Keep-alive 타임아웃을 체크하는 구조로 변경됨.
+   - Phase 3.5에서 `vendor_cdc_handler.c`를 직접 수정하지 않으므로 영향 없음. 참고 정보로만 기록.
+
 ### 📌 이전 Phase에서의 참고 사항
 
 - **Phase 3.2.4에서 수정된 payload 버퍼 +1 확장**: `vendor_cdc_handler.c`의 payload 버퍼가 `VCDC_MAX_PAYLOAD_SIZE + 1`로 변경됨. Phase 3.5에서 `vendor_cdc_handler.c`를 직접 수정하지 않으므로 영향 없음

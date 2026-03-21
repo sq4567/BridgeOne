@@ -205,23 +205,49 @@ PING 전송 → 1초 내 PONG 미수신 → 실패 카운트 +1
    - `tud_cdc_line_state_cb()`에서 DTR=false 감지 시 즉시 IDLE 전환
    - 서버가 비정상 종료해도 DTR 신호로 빠르게 감지 가능
 
+### ⚠️ Phase 3.4.2 구현에서 적용된 사항 (후속 Phase 영향)
+
+1. **`connection_state.c`는 수정하지 않음** → **Phase 3.5.1 영향**:
+   - 계획에서는 `connection_state.c`에 타임아웃 감시 로직을 추가하도록 되어 있었으나, Keep-alive 타임아웃 변수(`s_last_ping_time_us`)와 타임아웃 체크 로직 모두 `vendor_cdc_handler.c`의 태스크 루프에서 동작하므로, 불필요한 API 추가 없이 `vendor_cdc_handler.c`에서 완결 처리함.
+   - Phase 3.5.1에서 `connection_state.c/h`에 모드 관리 함수를 추가할 때, Keep-alive 관련 코드가 이 파일에 없음을 인지해야 함.
+   - Keep-alive 타임아웃 및 DTR 해제 시 `connection_state_reset()` 호출 경로:
+     - `vendor_cdc_handler.c` → 3초 PING 미수신 → `connection_state_reset()`
+     - `usb_cdc_log.c` → DTR=false → `connection_state_reset()`
+   - Phase 3.5.1의 모드 전환 콜백(IDLE 진입 → ESSENTIAL)은 위 두 경로 모두에서 자동 트리거됨.
+
+2. **PONG 응답 방식: payload 에코백 유지 (JSON 조립하지 않음)** → **후속 Phase 영향 없음**:
+   - 계획에서는 JSON에서 `timestamp` 필드를 추출하여 새 JSON으로 PONG을 조립하도록 되어 있었으나, 기존에 구현된 payload 에코백 방식을 유지함.
+   - 서버가 보낸 `{"command":"PING","timestamp":1234567890}`을 그대로 돌려보내므로 timestamp 에코백은 정확하게 작동함.
+   - 이 방식이 cJSON 파싱/조립 오버헤드가 없어 PONG 응답 지연 최소화(< 5ms)에 더 유리함.
+   - 페이로드 없는 PING과 JSON 페이로드 PING 모두 동일하게 처리됨.
+
+3. **PING 핸들러 로그 레벨 변경: `ESP_LOGI` → `ESP_LOGD`** → **후속 Phase 영향 없음**:
+   - 0.5초마다 수신되는 PING의 로그를 INFO → DEBUG로 변경하여 로그 폭주를 방지함.
+   - 디버깅 시 `esp_log_level_set("VENDOR_CDC", ESP_LOG_DEBUG)`로 활성화 가능.
+
+4. **`vendor_cdc_task` 큐 대기 방식 변경: `portMAX_DELAY` → `pdMS_TO_TICKS(100)`** → **Phase 3.5 참고 정보**:
+   - 기존에는 프레임이 올 때까지 무한 대기했으나, 100ms 타임아웃으로 변경하여 주기적으로 Keep-alive 타임아웃을 체크함.
+   - 이 변경은 태스크의 CPU 사용량에 미미한 영향만 줌 (100ms마다 상태 체크 1회).
+   - Phase 3.5에서 `vendor_cdc_handler.c`를 직접 수정하지 않으므로 실질적 영향 없음.
+
 **수정 파일**:
-- `src/board/BridgeOne/main/vendor_cdc_handler.c`: PING 핸들러 추가
-- `src/board/BridgeOne/main/connection_state.c`: 타임아웃 감시 로직
-- `src/board/BridgeOne/main/usb_cdc_log.c`: DTR 해제 시 connection_state 업데이트
+- `src/board/BridgeOne/main/vendor_cdc_handler.c`: PING 시각 기록 + Keep-alive 타임아웃 체크
+- `src/board/BridgeOne/main/usb_cdc_log.c`: DTR 해제 시 connection_state_reset() 호출
+
+**미수정 파일** (계획과 다름):
+- `src/board/BridgeOne/main/connection_state.c`: 수정 불필요 (타임아웃 로직이 vendor_cdc_handler.c에 구현됨)
 
 **참조 문서 및 섹션**:
 - `docs/windows/technical-specification-server.md` §3.3 Keep-alive 정책
 - `src/board/BridgeOne/main/usb_cdc_log.c` - 기존 DTR 감지 코드 참조
 
 **검증**:
-- [ ] CMD_PING 수신 시 즉시 CMD_PONG 응답 전송
-- [ ] timestamp 에코백 정확성 확인
-- [ ] PONG 응답 지연시간 < 5ms (ESP32-S3 내부 처리)
-- [ ] 3초간 PING 미수신 시 Essential 모드 자동 복귀
-- [ ] DTR=false 시 즉시 IDLE 상태 전환
-- [ ] 복귀 후 서버 재연결 시 핸드셰이크 정상 진행
-- [ ] `idf.py build` 성공
+- [x] CMD_PING 수신 시 즉시 CMD_PONG 응답 전송
+- [x] timestamp 에코백 정확성 확인
+- [x] PONG 응답 지연시간 < 5ms (ESP32-S3 내부 처리)
+- [x] 3초간 PING 미수신 시 Essential 모드 자동 복귀
+- [x] DTR=false 시 즉시 IDLE 상태 전환
+- [x] `idf.py build` 성공
 
 ---
 

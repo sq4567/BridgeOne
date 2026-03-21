@@ -25,6 +25,12 @@
 
 static const char *TAG = "VENDOR_CDC";
 
+/** 마지막 PING 수신 시각 (us, esp_timer 기준). 0이면 아직 PING을 받지 않음 */
+static int64_t s_last_ping_time_us = 0;
+
+/** Keep-alive 타임아웃: CONNECTED 상태에서 3초간 PING 미수신 시 IDLE 전환 */
+#define KEEPALIVE_TIMEOUT_US  (3 * 1000 * 1000)
+
 /**
  * CRC16-CCITT 계산 함수.
  *
@@ -346,9 +352,13 @@ void vendor_cdc_parser_feed(const uint8_t *data, uint32_t len)
  */
 static void handle_cmd_ping(const vendor_cdc_frame_t *frame, cJSON *json)
 {
-    ESP_LOGI(TAG, "PING received (payload_len=%u)", frame->payload_len);
+    // 마지막 PING 수신 시각 기록 (Keep-alive 타임아웃 감시용)
+    s_last_ping_time_us = esp_timer_get_time();
+
+    ESP_LOGD(TAG, "PING received (payload_len=%u)", frame->payload_len);
 
     // PONG 응답: 수신한 payload를 그대로 에코백
+    // JSON 페이로드 {"command":"PING","timestamp":...} 또는 빈 페이로드 모두 처리
     vendor_cdc_send_frame(VCDC_CMD_PONG, frame->payload, frame->payload_len);
 }
 
@@ -719,8 +729,25 @@ void vendor_cdc_task(void *param)
     vendor_cdc_frame_t frame;
 
     while (1) {
-        // 큐에서 파싱된 프레임 대기 (무한 대기)
-        if (xQueueReceive(vendor_cdc_frame_queue, &frame, portMAX_DELAY) != pdPASS) {
+        // 큐에서 파싱된 프레임 대기 (100ms 타임아웃으로 주기적 체크)
+        BaseType_t queue_result = xQueueReceive(
+            vendor_cdc_frame_queue, &frame, pdMS_TO_TICKS(100)
+        );
+
+        // ── Keep-alive 타임아웃 체크 ──
+        // CONNECTED 상태에서 3초간 PING 미수신 시 IDLE로 전환
+        if (connection_state_get() == CONN_STATE_CONNECTED && s_last_ping_time_us > 0) {
+            int64_t elapsed_us = esp_timer_get_time() - s_last_ping_time_us;
+            if (elapsed_us > KEEPALIVE_TIMEOUT_US) {
+                ESP_LOGW(TAG, "Server keep-alive timeout (%.1fs), reverting to Essential mode",
+                         (float)elapsed_us / 1000000.0f);
+                s_last_ping_time_us = 0;
+                connection_state_reset();
+            }
+        }
+
+        // 큐에서 프레임을 받지 못했으면 다음 루프로
+        if (queue_result != pdPASS) {
             continue;
         }
 
