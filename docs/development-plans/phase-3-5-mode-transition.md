@@ -207,42 +207,66 @@ updated: "2026-03-19"
 
 ---
 
-## Phase 3.5.3: Windows 서버 모드 상태 동기화
+## Phase 3.5.3: Windows 서버 연결 상태 표시
 
-**목표**: Windows 서버에서 현재 모드를 관리하고 UI에 반영
+> ⚠️ **설계 원칙**: Essential 모드는 "서버가 실행되지 않는 상태"를 의미합니다. 서버가 실행 중이라면 그 자체가 이미 Standard 경로 위에 있으므로, 서버 UI에 "Essential"을 표시하는 것은 논리적으로 불가능합니다. Windows 서버의 UI 상태는 "Standard (연결됨)" vs "연결 없음" 두 가지만 존재합니다.
 
-**개발 기간**: 0.5-1일
+### ⚠️ Phase 3.4.3 구현에서 선행 완료된 사항
+
+다음 항목들이 Phase 3.4.3에서 이미 구현 완료되어 있습니다. Phase 3.5.3에서 **중복 구현하지 않도록** 주의하세요:
+
+1. **`Esp32Mode` 열거형 및 `ModeDisplayText` / `ModeBrush` 프로퍼티** (`ConnectionViewModel.cs`):
+   - `Esp32Mode.Standard` → `"Standard 모드"` (녹색), `Esp32Mode.Disconnected` → `"연결 없음"` (회색)
+   - 핸드셰이크 완료 시 `Esp32Mode = Standard`, Keep-alive 끊김 / 연결 해제 시 `Esp32Mode = Disconnected` 설정
+
+2. **`IsReconnecting` / `ReconnectStatusText` 프로퍼티** (`ConnectionViewModel.cs`):
+   - `KeepAliveService.ConnectionLost` 이벤트 → `IsReconnecting = true`
+   - `KeepAliveService.Reconnected` 또는 연결 해제 → `IsReconnecting = false`
+   - `KeepAliveService.ReconnectAttempt` 이벤트 → `ReconnectStatusText = "재연결 중... (시도 #N, Xs 대기)"`
+   - XAML에서 `IsReconnecting` 바인딩으로 노란색 재연결 메시지 표시/숨김 처리 완료
+
+3. **`MainWindow.xaml` UI 바인딩**:
+   - 모드 표시 (색상 점 + `ModeDisplayText`), RTT 표시, 연결 품질 표시, 재연결 메시지 표시 모두 구현 완료
+
+**남은 구현 항목**: 위 목록에 포함되지 않은 항목만 아래 세부 목표에서 구현하면 됩니다.
+
+---
+
+**목표**: Windows 서버에서 ESP32-S3 연결 상태를 관리하고 UI에 반영
+
+**개발 기간**: 0.5-1일 → 선행 완료 사항으로 인해 단축 가능
 
 **세부 목표**:
-1. `ConnectionViewModel`에 모드 상태 추가:
-   - `[ObservableProperty]` BridgeMode: Essential / Standard
-   - 핸드셰이크 완료 시 Standard로 전환
-   - 연결 끊김 시 Essential로 전환
-2. UI에 현재 모드 표시:
-   - 상태바에 "Essential" / "Standard" 레이블
-   - Standard 모드: 활성화된 기능 목록 표시
+1. `ConnectionViewModel`에 연결 상태 반영:
+   - ~~핸드셰이크 완료 시 → "Standard 모드 활성" (녹색) 표시~~ ✅ Phase 3.4.3 완료
+   - ~~Keep-alive 타임아웃 / DTR=false 시 → "ESP32 연결 없음" (회색) 표시~~ ✅ Phase 3.4.3 완료
+   - ~~재연결 시도 중 → "재연결 중..." (노란색) 표시~~ ✅ Phase 3.4.3 완료
+2. UI에 현재 연결 상태 표시:
+   - ~~상태바에 "Standard" (연결됨) 또는 "연결 없음" 레이블~~ ✅ Phase 3.4.3 완료
+   - Standard 상태: 핸드셰이크에서 협상된 활성 기능 목록 표시 (미구현)
 3. ESP32-S3로부터 `CMD_MODE_NOTIFY` (0x20) 수신 처리:
-   - ESP32-S3가 자체적으로 모드를 변경한 경우 (예: 타임아웃) 알림 수신
-   - 서버 측 모드 상태 동기화
+   - ESP32-S3가 Keep-alive 타임아웃으로 IDLE 복귀한 경우 알림 수신
+   - 서버 측 연결 상태 동기화 (Standard → 연결 없음 전환)
 
 **수정 파일**:
-- `src/windows/BridgeOne/ViewModels/ConnectionViewModel.cs`: 모드 상태 추가
-- `src/windows/BridgeOne/MainWindow.xaml`: 모드 표시 UI
+- `src/windows/BridgeOne/ViewModels/ConnectionViewModel.cs`: 활성 기능 목록 표시, MODE_NOTIFY 처리
+- `src/windows/BridgeOne/MainWindow.xaml`: 활성 기능 목록 UI
 
 **검증**:
-- [ ] 핸드셰이크 완료 시 UI에 "Standard" 표시
-- [ ] 연결 끊김 시 UI에 "Essential" 표시
-- [ ] 활성화된 기능 목록 UI 표시
-- [ ] MODE_NOTIFY 수신 시 모드 동기화
+- [x] 핸드셰이크 완료 시 UI에 "Standard" (녹색) 표시 ← Phase 3.4.3 완료
+- [x] Keep-alive 타임아웃 또는 DTR=false 시 UI에 "연결 없음" 표시 ← Phase 3.4.3 완료
+- [ ] 활성화된 기능 목록 UI 표시 (Standard 상태에서만)
+- [ ] MODE_NOTIFY 수신 시 "연결 없음"으로 전환
 
 ---
 
 ## Phase 3.5 E2E 검증
 
-1. **Essential → Standard 전환**: 서버 연결 → 핸드셰이크 → wheel 스크롤 동작 확인
-2. **Standard → Essential 복귀**: 서버 종료 → wheel 비활성 확인 → Boot 키만 동작
+1. **Essential → Standard 전환**: 서버 연결 → 핸드셰이크 완료 → wheel 스크롤 동작 확인
+2. **Standard → Essential 복귀**: 서버 종료 (CDC 끊김) → ESP32가 Essential로 자동 복귀 → wheel 비활성 확인 → Boot 키만 동작
 3. **전환 중 입력 연속성**: 마우스 이동 중 모드 전환 → 커서 끊김 없음
-4. **기능 필터링**: Essential에서 우클릭 시도 → PC에서 우클릭 이벤트 없음
+4. **기능 필터링**: Essential 상태에서 우클릭 시도 → PC에서 우클릭 이벤트 없음
+   - ※ Essential 상태 = Android와 ESP32-S3는 연결되어 있으나 Windows 서버 미실행
 
 ---
 

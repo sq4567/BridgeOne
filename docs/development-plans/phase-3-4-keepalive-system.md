@@ -251,13 +251,307 @@ PING 전송 → 1초 내 PONG 미수신 → 실패 카운트 +1
 
 ---
 
-## Phase 3.4 E2E 검증
+## Phase 3.4.3: Windows 서버 통합 상태 패널
 
-1. **정상 동작**: 핸드셰이크 → 0.5초 주기 ping-pong 안정 동작 → RTT < 10ms
-2. **케이블 분리**: USB 케이블 제거 → 약 1.5~3초 내 연결 끊김 판정 → Essential 복귀
-3. **서버 종료**: Windows 서버 프로세스 종료 → DTR 해제 → 즉시 Essential 복귀
-4. **케이블 재연결**: 분리 → 재연결 → 자동 재핸드셰이크 → Keep-alive 재개
-5. **서버 재시작**: 서버 종료 → 재시작 → 지수 백오프 → 핸드셰이크 → Connected
+**목표**: E2E 검증 시 Windows 서버 UI 하나만 보면 모든 상태를 확인할 수 있도록 통합 상태 패널 구현
+
+**배경**: E2E 검증에서 Android Logcat / ESP32 시리얼 모니터 / Windows 서버 Output 패널을 동시에 확인해야 하는 문제를 해결합니다. 특히 신체 장애로 인해 여러 창을 동시에 모니터링하기 어려운 환경을 고려하여, Windows 서버 UI를 단일 확인 창(Single Pane of Glass)으로 만듭니다.
+
+**개발 기간**: 0.5일
+
+**세부 목표**:
+1. `ConnectionViewModel.cs`에 ESP32 연결 상태 표시 추가:
+   - `Esp32Mode` enum 프로퍼티 (`Standard` / `Disconnected` / `Unknown`)
+   - `ModeDisplayText` 계산 프로퍼티 (`"Standard 모드"` / `"연결 없음"` / `"--"`)
+   - `ModeBrush` 계산 프로퍼티 (녹색 / 회색 / 회색)
+   - 모드 전환 시점:
+     - `RunHandshakeTestAsync()` 성공 → `Standard`
+     - `OnKeepAliveConnectionLost()` → `Disconnected`
+     - `OnKeepAliveReconnected()` → `Standard`
+     - 연결 해제 / 오류 → `Unknown`
+2. `MainWindow.xaml`에 상태 패널 추가:
+   - 연결 카드 내 ESP32 모드 표시 행: `🟢 Standard 모드` / `⚫ 연결 없음` / `⚫ --`
+   - RTT 및 연결 품질 표시 (ViewModel에 이미 존재하는 `RttDisplayText`, `QualityDisplayText` 바인딩)
+   - 재연결 시도 중 메시지 표시 (예: `재연결 중... (시도 2/3, 4초 대기)`)
+
+**수정 파일**:
+- `src/windows/BridgeOne/ViewModels/ConnectionViewModel.cs`: `Esp32Mode`, `ModeDisplayText`, `ModeBrush` 추가
+- `src/windows/BridgeOne/MainWindow.xaml`: 모드 / RTT / 품질 / 재연결 상태 UI 추가
+
+### ⚠️ Phase 3.4.3 구현에서 계획과 다르게 적용된 사항
+
+1. **`ReconnectAttempt` 이벤트 구독 추가 (계획에 없던 사항)**:
+   - `ConnectionViewModel`이 `KeepAliveService.ReconnectAttempt` 이벤트를 구독하여 `ReconnectStatusText` 프로퍼티를 업데이트.
+   - `KeepAliveService`의 재연결 루프는 최대 횟수 제한 없이 무한 반복하므로, 재연결 메시지 형식이 계획의 `"(시도 2/3)"` 대신 `"(시도 #2, 4초 대기)"` 형식으로 변경됨.
+   - Phase 3.4.4 E2E 검증 시 재연결 메시지 형식을 `"재연결 중... (시도 #N, Xs 대기)"` 로 확인할 것.
+
+2. **`IsReconnecting` / `ReconnectStatusText` 프로퍼티 추가 (계획에 없던 신규 프로퍼티)**:
+   - `ConnectionLost` → `IsReconnecting = true`, `Reconnected` / 연결 해제 → `IsReconnecting = false`.
+   - XAML에서 `IsReconnecting` 바인딩으로 재연결 메시지 표시/숨김 처리.
+
+**검증**:
+- [x] 핸드셰이크 완료 후 UI에 "Standard 모드" (녹색) 표시
+- [x] Keep-alive 타임아웃(3초) 또는 DTR=false 후 UI에 "연결 없음" (회색/적색) 표시
+- [x] 재연결 성공 후 "Standard 모드" (녹색) 복귀
+- [x] RTT 및 연결 품질 UI에 표시 (예: `RTT: 5ms (평균 4.2ms)` / `양호`)
+- [x] 재연결 시도 중 메시지 표시 (예: `재연결 중... (시도 #1, 1초 대기)`)
+- [x] `dotnet build` 성공
+
+---
+
+## Phase 3.4.4 E2E 검증
+
+### 🔧 기본 준비 (모든 테스트 공통)
+
+**환경 설정**:
+1. Android 앱과 Windows 서버 최신 버전 빌드/배포 (Phase 3.4.3 통합 상태 패널 포함)
+2. ESP32-S3 펌웨어 최신 버전 플래시
+3. USB 연결 구성:
+   - **Android 기기** ← USB OTG 케이블 → **ESP32-S3 보드 (동글)**
+   - **ESP32-S3 보드** ← USB 케이블 (또는 시리얼 포트) → **PC**
+4. Windows 서버 실행 후 핸드셰이크 완료 상태 대기
+5. **확인 창 설정 (단일 창)**:
+   - **주 확인**: Windows 서버 UI (모든 상태 표시 — 모드 / RTT / 품질 / 이벤트)
+   - **선택적 보조**: ESP32 시리얼 모니터 (`idf.py monitor`, 문제 발생 시에만 사용)
+
+> ℹ️ **Android Logcat과 Visual Studio Output 패널은 일반 테스트에서 불필요합니다.**
+> Windows 서버 UI에 모든 주요 상태(ESP32 모드, RTT, 연결 품질, 이벤트)가 표시됩니다.
+
+**테스트 도구**:
+- 스톱워치 (타이밍 측정용)
+- USB 케이블 (분리/재연결 테스트용)
+- Windows 작업 관리자 (프로세스 종료 확인)
+
+---
+
+### ✅ 테스트 1: 정상 동작
+
+**목표**: 핸드셰이크 완료 후 안정적인 ping-pong 통신
+
+**준비 단계**:
+1. 모든 기기가 정상 연결된 상태 확인
+2. Windows 서버 로그에서 "Connected" 또는 "핸드셰이크 완료" 메시지 확인
+3. Android 앱이 Connected 상태 표시 중 확인
+
+**테스트 진행**:
+1. 스톱워치 시작 (30초 유지)
+2. **Windows 로그 확인**:
+   - Keep-alive service started 또는 유사 메시지 출현
+   - 0.5초 주기로 PING 전송 로그 출현 (예: "Send PING #1", "Send PING #2", ...)
+   - 각 PING마다 PONG 응답 로그 (예: "Received PONG, RTT: 5ms")
+   - 30초 동안 모든 PONG이 1초 내 응답 확인
+3. **ESP32-S3 로그 확인**:
+   - PING 수신 로그 (DEBUG 레벨): "Received PING: {"command":"PING"...}"
+   - 즉시 PONG 응답 로그 (DEBUG 레벨): "Sent PONG echo"
+   - 응답 간격 < 5ms
+4. **RTT 측정**:
+   - Windows 로그에서 RTT 값 기록 (최소 5개)
+   - **성공 기준**: RTT < 10ms (평균)
+5. **연결 품질 표시**:
+   - Windows UI에 "연결 품질: 양호" 표시
+   - Android 앱의 상태 표시가 "Connected" 유지
+
+**확인 항목**:
+- [ ] Windows UI에서 ESP32 모드 "Standard 모드" (녹색) 표시
+- [ ] Windows UI에서 RTT 값 표시 (예: `RTT: 5ms (평균 4.2ms)`)
+- [ ] Windows UI에서 연결 품질 "양호" 표시
+- [ ] PING/PONG 반복 계속 유지 (중단 없음)
+- [ ] 로그 폭주 없음 (DEBUG 로그가 과도하지 않음)
+
+**롤백 기준**: 한 번이라도 PONG 미응답 발생 → Phase 3.4 재검토
+
+---
+
+### ⚠️ 테스트 2: 케이블 분리
+
+**목표**: USB 케이블 제거 시 1.5~3초 내 연결 끊김 감지 → Essential 모드 자동 복귀
+
+**준비 단계**:
+1. 정상 동작 상태에서 로그 출력 시작
+2. ESP32-S3 현재 상태 확인 (CONNECTED)
+3. 스톱워치 준비
+
+**테스트 진행**:
+1. USB 케이블을 Android 기기 포트에서 분리 (PC 측 유지)
+2. **즉시 스톱워치 시작** → 3초 동안 로그 관찰
+3. **예상 순서 (ESP32-S3 로그)**:
+   - T = 0초: 케이블 분리 감지 (USB 포트 연결 끊김)
+   - T = 0~1초: PING 계속 미수신 (서버가 보내고 있으나 ESP32는 수신 불가)
+   - T = 3초경: "Server keep-alive timeout, reverting to Essential mode" 로그 출현
+   - T = 3초경: ESP32 상태 CONNECTED → IDLE 전환
+4. **확인 항목**:
+   - Windows UI에서 "Essential 모드" (노란색)로 변경 확인
+   - Windows UI에서 연결 품질 "끊김" 또는 재연결 시도 메시지 표시 확인
+   - ESP32 로그 (선택적): 타임아웃 메시지 확인 (**정확한 시간 기록**)
+
+**실제 측정**:
+- [ ] 케이블 분리 후 Windows UI에서 "Essential 모드" 전환까지 소요 시간: ___초
+- [ ] Windows UI에서 재연결 시도 메시지 표시 확인 (형식: `재연결 중... (시도 #1, 1초 대기)`): [ ]
+- [ ] ESP32 타임아웃 로그 메시지 확인 (선택적): [ ]
+
+**성공 기준**:
+- Windows UI에서 "Essential 모드" 전환까지 **1.5~3초** (이상적: 1.5~2초)
+- Windows UI에서 재연결 시도 메시지 표시
+- Essential 모드 표시 확인 (노란색)
+
+**롤백 기준**:
+- 3초 이상 소요 또는 타임아웃 미감지 → `vendor_cdc_handler.c` 타임아웃 로직 재검토
+
+---
+
+### 🔴 테스트 3: 서버 종료
+
+**목표**: Windows 서버 프로세스 종료 → DTR 신호 해제 → ESP32 즉시 IDLE 전환
+
+**준비 단계**:
+1. 정상 동작 상태 확인
+2. ESP32 로그에서 "DTR detected" 또는 유사 메시지 모니터링 설정
+3. Windows 작업 관리자 준비 (또는 CMD에서 taskkill)
+
+**테스트 진행**:
+1. **Windows 서버 프로세스 강제 종료** (작업 관리자 → BridgeOne.exe → 작업 끝내기 또는 `taskkill /IM BridgeOne.exe /F`)
+2. **즉시 타이밍 시작** (밀리초 단위)
+3. **ESP32 로그 관찰**:
+   - DTR=false 감지 로그 (예: "USB DTR line state changed: false")
+   - 상태 전환 로그 (예: "State transition: CONNECTED -> IDLE (DTR signal)")
+   - **기록 항목**: DTR 감지부터 IDLE 전환까지 소요 시간 (로그 타임스탐프 이용)
+4. **동시 확인**:
+   - Windows UI에서 "Essential 모드" 또는 "미연결" 표시 확인
+
+**실제 측정**:
+- [ ] 서버 종료 이벤트: ___시간
+- [ ] DTR 신호 감지: ___시간
+- [ ] IDLE 상태 도달: ___시간
+- [ ] 총 소요 시간: ___밀리초 (목표: < 500ms)
+
+**성공 기준**:
+- DTR 신호 감지 후 **즉시 IDLE 전환** (< 100ms 이상적)
+- ESP32 상태 "IDLE" 확인
+- USB 포트 유지 (재연결 가능 상태)
+
+**롤백 기준**:
+- 서버 종료 후 1초 이상 경과해도 IDLE 전환 안 됨 → `usb_cdc_log.c`의 DTR 감지 코드 재검토
+
+---
+
+### 🔁 테스트 4: 케이블 재연결
+
+**목표**: 분리 후 재연결 → 자동 핸드셰이크 → Keep-alive 재개
+
+**준비 단계**:
+1. 테스트 2 상태 (케이블 분리됨)에서 시작
+2. USB 케이블 준비 (분리된 상태)
+3. 로그 모니터링 시작
+
+**테스트 진행**:
+1. **케이블을 다시 연결** (Android 기기 포트에 삽입)
+   - 완전히 삽입될 때까지 기다림
+2. **Windows 로그 관찰**:
+   - USB 포트 감지 로그 (예: "CDC port detected")
+   - 핸드셰이크 시작 로그 (예: "Starting handshake...")
+   - 핸드셰이크 완료 로그 (예: "Handshake successful, features: [...]")
+   - Keep-alive 재시작 로그 (예: "Keep-alive timer started")
+3. **ESP32 로그 관찰**:
+   - USB 재연결 로그 (예: "USB enumerated")
+   - 핸드셰이크 수신 및 응답 로그
+   - CONNECTED 상태 도달 로그
+4. **타이밍 측정**:
+   - 케이블 삽입부터 PING 재개까지 소요 시간 기록
+
+**실제 측정**:
+- [ ] 케이블 재연결 시간: ___초
+- [ ] USB 포트 감지 시간: ___초 (삽입 후)
+- [ ] 핸드셰이크 완료 시간: ___초
+- [ ] PING 재개 시간: ___초 (삽입 후)
+
+**성공 기준**:
+- USB 포트 자동 감지 ✓
+- 핸드셰이크 자동 수행 (재시도 최대 3회) ✓
+- Windows UI에서 "Standard 모드" (녹색) 복귀 ✓
+- Windows UI에서 RTT 재표시 ✓
+- 총 소요 시간 **< 10초** (지수 백오프 포함)
+
+**롤백 기준**:
+- 핸드셰이크 실패 및 재시도 없음 → `HandshakeService.PerformHandshakeAsync()` 호출 로직 확인
+- 10초 이상 소요 → 지수 백오프 타이밍 재검토
+
+---
+
+### 🔄 테스트 5: 서버 재시작
+
+**목표**: 서버 종료 → 재시작 → 지수 백오프 재연결 → 핸드셰이크 → Connected 상태
+
+**준비 단계**:
+1. 테스트 3 상태 (서버 종료됨)에서 시작
+2. Windows 서버 실행 파일 준비 (또는 Visual Studio에서 디버그 실행)
+3. 스톱워치와 로그 모니터링 준비
+
+**테스트 진행**:
+1. **Windows 서버 재시작**:
+   - 작업 관리자에서 BridgeOne.exe 시작 또는
+   - Visual Studio에서 F5 (디버그)
+   - 서버 로그에서 초기화 메시지 확인
+2. **ESP32 로그 관찰** (재연결 시도 감지):
+   - T = 0~2초: 아무 로그 없음 (ESP32는 여전히 대기 중)
+   - T = 2~5초 사이: Windows가 재연결 시도 (첫 번째: 1초 대기)
+   - 각 시도마다 관찰할 이벤트:
+     - "Received AUTH frame" (AUTH 핸드셰이크 수신)
+     - "AUTH successful" 또는 유사 메시지
+     - "Received SYNC frame" (STATE SYNC 핸드셰이크)
+     - "SYNC successful"
+3. **지수 백오프 확인**:
+   - Windows 로그에서 재연결 시도 타이밍 기록:
+     - 시도 1: T = 약 2~3초 (1초 대기 후)
+     - 시도 2: T = 약 4~6초 (2초 대기 후)
+     - 시도 3: T = 약 8~10초 (4초 대기 후)
+4. **최종 상태 확인**:
+   - 핸드셰이크 성공 (시도 1~3 중 하나)
+   - **Windows UI**: "Standard 모드" (녹색) 복귀
+   - **Windows UI**: RTT 및 "양호" 품질 표시
+   - PING-PONG 재개 확인
+
+**실제 측정**:
+
+> ℹ️ **재연결 메시지 형식**: `"재연결 중... (시도 #N, Xs 대기)"`. 최대 횟수 제한 없이 무한 반복하므로 성공할 때까지 시도 횟수가 계속 증가함.
+
+| 시도 | 대기 예상시간 | 실제 시작시간 | 완료시간 | UI 메시지 확인 | 상태 |
+|------|------------|----------|--------|-------------|------|
+| 1 | 1초 | ___초 | ___초 | `재연결 중... (시도 #1, 1초 대기)` [ ] | [ ] Success / [ ] Fail |
+| 2 | 2초 | ___초 | ___초 | `재연결 중... (시도 #2, 2초 대기)` [ ] | [ ] Success / [ ] Fail |
+| 3 | 4초 | ___초 | ___초 | `재연결 중... (시도 #3, 4초 대기)` [ ] | [ ] Success / [ ] Fail |
+
+**성공 기준**:
+- 지수 백오프 타이밍 정확 (±0.5초 오차 허용) ✓
+- 재시도 중 하나 이상 성공 ✓
+- 최종 CONNECTED 상태 도달 ✓
+- PING-PONG 재개 ✓
+- RTT < 10ms ✓
+
+**롤백 기준**:
+- 지수 백오프 타이밍 크게 벗어남 (±1초 이상) → `KeepAliveService` 백오프 로직 재검토
+- 핸드셰이크 반복 실패 (최대 재시도 초과) → `PerformHandshakeAsync()` 안정성 확인
+- 최종 CONNECTED 도달 불가 → 핸드셰이크 프로토콜 호환성 재검증
+
+---
+
+### 📊 전체 결과 요약 템플릿
+
+**테스트 실행 날짜**: ___년___월___일
+
+| 테스트 항목 | 예상 결과 (Windows UI) | 실제 결과 | 통과 | 비고 |
+|-----------|--------|--------|------|------|
+| 1. 정상 동작 | Standard 모드 🟢, RTT < 10ms | ___ms | ✓ / ✗ | |
+| 2. 케이블 분리 | Essential 모드 🟡 (1.5~3초 내) | ___초 | ✓ / ✗ | |
+| 3. 서버 종료 | 미연결 / Essential 모드 표시 | ___ms | ✓ / ✗ | |
+| 4. 케이블 재연결 | Standard 모드 🟢 복귀 (< 10초) | ___초 | ✓ / ✗ | |
+| 5. 서버 재시작 | Standard 모드 🟢 복귀 (지수 백오프) | ___초 | ✓ / ✗ | |
+
+**전체 통과 여부**: [ ] PASS / [ ] FAIL
+
+**발견 사항 및 개선 필요사항**:
+-
+-
+-
 
 ---
 
@@ -268,4 +562,5 @@ PING 전송 → 1초 내 PONG 미수신 → 실패 카운트 +1
 - ✅ 연결 끊김 신속 감지 (최대 3초)
 - ✅ 자동 재연결 메커니즘 (지수 백오프)
 - ✅ RTT 측정으로 연결 품질 가시화
+- ✅ Windows 서버 UI 하나만으로 모든 상태 확인 (Standard/Essential 모드, RTT, 품질, 이벤트)
 - ✅ Phase 3.5 (모드 전환)의 선행 조건 충족

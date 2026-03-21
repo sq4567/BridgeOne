@@ -75,9 +75,10 @@ Interface 3: CDC-ACM Data      (0x0A/0x00/0x00)
 - 매크로 실행 요청 중계 (Orbit 프로그램 연동)
 
 **상태 관리 계층**:
-- Essential ↔ Standard 모드 전환 관리
+- ESP32-S3 연결 상태 관리 (Standard 연결됨 ↔ 연결 없음)
 - 시스템 상태 동기화 및 일관성 보장
 - 설정 변경 사항 실시간 적용
+- ※ Essential 모드는 서버 미실행 상태를 의미하므로 서버 자체의 상태로는 존재하지 않음
 
 **시스템 통합 계층**:
 - Windows API 호출 및 시스템 이벤트 처리
@@ -96,7 +97,7 @@ Interface 3: CDC-ACM Data      (0x0A/0x00/0x00)
 **Windows 서버 관점**:
 - HID 마우스는 Windows 기본 드라이버로 자동 처리
 - 서버 프로그램이 직접 HID 데이터를 수신하지 않음
-- Essential/Standard 모드에서 모두 동작 보장
+- 서버 연결 여부와 무관하게 동작 보장 (HID는 OS 드라이버가 직접 처리)
 
 #### 2.3.2 기본 경로: HID Boot Keyboard
 
@@ -109,7 +110,7 @@ Interface 3: CDC-ACM Data      (0x0A/0x00/0x00)
 **Windows 서버 관점**:
 - HID 키보드는 Windows 기본 드라이버로 자동 처리
 - 서버 프로그램이 직접 HID 데이터를 수신하지 않음
-- Essential/Standard 모드에서 모두 동작 보장
+- 서버 연결 여부와 무관하게 동작 보장 (HID는 OS 드라이버가 직접 처리)
 
 #### 2.3.3 확장 경로: Vendor CDC
 

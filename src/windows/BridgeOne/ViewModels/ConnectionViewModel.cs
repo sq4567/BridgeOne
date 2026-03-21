@@ -63,6 +63,17 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(QualityBrush))]
     private ConnectionQuality _connectionQuality = ConnectionQuality.Unknown;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ModeDisplayText))]
+    [NotifyPropertyChangedFor(nameof(ModeBrush))]
+    private Esp32Mode _esp32Mode = Esp32Mode.Unknown;
+
+    [ObservableProperty]
+    private bool _isReconnecting;
+
+    [ObservableProperty]
+    private string _reconnectStatusText = string.Empty;
+
     // ==================== Computed Properties ====================
 
     /// <summary>연결 상태에 따른 색상 브러시</summary>
@@ -111,6 +122,22 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
         _ => "--"
     };
 
+    /// <summary>ESP32 모드 표시 텍스트</summary>
+    public string ModeDisplayText => Esp32Mode switch
+    {
+        Esp32Mode.Standard  => "Standard 모드",
+        Esp32Mode.Disconnected => "연결 없음",
+        _                   => "--"
+    };
+
+    /// <summary>ESP32 모드에 따른 색상 브러시</summary>
+    public SolidColorBrush ModeBrush => Esp32Mode switch
+    {
+        Esp32Mode.Standard  => new SolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81)), // Green-500
+        Esp32Mode.Disconnected => new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80)), // Gray-500
+        _                   => new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80))  // Gray-500
+    };
+
     /// <summary>연결 품질에 따른 색상 브러시</summary>
     public SolidColorBrush QualityBrush => ConnectionQuality switch
     {
@@ -148,6 +175,7 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
         _keepAliveService.QualityChanged += OnQualityChanged;
         _keepAliveService.ConnectionLost += OnKeepAliveConnectionLost;
         _keepAliveService.Reconnected += OnKeepAliveReconnected;
+        _keepAliveService.ReconnectAttempt += OnKeepAliveReconnectAttempt;
         _keepAliveService.StatusLog += OnKeepAliveStatusLog;
 
         // 초기 상태 동기화
@@ -201,6 +229,9 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
                 AppendDebugLog($"  모드: {result.Mode}");
                 AppendDebugLog($"  수락된 기능: [{string.Join(", ", result.AcceptedFeatures)}]");
 
+                // 핸드셰이크 성공 → Standard 모드
+                Esp32Mode = Esp32Mode.Standard;
+
                 // 핸드셰이크 성공 → Keep-alive 자동 시작
                 _keepAliveService.Start();
                 AppendDebugLog("[Keep-alive] 자동 시작됨");
@@ -251,13 +282,22 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
         ConnectionState = e.NewState;
         UpdateDeviceInfo();
 
-        // 연결 해제 시 Keep-alive 중지
+        // 연결 완료 시 자동 핸드셰이크 시작
+        if (e.NewState == ConnectionState.Connected)
+        {
+            _ = RunHandshakeTestAsync();
+        }
+
+        // 연결 해제 시 Keep-alive 중지 및 상태 초기화
         if (e.NewState == ConnectionState.Disconnected || e.NewState == ConnectionState.Error)
         {
             _keepAliveService.Stop();
             LastRttMs = -1;
             AverageRttMs = -1;
             ConnectionQuality = ConnectionQuality.Unknown;
+            Esp32Mode = Esp32Mode.Unknown;
+            IsReconnecting = false;
+            ReconnectStatusText = string.Empty;
         }
     }
 
@@ -332,6 +372,8 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
             AppendDebugLog("[Keep-alive] 연결 끊김 감지 → 자동 재연결 시작");
             LastRttMs = -1;
             AverageRttMs = -1;
+            Esp32Mode = Esp32Mode.Disconnected;
+            IsReconnecting = true;
         });
     }
 
@@ -340,6 +382,17 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
             AppendDebugLog("[Keep-alive] 재연결 성공! Keep-alive 재시작됨");
+            Esp32Mode = Esp32Mode.Standard;
+            IsReconnecting = false;
+            ReconnectStatusText = string.Empty;
+        });
+    }
+
+    private void OnKeepAliveReconnectAttempt(object? sender, ReconnectAttemptEventArgs e)
+    {
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            ReconnectStatusText = $"재연결 중... (시도 #{e.Attempt}, {e.DelaySeconds}초 대기)";
         });
     }
 
@@ -403,6 +456,22 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
         _keepAliveService.QualityChanged -= OnQualityChanged;
         _keepAliveService.ConnectionLost -= OnKeepAliveConnectionLost;
         _keepAliveService.Reconnected -= OnKeepAliveReconnected;
+        _keepAliveService.ReconnectAttempt -= OnKeepAliveReconnectAttempt;
         _keepAliveService.StatusLog -= OnKeepAliveStatusLog;
     }
+}
+
+// ==================== ESP32 모드 열거형 ====================
+
+/// <summary>ESP32 동글의 현재 운영 모드</summary>
+public enum Esp32Mode
+{
+    /// <summary>알 수 없음 (연결 전 또는 핸드셰이크 미완료)</summary>
+    Unknown,
+
+    /// <summary>Standard 모드: 핸드셰이크 완료, 전체 기능 사용 가능</summary>
+    Standard,
+
+    /// <summary>Disconnected: Keep-alive 끊김, ESP32 연결 없음</summary>
+    Disconnected
 }

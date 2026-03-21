@@ -1030,11 +1030,11 @@ XLarge: 32px - 대형 표시, 메인 기능 아이콘, 대시보드 요소
   - 표시: 연결 상태 "연결됨" (녹색), 기기 정보 표시
   - 기능: 모든 고급 기능 활성화 (멀티 커서, 매크로 등)
   - 상태 알림: "Android 앱이 연결되었습니다" (녹색, 3초)
-- **분기 B) Android 앱 연결 대기 → Essential 모드**
-  - 조건: 서비스 실행 중, Android 앱 미연결
+- **분기 B) ESP32 연결 없음 → 미연결 상태**
+  - 조건: 서비스 실행 중, ESP32-S3 CDC 미연결
   - 표시: 연결 상태 "연결 대기 중..." (주황색, 펄스 애니메이션)
   - 기능: 기본 기능만 활성화, 고급 기능 비활성화
-  - 상태 알림: "Android 앱 연결을 기다리는 중..." (주황색, 무제한)
+  - 상태 알림: "ESP32 연결을 기다리는 중..." (주황색, 무제한)
 - **분기 C) 서비스 오류 → 오류 모드**
   - 조건: 서비스 실행 실패 또는 심각한 오류
   - 표시: 연결 상태 "오류 발생" (빨간색)
@@ -1355,18 +1355,19 @@ XLarge: 32px - 대형 표시, 메인 기능 아이콘, 대시보드 요소
 **서버 상태 모델**:
 - **ServiceState**: {Stopped, Starting, Running, Stopping, Error}
 - **ConnectionState**: {Disconnected, Connecting, Connected, Reconnecting, Error}
-- **AppMode**: {Essential, Standard}
+- **ConnectionMode**: {Standard, Disconnected}
+  - ※ Essential 모드는 서버 미실행 상태(Android/ESP32 개념)이므로 서버 자체의 모드로는 존재하지 않음
 
 **화면별 상태 처리**:
-- **Essential 모드**: 기본 기능만 활성화, 고급 기능 비활성화
-- **Standard 모드**: 모든 기능 활성화, 멀티 커서, 매크로 등 고급 기능 사용 가능
+- **미연결 (Disconnected)**: 기본 기능만 활성화, 고급 기능 비활성화
+- **Standard 모드 (Connected)**: 모든 기능 활성화, 멀티 커서, 매크로 등 고급 기능 사용 가능
 - **오류 모드**: 오류 진단 도구만 활성화, 다른 기능 비활성화
 
 **상태 전환 규칙**:
-- **Essential → Standard**: Android 앱 연결 성공 시 자동 전환
-- **Standard → Essential**: Android 앱 연결 끊어짐 시 자동 전환
+- **미연결 → Standard**: ESP32 핸드셰이크 완료 시 자동 전환
+- **Standard → 미연결**: ESP32 CDC 연결 끊어짐 시 자동 전환
 - **모든 상태 → 오류 모드**: 심각한 시스템 오류 발생 시 전환
-- **오류 모드 → Essential/Standard**: 오류 복구 완료 시 이전 상태로 복원
+- **오류 모드 → 미연결/Standard**: 오류 복구 완료 시 이전 상태로 복원
 
 > **기술적 구현**: 서버 전체 사용자 플로우의 구체적인 구현 요구사항은 `technical-specification-server.md`를 참조하세요.
 

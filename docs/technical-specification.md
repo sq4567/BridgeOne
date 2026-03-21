@@ -1215,7 +1215,7 @@ class Esp32SerialManager {
 |------|------|--------|----------|
 | **ServiceState** | Windows 서비스 상태 | `Stopped`, `Starting`, `Running`, `Stopping`, `Error` | 서비스 라이프사이클 관리 |
 | **ConnectionState** | 연결 상태 | `Disconnected`, `Connecting`, `Connected`, `Reconnecting`, `Error` | Android 앱과의 연결 상태 |
-| **AppMode** | 애플리케이션 모드 | `Essential`, `Standard` | 기능 활성화 범위 결정 |
+| **ConnectionMode** | 서버-ESP32 연결 모드 | `Standard` (핸드셰이크 완료), `Disconnected` (연결 없음) | 서버 UI 상태 및 기능 활성화 범위 결정. Essential 모드는 서버 미실행 상태이므로 서버 측에는 해당 없음 |
 
 #### 6.4.2 통신 프로토콜 관련 용어
 
