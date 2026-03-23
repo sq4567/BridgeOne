@@ -180,8 +180,14 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
     if (dtr) {
         // 호스트가 CDC 포트를 열었음 (시리얼 터미널 연결)
         ESP_LOGI(TAG, "CDC interface %d connected (DTR=true)", itf);
-        usb_cdc_log_write("\n\n=== BridgeOne USB CDC Debug Log ===\n");
-        usb_cdc_log_write("Connected successfully. Logs will appear below.\n\n");
+        usb_cdc_log_write("\r\n\r\n=== BridgeOne USB CDC Debug Log ===\r\n");
+        usb_cdc_log_write("Connected successfully. Logs will appear below.\r\n");
+
+        // 현재 연결 상태 즉시 출력 (서버 종료 후 Tera Term 연결 시 IDLE 확인용)
+        char state_msg[64];
+        snprintf(state_msg, sizeof(state_msg), "Current state: %s\r\n\r\n",
+                 connection_state_name(connection_state_get()));
+        usb_cdc_log_write(state_msg);
     } else {
         // 호스트가 CDC 포트를 닫았음 (시리얼 터미널 연결 해제)
         ESP_LOGI(TAG, "CDC interface %d disconnected (DTR=false)", itf);
@@ -226,9 +232,16 @@ static void process_cdc_command(const char* cmd) {
         vTaskDelay(pdMS_TO_TICKS(100));  // 메시지 전송 대기
         esp_restart();
     }
+    else if (strcmp(lower_cmd, "status") == 0) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "\r\nCurrent state: %s\r\n",
+                 connection_state_name(connection_state_get()));
+        usb_cdc_log_write(msg);
+    }
     else if (strcmp(lower_cmd, "help") == 0 || strcmp(lower_cmd, "?") == 0) {
         usb_cdc_log_write("\r\n=== BridgeOne CDC Commands ===\r\n");
         usb_cdc_log_write("  reset, reboot  - Software reset\r\n");
+        usb_cdc_log_write("  status         - Show current connection state\r\n");
         usb_cdc_log_write("  help, ?        - Show this help\r\n");
         usb_cdc_log_write("==============================\r\n");
     }
