@@ -185,6 +185,18 @@ uint8_t hid_get_keyboard_led_status(void);
  */
 void hid_init_queues(void);
 
+/**
+ * @brief 모드 전환 콜백 등록
+ *
+ * 브릿지 모드(Essential ↔ Standard) 전환 시 눌린 키/버튼을
+ * 자동으로 해제하는 콜백을 등록합니다.
+ *
+ * hid_init_queues() 이후, hid_task 시작 전에 호출해야 합니다.
+ *
+ * @note Phase 3.5.2에서 추가됨
+ */
+void hid_register_mode_callback(void);
+
 // ==================== HID 상태 저장소 ====================
 
 /**

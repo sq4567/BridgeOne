@@ -178,7 +178,7 @@ updated: "2026-03-19"
 
 ---
 
-## Phase 3.5.2: 모드별 HID 동작 변경
+## Phase 3.5.2: 모드별 HID 동작 변경 ✅ 완료
 
 **목표**: ESP32-S3의 HID 리포트 생성 시 현재 모드에 따라 동작을 변경
 
@@ -215,7 +215,8 @@ updated: "2026-03-19"
 
 **수정 파일**:
 - `src/board/BridgeOne/main/hid_handler.c`: 모드별 필터링 로직 추가
-- `src/board/BridgeOne/main/hid_handler.h`: Essential 키코드 화이트리스트 정의
+- `src/board/BridgeOne/main/hid_handler.h`: `hid_register_mode_callback()` 선언 추가
+- `src/board/BridgeOne/main/BridgeOne.c`: `app_main()`에서 콜백 등록 호출 추가
 
 **참조 문서 및 섹션**:
 - `docs/android/styleframe-essential.md` §3 허용/비활성 기능
@@ -223,14 +224,20 @@ updated: "2026-03-19"
 - `src/board/BridgeOne/main/hid_handler.c` - 기존 프레임 처리 로직
 
 **검증**:
-- [ ] Essential 모드: wheel=0 강제 확인 (PC에서 스크롤 안 됨)
-- [ ] Essential 모드: 우클릭/중앙클릭 무시 확인
-- [ ] Essential 모드: Boot 키 이외의 키코드 무시 확인
-- [ ] Standard 모드: wheel 값 정상 전달 (PC에서 스크롤 동작)
-- [ ] Standard 모드: 모든 버튼/키코드 정상 전달
-- [ ] 모드 전환 시 눌린 키/버튼 해제 리포트 전송
-- [ ] 모드 전환 중 프레임 손실 없음
-- [ ] `idf.py build` 성공
+- [x] Essential 모드: wheel=0 강제 확인 (PC에서 스크롤 안 됨)
+- [x] Essential 모드: 우클릭/중앙클릭 무시 확인
+- [x] Essential 모드: Boot 키 이외의 키코드 무시 확인
+- [x] Standard 모드: wheel 값 정상 전달 (PC에서 스크롤 동작)
+- [x] Standard 모드: 모든 버튼/키코드 정상 전달
+- [x] 모드 전환 시 눌린 키/버튼 해제 리포트 전송
+- [x] 모드 전환 중 프레임 손실 없음
+- [x] `idf.py build` 성공
+
+### 📌 Phase 3.5.2 구현 참고 사항
+
+- **Essential 모드 키코드 화이트리스트**: `hid_handler.c`의 `essential_allowed_keycodes[]` 배열. Phase 4+에서 허용 키를 추가하려면 이 배열에 항목 추가 필요.
+- **모드 전환 콜백 슬롯 점유**: `bridge_mode_on_change()`에 `hid_on_mode_change()` 콜백이 등록됨. 단일 슬롯이므로 다른 모듈에서 덮어쓰면 입력 해제 기능이 해제됨에 주의.
+- Phase 3.5.3(Windows 서버 UI)에는 직접적인 영향 없음.
 
 ---
 
@@ -256,8 +263,6 @@ updated: "2026-03-19"
    - 모드 표시 (색상 점 + `ModeDisplayText`), RTT 표시, 연결 품질 표시, 재연결 메시지 표시 모두 구현 완료
 
 **남은 구현 항목**: 위 목록에 포함되지 않은 항목만 아래 세부 목표에서 구현하면 됩니다.
-
----
 
 **목표**: Windows 서버에서 ESP32-S3 연결 상태를 관리하고 UI에 반영
 
