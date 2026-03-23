@@ -558,11 +558,11 @@ Android가 UART에서 8바이트를 수신했을 때:
 - `docs/android/design-guide-app.md`: 모드 전환 UI 가이드
 
 **검증**:
-- [ ] Essential 모드: 우클릭, 휠, 드래그 UI 숨김 확인
-- [ ] Standard 모드: 모든 기능 UI 표시 확인
-- [ ] Essential 모드: Boot Keyboard Cluster만 표시 확인
-- [ ] Standard 모드: 전체 키보드 레이아웃 표시 확인
-- [ ] Android Studio 빌드 및 실행 성공
+- [x] Essential 모드: 우클릭, 휠, 드래그 UI 숨김 확인 ← 현재 UI 미구현이므로 모드 무관하게 없음
+- [x] Standard 모드: 모든 기능 UI 표시 확인 ← Standard 모드에서 3탭 레이아웃 표시
+- [x] Essential 모드: Boot Keyboard Cluster만 표시 확인
+- [x] Standard 모드: 전체 키보드 레이아웃 표시 확인
+- [x] Android Studio 빌드 및 실행 성공
 
 ---
 
@@ -578,16 +578,31 @@ Android가 UART에서 8바이트를 수신했을 때:
 - **실제 하드웨어 불필요**: Android 에뮬레이터만으로 UI 레이아웃 및 전환 로직 검증 가능
 - **임시 토글 버튼**: 이 Phase에서 추가하고, 검증 완료 후 동일 Phase 내에서 삭제
 
+### ⚠️ Phase 3.5.6 구현에서 적용된 사항 (Phase 3.5.7 영향)
+
+1. **ViewModel 없음 — `UsbSerialManager`에 토글 함수 추가 필요**:
+   - 계획의 `viewModel.toggleModeForDevelopment()`는 이 프로젝트의 아키텍처와 맞지 않음.
+   - 이 프로젝트는 ViewModel을 사용하지 않고 `UsbSerialManager` object에서 상태를 직접 관리.
+   - 1단계에서 `UsbSerialManager.toggleModeForDevelopment()` 함수를 추가하고, 3단계에서 삭제.
+   - `_bridgeMode`는 private이므로 별도의 `internal` 또는 companion function으로 노출 필요.
+
+2. **터치패드 UI 검증 항목 축소**:
+   - Phase 3.5.6에서 우클릭 버튼/휠/드래그 UI가 구현되지 않았으므로, 2단계 테스트에서 해당 항목은 건너뜀.
+   - 키보드 레이아웃 전환만 검증하면 됨.
+
 ### 1단계: 임시 모드 전환 버튼 추가 (개발 편의용)
 **내용**: 에뮬레이터 환경에서 모드를 수동으로 토글할 수 있는 버튼
 
 **구현**:
 ```kotlin
-// BridgeOneApp.kt 상단에 추가 (Debug 용)
+// UsbSerialManager.kt에 임시 추가
+fun toggleModeForDevelopment() {
+    _bridgeMode.value = if (_bridgeMode.value == BridgeMode.ESSENTIAL) BridgeMode.STANDARD else BridgeMode.ESSENTIAL
+}
+
+// BridgeOneApp.kt의 디버그 패널 내 또는 상단에 추가
 Button(
-    onClick = {
-        viewModel.toggleModeForDevelopment() // 임시 함수
-    },
+    onClick = { UsbSerialManager.toggleModeForDevelopment() },
     modifier = Modifier.padding(8.dp)
 ) {
     Text("🔄 모드 전환 (개발용)")
@@ -596,9 +611,8 @@ Button(
 
 **특징**:
 - `@Composable` 레벨에서 조건부로만 표시 (프로덕션 빌드에서 자동 제외 가능)
-- 또는 BUILD_TYPE에 따라 표시 여부 결정
 - 클릭 시 현재 모드의 반대로 즉시 전환
-- 토스트 알림으로 전환 결과 표시
+- 토스트 알림은 `BridgeOneApp()`의 기존 `LaunchedEffect(bridgeMode)`에서 자동 처리됨
 
 ---
 
@@ -608,12 +622,12 @@ Button(
 **테스트 항목**:
 - [ ] 앱 시작 → Essential 모드 기본값 확인
 - [ ] 임시 버튼 클릭 → Standard 모드 UI 전환 확인
-  - 우클릭 버튼 표시
-  - 휠 스크롤 제스처 영역 표시
-  - 전체 키보드 레이아웃 표시
+  - ~~우클릭 버튼 표시~~ → Phase 3.5.6 미구현, 건너뜀
+  - ~~휠 스크롤 제스처 영역 표시~~ → Phase 3.5.6 미구현, 건너뜀
+  - 전체 키보드 레이아웃 (3탭: 문자/숫자기호/기능키) 표시
 - [ ] 임시 버튼 다시 클릭 → Essential 모드 UI 전환 확인
-  - 우클릭, 휠 버튼 숨김
-  - Boot Keyboard Cluster만 표시
+  - ~~우클릭, 휠 버튼 숨김~~ → Phase 3.5.6 미구현, 건너뜀
+  - Boot Keyboard Cluster만 표시 (Del/Esc/Enter + F1-F12 + 방향키)
 - [ ] 모드 전환 시 토스트 알림 "Essential/Standard 모드로 전환되었습니다" 확인
 - [ ] 반복 토글 테스트 (안정성 확인)
 - [ ] Android Studio 에뮬레이터에서 빌드 및 실행 성공
@@ -624,8 +638,8 @@ Button(
 **내용**: 에뮬레이터 검증 완료 후 임시 버튼 제거
 
 **삭제 대상**:
-- 1단계에서 추가한 임시 토글 버튼 코드 삭제
-- `viewModel.toggleModeForDevelopment()` 함수 삭제
+- 1단계에서 추가한 임시 토글 버튼 코드 삭제 (BridgeOneApp.kt)
+- `UsbSerialManager.toggleModeForDevelopment()` 함수 삭제
 - 모든 DEBUG 주석 제거
 
 **남아야 할 것**:

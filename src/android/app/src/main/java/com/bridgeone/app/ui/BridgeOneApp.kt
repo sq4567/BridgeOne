@@ -173,6 +173,7 @@ private fun MainContent() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // 메인 콘텐츠 영역 (위쪽)
+        val bridgeMode by UsbSerialManager.bridgeMode.collectAsState()
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -180,8 +181,8 @@ private fun MainContent() {
             contentAlignment = Alignment.BottomCenter
         ) {
             when (currentMode) {
-                0 -> TouchpadPage()
-                1 -> KeyboardPage(activeKeys, activeModifierKeys)
+                0 -> TouchpadPage(bridgeMode)
+                1 -> KeyboardPage(bridgeMode, activeKeys, activeModifierKeys)
             }
         }
 
@@ -238,7 +239,7 @@ private fun MainContent() {
  * 1:2 비율을 유지하며 화면 폭의 90%를 사용합니다.
  */
 @Composable
-private fun TouchpadPage() {
+private fun TouchpadPage(bridgeMode: BridgeMode) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -246,6 +247,7 @@ private fun TouchpadPage() {
         contentAlignment = Alignment.BottomCenter
     ) {
         TouchpadWrapper(
+            bridgeMode = bridgeMode,
             modifier = Modifier
                 .fillMaxWidth(0.9f)
                 .aspectRatio(0.5f)  // 1:2 비율 (가로:세로)
@@ -286,6 +288,7 @@ private fun modifierBitFlag(keyCode: UByte): UByte = when (keyCode.toInt()) {
  */
 @Composable
 private fun KeyboardPage(
+    bridgeMode: BridgeMode,
     activeKeys: MutableState<Set<UByte>>,
     activeModifierKeys: MutableState<Set<UByte>>
 ) {
@@ -296,6 +299,7 @@ private fun KeyboardPage(
         contentAlignment = Alignment.BottomCenter
     ) {
         KeyboardLayout(
+            bridgeMode = bridgeMode,
             onKeyPressed = { keyCode ->
                 activeKeys.value = activeKeys.value + keyCode
 

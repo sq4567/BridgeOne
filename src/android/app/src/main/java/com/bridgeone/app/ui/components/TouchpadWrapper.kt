@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
+import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.utils.DeltaCalculator
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.ui.utils.getDistance
@@ -55,6 +56,7 @@ import com.bridgeone.app.ui.utils.getDistance
 @Composable
 fun TouchpadWrapper(
     modifier: Modifier = Modifier,
+    bridgeMode: BridgeMode = BridgeMode.ESSENTIAL,
     onTouchEvent: (
         eventType: PointerEventType,
         currentPosition: Offset,

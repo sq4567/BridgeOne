@@ -31,6 +31,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.util.Log
+import com.bridgeone.app.protocol.BridgeMode
 
 // ============================================================
 // 행 높이 / 간격 상수
@@ -128,7 +129,11 @@ private val KEY_HANJA = 0xE4.toUByte()       // Right Ctrl → 한자 변환
  *
  * 반응형 키보드 레이아웃. fillMaxWidth()로 화면 너비에 맞게 자동 조절됩니다.
  *
- * **탭 구성**:
+ * **모드별 동작**:
+ * - Essential 모드: Boot Keyboard Cluster만 표시 (Del, Esc, Enter, F1-F12, 방향키)
+ * - Standard 모드: 전체 3탭 레이아웃 (문자/숫자기호/기능키)
+ *
+ * **탭 구성 (Standard 모드)**:
  * - 탭 0: 문자 (QWERTY + Shift/Ctrl/Alt + Space + Enter + 한/영)
  * - 탭 1: 숫자/기호 (0-9, 특수문자, Tab, Esc, Del, 한자, Home/End 등)
  * - 탭 2: 기능 (F1-F12, 화살표)
@@ -138,67 +143,185 @@ fun KeyboardLayout(
     onKeyPressed: (keyCode: UByte) -> Unit = {},
     onKeyReleased: (keyCode: UByte) -> Unit = {},
     activeKeys: Set<UByte> = emptySet(),
+    bridgeMode: BridgeMode = BridgeMode.ESSENTIAL,
     modifier: Modifier = Modifier
 ) {
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     val TAB_LABELS = listOf("문자", "숫자/기호", "기능")
+    // 콘텐츠 영역 높이 (최대 5행 기준 — 기능 탭이 5행)
+    val contentHeight = ROW_HEIGHT * 5 + ROW_SPACING * 4
 
     Column(
         modifier = modifier
             .background(Color(0xFF0D0D0D))
             .padding(horizontal = 6.dp, vertical = 4.dp)
     ) {
-        // 탭 바
-        TabRow(
-            selectedTabIndex = selectedTabIndex,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(TAB_HEIGHT),
-            containerColor = Color(0xFF1A1A1A),
-            contentColor = Color(0xFF2196F3),
-            indicator = { tabPositions ->
-                if (selectedTabIndex < tabPositions.size) {
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                        color = Color(0xFF2196F3)
-                    )
-                }
-            },
-            divider = {}
-        ) {
-            TAB_LABELS.forEachIndexed { index, label ->
-                Tab(
-                    selected = selectedTabIndex == index,
-                    onClick = {
-                        selectedTabIndex = index
-                        Log.d("KeyboardLayout", "Tab: $label ($index)")
-                    },
-                    modifier = Modifier.height(TAB_HEIGHT),
-                    text = {
-                        Text(
-                            text = label,
-                            fontSize = 12.sp,
-                            fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Medium
+        if (bridgeMode == BridgeMode.ESSENTIAL) {
+            // Essential 모드: Boot Cluster만 표시 (탭 없이)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(contentHeight)
+            ) {
+                KeyboardBootCluster(onKeyPressed, onKeyReleased, activeKeys)
+            }
+        } else {
+            // Standard 모드: 전체 레이아웃 (3탭)
+            TabRow(
+                selectedTabIndex = selectedTabIndex,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(TAB_HEIGHT),
+                containerColor = Color(0xFF1A1A1A),
+                contentColor = Color(0xFF2196F3),
+                indicator = { tabPositions ->
+                    if (selectedTabIndex < tabPositions.size) {
+                        TabRowDefaults.SecondaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                            color = Color(0xFF2196F3)
                         )
                     }
-                )
+                },
+                divider = {}
+            ) {
+                TAB_LABELS.forEachIndexed { index, label ->
+                    Tab(
+                        selected = selectedTabIndex == index,
+                        onClick = {
+                            selectedTabIndex = index
+                            Log.d("KeyboardLayout", "Tab: $label ($index)")
+                        },
+                        modifier = Modifier.height(TAB_HEIGHT),
+                        text = {
+                            Text(
+                                text = label,
+                                fontSize = 12.sp,
+                                fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(contentHeight)
+            ) {
+                when (selectedTabIndex) {
+                    0 -> KeyboardTabCharacters(onKeyPressed, onKeyReleased, activeKeys)
+                    1 -> KeyboardTabSymbols(onKeyPressed, onKeyReleased, activeKeys)
+                    2 -> KeyboardTabFunction(onKeyPressed, onKeyReleased, activeKeys)
+                }
             }
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(4.dp))
+// ============================================================
+// Essential 모드: Boot Keyboard Cluster
+// ============================================================
+/**
+ * Essential 모드 키보드 레이아웃
+ *
+ * 서버 미연결 상태(Essential 모드)에서 표시되는 최소 키 클러스터.
+ * 탭 없이 단일 레이아웃으로 표시됩니다.
+ *
+ * 레이아웃:
+ * ```
+ * Del  Esc  Enter
+ * F1  F2  F3  F4  F5  F6
+ * F7  F8  F9  F10 F11 F12
+ *             ↑
+ *         ←   ↓   →
+ * ```
+ */
+@Composable
+private fun KeyboardBootCluster(
+    onKeyPressed: (keyCode: UByte) -> Unit,
+    onKeyReleased: (keyCode: UByte) -> Unit,
+    activeKeys: Set<UByte>
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight()
+            .padding(horizontal = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(ROW_SPACING)
+    ) {
+        // Row 1: Del Esc Enter
+        KeyRow(
+            keys = listOf(
+                "Del" to KEY_DELETE, "Esc" to KEY_ESC, "Enter" to KEY_ENTER
+            ),
+            onKeyPressed = onKeyPressed, onKeyReleased = onKeyReleased, activeKeys = activeKeys,
+            modifier = Modifier.weight(1f)
+        )
 
-        // 콘텐츠 영역 (최대 5행 기준 — 기능 탭이 5행)
-        val contentHeight = ROW_HEIGHT * 5 + ROW_SPACING * 4
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(contentHeight)
+        // Row 2: F1-F6
+        KeyRow(
+            keys = listOf(
+                "F1" to KEY_F1, "F2" to KEY_F2, "F3" to KEY_F3,
+                "F4" to KEY_F4, "F5" to KEY_F5, "F6" to KEY_F6
+            ),
+            onKeyPressed = onKeyPressed, onKeyReleased = onKeyReleased, activeKeys = activeKeys,
+            modifier = Modifier.weight(1f)
+        )
+
+        // Row 3: F7-F12
+        KeyRow(
+            keys = listOf(
+                "F7" to KEY_F7, "F8" to KEY_F8, "F9" to KEY_F9,
+                "F10" to KEY_F10, "F11" to KEY_F11, "F12" to KEY_F12
+            ),
+            onKeyPressed = onKeyPressed, onKeyReleased = onKeyReleased, activeKeys = activeKeys,
+            modifier = Modifier.weight(1f)
+        )
+
+        // Row 4: ↑ (가운데 정렬)
+        Row(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
         ) {
-            when (selectedTabIndex) {
-                0 -> KeyboardTabCharacters(onKeyPressed, onKeyReleased, activeKeys)
-                1 -> KeyboardTabSymbols(onKeyPressed, onKeyReleased, activeKeys)
-                2 -> KeyboardTabFunction(onKeyPressed, onKeyReleased, activeKeys)
-            }
+            KeyboardKeyButton(
+                keyLabel = "↑", keyCode = KEY_UP,
+                isActive = KEY_UP in activeKeys,
+                onKeyPressed = { onKeyPressed(KEY_UP) },
+                onKeyReleased = { onKeyReleased(KEY_UP) },
+                modifier = Modifier.size(52.dp).fillMaxHeight()
+            )
+        }
+
+        // Row 5: ← ↓ →
+        Row(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            KeyboardKeyButton(
+                keyLabel = "←", keyCode = KEY_LEFT,
+                isActive = KEY_LEFT in activeKeys,
+                onKeyPressed = { onKeyPressed(KEY_LEFT) },
+                onKeyReleased = { onKeyReleased(KEY_LEFT) },
+                modifier = Modifier.size(52.dp).fillMaxHeight()
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            KeyboardKeyButton(
+                keyLabel = "↓", keyCode = KEY_DOWN,
+                isActive = KEY_DOWN in activeKeys,
+                onKeyPressed = { onKeyPressed(KEY_DOWN) },
+                onKeyReleased = { onKeyReleased(KEY_DOWN) },
+                modifier = Modifier.size(52.dp).fillMaxHeight()
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            KeyboardKeyButton(
+                keyLabel = "→", keyCode = KEY_RIGHT,
+                isActive = KEY_RIGHT in activeKeys,
+                onKeyPressed = { onKeyPressed(KEY_RIGHT) },
+                onKeyReleased = { onKeyReleased(KEY_RIGHT) },
+                modifier = Modifier.size(52.dp).fillMaxHeight()
+            )
         }
     }
 }
