@@ -71,6 +71,32 @@ typedef struct {
     uint16_t keepalive_ms;
 } connection_features_t;
 
+// ==================== 브릿지 모드 열거형 ====================
+
+/**
+ * ESP32-S3 브릿지 동작 모드.
+ *
+ * - ESSENTIAL: 서버 미연결 상태. 기본 마우스 이동 + 좌클릭만 허용.
+ * - STANDARD:  서버 연결 완료 상태. 모든 HID 기능 활성화.
+ *
+ * 모드 전환은 연결 상태 변경에 의해 자동으로 수행됩니다:
+ *   CONN_STATE_CONNECTED 진입 → BRIDGE_MODE_STANDARD
+ *   CONN_STATE_IDLE 진입      → BRIDGE_MODE_ESSENTIAL
+ */
+typedef enum {
+    BRIDGE_MODE_ESSENTIAL,  // 기본 모드 (서버 미연결)
+    BRIDGE_MODE_STANDARD    // 서버 연결 모드
+} bridge_mode_t;
+
+/**
+ * 모드 변경 콜백 함수 포인터 타입.
+ *
+ * @param old_mode 이전 모드
+ * @param new_mode 새로운 모드
+ */
+typedef void (*bridge_mode_change_cb_t)(bridge_mode_t old_mode,
+                                        bridge_mode_t new_mode);
+
 // ==================== 콜백 타입 ====================
 
 /**
@@ -169,5 +195,43 @@ bool connection_state_get_features(connection_features_t *out_features);
  * @return 상태 이름 문자열 (예: "IDLE", "CONNECTED")
  */
 const char *connection_state_name(connection_state_t state);
+
+// ==================== 브릿지 모드 관리 ====================
+
+/**
+ * 현재 브릿지 모드 조회.
+ *
+ * @return 현재 bridge_mode_t 값
+ */
+bridge_mode_t bridge_mode_get(void);
+
+/**
+ * 모드 변경 콜백 등록.
+ *
+ * 모드가 변경될 때 호출되는 콜백을 등록합니다.
+ * Phase 3.5.2에서 HID 필터링 전환에 사용됩니다.
+ *
+ * @param callback 콜백 함수 (NULL이면 콜백 해제)
+ */
+void bridge_mode_on_change(bridge_mode_change_cb_t callback);
+
+/**
+ * 모드 이름 문자열 반환 (디버그/로깅용).
+ *
+ * @param mode 모드 값
+ * @return 모드 이름 문자열 ("ESSENTIAL" 또는 "STANDARD")
+ */
+const char *bridge_mode_name(bridge_mode_t mode);
+
+/**
+ * 수락된 기능 목록에서 특정 기능 지원 여부 조회.
+ *
+ * CONNECTED 상태에서 협상된 accepted_features 중
+ * 지정된 기능이 포함되어 있는지 확인합니다.
+ *
+ * @param feature_name 조회할 기능 이름 (예: "wheel", "drag", "right_click")
+ * @return true: 기능이 수락됨, false: 미수락 또는 CONNECTED 상태 아님
+ */
+bool bridge_mode_is_feature_active(const char *feature_name);
 
 #endif // CONNECTION_STATE_H

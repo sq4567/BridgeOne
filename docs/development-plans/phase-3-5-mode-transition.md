@@ -109,7 +109,7 @@ updated: "2026-03-19"
 
 ---
 
-## Phase 3.5.1: ESP32-S3 모드 상태 관리
+## Phase 3.5.1: ESP32-S3 모드 상태 관리 ✅ 완료
 
 **목표**: 브릿지 모드 열거형 정의 및 모드 전환 트리거 구현
 
@@ -125,15 +125,16 @@ updated: "2026-03-19"
    ```
 2. 모드 관리 함수:
    - `bridge_mode_get()`: 현재 모드 조회
-   - `bridge_mode_set(bridge_mode_t mode)`: 모드 설정 (내부용)
    - `bridge_mode_on_change(callback)`: 모드 변경 콜백 등록
+   - `bridge_mode_name(mode)`: 모드 이름 문자열 반환 (디버그용)
+   - `bridge_mode_is_feature_active(feature_name)`: 개별 기능 활성화 여부 조회
 3. 모드 전환 트리거 연동:
    - `connection_state`의 상태 변경 콜백에서 모드 전환:
      - `CONN_STATE_CONNECTED` 진입 시 → `BRIDGE_MODE_STANDARD`
      - `CONN_STATE_IDLE` 진입 시 → `BRIDGE_MODE_ESSENTIAL`
    - 전환 시 디버그 로그 출력:
-     - "Mode changed: Essential → Standard"
-     - "Mode changed: Standard → Essential"
+     - "Mode changed: ESSENTIAL -> STANDARD"
+     - "Mode changed: STANDARD -> ESSENTIAL"
 4. 수락된 기능 목록 기반 세부 제어:
    - Phase 3.3에서 저장된 `accepted_features`에 따라 기능 활성화
    - 예: `wheel`이 수락되지 않았으면 Standard에서도 wheel=0
@@ -146,12 +147,34 @@ updated: "2026-03-19"
 - `docs/android/styleframe-essential.md` §3 허용/비활성 기능
 
 **검증**:
-- [ ] `bridge_mode_t` 열거형 정의됨
-- [ ] 핸드셰이크 완료 시 Standard 모드 전환 확인 (로그)
-- [ ] Keep-alive 실패 시 Essential 모드 복귀 확인 (로그)
-- [ ] 모드 변경 콜백 정상 호출
-- [ ] 수락된 기능 목록 기반 세부 제어 동작
+- [x] `bridge_mode_t` 열거형 정의됨
+- [x] 핸드셰이크 완료 시 Standard 모드 전환 확인 (로그)
+- [x] Keep-alive 실패 시 Essential 모드 복귀 확인 (로그)
+- [x] 모드 변경 콜백 정상 호출
+- [x] 수락된 기능 목록 기반 세부 제어 동작
 - [ ] `idf.py build` 성공
+
+### ⚠️ Phase 3.5.1 구현에서 적용된 사항 (Phase 3.5.2 영향)
+
+1. **`bridge_mode_set()`가 외부 공개되지 않음 → `bridge_mode_set_internal()`로 내부 전용**:
+   - 모드 전환은 연결 상태 변경에 의해서만 자동 수행됩니다.
+   - Phase 3.5.2에서 모드를 직접 변경할 필요 없이 `bridge_mode_get()`으로 현재 모드만 조회하면 됩니다.
+
+2. **모드 자동 전환이 `connection_state_transition()`/`connection_state_reset()` 내부에서 직접 호출됨**:
+   - 별도의 콜백 등록 방식이 아닌, 상태 전이 함수 내부에서 `bridge_mode_auto_transition()`을 직접 호출합니다.
+   - 이로 인해 `connection_state_on_change()` 단일 콜백 슬롯이 외부 사용자(vendor_cdc_handler 등)에게 온전히 보존됩니다.
+   - 모드 전환은 외부 콜백보다 **먼저** 실행되므로, 외부 콜백에서 `bridge_mode_get()`을 호출하면 이미 전환된 모드를 읽을 수 있습니다.
+
+3. **`bridge_mode_is_feature_active(feature_name)` 헬퍼 함수 추가**:
+   - Phase 3.5.2에서 HID 필터링 시 이 함수로 개별 기능 활성화 여부를 간편히 조회 가능합니다.
+   - Essential 모드 → 항상 `false` 반환
+   - Standard 모드 → `accepted_features`에 해당 기능이 포함되어 있으면 `true`
+   - 사용 예: `bridge_mode_is_feature_active("wheel")`, `bridge_mode_is_feature_active("right_click")`
+   - Phase 3.5.2의 `hid_handler.c`에서 `bridge_mode_get()` + 수동 feature 조회 대신 이 함수 하나로 처리 가능
+
+4. **`bridge_mode_on_change(callback)` 콜백이 제공됨**:
+   - Phase 3.5.2에서 모드 전환 시 눌린 키/버튼 해제 리포트를 전송해야 하는 경우, 이 콜백을 등록하여 전환 시점을 감지할 수 있습니다.
+   - 콜백 시그니처: `void callback(bridge_mode_t old_mode, bridge_mode_t new_mode)`
 
 ---
 

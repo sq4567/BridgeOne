@@ -34,6 +34,17 @@ static connection_features_t s_features;
 /** 기능 협상 결과 유효 플래그 */
 static bool s_features_valid = false;
 
+/** 현재 브릿지 모드 */
+static bridge_mode_t s_bridge_mode = BRIDGE_MODE_ESSENTIAL;
+
+/** 모드 변경 콜백 */
+static bridge_mode_change_cb_t s_mode_change_cb = NULL;
+
+// ==================== 전방 선언 ====================
+
+static void bridge_mode_auto_transition(connection_state_t old_state,
+                                         connection_state_t new_state);
+
 // ==================== 상태 이름 테이블 ====================
 
 static const char *state_names[] = {
@@ -100,8 +111,10 @@ bool connection_state_init(void)
     s_change_cb = NULL;
     s_features_valid = false;
     memset(&s_features, 0, sizeof(s_features));
+    s_bridge_mode = BRIDGE_MODE_ESSENTIAL;
+    s_mode_change_cb = NULL;
 
-    ESP_LOGI(TAG, "Connection state initialized (state=IDLE)");
+    ESP_LOGI(TAG, "Connection state initialized (state=IDLE, mode=ESSENTIAL)");
     return true;
 }
 
@@ -168,6 +181,9 @@ bool connection_state_transition(connection_state_t new_state)
 
     ESP_LOGI(TAG, "State: %s -> %s", state_names[old_state], state_names[new_state]);
 
+    // 모드 자동 전환 (콜백보다 먼저 실행)
+    bridge_mode_auto_transition(old_state, new_state);
+
     // 콜백 호출 (뮤텍스 해제 후 → 데드락 방지)
     if (cb != NULL) {
         cb(old_state, new_state);
@@ -196,6 +212,10 @@ void connection_state_reset(void)
 
     if (old_state != CONN_STATE_IDLE) {
         ESP_LOGI(TAG, "State reset: %s -> IDLE", state_names[old_state]);
+
+        // 모드 자동 전환 (콜백보다 먼저 실행)
+        bridge_mode_auto_transition(old_state, CONN_STATE_IDLE);
+
         if (cb != NULL) {
             cb(old_state, CONN_STATE_IDLE);
         }
@@ -258,4 +278,127 @@ const char *connection_state_name(connection_state_t state)
         return state_names[state];
     }
     return "UNKNOWN";
+}
+
+// ==================== 브릿지 모드 관리 ====================
+
+/** 모드 이름 테이블 */
+static const char *mode_names[] = {
+    [BRIDGE_MODE_ESSENTIAL] = "ESSENTIAL",
+    [BRIDGE_MODE_STANDARD]  = "STANDARD",
+};
+
+/**
+ * 내부 모드 전환 함수.
+ *
+ * 현재 모드와 다른 경우에만 전환하고 콜백을 호출합니다.
+ * 뮤텍스 보호 하에 모드를 변경합니다.
+ *
+ * @param new_mode 전환할 새 모드
+ */
+static void bridge_mode_set_internal(bridge_mode_t new_mode)
+{
+    bridge_mode_t old_mode;
+    bridge_mode_change_cb_t cb = NULL;
+
+    if (s_mutex != NULL && xSemaphoreTake(s_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        old_mode = s_bridge_mode;
+        if (old_mode == new_mode) {
+            xSemaphoreGive(s_mutex);
+            return;
+        }
+        s_bridge_mode = new_mode;
+        cb = s_mode_change_cb;
+        xSemaphoreGive(s_mutex);
+    } else {
+        old_mode = s_bridge_mode;
+        if (old_mode == new_mode) {
+            return;
+        }
+        s_bridge_mode = new_mode;
+        cb = s_mode_change_cb;
+    }
+
+    ESP_LOGI(TAG, "Mode changed: %s -> %s", mode_names[old_mode], mode_names[new_mode]);
+
+    if (cb != NULL) {
+        cb(old_mode, new_mode);
+    }
+}
+
+/**
+ * 연결 상태 변경 시 자동 모드 전환을 수행하는 내부 콜백.
+ *
+ * connection_state_init()에서 connection_state_on_change()로 등록됩니다.
+ * 외부 콜백보다 먼저 등록되어 모드 전환이 우선 처리됩니다.
+ */
+static void bridge_mode_auto_transition(connection_state_t old_state,
+                                         connection_state_t new_state)
+{
+    if (new_state == CONN_STATE_CONNECTED) {
+        bridge_mode_set_internal(BRIDGE_MODE_STANDARD);
+    } else if (new_state == CONN_STATE_IDLE) {
+        bridge_mode_set_internal(BRIDGE_MODE_ESSENTIAL);
+    }
+}
+
+bridge_mode_t bridge_mode_get(void)
+{
+    bridge_mode_t mode;
+
+    if (s_mutex != NULL && xSemaphoreTake(s_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        mode = s_bridge_mode;
+        xSemaphoreGive(s_mutex);
+    } else {
+        mode = s_bridge_mode;
+    }
+
+    return mode;
+}
+
+void bridge_mode_on_change(bridge_mode_change_cb_t callback)
+{
+    if (s_mutex != NULL && xSemaphoreTake(s_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        s_mode_change_cb = callback;
+        xSemaphoreGive(s_mutex);
+    } else {
+        s_mode_change_cb = callback;
+    }
+
+    ESP_LOGI(TAG, "Mode change callback %s",
+             callback != NULL ? "registered" : "cleared");
+}
+
+const char *bridge_mode_name(bridge_mode_t mode)
+{
+    if (mode <= BRIDGE_MODE_STANDARD) {
+        return mode_names[mode];
+    }
+    return "UNKNOWN";
+}
+
+bool bridge_mode_is_feature_active(const char *feature_name)
+{
+    if (feature_name == NULL) {
+        return false;
+    }
+
+    // Essential 모드에서는 확장 기능 비활성
+    if (bridge_mode_get() != BRIDGE_MODE_STANDARD) {
+        return false;
+    }
+
+    // Standard 모드: 수락된 기능 목록에서 조회
+    connection_features_t features;
+    if (!connection_state_get_features(&features)) {
+        return false;
+    }
+
+    for (uint8_t i = 0; i < features.accepted_count; i++) {
+        if (strcmp(features.accepted[i], feature_name) == 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
