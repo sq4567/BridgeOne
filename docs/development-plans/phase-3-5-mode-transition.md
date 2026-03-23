@@ -16,9 +16,11 @@ updated: "2026-03-19"
 **핵심 성과물**:
 - ESP32-S3 모드 상태 관리 (bridge_mode_t)
 - 모드 전환 트리거 및 자동 전환
-- Standard 모드에서 wheel, drag, right_click 활성화
-- Essential 모드에서 wheel=0 강제 및 기능 제한 복귀
+- 모드 전환 시 눌린 키/버튼 자동 해제 (stuck 방지)
 - 전환 중 입력 손실 없음 보장
+- ESP32-S3 → Android 역방향 UART 알림 시스템
+- Android 모드 인지 및 Essential/Standard 모드별 UI 전환
+- Essential 모드 기능 제한은 Android 앱 UI 레벨에서 구현 (펌웨어 필터링 없음)
 
 **선행 조건**: Phase 3.4 (Keep-alive 시스템) 완료
 
@@ -101,9 +103,9 @@ updated: "2026-03-19"
 | 좌클릭 | ✅ UI 제공 | ✅ UI 제공 |
 | 우클릭 | ❌ UI 미표시 | ✅ UI 제공 |
 | 중앙 클릭 | ❌ UI 미표시 | ✅ UI 제공 |
-| 휠 스크롤 | ❌ UI 미표시 (wheel=0 강제) | ✅ UI 제공 |
+| 휠 스크롤 | ❌ UI 미표시 | ✅ UI 제공 |
 | 클릭-드래그 | ❌ UI 미표시 | ✅ UI 제공 |
-| 모든 키보드 키 | ❌ UI 미표시 (Boot 키만) | ✅ UI 제공 |
+| 모든 키보드 키 | ❌ UI 미표시 (기본 키만 표시) | ✅ UI 제공 |
 | 멀티 커서 | ❌ UI 미표시 | ⏳ (Phase 4+) |
 | 매크로 | ❌ UI 미표시 | ⏳ (Phase 4+) |
 
@@ -185,30 +187,11 @@ updated: "2026-03-19"
 **개발 기간**: 1-1.5일
 
 **세부 목표**:
-1. `hid_handler.c`의 프레임 처리 로직 수정:
-   - `processBridgeFrame()` 함수에서 현재 모드 확인
-   - **Essential 모드**:
-     - 마우스 리포트: `wheel = 0` 강제 (프레임의 wheel 값 무시)
-     - 마우스 리포트: `buttons`에서 bit1(우클릭), bit2(중앙클릭) 마스킹 → 좌클릭만 허용
-     - 키보드 리포트: Boot 키만 허용 (Del, Esc, Enter, F1-F12, Arrow) → 그 외 키코드 무시
-   - **Standard 모드**:
-     - 마우스 리포트: 모든 필드 그대로 전달 (wheel, 모든 버튼)
-     - 키보드 리포트: 모든 HID 키코드 허용
-2. Essential 모드 키코드 화이트리스트:
-   ```c
-   static const uint8_t essential_allowed_keycodes[] = {
-       0x4C,  // Delete
-       0x29,  // Escape
-       0x28,  // Enter/Return
-       0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,  // F1-F6
-       0x40, 0x41, 0x42, 0x43, 0x44, 0x45,  // F7-F12
-       0x52,  // Up Arrow
-       0x51,  // Down Arrow
-       0x50,  // Left Arrow
-       0x4F,  // Right Arrow
-   };
-   ```
-3. 모드 전환 시 입력 손실 방지:
+1. `hid_handler.c`의 프레임 처리 로직:
+   - `processBridgeFrame()` 함수는 모드에 관계없이 프레임 값을 **그대로** HID 리포트로 변환하여 전송
+   - **펌웨어에서 Essential 모드 필터링을 하지 않음** — Android 앱이 모드에 따라 UI를 표시/숨김하여 기능을 제어
+   - ESP32-S3는 순수한 브릿지 역할: 받은 프레임을 그대로 HID로 전달
+2. 모드 전환 시 입력 손실 방지:
    - 현재 처리 중인 프레임 완료 후 모드 전환
    - 전환 즉시 키 해제 리포트 전송 (눌린 키가 있는 경우)
    - 전환 즉시 버튼 해제 리포트 전송 (눌린 버튼이 있는 경우)
@@ -224,18 +207,14 @@ updated: "2026-03-19"
 - `src/board/BridgeOne/main/hid_handler.c` - 기존 프레임 처리 로직
 
 **검증**:
-- [x] Essential 모드: wheel=0 강제 확인 (PC에서 스크롤 안 됨)
-- [x] Essential 모드: 우클릭/중앙클릭 무시 확인
-- [x] Essential 모드: Boot 키 이외의 키코드 무시 확인
-- [x] Standard 모드: wheel 값 정상 전달 (PC에서 스크롤 동작)
-- [x] Standard 모드: 모든 버튼/키코드 정상 전달
+- [x] 모든 모드에서 프레임 값이 필터링 없이 그대로 HID 리포트로 전송됨
 - [x] 모드 전환 시 눌린 키/버튼 해제 리포트 전송
 - [x] 모드 전환 중 프레임 손실 없음
-- [x] `idf.py build` 성공
+- [ ] `idf.py build` 성공
 
 ### 📌 Phase 3.5.2 구현 참고 사항
 
-- **Essential 모드 키코드 화이트리스트**: `hid_handler.c`의 `essential_allowed_keycodes[]` 배열. Phase 4+에서 허용 키를 추가하려면 이 배열에 항목 추가 필요.
+- **펌웨어 필터링 없음**: ESP32-S3는 Android 앱으로부터 수신한 프레임을 모드에 관계없이 그대로 HID 리포트로 전달합니다. Essential 모드의 기능 제한은 Android 앱이 해당 UI를 숨김으로써 구현됩니다.
 - **모드 전환 콜백 슬롯 점유**: `bridge_mode_on_change()`에 `hid_on_mode_change()` 콜백이 등록됨. 단일 슬롯이므로 다른 모듈에서 덮어쓰면 입력 해제 기능이 해제됨에 주의.
 - Phase 3.5.3(Windows 서버 UI)에는 직접적인 영향 없음.
 
@@ -305,7 +284,362 @@ updated: "2026-03-19"
 
 ---
 
-## Phase 3.5 E2E 검증
+## Phase 3.5.4: ESP32-S3 → Android 역방향 UART 알림 시스템
+
+**목표**: ESP32-S3가 모드 변경 시 UART TX를 통해 Android에 알림을 전송하고, Android가 이를 수신/파싱하여 현재 모드를 인지
+
+**개발 기간**: 2-2.5일
+
+**선행 조건**: Phase 3.1에서 seq 범위 0~253 제한 완료 (0xFE/0xFF 예약 바이트 확보)
+
+### 역방향 UART 프로토콜
+
+#### 기존 통신 vs 역방향 통신
+
+| 구분 | 기존 (Android → ESP32-S3) | 역방향 (ESP32-S3 → Android) |
+|------|--------------------------|---------------------------|
+| 방향 | Android → ESP32-S3 | ESP32-S3 → Android |
+| 헤더 | seq (0x00~0xFD) | **0xFE** (고정) |
+| 크기 | 8바이트 | 8바이트 (동일) |
+| 용도 | 입력 프레임 (마우스/키보드) | 이벤트 알림 (모드 변경 등) |
+| 빈도 | 120Hz (입력 시) | 이벤트 발생 시만 |
+
+#### 역방향 알림 프레임 구조 (8바이트)
+
+```
+┌────────┬────────────┬────────┬──────────────────────────┐
+│ Header │ Event Type │  Data  │      Reserved (5B)       │
+│  0xFE  │    1B      │   1B   │  0x00 0x00 0x00 0x00 0x00│
+└────────┴────────────┴────────┴──────────────────────────┘
+```
+
+| 필드 | 크기 | 설명 |
+|------|------|------|
+| Header | 1B | **0xFE** 고정 (알림 프레임 식별자) |
+| Event Type | 1B | 이벤트 종류 |
+| Data | 1B | 이벤트별 데이터 |
+| Reserved | 5B | 예약 (0x00 패딩, 향후 확장용) |
+
+#### 이벤트 타입 정의
+
+| Event Type | 이름 | Data 필드 |
+|-----------|------|-----------|
+| 0x01 | MODE_CHANGED | 0x00=Essential, 0x01=Standard |
+| 0x02 | CONNECTION_STATE | 0x00=Disconnected, 0x01=Connecting, 0x02=Connected |
+| 0x03~0x0F | 예약 | 향후 확장용 |
+
+#### 프레임 구분 로직 (Android 수신 측)
+
+Android가 UART에서 8바이트를 수신했을 때:
+1. 첫 바이트가 `0xFE`이면 → **역방향 알림 프레임**
+2. 첫 바이트가 `0x00~0xFD`이면 → 무시
+
+### 세부 목표
+
+#### Part A: ESP32-S3 역방향 UART 전송 (1일)
+
+1. `uart_handler.c/h`에 역방향 전송 함수 추가:
+   ```c
+   /**
+    * ESP32-S3 → Android 알림 프레임 전송
+    * @param event_type 이벤트 종류 (EVENT_MODE_CHANGED 등)
+    * @param data 이벤트 데이터
+    */
+   void uart_send_notification(uint8_t event_type, uint8_t data);
+   ```
+2. 알림 프레임 조립:
+   - 8바이트 버퍼: `{0xFE, event_type, data, 0x00, 0x00, 0x00, 0x00, 0x00}`
+   - `uart_write_bytes()` (ESP-IDF UART API)로 전송
+3. 모드 변경 콜백 연동:
+   - `connection_state.c`의 모드 변경 시 `uart_send_notification()` 호출
+   - Essential → Standard: `uart_send_notification(0x01, 0x01)`
+   - Standard → Essential: `uart_send_notification(0x01, 0x00)`
+4. 알림 전송 신뢰성:
+   - 모드 변경 시 알림을 **3회 반복 전송** (50ms 간격)
+   - Android가 1개라도 수신하면 충분 (중복 수신은 Android에서 처리)
+
+**⚠️ UART 방향 주의**:
+- 기존: Android(TX) → ESP32-S3(RX) 단방향
+- 추가: ESP32-S3(TX) → Android(RX) 역방향
+- UART0 (GPIO43=TX, GPIO44=RX)는 양방향 지원이므로 물리적 변경 불필요
+- Android USB Serial 라이브러리(usb-serial-for-android)는 수신 기능 내장
+
+#### Part B: Android UART 수신 및 알림 파싱 (1-1.5일)
+
+1. `UsbSerialManager`에 UART 수신 기능 추가:
+   - `usb-serial-for-android` 라이브러리의 `SerialInputOutputManager` 활용
+   - 수신 데이터를 8바이트 단위로 프레임 정렬
+2. 프레임 분류:
+   - 첫 바이트 == 0xFE → 역방향 알림 프레임으로 파싱
+   - 그 외 → 무시
+3. 알림 프레임 파서:
+   ```kotlin
+   data class NotificationFrame(
+       val eventType: UByte,
+       val data: UByte
+   ) {
+       companion object {
+           val HEADER: UByte = 0xFEu
+           val EVENT_MODE_CHANGED: UByte = 0x01u
+
+           fun parse(bytes: ByteArray): NotificationFrame? {
+               if (bytes.size < 3 || bytes[0].toUByte() != HEADER) return null
+               return NotificationFrame(
+                   eventType = bytes[1].toUByte(),
+                   data = bytes[2].toUByte()
+               )
+           }
+       }
+   }
+   ```
+4. 중복 알림 처리:
+   - ESP32-S3가 3회 반복 전송하므로 동일 이벤트 중복 수신 가능
+   - 마지막 수신 이벤트와 동일하면 무시 (디바운스)
+
+**수정 파일 (ESP32)**:
+- `src/board/BridgeOne/main/uart_handler.c`: `uart_send_notification()` 함수 추가
+- `src/board/BridgeOne/main/uart_handler.h`: 함수 선언 및 이벤트 타입 상수 정의
+- `src/board/BridgeOne/main/connection_state.c`: 모드 변경 시 알림 전송 호출
+
+**신규 파일 (Android)**:
+- `src/android/app/src/main/java/com/bridgeone/app/protocol/NotificationFrame.kt`
+
+**수정 파일 (Android)**:
+- `src/android/app/src/main/java/com/bridgeone/app/usb/UsbSerialManager.kt`: UART 수신 스레드 추가
+
+**참조 문서 및 섹션**:
+- `src/board/BridgeOne/main/uart_handler.c`: 기존 UART 수신 코드 참조
+- `docs/board/esp32s3-code-implementation-guide.md` §1.3.3 UART 프로토콜
+
+**검증**:
+- [x] ESP32: `uart_send_notification()` 함수 구현됨
+- [x] ESP32: 모드 변경 시 알림 프레임 3회 전송 (50ms 간격)
+- [x] ESP32: 알림 프레임이 8바이트, 0xFE 헤더 확인
+- [x] ESP32: `idf.py build` 성공
+- [x] Android: UART 수신 스레드 정상 동작
+- [x] Android: 0xFE 헤더 알림 프레임 파싱 성공
+- [x] Android: 중복 알림 디바운스 처리
+- [x] Android: Android Studio 빌드 및 실행 성공
+
+---
+
+## Phase 3.5.5: 모드 상태 관리 구현
+
+**목표**: Android 앱에서 `BridgeMode` 열거형을 정의하고, `StateFlow<BridgeMode>`로 모드 상태를 관리하며, ESP32-S3로부터 수신한 알림 프레임을 기반으로 프로덕션 모드 전환 로직을 구현
+
+**개발 기간**: 0.5일
+
+### ⚠️ Phase 3.5.4 구현에서 적용된 사항 (Phase 3.5.5 영향)
+
+1. **`SerialInputOutputManager` 대신 `Thread + port.read()` 방식 사용**:
+   - 계획에서는 `usb-serial-for-android`의 `SerialInputOutputManager` 활용을 언급했으나, 기존 `startSenderThread()` 패턴과 일관성을 위해 `Thread + port.read(100ms 타임아웃)` 방식으로 구현함.
+   - 수신 스레드 이름: `"BridgeOne-UART-Receiver"` (데몬 스레드).
+
+2. **`uart_send_notification()`이 `bridge_mode_on_change()` 콜백이 아닌 `bridge_mode_set_internal()` 내부에서 직접 호출됨**:
+   - `bridge_mode_on_change()` 콜백 슬롯이 이미 Phase 3.5.2에서 `hid_handler.c`의 `hid_on_mode_change()`에 점유되어 있어, 별도 콜백 없이 `bridge_mode_set_internal()` 내에 `uart_send_notification()` 직접 추가.
+   - Phase 3.5.5에서 추가 콜백 등록이 필요한 경우 `bridge_mode_on_change()`는 이미 점유 상태임을 주의.
+
+3. **`UsbSerialManager.lastNotification: StateFlow<NotificationFrame?>` 공개됨**:
+   - Phase 3.5.5에서 Android 모드 상태 관리 시, `UsbSerialManager.lastNotification`을 구독하여 `EVENT_MODE_CHANGED` 수신 시 `BridgeMode`를 업데이트해야 함.
+   - 구독 예: `UsbSerialManager.lastNotification.collect { frame -> if (frame?.eventType == NotificationFrame.EVENT_MODE_CHANGED) { ... } }`
+   - 연결 해제 시 `lastNotification`은 자동으로 초기화되지 않으므로, 포트 닫힘 시 `ESSENTIAL` 모드로 강제 복귀 처리를 Phase 3.5.5에서 별도 구현해야 함.
+
+### 모드 전환 메커니즘 (프로덕션)
+
+- **Windows 서버 연결**: `EVENT_MODE_CHANGED` 알림 프레임 수신 → Standard 모드
+- **Windows 서버 해제**: USB DTR 신호 감지 → Essential 모드
+- **자동 전환**: 사용자 개입 없음
+
+### 세부 목표
+
+1. `BridgeMode` 열거형 정의:
+   ```kotlin
+   enum class BridgeMode {
+       ESSENTIAL,  // 기본 모드 (서버 미연결)
+       STANDARD    // 서버 연결 모드
+   }
+   ```
+2. 모드 상태 관리:
+   - `UsbSerialManager`에 `StateFlow<BridgeMode>` 노출
+   - ~~알림 프레임(EVENT_MODE_CHANGED) 수신 시 모드 업데이트~~ → **Phase 3.5.4에서 `UsbSerialManager.lastNotification: StateFlow<NotificationFrame?>`이 이미 공개됨**. `lastNotification`을 `collect`하여 `EVENT_MODE_CHANGED` 수신 시 `BridgeMode` StateFlow를 업데이트하면 됨.
+   - 앱 시작 시 기본값: `ESSENTIAL`
+   - **추가**: USB 포트 닫힘(연결 해제) 시 `ESSENTIAL` 모드로 강제 복귀 처리 필요 (`lastNotification`은 포트 닫힘 시 자동 초기화되지 않음)
+3. 모드 전환 시 피드백:
+   - 토스트 알림: "Standard 모드로 전환되었습니다" / "Essential 모드로 전환되었습니다"
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/protocol/BridgeMode.kt`
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/usb/UsbSerialManager.kt`: 모드 StateFlow 노출
+- `src/android/app/src/main/java/com/bridgeone/app/ui/BridgeOneApp.kt`: 모드 상태 구독 및 토스트 알림
+
+**검증**:
+- [x] `BridgeMode` enum 정의됨
+- [x] `StateFlow<BridgeMode>` 모드 상태 관리 동작
+- [x] 알림 수신 시 모드 상태 업데이트 (프로덕션 로직)
+- [x] USB 포트 닫힘 시 `ESSENTIAL` 모드로 강제 복귀
+- [x] 모드 전환 시 토스트 알림 표시
+- [x] Android Studio 빌드 및 실행 성공
+
+---
+
+## Phase 3.5.6: 모드별 UI 레이아웃 구현
+
+**목표**: Essential/Standard 모드에 따라 터치패드 및 키보드 UI를 조건부로 표시/숨김 처리
+
+**개발 기간**: 1일
+
+**선행 조건**: Phase 3.5.5 (모드 상태 관리 구현) 완료
+
+### ⚠️ Phase 3.5.5 구현에서 적용된 사항 (Phase 3.5.6 영향)
+
+1. **`UsbSerialManager.bridgeMode: StateFlow<BridgeMode>` 공개됨**:
+   - Phase 3.5.6에서 UI에 모드를 반영할 때 이 StateFlow를 사용합니다.
+   - `BridgeOneApp.kt`에서 이미 `val bridgeMode by UsbSerialManager.bridgeMode.collectAsState()`로 구독 중이므로, `TouchpadPage()`와 `KeyboardPage()`에 `bridgeMode: BridgeMode` 파라미터를 추가하여 전달하는 방식으로 구현하면 됩니다.
+   - 별도의 `ViewModel` 계층 없이 `UsbSerialManager`에서 직접 상태를 읽는 현재 패턴과 일관성을 유지합니다.
+
+2. **앱 시작 시 초기 모드: `ESSENTIAL`**:
+   - `_bridgeMode = MutableStateFlow(BridgeMode.ESSENTIAL)`로 초기화됨.
+   - Phase 3.5.6에서 앱 최초 실행 시 Essential UI가 기본으로 표시되어야 하며, 별도 초기화 코드 불필요.
+
+3. **`BridgeMode` 열거형 위치: `com.bridgeone.app.protocol.BridgeMode`**:
+   - `TouchpadWrapper.kt`, `KeyboardLayout.kt` 수정 시 이 패키지를 import해야 합니다.
+
+### 세부 목표
+
+1. Essential 모드 UI (`styleframe-essential.md` 기반):
+   - **터치패드**: 이동 + 좌클릭만 (현재 구현과 동일)
+   - **키보드**: Boot Keyboard Cluster만 표시 (Del, Esc, Enter, F1-F12, 방향키)
+   - 우클릭, 휠 스크롤, 드래그 UI **미표시**
+2. Standard 모드 UI:
+   - **터치패드**: 이동 + 좌클릭 + 우클릭 버튼 + 휠 스크롤 제스처
+   - **키보드**: 전체 키보드 레이아웃 (현재 KeyboardLayout 구현)
+   - 모든 기능 UI 활성화
+3. UI 레이아웃 즉시 전환 (애니메이션 없음, 안정성 우선)
+
+### 모드별 UI 비교
+
+| UI 요소 | Essential 모드 | Standard 모드 |
+|---------|---------------|--------------|
+| 터치패드 (이동) | ✅ 표시 | ✅ 표시 |
+| 좌클릭 (탭) | ✅ 표시 | ✅ 표시 |
+| 우클릭 버튼 | ❌ 숨김 | ✅ 표시 |
+| 휠 스크롤 | ❌ 숨김 | ✅ 표시 |
+| 드래그 | ❌ 숨김 | ✅ 표시 |
+| 키보드 - Boot Cluster (Del, Esc, Enter, F1-F12, 방향키) | ✅ 표시 | ✅ 표시 |
+| 키보드 - 전체 레이아웃 (문자, 숫자, 특수키) | ❌ 숨김 | ✅ 표시 |
+| 모드 전환 버튼 (터치패드 ↔ 키보드) | ✅ 표시 | ✅ 표시 |
+
+### Essential 모드 레이아웃 (styleframe-essential.md 기반)
+
+```
+┌────────────────────────────────────────────────────────┐
+│  ┌─────────────────────────┐  ┌─────────────────────┐  │
+│  │                         │  │  Boot Keyboard      │  │
+│  │     Touchpad (1:2)      │  │  Cluster            │  │
+│  │                         │  │                     │  │
+│  │  이동 + 좌클릭(탭) 전용  │  │  [Del] ⚡Essential  │  │
+│  │                         │  │  [F1-F12] 컨테이너  │  │
+│  │                         │  │  [Esc] [Enter]      │  │
+│  │                         │  │  [←][↑][→]          │  │
+│  │                         │  │     [↓]             │  │
+│  └─────────────────────────┘  └─────────────────────┘  │
+│                [🖱️ ↔ ⌨️ 전환]                         │
+└────────────────────────────────────────────────────────┘
+```
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`: 우클릭, 휠, 드래그 버튼 모드별 표시/숨김
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/KeyboardLayout.kt`: Essential은 Boot Cluster만, Standard는 전체 레이아웃
+
+**참조 문서 및 섹션**:
+- `docs/android/styleframe-essential.md`: Essential 모드 UI 레이아웃 상세
+- `docs/android/design-guide-app.md`: 모드 전환 UI 가이드
+
+**검증**:
+- [ ] Essential 모드: 우클릭, 휠, 드래그 UI 숨김 확인
+- [ ] Standard 모드: 모든 기능 UI 표시 확인
+- [ ] Essential 모드: Boot Keyboard Cluster만 표시 확인
+- [ ] Standard 모드: 전체 키보드 레이아웃 표시 확인
+- [ ] Android Studio 빌드 및 실행 성공
+
+---
+
+## Phase 3.5.7: 에뮬레이터 검증 및 임시 버튼 정리
+
+**목표**: 에뮬레이터 환경에서 임시 토글 버튼으로 모드 전환 UI를 검증하고, 검증 완료 후 임시 코드 전체 삭제
+
+**개발 기간**: 0.5~1일
+
+**선행 조건**: Phase 3.5.6 (모드별 UI 레이아웃 구현) 완료
+
+**개발 환경**:
+- **실제 하드웨어 불필요**: Android 에뮬레이터만으로 UI 레이아웃 및 전환 로직 검증 가능
+- **임시 토글 버튼**: 이 Phase에서 추가하고, 검증 완료 후 동일 Phase 내에서 삭제
+
+### 1단계: 임시 모드 전환 버튼 추가 (개발 편의용)
+**내용**: 에뮬레이터 환경에서 모드를 수동으로 토글할 수 있는 버튼
+
+**구현**:
+```kotlin
+// BridgeOneApp.kt 상단에 추가 (Debug 용)
+Button(
+    onClick = {
+        viewModel.toggleModeForDevelopment() // 임시 함수
+    },
+    modifier = Modifier.padding(8.dp)
+) {
+    Text("🔄 모드 전환 (개발용)")
+}
+```
+
+**특징**:
+- `@Composable` 레벨에서 조건부로만 표시 (프로덕션 빌드에서 자동 제외 가능)
+- 또는 BUILD_TYPE에 따라 표시 여부 결정
+- 클릭 시 현재 모드의 반대로 즉시 전환
+- 토스트 알림으로 전환 결과 표시
+
+---
+
+### 2단계: 에뮬레이터에서 UI 테스트 및 검증
+**내용**: Android Studio 에뮬레이터에서 모드 전환 및 UI 레이아웃 확인
+
+**테스트 항목**:
+- [ ] 앱 시작 → Essential 모드 기본값 확인
+- [ ] 임시 버튼 클릭 → Standard 모드 UI 전환 확인
+  - 우클릭 버튼 표시
+  - 휠 스크롤 제스처 영역 표시
+  - 전체 키보드 레이아웃 표시
+- [ ] 임시 버튼 다시 클릭 → Essential 모드 UI 전환 확인
+  - 우클릭, 휠 버튼 숨김
+  - Boot Keyboard Cluster만 표시
+- [ ] 모드 전환 시 토스트 알림 "Essential/Standard 모드로 전환되었습니다" 확인
+- [ ] 반복 토글 테스트 (안정성 확인)
+- [ ] Android Studio 에뮬레이터에서 빌드 및 실행 성공
+
+---
+
+### 3단계: 임시 모드 전환 버튼 삭제 (프로덕션 준비)
+**내용**: 에뮬레이터 검증 완료 후 임시 버튼 제거
+
+**삭제 대상**:
+- 1단계에서 추가한 임시 토글 버튼 코드 삭제
+- `viewModel.toggleModeForDevelopment()` 함수 삭제
+- 모든 DEBUG 주석 제거
+
+**남아야 할 것**:
+- `BridgeMode` StateFlow (프로덕션 로직)
+- Windows 서버 연결 시 자동 모드 전환 로직
+- 모드별 UI 레이아웃 (Essential/Standard)
+
+---
+
+## Phase 3.5.8: E2E 검증 (실제 하드웨어)
+
+**사전 조건**: Phase 3.5.7 완료 및 **임시 모드 전환 버튼 삭제 완료** (3단계)
+
+**목표**: 실제 하드웨어(Android 폰 + ESP32-S3 + PC + Windows 서버)를 사용하여 전체 시스템 엔드-투-엔드 검증
 
 ### 🔧 사전 준비
 
@@ -330,18 +664,18 @@ Android 폰 (USB-C)
 
 | 항목 | 준비 내용 | 확인 |
 |------|---------|------|
-| ESP32-S3 펌웨어 | Phase 3.5.2 반영 펌웨어가 플래시되어 있는지 확인 | [ ] |
-| Android 앱 | 최신 APK가 설치되어 있고 실행 가능한지 확인 | [ ] |
-| Windows 서버 | `dotnet build` 완료, 실행 파일 위치 파악 | [ ] |
-| 메모장 (또는 텍스트 에디터) | PC에서 키보드 입력 확인용으로 열어둠 | [ ] |
+| ESP32-S3 펌웨어 | Phase 3.5.4 반영 펌웨어가 플래시되어 있는지 확인 (역방향 UART 포함) | [ ] |
+| Android 앱 | Phase 3.5.7 반영 APK가 설치되어 있고 모드별 UI 전환이 동작하는지 확인 | [ ] |
+| Windows 서버 | `dotnet build` 완료, 실행 파일 위치 파악 | [x] |
+| 메모장 (또는 텍스트 에디터) | PC에서 키보드 입력 확인용으로 열어둠 | [x] |
 
 #### 초기 상태 확인
 
 테스트 시작 전 아래 상태가 모두 갖춰져야 합니다:
 
-- [ ] Android 앱 실행 → "Connected" 상태 표시
-- [ ] Windows 서버 **미실행** 상태 (이 시점에서 ESP32는 Essential 모드)
-- [ ] PC 장치 관리자에서 HID 마우스 + HID 키보드 인식 확인
+- [x] Android 앱 실행 → "Connected" 상태 표시
+- [x] Windows 서버 **미실행** 상태 (이 시점에서 ESP32는 Essential 모드)
+- [x] PC 장치 관리자에서 HID 마우스 + HID 키보드 인식 확인
 
 #### 확인 창 설정 (단일 창 원칙)
 
@@ -354,9 +688,13 @@ Android 폰 (USB-C)
 
 ---
 
-### 테스트 1: Essential 모드 기능 제한 확인
+### 테스트 1: Essential 모드 기본 동작 확인
 
-**목표**: 서버 미연결 상태(Essential 모드)에서 제한된 기능만 PC에 전달되는지 확인
+**목표**: 서버 미연결 상태(Essential 모드)에서 Android 앱이 제공하는 기본 기능이 PC에 정상 전달되는지 확인
+
+> ℹ️ **Essential 모드의 기능 제한 원리**: 펌웨어가 입력을 차단하는 것이 아닙니다.
+> Android 앱이 Essential 모드에서 우클릭, 휠 스크롤 등의 **UI를 표시하지 않으므로** 해당 프레임 자체가 생성되지 않습니다.
+> 따라서 이 테스트는 Essential 모드에서 **표시되는 UI 기능**이 정상 동작하는지를 검증합니다.
 
 **사전 조건**:
 - Windows 서버 **미실행**
@@ -369,19 +707,16 @@ Android 폰 (USB-C)
 |------|------|---------|------|
 | 1 | Android 터치패드에서 손가락을 움직인다 | PC 커서가 따라 움직인다 | [ ] |
 | 2 | Android 터치패드를 짧게 탭한다 (좌클릭) | 메모장에 커서가 찍힌다 | [ ] |
-| 3 | Android에서 **우클릭 버튼**을 누른다 | PC에서 우클릭 컨텍스트 메뉴가 **나타나지 않는다** | [ ] |
-| 4 | Android에서 **휠 스크롤**을 시도한다 | 메모장이 **스크롤되지 않는다** | [ ] |
-| 5 | Android에서 **방향키(↑↓←→)** 를 누른다 | 메모장에서 커서가 이동한다 (Boot 키 → 허용) | [ ] |
-| 6 | Android에서 **Esc** 키를 누른다 | 메모장에서 Esc 동작 발생 (Boot 키 → 허용) | [ ] |
-| 7 | Android에서 **일반 문자 키 (A, B 등)** 를 누른다 | 메모장에 문자가 **입력되지 않는다** (Boot 키 아님 → 차단) | [ ] |
+| 3 | Android UI에 우클릭, 휠 스크롤 등 고급 기능 버튼이 **표시되지 않음**을 확인한다 | Essential 모드에서는 해당 UI가 숨겨져 있다 | [ ] |
+| 4 | Android에서 **방향키(↑↓←→)** 를 누른다 | 메모장에서 커서가 이동한다 | [ ] |
+| 5 | Android에서 **Esc** 키를 누른다 | 메모장에서 Esc 동작 발생 | [ ] |
 
 **성공 기준**:
-- 순서 1~2: 마우스 이동 + 좌클릭 정상 동작 (Essential에서 허용)
-- 순서 3~4: 우클릭, 휠 스크롤 차단 확인
-- 순서 5~6: Boot 키 정상 동작
-- 순서 7: 일반 키코드 차단 확인
+- 순서 1~2: 마우스 이동 + 좌클릭 정상 동작
+- 순서 3: Essential 모드에서 고급 기능 UI가 숨겨져 있음
+- 순서 4~5: 기본 키보드 키 정상 동작
 
-**롤백 기준**: 우클릭이나 휠이 PC에 전달됨 → `hid_handler.c`의 Essential 모드 필터링 로직 재검토
+**롤백 기준**: 기본 기능(마우스 이동, 좌클릭, 방향키)이 PC에 전달되지 않음 → HID 리포트 전송 로직 확인
 
 ---
 
@@ -407,16 +742,16 @@ Android 폰 (USB-C)
 
 **성공 기준**:
 - 순서 2~3: 서버 연결 시 Standard 모드 자동 전환 + 활성 기능 목록 표시
-- 순서 4~6: Essential에서 차단되었던 기능(휠, 우클릭, 일반 키)이 모두 동작
+- 순서 4~6: Standard 모드에서 새로 표시된 UI 기능(휠, 우클릭, 일반 키)이 모두 동작
 - 순서 7: 기존 기능(마우스 이동)도 영향 없이 정상
 
-**롤백 기준**: 서버 연결 후에도 휠/우클릭이 동작하지 않음 → `bridge_mode_is_feature_active()` 로직 및 `accepted_features` 확인
+**롤백 기준**: 서버 연결 후에도 휠/우클릭 UI가 표시되지 않음 → Android 앱의 모드별 UI 전환 로직 확인
 
 ---
 
 ### 테스트 3: Standard → Essential 복귀
 
-**목표**: Windows 서버 종료 → ESP32가 Essential 모드로 자동 복귀 → 기능 제한 재적용
+**목표**: Windows 서버 종료 → ESP32가 Essential 모드로 자동 복귀 → Android 앱 UI가 Essential 레이아웃으로 전환
 
 **사전 조건**:
 - 테스트 2 완료 상태 (서버 실행 중, Standard 모드)
@@ -427,19 +762,18 @@ Android 폰 (USB-C)
 |------|------|---------|------|
 | 1 | Windows 서버 프로세스를 **강제 종료**한다 (작업 관리자 → BridgeOne.exe → 작업 끝내기) | 서버 UI가 닫힌다 | [ ] |
 | 2 | **즉시** Android 터치패드에서 손가락을 움직인다 | PC 커서가 **계속 움직인다** (HID는 서버 무관) | [ ] |
-| 3 | Android에서 **휠 스크롤**을 시도한다 | 메모장이 **스크롤되지 않는다** (Essential 복귀) | [ ] |
-| 4 | Android에서 **우클릭 버튼**을 누른다 | 우클릭 메뉴가 **나타나지 않는다** | [ ] |
-| 5 | Android에서 **방향키(↑↓←→)** 를 누른다 | 메모장에서 커서가 **이동한다** (Boot 키 → 허용) | [ ] |
-| 6 | Android에서 **일반 문자 키 (A 등)** 를 누른다 | 메모장에 **입력되지 않는다** (차단) | [ ] |
+| 3 | Android 앱 UI를 확인한다 | 우클릭, 휠 스크롤 등 고급 기능 UI가 **숨겨져** Essential 레이아웃으로 복귀 | [ ] |
+| 4 | Android에서 **방향키(↑↓←→)** 를 누른다 | 메모장에서 커서가 **이동한다** | [ ] |
+| 5 | Android 터치패드를 짧게 탭한다 (좌클릭) | 메모장에 커서가 찍힌다 | [ ] |
 
 > ℹ️ **순서 1→2 사이에 별도 대기 시간 없음**: 서버 종료 시 DTR=false가 즉시 발생하고, ESP32는 `connection_state_reset()` → `BRIDGE_MODE_ESSENTIAL` 전환이 < 1ms에 완료됩니다.
 
 **성공 기준**:
 - 순서 2: 마우스 이동이 끊기지 않음 (HID USB 연결은 유지되므로)
-- 순서 3~4, 6: Essential 모드 기능 제한이 즉시 재적용됨
-- 순서 5: Boot 키는 여전히 동작
+- 순서 3: Android 앱이 Essential 레이아웃으로 전환됨 (고급 기능 UI 숨김)
+- 순서 4~5: 기본 기능 정상 동작
 
-**롤백 기준**: 서버 종료 후에도 휠/우클릭이 계속 동작함 → `connection_state_reset()` → `bridge_mode_auto_transition()` 호출 체인 확인
+**롤백 기준**: 서버 종료 후에도 Android 앱이 Standard 레이아웃을 유지함 → Android 앱의 모드 전환 감지 로직 확인
 
 ---
 
@@ -505,7 +839,7 @@ Android 폰 (USB-C)
 
 | 테스트 | 검증 내용 | 결과 | 통과 | 비고 |
 |--------|---------|------|------|------|
-| 1. Essential 기능 제한 | 우클릭/휠/일반키 차단, 좌클릭/Boot키 허용 | | [ ] | |
+| 1. Essential 기본 동작 | 기본 기능 정상 동작, 고급 기능 UI 숨김 확인 | | [ ] | |
 | 2. Essential → Standard | 서버 연결 → 모든 기능 활성화 | | [ ] | |
 | 3. Standard → Essential | 서버 종료 → 기능 제한 즉시 재적용 | | [ ] | |
 | 4. 전환 중 입력 연속성 | 모드 전환 시 커서 끊김 없음 | | [ ] | |
@@ -522,7 +856,11 @@ Android 폰 (USB-C)
 
 **Phase 3.5 완료 시 달성되는 상태**:
 - ✅ Essential ↔ Standard 자동 모드 전환 완성
-- ✅ Standard 모드에서 wheel, drag, right_click 활성화
-- ✅ Essential 모드에서 기능 제한 복귀 (BIOS 호환성 유지)
+- ✅ ESP32-S3는 순수 브릿지 역할 (모드에 관계없이 프레임을 그대로 HID로 전달)
+- ✅ Essential 모드 기능 제한은 Android 앱 UI 레벨에서 구현
+- ✅ 모드 전환 시 눌린 키/버튼 자동 해제 (stuck 방지)
 - ✅ 모드 전환 시 입력 손실 없음
-- ✅ Phase 3.6 (Android 모드 인지)의 선행 조건 충족
+- ✅ ESP32-S3 → Android 역방향 UART 알림 통신 구축
+- ✅ Android 앱이 모드를 인지하고 Essential/Standard UI 자동 전환
+- ✅ 3개 컴포넌트(Android, ESP32-S3, Windows) 모두 현재 모드 인지
+- ✅ Phase 4 (고급 기능: 멀티 커서, 매크로, 확장 키보드)의 통신 기반 완성

@@ -29,60 +29,6 @@
 // ==================== 로깅 설정 ====================
 static const char* TAG = "HID_HANDLER";
 
-// ==================== Essential 모드 키코드 화이트리스트 ====================
-
-/**
- * @brief Essential 모드에서 허용되는 키코드 목록
- *
- * 서버 미연결(Essential) 상태에서는 BIOS/기본 조작에 필요한
- * 최소한의 키만 허용합니다:
- * - Delete, Escape, Enter
- * - F1~F12 (기능키)
- * - 방향키 (Up, Down, Left, Right)
- */
-static const uint8_t essential_allowed_keycodes[] = {
-    0x4C,  // Delete
-    0x29,  // Escape
-    0x28,  // Enter/Return
-    0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,  // F1-F6
-    0x40, 0x41, 0x42, 0x43, 0x44, 0x45,  // F7-F12
-    0x52,  // Up Arrow
-    0x51,  // Down Arrow
-    0x50,  // Left Arrow
-    0x4F,  // Right Arrow
-};
-
-/** Essential 모드 허용 키코드 개수 */
-#define ESSENTIAL_KEYCODE_COUNT \
-    (sizeof(essential_allowed_keycodes) / sizeof(essential_allowed_keycodes[0]))
-
-/**
- * @brief Essential 모드에서 허용된 키코드인지 확인
- *
- * @param keycode HID 키코드
- * @return true: 허용된 키코드, false: 차단할 키코드
- */
-static bool is_essential_keycode_allowed(uint8_t keycode)
-{
-    if (keycode == 0x00) return true;  // 0은 "키 없음"이므로 항상 허용
-
-    for (size_t i = 0; i < ESSENTIAL_KEYCODE_COUNT; i++) {
-        if (essential_allowed_keycodes[i] == keycode) {
-            return true;
-        }
-    }
-    return false;
-}
-
-// ==================== Essential 모드 마우스 버튼 마스크 ====================
-
-/**
- * @brief Essential 모드에서 허용되는 마우스 버튼 마스크
- *
- * bit0(좌클릭)만 허용, bit1(우클릭)/bit2(중앙클릭) 차단
- */
-#define ESSENTIAL_MOUSE_BUTTON_MASK  0x01
-
 // ==================== 전역 상태 저장소 ====================
 
 /**
@@ -576,58 +522,31 @@ void processBridgeFrame(const bridge_frame_t* frame) {
         return;
     }
 
-    // ==================== 모드별 필터링 적용 ====================
-    bridge_mode_t current_mode = bridge_mode_get();
-
-    // 프레임 값을 로컬 변수에 복사 (필터링 적용 위해)
-    uint8_t filtered_modifier = frame->modifier;
-    uint8_t filtered_keycode1 = frame->keycode1;
-    uint8_t filtered_keycode2 = frame->keycode2;
-    uint8_t filtered_buttons  = frame->buttons;
-    int8_t  filtered_wheel    = frame->wheel;
-
-    if (current_mode == BRIDGE_MODE_ESSENTIAL) {
-        // --- Essential 모드 필터링 ---
-
-        // 마우스: wheel=0 강제, 좌클릭만 허용
-        filtered_wheel = 0;
-        filtered_buttons = filtered_buttons & ESSENTIAL_MOUSE_BUTTON_MASK;
-
-        // 키보드: 화이트리스트에 없는 키코드 차단
-        if (!is_essential_keycode_allowed(filtered_keycode1)) {
-            filtered_keycode1 = 0x00;
-        }
-        if (!is_essential_keycode_allowed(filtered_keycode2)) {
-            filtered_keycode2 = 0x00;
-        }
-    }
-    // Standard 모드: 모든 값 그대로 통과 (필터링 없음)
-
     // ==================== Keyboard 리포트 생성 및 전송 ====================
     // 조건: 이전 상태와 다를 때 (키 눌림 AND 키 해제 모두 감지)
-    bool kb_changed = (filtered_modifier != prev_kb_modifier) ||
-                      (filtered_keycode1 != prev_kb_keycode1) ||
-                      (filtered_keycode2 != prev_kb_keycode2);
+    bool kb_changed = (frame->modifier != prev_kb_modifier) ||
+                      (frame->keycode1 != prev_kb_keycode1) ||
+                      (frame->keycode2 != prev_kb_keycode2);
 
     if (kb_changed) {
         // Boot Protocol Keyboard 리포트 구성 (8바이트)
         hid_keyboard_report_t kb_report = {
-            .modifier = filtered_modifier,  // 바이트 0: Ctrl/Shift/Alt/GUI
+            .modifier = frame->modifier,    // 바이트 0: Ctrl/Shift/Alt/GUI
             .reserved = 0,                  // 바이트 1: 예약 필드 (0x00)
             .keycode = {                    // 바이트 2-7: 키 코드 배열 (6-Key Rollover)
-                filtered_keycode1,          // 첫 번째 키 코드
-                filtered_keycode2,          // 두 번째 키 코드
+                frame->keycode1,            // 첫 번째 키 코드
+                frame->keycode2,            // 두 번째 키 코드
                 0, 0, 0, 0                  // 나머지는 0 (미사용)
             }
         };
 
         if (sendKeyboardReport(&kb_report)) {
             // 전송 성공 시에만 이전 상태 업데이트
-            prev_kb_modifier = filtered_modifier;
-            prev_kb_keycode1 = filtered_keycode1;
-            prev_kb_keycode2 = filtered_keycode2;
+            prev_kb_modifier = frame->modifier;
+            prev_kb_keycode1 = frame->keycode1;
+            prev_kb_keycode2 = frame->keycode2;
             ESP_LOGD(TAG, "Keyboard state changed: mod=0x%02x, k1=0x%02x, k2=0x%02x",
-                     filtered_modifier, filtered_keycode1, filtered_keycode2);
+                     frame->modifier, frame->keycode1, frame->keycode2);
         } else {
             ESP_LOGW(TAG, "Failed to send keyboard report (seq=%d)", frame->seq);
         }
@@ -635,23 +554,23 @@ void processBridgeFrame(const bridge_frame_t* frame) {
 
     // ==================== Mouse 리포트 생성 및 전송 ====================
     // 조건: 이동/휠이 있거나, 버튼 상태가 변경될 때
-    bool mouse_has_movement = (frame->x != 0 || frame->y != 0 || filtered_wheel != 0);
-    bool mouse_button_changed = (filtered_buttons != prev_mouse_buttons);
+    bool mouse_has_movement = (frame->x != 0 || frame->y != 0 || frame->wheel != 0);
+    bool mouse_button_changed = (frame->buttons != prev_mouse_buttons);
 
     if (mouse_has_movement || mouse_button_changed) {
         // Boot Protocol Mouse 리포트 구성 (4바이트)
         hid_mouse_report_t mouse_report = {
-            .buttons = filtered_buttons,    // 바이트 0: Left/Right/Middle 버튼 (필터링됨)
+            .buttons = frame->buttons,      // 바이트 0: Left/Right/Middle 버튼
             .x = frame->x,                  // 바이트 1: X축 상대 이동 (-127~127)
             .y = frame->y,                  // 바이트 2: Y축 상대 이동 (-127~127)
-            .wheel = filtered_wheel         // 바이트 3: 휠 스크롤 (Essential 시 0)
+            .wheel = frame->wheel           // 바이트 3: 휠 스크롤
         };
 
         if (sendMouseReport(&mouse_report)) {
             // 버튼 상태 변경 시에만 이전 상태 업데이트
             if (mouse_button_changed) {
-                prev_mouse_buttons = filtered_buttons;
-                ESP_LOGD(TAG, "Mouse button state changed: btn=0x%02x", filtered_buttons);
+                prev_mouse_buttons = frame->buttons;
+                ESP_LOGD(TAG, "Mouse button state changed: btn=0x%02x", frame->buttons);
             }
         } else {
             ESP_LOGW(TAG, "Failed to send mouse report (seq=%d)", frame->seq);
@@ -659,11 +578,11 @@ void processBridgeFrame(const bridge_frame_t* frame) {
     }
 
     // 디버그 로그: 처리된 프레임 정보
-    ESP_LOGD(TAG, "Bridge frame processed: seq=%d, mode=%s, kb=[mod=0x%02x, k1=0x%02x, k2=0x%02x], "
+    ESP_LOGD(TAG, "Bridge frame processed: seq=%d, kb=[mod=0x%02x, k1=0x%02x, k2=0x%02x], "
              "mouse=[btn=0x%02x, x=%d, y=%d, wheel=%d]",
-             frame->seq, bridge_mode_name(current_mode),
-             filtered_modifier, filtered_keycode1, filtered_keycode2,
-             filtered_buttons, frame->x, frame->y, filtered_wheel);
+             frame->seq,
+             frame->modifier, frame->keycode1, frame->keycode2,
+             frame->buttons, frame->x, frame->y, frame->wheel);
 }
 
 // ==================== HID 태스크 ====================

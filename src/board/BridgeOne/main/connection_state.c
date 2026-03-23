@@ -14,6 +14,7 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 #include <string.h>
+#include "uart_handler.h"
 
 static const char *TAG = "CONN_STATE";
 
@@ -320,6 +321,12 @@ static void bridge_mode_set_internal(bridge_mode_t new_mode)
     }
 
     ESP_LOGI(TAG, "Mode changed: %s -> %s", mode_names[old_mode], mode_names[new_mode]);
+
+    // ESP32-S3 → Android 역방향 알림 전송 (Phase 3.5.4)
+    uint8_t notify_data = (new_mode == BRIDGE_MODE_STANDARD)
+                          ? UART_MODE_STANDARD
+                          : UART_MODE_ESSENTIAL;
+    uart_send_notification(UART_EVENT_MODE_CHANGED, notify_data);
 
     if (cb != NULL) {
         cb(old_mode, new_mode);

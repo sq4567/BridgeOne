@@ -274,3 +274,39 @@ void uart_task(void* param) {
         esp_task_wdt_reset();
     }
 }
+
+/**
+ * ESP32-S3 → Android 역방향 알림 프레임 전송.
+ *
+ * 동작:
+ * 1. 8바이트 알림 프레임 조립: { 0xFE, event_type, data, 0x00 * 5 }
+ * 2. uart_write_bytes()로 즉시 전송
+ * 3. 50ms 대기 후 동일 프레임 재전송 (총 3회)
+ *
+ * 3회 반복 전송 이유: Android가 1개라도 수신하면 충분.
+ * 중복 수신은 Android 앱에서 디바운스로 처리합니다.
+ *
+ * @param event_type 이벤트 종류 (UART_EVENT_* 상수)
+ * @param data       이벤트 데이터
+ */
+void uart_send_notification(uint8_t event_type, uint8_t data)
+{
+    uint8_t buf[8] = {
+        UART_NOTIFY_HEADER,  // 바이트 0: 0xFE (역방향 알림 식별자)
+        event_type,          // 바이트 1: 이벤트 종류
+        data,                // 바이트 2: 이벤트 데이터
+        0x00, 0x00, 0x00, 0x00, 0x00  // 바이트 3~7: 예약 (패딩)
+    };
+
+    for (int i = 0; i < 3; i++) {
+        int written = uart_write_bytes(UART_NUM, (const char *)buf, sizeof(buf));
+        if (written != (int)sizeof(buf)) {
+            ESP_LOGW(TAG, "uart_send_notification: partial write (%d/%u bytes)", written, sizeof(buf));
+        }
+        if (i < 2) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+    }
+
+    ESP_LOGI(TAG, "Notification sent (x3): event=0x%02X, data=0x%02X", event_type, data);
+}

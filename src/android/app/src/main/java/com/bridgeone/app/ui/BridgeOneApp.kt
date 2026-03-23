@@ -52,7 +52,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import com.bridgeone.app.R
+import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.theme.BridgeOneTheme
 import com.bridgeone.app.ui.theme.TextPrimary
 import com.bridgeone.app.ui.components.TouchpadWrapper
@@ -74,9 +76,26 @@ import kotlinx.coroutines.delay
 fun BridgeOneApp() {
     val context = LocalContext.current
     val debugState by UsbSerialManager.debugState.collectAsState()
+    val bridgeMode by UsbSerialManager.bridgeMode.collectAsState()
 
     // 디버그 패널 표시 여부 (기본: 표시)
     var showDebugPanel by remember { mutableStateOf(true) }
+
+    // Phase 3.5.5: 브릿지 모드 전환 시 토스트 알림
+    // 앱 시작 직후 초기값(ESSENTIAL)에 의한 토스트를 방지하기 위해 최초 1회 건너뜀
+    var isFirstMode by remember { mutableStateOf(true) }
+    LaunchedEffect(bridgeMode) {
+        if (isFirstMode) {
+            isFirstMode = false
+            return@LaunchedEffect
+        }
+        val message = when (bridgeMode) {
+            BridgeMode.STANDARD -> "Standard 모드로 전환되었습니다"
+            BridgeMode.ESSENTIAL -> "Essential 모드로 전환되었습니다"
+        }
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        Log.i("BridgeOneApp", "BridgeMode toast: $message")
+    }
 
     // 주기적으로 USB 상태 스캔 (2초마다)
     LaunchedEffect(Unit) {

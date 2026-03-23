@@ -5,6 +5,8 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.util.Log
 import com.bridgeone.app.protocol.BridgeFrame
+import com.bridgeone.app.protocol.BridgeMode
+import com.bridgeone.app.protocol.NotificationFrame
 import com.bridgeone.app.usb.UsbConstants
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
@@ -194,6 +196,7 @@ object UsbSerialManager {
 
             isConnected = true
             startSenderThread()
+            startReceiverThread()
             Log.d(TAG, "USB Serial port opened successfully: ${device.deviceName} (1Mbps, 8N1)")
 
         } catch (e: Exception) {
@@ -227,8 +230,13 @@ object UsbSerialManager {
             Log.e(TAG, "Error closing USB Serial port: ${e.message}", e)
         } finally {
             stopSenderThread()
+            stopReceiverThread()
             usbSerialPort = null
             isConnected = false
+            // Phase 3.5.5: 포트 닫힘 시 ESSENTIAL 모드로 강제 복귀
+            // lastNotification은 자동 초기화되지 않으므로 bridgeMode를 직접 초기화
+            _bridgeMode.value = BridgeMode.ESSENTIAL
+            Log.d(TAG, "BridgeMode reset to ESSENTIAL on port close")
         }
     }
 
@@ -288,6 +296,36 @@ object UsbSerialManager {
      * - UsbConstants.kt: DELTA_FRAME_SIZE, USB_WRITE_TIMEOUT_MS 상수
      * - usb-serial-for-android: UsbSerialPort.write() API
      */
+    // ========== 역방향 수신 상태 (Phase 3.5.4) ==========
+
+    /**
+     * ESP32-S3로부터 수신한 최신 알림 프레임.
+     * 모드 변경 알림 수신 시 업데이트됩니다.
+     */
+    private val _lastNotification = MutableStateFlow<NotificationFrame?>(null)
+    val lastNotification: StateFlow<NotificationFrame?> = _lastNotification.asStateFlow()
+
+    // ========== 브릿지 모드 상태 (Phase 3.5.5) ==========
+
+    /**
+     * 현재 브릿지 동작 모드.
+     * - ESSENTIAL: 기본 모드 (Windows 서버 미연결)
+     * - STANDARD: 서버 연결 완료 모드
+     *
+     * 전환 조건:
+     * - EVENT_MODE_CHANGED(Standard) 알림 수신 → STANDARD
+     * - USB 포트 닫힘 → ESSENTIAL (강제 복귀)
+     */
+    private val _bridgeMode = MutableStateFlow(BridgeMode.ESSENTIAL)
+    val bridgeMode: StateFlow<BridgeMode> = _bridgeMode.asStateFlow()
+
+    /**
+     * 수신 전용 백그라운드 스레드.
+     * 포트가 열릴 때 시작, 닫힐 때 종료.
+     */
+    @Volatile
+    private var receiverThread: Thread? = null
+
     // ========== 비동기 전송 큐 (Phase 2.3.6) ==========
 
     /**
@@ -362,6 +400,76 @@ object UsbSerialManager {
         senderThread?.interrupt()
         senderThread = null
         frameQueue.clear()
+    }
+
+    /**
+     * 수신 스레드를 시작합니다.
+     * 포트가 열린 후 호출됩니다.
+     */
+    private fun startReceiverThread() {
+        stopReceiverThread()
+        receiverThread = Thread({
+            Log.d(TAG, "Receiver thread started")
+            val buf = ByteArray(NotificationFrame.FRAME_SIZE)
+            var lastEventType: UByte? = null
+            var lastData: UByte? = null
+
+            while (!Thread.currentThread().isInterrupted) {
+                try {
+                    val port = usbSerialPort
+                    if (port == null || !isConnected) {
+                        Thread.sleep(50)
+                        continue
+                    }
+
+                    // 8바이트 수신 시도 (100ms 타임아웃)
+                    val len = port.read(buf, 100)
+                    if (len != NotificationFrame.FRAME_SIZE) continue
+
+                    // 알림 프레임 파싱 (첫 바이트가 0xFE인지 확인)
+                    val frame = NotificationFrame.parse(buf) ?: continue
+
+                    // 중복 알림 디바운스 (동일 이벤트+데이터 연속 수신 무시)
+                    if (frame.eventType == lastEventType && frame.data == lastData) continue
+                    lastEventType = frame.eventType
+                    lastData = frame.data
+
+                    Log.i(TAG, "Notification received: eventType=0x${frame.eventType.toString(16)}, data=0x${frame.data.toString(16)}")
+                    _lastNotification.value = frame
+
+                    // Phase 3.5.5: EVENT_MODE_CHANGED 수신 시 BridgeMode 업데이트
+                    if (frame.eventType == NotificationFrame.EVENT_MODE_CHANGED) {
+                        val newMode = when (frame.data) {
+                            NotificationFrame.MODE_STANDARD -> BridgeMode.STANDARD
+                            else -> BridgeMode.ESSENTIAL
+                        }
+                        _bridgeMode.value = newMode
+                        Log.i(TAG, "BridgeMode changed: ${_bridgeMode.value} → $newMode")
+                    }
+
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                } catch (e: IOException) {
+                    Log.w(TAG, "IOException in receiver thread: ${e.message}")
+                    Thread.sleep(100)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Unexpected error in receiver thread: ${e.message}", e)
+                }
+            }
+            Log.d(TAG, "Receiver thread stopped")
+        }, "BridgeOne-UART-Receiver").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    /**
+     * 수신 스레드를 중지합니다.
+     */
+    private fun stopReceiverThread() {
+        receiverThread?.interrupt()
+        receiverThread = null
     }
 
     fun sendFrame(frame: BridgeFrame) {

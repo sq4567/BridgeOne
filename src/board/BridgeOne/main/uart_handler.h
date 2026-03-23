@@ -95,4 +95,33 @@ void uart_task(void* param);
  */
 extern QueueHandle_t frame_queue;
 
+/**
+ * 역방향 UART 알림 프레임 상수 (ESP32-S3 → Android).
+ *
+ * 역방향 알림 프레임은 8바이트 고정이며, 첫 바이트는 항상 0xFE입니다.
+ * Android는 첫 바이트로 일반 프레임(0x00~0xFD)과 알림 프레임(0xFE)을 구분합니다.
+ */
+#define UART_NOTIFY_HEADER          0xFEu   /**< 역방향 알림 프레임 식별자 */
+#define UART_EVENT_MODE_CHANGED     0x01u   /**< 이벤트: 브릿지 모드 변경 */
+#define UART_MODE_ESSENTIAL         0x00u   /**< 데이터: Essential 모드 */
+#define UART_MODE_STANDARD          0x01u   /**< 데이터: Standard 모드 */
+
+/**
+ * ESP32-S3 → Android 역방향 알림 프레임 전송.
+ *
+ * 8바이트 알림 프레임을 UART TX로 전송합니다.
+ * 신뢰성을 위해 동일 프레임을 3회 반복 전송합니다 (50ms 간격).
+ * Android는 중복 수신 시 디바운스 처리합니다.
+ *
+ * 프레임 구조: { 0xFE, event_type, data, 0x00, 0x00, 0x00, 0x00, 0x00 }
+ *
+ * 사용 예:
+ *   uart_send_notification(UART_EVENT_MODE_CHANGED, UART_MODE_STANDARD);
+ *   uart_send_notification(UART_EVENT_MODE_CHANGED, UART_MODE_ESSENTIAL);
+ *
+ * @param event_type  이벤트 종류 (UART_EVENT_* 상수)
+ * @param data        이벤트 데이터 (이벤트별 의미 다름)
+ */
+void uart_send_notification(uint8_t event_type, uint8_t data);
+
 #endif // UART_HANDLER_H
