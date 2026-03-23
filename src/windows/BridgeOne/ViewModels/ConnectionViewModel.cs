@@ -66,6 +66,7 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ModeDisplayText))]
     [NotifyPropertyChangedFor(nameof(ModeBrush))]
+    [NotifyPropertyChangedFor(nameof(IsActiveFeaturesVisible))]
     private Esp32Mode _esp32Mode = Esp32Mode.Unknown;
 
     [ObservableProperty]
@@ -73,6 +74,18 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private string _reconnectStatusText = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActiveFeaturesText))]
+    private string[] _activeFeatures = [];
+
+    /// <summary>활성 기능 목록 표시 텍스트 (예: "wheel, drag, right_click")</summary>
+    public string ActiveFeaturesText => ActiveFeatures.Length > 0
+        ? string.Join(", ", ActiveFeatures)
+        : "--";
+
+    /// <summary>활성 기능 목록 표시 여부 (Standard 모드에서만)</summary>
+    public bool IsActiveFeaturesVisible => Esp32Mode == Esp32Mode.Standard && ActiveFeatures.Length > 0;
 
     // ==================== Computed Properties ====================
 
@@ -229,7 +242,8 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
                 AppendDebugLog($"  모드: {result.Mode}");
                 AppendDebugLog($"  수락된 기능: [{string.Join(", ", result.AcceptedFeatures)}]");
 
-                // 핸드셰이크 성공 → Standard 모드
+                // 핸드셰이크 성공 → 활성 기능 목록 저장 및 Standard 모드
+                ActiveFeatures = result.AcceptedFeatures;
                 Esp32Mode = Esp32Mode.Standard;
 
                 // 핸드셰이크 성공 → Keep-alive 자동 시작
@@ -295,6 +309,7 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
             LastRttMs = -1;
             AverageRttMs = -1;
             ConnectionQuality = ConnectionQuality.Unknown;
+            ActiveFeatures = [];
             Esp32Mode = Esp32Mode.Unknown;
             IsReconnecting = false;
             ReconnectStatusText = string.Empty;
@@ -372,6 +387,7 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
             AppendDebugLog("[Keep-alive] 연결 끊김 감지 → 자동 재연결 시작");
             LastRttMs = -1;
             AverageRttMs = -1;
+            ActiveFeatures = [];
             Esp32Mode = Esp32Mode.Disconnected;
             IsReconnecting = true;
         });

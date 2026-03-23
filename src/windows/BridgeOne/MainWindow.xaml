@@ -211,6 +211,17 @@
                                            VerticalAlignment="Center" />
                             </StackPanel>
 
+                            <!-- 활성 기능 목록 (Standard 모드에서만 표시) -->
+                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
+                                        Visibility="{Binding Connection.IsActiveFeaturesVisible, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="기능: "
+                                           FontSize="12"
+                                           Foreground="#999999" />
+                                <TextBlock Text="{Binding Connection.ActiveFeaturesText}"
+                                           FontSize="12"
+                                           Foreground="#10B981" />
+                            </StackPanel>
+
                             <!-- RTT 표시 -->
                             <TextBlock Text="{Binding Connection.RttDisplayText}"
                                        FontSize="13"
