@@ -8,6 +8,8 @@ import com.bridgeone.app.protocol.BridgeFrame
 import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.protocol.NotificationFrame
 import com.bridgeone.app.usb.UsbConstants
+import com.hoho.android.usbserial.driver.CdcAcmSerialDriver
+import com.hoho.android.usbserial.driver.ProbeTable
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import java.io.IOException
@@ -168,10 +170,21 @@ object UsbSerialManager {
                 closePort()
             }
 
-            // UsbSerialProber로 드라이버 찾기
-            val driver = UsbSerialProber.getDefaultProber()
-                .probeDevice(device)
+            // CH343P용 CdcAcmSerialDriver 강제 지정 (Phase 3.5.8)
+            // CH343P(0x1A86:0x55D3)는 CDC-ACM 디바이스이지만,
+            // 라이브러리 기본 프로버가 Ch34xSerialDriver로 매핑함.
+            // Ch34x 벤더 프로토콜은 쓰기만 되고 읽기(ESP32→Android)가 안 됨.
+            // CdcAcmSerialDriver를 사용해야 양방향 통신이 정상 동작.
+            val customTable = ProbeTable()
+            customTable.addProduct(
+                UsbConstants.ESP32_S3_VID,  // 0x1A86
+                UsbConstants.ESP32_S3_PID,  // 0x55D3
+                CdcAcmSerialDriver::class.java
+            )
+            val driver = UsbSerialProber(customTable).probeDevice(device)
+                ?: UsbSerialProber.getDefaultProber().probeDevice(device)
                 ?: throw IllegalStateException("No USB Serial driver found for device: ${device.deviceName}")
+            Log.i(TAG, "USB Serial driver: ${driver.javaClass.simpleName}")
 
             // 첫 번째 포트 획득
             val port = driver.ports.firstOrNull()
@@ -193,6 +206,13 @@ object UsbSerialManager {
                 UsbConstants.UART_STOP_BITS,   // 1 stop bit
                 UsbConstants.UART_PARITY       // No parity (0)
             )
+
+            // DTR/RTS 신호 설정 (Phase 3.5.8)
+            // CH343P 칩은 호스트가 DTR을 설정하지 않으면
+            // UART RX → USB IN 방향의 데이터 전달을 보류할 수 있음.
+            // ESP32 → Android 역방향 알림 수신을 위해 필수.
+            port.setDTR(true)
+            port.setRTS(true)
 
             isConnected = true
             startSenderThread()
@@ -424,6 +444,13 @@ object UsbSerialManager {
 
                     // 8바이트 수신 시도 (100ms 타임아웃)
                     val len = port.read(buf, 100)
+                    if (len > 0) {
+                        Log.d(TAG, "Receiver: read $len bytes: ${buf.take(len).joinToString(" ") { "0x%02X".format(it) }}")
+                    }
+                    if (len > 0 && len != NotificationFrame.FRAME_SIZE) {
+                        Log.w(TAG, "Receiver: partial read ($len bytes), discarding: ${buf.take(len).joinToString(" ") { "0x%02X".format(it) }}")
+                        continue
+                    }
                     if (len != NotificationFrame.FRAME_SIZE) continue
 
                     // 알림 프레임 파싱 (첫 바이트가 0xFE인지 확인)
@@ -439,12 +466,13 @@ object UsbSerialManager {
 
                     // Phase 3.5.5: EVENT_MODE_CHANGED 수신 시 BridgeMode 업데이트
                     if (frame.eventType == NotificationFrame.EVENT_MODE_CHANGED) {
+                        val oldMode = _bridgeMode.value
                         val newMode = when (frame.data) {
                             NotificationFrame.MODE_STANDARD -> BridgeMode.STANDARD
                             else -> BridgeMode.ESSENTIAL
                         }
                         _bridgeMode.value = newMode
-                        Log.i(TAG, "BridgeMode changed: ${_bridgeMode.value} → $newMode")
+                        Log.i(TAG, "BridgeMode changed: $oldMode → $newMode")
                     }
 
                 } catch (e: InterruptedException) {
@@ -452,7 +480,7 @@ object UsbSerialManager {
                     break
                 } catch (e: IOException) {
                     Log.w(TAG, "IOException in receiver thread: ${e.message}")
-                    Thread.sleep(100)
+                    try { Thread.sleep(100) } catch (ie: InterruptedException) { Thread.currentThread().interrupt(); break }
                 } catch (e: Exception) {
                     Log.e(TAG, "Unexpected error in receiver thread: ${e.message}", e)
                 }
