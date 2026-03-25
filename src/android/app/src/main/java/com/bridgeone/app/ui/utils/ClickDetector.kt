@@ -314,6 +314,42 @@ object ClickDetector {
     }
 
     /**
+     * 휠 스크롤 프레임을 생성합니다 (Standard 모드 전용).
+     *
+     * @param wheelDelta 휠 이동량 (-128 ~ 127, 양수=위, 음수=아래)
+     * @return BridgeFrame 객체
+     */
+    fun createWheelFrame(wheelDelta: Byte): BridgeFrame {
+        return FrameBuilder.buildFrame(
+            buttons = 0u,
+            deltaX = 0,
+            deltaY = 0,
+            wheel = wheelDelta,
+            modifiers = 0u,
+            keyCode1 = 0u,
+            keyCode2 = 0u
+        )
+    }
+
+    /**
+     * 우클릭 프레임을 생성합니다 (Standard 모드 전용 버튼).
+     *
+     * @param pressed true=버튼 누름, false=버튼 해제
+     * @return BridgeFrame 객체
+     */
+    fun createRightClickFrame(pressed: Boolean): BridgeFrame {
+        return FrameBuilder.buildFrame(
+            buttons = if (pressed) RIGHT_CLICK else NO_CLICK,
+            deltaX = 0,
+            deltaY = 0,
+            wheel = 0,
+            modifiers = 0u,
+            keyCode1 = 0u,
+            keyCode2 = 0u
+        )
+    }
+
+    /**
      * 생성된 BridgeFrame을 UART로 비동기로 전송합니다.
      *
      * UsbSerialManager.sendFrame()을 호출하여 USB Serial 포트를 통해

@@ -566,27 +566,82 @@ Android가 UART에서 8바이트를 수신했을 때:
 
 ---
 
-## Phase 3.5.7: 에뮬레이터 검증 및 임시 버튼 정리 ✅ 완료
+## Phase 3.5.7: 모드별 UI 재구성 및 Standard 기능 구현
 
-**완료일**: 2026-03-24
+**목표**: Essential 페이지를 스타일프레임 문서(`styleframe-essential.md`) 기반으로 재구성하고, Standard 모드에 휠 스크롤/우클릭 기능을 구현
 
-**검증 결과**:
-- [x] 앱 시작 → Essential 모드 기본값 확인
-- [x] 임시 토글 버튼으로 Standard 모드 전환 → 3탭 키보드 레이아웃 표시 확인
-- [x] Essential 모드 복귀 → Boot Cluster만 표시 확인
-- [x] 모드 전환 토스트 알림 정상 동작
-- [x] 반복 토글 안정성 확인
-- [x] 임시 코드 전체 삭제 완료 (toggleModeForDevelopment 함수 + 임시 버튼 UI)
+**개발 기간**: 0.5일
 
-**비고**:
-- 터치패드 UI는 모드에 따른 차이가 아직 없음 (우클릭/휠 미구현) → 키보드 전환만 검증
-- UI 디자인은 디자인 가이드 기반으로 별도 Phase에서 진행 예정
+**세부 목표**:
+1. `BridgeOneApp.kt` 전면 재구성:
+   - 기존 전환 버튼 기반 단일 구조 → 모드별 독립 페이지 (`EssentialModePage`, `StandardModePage`)
+   - Essential 모드: 2열 구조 (터치패드 72% + Boot Keyboard Cluster 28%), 전환 버튼 없음
+   - Standard 모드: 2열 구조 (터치패드 72% + 컨트롤 패널 28%) + 키보드 전환 버튼
+2. Essential Boot Keyboard Cluster (스타일프레임 §2.2 기반):
+   - ⚡Del (최상단 강조)
+   - F1-F12 (4×3 그리드 직접 표시)
+   - Esc / Enter
+   - D-Pad 방향키 (weight 기반 반응형)
+3. Standard 컨트롤 패널 (프로토타입):
+   - 휠 Up/Down 버튼 → `ClickDetector.createWheelFrame()` 호출
+   - 우클릭 버튼 → `ClickDetector.createRightClickFrame()` 호출
+   - Esc / Enter + D-Pad
+   - 하단 전환 버튼으로 3탭 풀 키보드 접근
+4. `ClickDetector.kt`에 프레임 생성 메서드 추가:
+   - `createWheelFrame(wheelDelta: Byte)`: 휠 스크롤 프레임
+   - `createRightClickFrame(pressed: Boolean)`: 우클릭 전용 프레임
+5. `TouchpadWrapper.kt`: Essential 모드에서 롱프레스 우클릭 비활성화 (LEFT_CLICK으로 대체)
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/BridgeOneApp.kt`: 전면 재구성
+- `src/android/app/src/main/java/com/bridgeone/app/ui/utils/ClickDetector.kt`: 메서드 추가
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`: Essential 모드 우클릭 제한
+
+**참조 문서**:
+- `docs/android/styleframe-essential.md` §2 레이아웃 구조, §3 허용/비활성 기능
+
+**검증** (코드/빌드 수준 — UI 표시 확인은 Phase 3.5.8에서 수행):
+- [x] `EssentialModePage`, `StandardModePage` Composable 함수 구현됨
+- [x] `EssentialBootCluster`: ⚡Del, F1-F12 (4×3), Esc/Enter, D-Pad 컴포넌트 구성됨
+- [x] `StandardControlPanel`: 휠 Up/Down, 우클릭, Esc/Enter, D-Pad 컴포넌트 구성됨
+- [x] `ClickDetector.createWheelFrame()`, `createRightClickFrame()` 메서드 추가됨
+- [x] `TouchpadWrapper`: Essential 모드 롱프레스 우클릭 → 좌클릭 대체 로직 구현됨
+- [x] `MainContent()`에서 `BridgeMode`에 따라 `EssentialModePage` / `StandardModePage` 분기됨
+- [x] Android Studio 빌드 성공 (컴파일 에러 없음)
 
 ---
 
-## Phase 3.5.8: E2E 검증 (실제 하드웨어)
+## Phase 3.5.8: 에뮬레이터 검증 및 임시 모드 전환 버튼
 
-**사전 조건**: Phase 3.5.7 완료 및 **임시 모드 전환 버튼 삭제 완료** (3단계)
+**목표**: 임시 모드 전환 버튼을 추가하여 ESP32 연결 없이 에뮬레이터에서 Essential/Standard 모드 UI를 전환하며 검증한 뒤, 검증 완료 후 임시 코드를 삭제
+
+**선행 조건**: Phase 3.5.7 (모드별 UI 재구성 및 Standard 기능 구현) 완료
+
+**세부 목표**:
+1. 임시 모드 전환 기능 추가:
+   - `UsbSerialManager`에 `toggleModeForDevelopment()` 함수 추가 (Essential ↔ Standard 토글)
+   - 디버그 패널 또는 화면 상단에 임시 전환 버튼 배치
+2. 에뮬레이터에서 두 모드의 UI 검증
+3. 검증 완료 후 임시 코드 전체 삭제
+
+**검증**:
+- [ ] 임시 토글 버튼 동작 확인 (Essential ↔ Standard 전환)
+- [ ] Essential 모드: 2열 레이아웃 (터치패드 + Boot Cluster) 정상 표시
+- [ ] Essential 모드: F1-F12 4×3 그리드, ⚡Del, Esc, Enter, 방향키 표시 확인
+- [ ] Essential 모드: 우클릭/휠 UI 미표시 확인
+- [ ] Standard 모드: 2열 레이아웃 (터치패드 + 컨트롤 패널) 정상 표시
+- [ ] Standard 모드: 휠 Up/Down, 우클릭 버튼 표시 확인
+- [ ] Standard 모드: 키보드 전환 버튼 → 3탭 풀 키보드 레이아웃 표시 확인
+- [ ] 모드 전환 토스트 알림 정상 동작
+- [ ] 반복 전환 안정성 확인 (크래시/레이아웃 깨짐 없음)
+- [ ] 임시 코드 전체 삭제 완료 (`toggleModeForDevelopment` 함수 + 임시 버튼 UI)
+- [ ] Android Studio 빌드 및 에뮬레이터 실행 성공
+
+---
+
+## Phase 3.5.9: E2E 검증 (실제 하드웨어)
+
+**사전 조건**: Phase 3.5.7 완료 (모드별 UI 재구성) 및 Phase 3.5.8 완료 (에뮬레이터 검증)
 
 **목표**: 실제 하드웨어(Android 폰 + ESP32-S3 + PC + Windows 서버)를 사용하여 전체 시스템 엔드-투-엔드 검증
 
@@ -613,18 +668,18 @@ Android 폰 (USB-C)
 
 | 항목 | 준비 내용 | 확인 |
 |------|---------|------|
-| ESP32-S3 펌웨어 | Phase 3.5.4 반영 펌웨어가 플래시되어 있는지 확인 (역방향 UART 포함) | [x] |
-| Android 앱 | Phase 3.5.7 반영 APK가 설치되어 있고 모드별 UI 전환이 동작하는지 확인 | [x] |
-| Windows 서버 | `dotnet build` 완료, 실행 파일 위치 파악 | [x] |
-| 메모장 (또는 텍스트 에디터) | PC에서 키보드 입력 확인용으로 열어둠 | [x] |
+| ESP32-S3 펌웨어 | Phase 3.5.4 반영 펌웨어가 플래시되어 있는지 확인 (역방향 UART 포함) | [ ] |
+| Android 앱 | Phase 3.5.7 반영 APK가 설치되어 있고 모드별 UI 전환이 동작하는지 확인 | [ ] |
+| Windows 서버 | `dotnet build` 완료, 실행 파일 위치 파악 | [ ] |
+| 메모장 (또는 텍스트 에디터) | PC에서 키보드 입력 확인용으로 열어둠 | [ ] |
 
 #### 초기 상태 확인
 
 테스트 시작 전 아래 상태가 모두 갖춰져야 합니다:
 
-- [x] Android 앱 실행 → "Connected" 상태 표시
-- [x] Windows 서버 **미실행** 상태 (이 시점에서 ESP32는 Essential 모드)
-- [x] PC 장치 관리자에서 HID 마우스 + HID 키보드 인식 확인
+- [ ] Android 앱 실행 → "Connected" 상태 표시
+- [ ] Windows 서버 **미실행** 상태 (이 시점에서 ESP32는 Essential 모드)
+- [ ] PC 장치 관리자에서 HID 마우스 + HID 키보드 인식 확인
 
 #### 확인 창 설정 (단일 창 원칙)
 
@@ -654,11 +709,11 @@ Android 폰 (USB-C)
 
 | 순서 | 동작 | 예상 결과 | 확인 |
 |------|------|---------|------|
-| 1 | Android 터치패드에서 손가락을 움직인다 | PC 커서가 따라 움직인다 | [x] |
-| 2 | Android 터치패드를 짧게 탭한다 (좌클릭) | 메모장에 커서가 찍힌다 | [x] |
-| 3 | Android UI에 우클릭, 휠 스크롤 등 고급 기능 버튼이 **표시되지 않음**을 확인한다 | Essential 모드에서는 해당 UI가 숨겨져 있다 | [x] |
-| 4 | Android에서 **방향키(↑↓←→)** 를 누른다 | 메모장에서 커서가 이동한다 | [x] |
-| 5 | Android에서 **Esc** 키를 누른다 | 메모장에서 Esc 동작 발생 | [x] |
+| 1 | Android 터치패드에서 손가락을 움직인다 | PC 커서가 따라 움직인다 | [ ] |
+| 2 | Android 터치패드를 짧게 탭한다 (좌클릭) | 메모장에 커서가 찍힌다 | [ ] |
+| 3 | Android UI에 우클릭, 휠 스크롤 등 고급 기능 버튼이 **표시되지 않음**을 확인한다 | Essential 모드에서는 해당 UI가 숨겨져 있다 | [ ] |
+| 4 | Android에서 **방향키(↑↓←→)** 를 누른다 | 메모장에서 커서가 이동한다 | [ ] |
+| 5 | Android에서 **Esc** 키를 누른다 | 메모장에서 Esc 동작 발생 | [ ] |
 
 **성공 기준**:
 - 순서 1~2: 마우스 이동 + 좌클릭 정상 동작

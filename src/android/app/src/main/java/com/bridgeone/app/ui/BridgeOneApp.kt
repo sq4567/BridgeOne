@@ -2,32 +2,24 @@ package com.bridgeone.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import android.content.Context
@@ -46,19 +38,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import android.widget.Toast
-import com.bridgeone.app.R
 import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.theme.BridgeOneTheme
-import com.bridgeone.app.ui.theme.TextPrimary
 import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.components.KeyboardLayout
+import com.bridgeone.app.ui.components.KeyboardKeyButton
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.usb.UsbSerialManager
 import com.bridgeone.app.usb.UsbDebugState
@@ -66,11 +58,29 @@ import com.bridgeone.app.usb.UsbDeviceInfo
 import android.util.Log
 import kotlinx.coroutines.delay
 
+// ============================================================
+// HID 키 코드 상수 (Essential/Standard 공용)
+// ============================================================
+private val KEY_ENTER = 0x28.toUByte()
+private val KEY_ESC = 0x29.toUByte()
+private val KEY_DELETE = 0x4C.toUByte()
+private val KEY_F1 = 0x3A.toUByte(); private val KEY_F2 = 0x3B.toUByte()
+private val KEY_F3 = 0x3C.toUByte(); private val KEY_F4 = 0x3D.toUByte()
+private val KEY_F5 = 0x3E.toUByte(); private val KEY_F6 = 0x3F.toUByte()
+private val KEY_F7 = 0x40.toUByte(); private val KEY_F8 = 0x41.toUByte()
+private val KEY_F9 = 0x42.toUByte(); private val KEY_F10 = 0x43.toUByte()
+private val KEY_F11 = 0x44.toUByte(); private val KEY_F12 = 0x45.toUByte()
+private val KEY_RIGHT = 0x4F.toUByte()
+private val KEY_LEFT = 0x50.toUByte()
+private val KEY_DOWN = 0x51.toUByte()
+private val KEY_UP = 0x52.toUByte()
+
+// ============================================================
+// 최상위 Composable
+// ============================================================
+
 /**
  * BridgeOne 앱의 최상위 Composable 함수입니다.
- *
- * 이 함수는 앱의 전체 레이아웃과 테마를 정의합니다.
- * Material3 테마와 Pretendard 폰트가 적용되며, 다크 테마만 지원합니다.
  */
 @Composable
 fun BridgeOneApp() {
@@ -78,11 +88,9 @@ fun BridgeOneApp() {
     val debugState by UsbSerialManager.debugState.collectAsState()
     val bridgeMode by UsbSerialManager.bridgeMode.collectAsState()
 
-    // 디버그 패널 표시 여부 (기본: 표시)
     var showDebugPanel by remember { mutableStateOf(true) }
 
     // Phase 3.5.5: 브릿지 모드 전환 시 토스트 알림
-    // 앱 시작 직후 초기값(ESSENTIAL)에 의한 토스트를 방지하기 위해 최초 1회 건너뜀
     var isFirstMode by remember { mutableStateOf(true) }
     LaunchedEffect(bridgeMode) {
         if (isFirstMode) {
@@ -105,7 +113,6 @@ fun BridgeOneApp() {
         }
     }
 
-    // 전체 화면을 채우는 배경
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -130,7 +137,6 @@ fun BridgeOneApp() {
                     .padding(top = 32.dp)
             )
         } else {
-            // 디버그 패널 열기 버튼 (접었을 때)
             Text(
                 text = "🔍 USB Debug",
                 color = Color.Gray,
@@ -144,124 +150,577 @@ fun BridgeOneApp() {
     }
 }
 
-/**
- * 앱의 메인 콘텐츠를 렌더링합니다.
- *
- * 버튼을 사용하여 터치패드와 키보드를 전환합니다.
- * 사용자는 하단의 전환 버튼을 터치하여 두 입력 방식을 전환할 수 있습니다.
- *
- * Phase 2.4: 버튼 기반 UI 전환
- */
+// ============================================================
+// MainContent: 모드별 페이지 분기
+// ============================================================
+
 @Composable
 private fun MainContent() {
-    // 현재 표시 모드 상태 (0: 터치패드, 1: 키보드)
-    var currentMode by remember { mutableStateOf(0) }
+    val bridgeMode by UsbSerialManager.bridgeMode.collectAsState()
 
-    // 활성 키 상태 관리 (키보드의 다중 입력 시각화용)
+    when (bridgeMode) {
+        BridgeMode.ESSENTIAL -> EssentialModePage()
+        BridgeMode.STANDARD -> StandardModePage()
+    }
+}
+
+// ============================================================
+// Essential 모드 페이지
+// ============================================================
+
+/**
+ * Essential 모드 페이지 (스타일프레임 문서 기반)
+ *
+ * 2열 구조: 좌측 터치패드(72%) + 우측 Boot Keyboard Cluster(28%)
+ * 전환 버튼 없음, 단일 뷰로 구성
+ */
+@Composable
+private fun EssentialModePage() {
     val activeKeys = remember { mutableStateOf(setOf<UByte>()) }
 
-    // 활성 수정자 키 추적 (BridgeFrame 생성용)
-    val activeModifierKeys = remember { mutableStateOf(setOf<UByte>()) }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.Bottom
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.75f),  // 화면 하단 75%만 사용, 상단 25% 여백
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 좌측: 터치패드 (72%)
+            TouchpadWrapper(
+                bridgeMode = BridgeMode.ESSENTIAL,
+                modifier = Modifier
+                    .weight(0.72f)
+                    .fillMaxHeight()
+            )
 
+            // 우측: Boot Keyboard Cluster (28%)
+            EssentialBootCluster(
+                activeKeys = activeKeys,
+                modifier = Modifier
+                    .weight(0.28f)
+                    .fillMaxHeight()
+            )
+        }
+    }
+}
+
+/**
+ * Essential Boot Keyboard Cluster (스타일프레임 §2.2 기반)
+ *
+ * 레이아웃:
+ * ```
+ * [Del] ⚡ (Essential 진입용, 최상단 강조)
+ * [F1-F12]  (컨테이너 버튼 → 팝업 3×4)
+ * [Esc] [Enter]
+ *       [↑]
+ *   [←] [↓] [→]
+ * ```
+ */
+@Composable
+private fun EssentialBootCluster(
+    activeKeys: MutableState<Set<UByte>>,
+    modifier: Modifier = Modifier
+) {
+    var showFKeyPopup by remember { mutableStateOf(false) }
+
+    // 키 전송 콜백
+    val onKeyPressed: (UByte) -> Unit = { keyCode ->
+        activeKeys.value = activeKeys.value + keyCode
+        try {
+            val frame = ClickDetector.createKeyboardFrame(
+                activeModifierKeys = emptySet(),
+                keyCode1 = keyCode
+            )
+            ClickDetector.sendFrame(frame)
+        } catch (e: Exception) {
+            Log.e("EssentialBootCluster", "Failed to send key: ${e.message}", e)
+        }
+    }
+
+    val onKeyReleased: (UByte) -> Unit = { keyCode ->
+        activeKeys.value = activeKeys.value - keyCode
+        try {
+            val frame = ClickDetector.createKeyboardFrame(
+                activeModifierKeys = emptySet(),
+                keyCode1 = 0u
+            )
+            ClickDetector.sendFrame(frame)
+        } catch (e: Exception) {
+            Log.e("EssentialBootCluster", "Failed to send release: ${e.message}", e)
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .background(Color(0xFF121212), RoundedCornerShape(12.dp))
+            .padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // [Del] — Essential 진입용 강조 (최상단)
+        KeyboardKeyButton(
+            keyLabel = "⚡Del",
+            keyCode = KEY_DELETE,
+            isActive = KEY_DELETE in activeKeys.value,
+            onKeyPressed = { onKeyPressed(KEY_DELETE) },
+            onKeyReleased = { onKeyReleased(KEY_DELETE) },
+            modifier = Modifier.fillMaxWidth().weight(1.2f)
+        )
+
+        // [F1-F12] 컨테이너 버튼 (탭 → 팝업)
+        Button(
+            onClick = { showFKeyPopup = true },
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3)),
+            shape = RoundedCornerShape(6.dp)
+        ) {
+            Text("F1-F12", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
+
+        // [Esc] [Enter] 행
+        Row(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            KeyboardKeyButton(
+                keyLabel = "Esc", keyCode = KEY_ESC,
+                isActive = KEY_ESC in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_ESC) },
+                onKeyReleased = { onKeyReleased(KEY_ESC) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+            KeyboardKeyButton(
+                keyLabel = "Enter", keyCode = KEY_ENTER,
+                isActive = KEY_ENTER in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_ENTER) },
+                onKeyReleased = { onKeyReleased(KEY_ENTER) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+        }
+
+        // D-Pad: [　][↑][　]
+        Row(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Spacer(Modifier.weight(1f))
+            KeyboardKeyButton(
+                keyLabel = "↑", keyCode = KEY_UP,
+                isActive = KEY_UP in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_UP) },
+                onKeyReleased = { onKeyReleased(KEY_UP) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+            Spacer(Modifier.weight(1f))
+        }
+
+        // D-Pad: [←][↓][→]
+        Row(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            KeyboardKeyButton(
+                keyLabel = "←", keyCode = KEY_LEFT,
+                isActive = KEY_LEFT in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_LEFT) },
+                onKeyReleased = { onKeyReleased(KEY_LEFT) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+            KeyboardKeyButton(
+                keyLabel = "↓", keyCode = KEY_DOWN,
+                isActive = KEY_DOWN in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_DOWN) },
+                onKeyReleased = { onKeyReleased(KEY_DOWN) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+            KeyboardKeyButton(
+                keyLabel = "→", keyCode = KEY_RIGHT,
+                isActive = KEY_RIGHT in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_RIGHT) },
+                onKeyReleased = { onKeyReleased(KEY_RIGHT) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+        }
+    }
+
+    // F1-F12 팝업 다이얼로그 (3×4 그리드)
+    if (showFKeyPopup) {
+        FKeyPopupDialog(
+            activeKeys = activeKeys.value,
+            onKeyTap = { keyCode ->
+                onKeyPressed(keyCode)
+                onKeyReleased(keyCode)
+                showFKeyPopup = false  // 키 입력 후 자동 닫힘
+            },
+            onDismiss = { showFKeyPopup = false }
+        )
+    }
+}
+
+/**
+ * F1-F12 팝업 다이얼로그 (스타일프레임 §2.2 기반)
+ *
+ * 3×4 그리드로 표시. 키 탭 → 해당 키 입력 → 팝업 자동 닫힘.
+ */
+@Composable
+private fun FKeyPopupDialog(
+    activeKeys: Set<UByte>,
+    onKeyTap: (UByte) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val fKeys = listOf(
+        "F1" to KEY_F1, "F2" to KEY_F2, "F3" to KEY_F3,
+        "F4" to KEY_F4, "F5" to KEY_F5, "F6" to KEY_F6,
+        "F7" to KEY_F7, "F8" to KEY_F8, "F9" to KEY_F9,
+        "F10" to KEY_F10, "F11" to KEY_F11, "F12" to KEY_F12
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .background(Color(0xFF1E1E2E), RoundedCornerShape(12.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                "Function Keys",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(4.dp))
+
+            // 3×4 그리드 (F1-F3 / F4-F6 / F7-F9 / F10-F12)
+            fKeys.chunked(3).forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    row.forEach { (label, keyCode) ->
+                        KeyboardKeyButton(
+                            keyLabel = label,
+                            keyCode = keyCode,
+                            isActive = keyCode in activeKeys,
+                            onKeyPressed = { onKeyTap(keyCode) },
+                            onKeyReleased = { /* 자동 닫힘이므로 별도 해제 불필요 */ },
+                            modifier = Modifier.weight(1f).height(48.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// Standard 모드 페이지 (프로토타입)
+// ============================================================
+
+/**
+ * Standard 모드 페이지 (프로토타입)
+ *
+ * Essential과 유사한 2열 구조 + 하단 키보드 전환 버튼
+ * - 터치패드 뷰: 좌측 터치패드(72%) + 우측 컨트롤 패널(28%)
+ * - 키보드 뷰: 전체 3탭 키보드 레이아웃
+ */
+@Composable
+private fun StandardModePage() {
+    var showKeyboard by remember { mutableStateOf(false) }
+    val activeKeys = remember { mutableStateOf(setOf<UByte>()) }
+    val activeModifierKeys = remember { mutableStateOf(setOf<UByte>()) }
     val context = LocalContext.current
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.Bottom,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 메인 콘텐츠 영역 (위쪽)
-        val bridgeMode by UsbSerialManager.bridgeMode.collectAsState()
+        // 메인 콘텐츠 영역
         Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .fillMaxHeight(0.75f),  // 화면 하단 75%만 사용, 상단 25% 여백
             contentAlignment = Alignment.BottomCenter
         ) {
-            when (currentMode) {
-                0 -> TouchpadPage(bridgeMode)
-                1 -> KeyboardPage(bridgeMode, activeKeys, activeModifierKeys)
+            if (!showKeyboard) {
+                // 터치패드 뷰: 2열 구조
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // 좌측: 터치패드 (72%)
+                    TouchpadWrapper(
+                        bridgeMode = BridgeMode.STANDARD,
+                        modifier = Modifier
+                            .weight(0.72f)
+                            .fillMaxHeight()
+                    )
+
+                    // 우측: Standard 컨트롤 패널 (28%)
+                    StandardControlPanel(
+                        activeKeys = activeKeys,
+                        modifier = Modifier
+                            .weight(0.28f)
+                            .fillMaxHeight()
+                    )
+                }
+            } else {
+                // 키보드 뷰: 전체 3탭 레이아웃
+                KeyboardPage(
+                    bridgeMode = BridgeMode.STANDARD,
+                    activeKeys = activeKeys,
+                    activeModifierKeys = activeModifierKeys
+                )
             }
         }
 
-        // 전환 버튼 (하단)
+        // 하단: 전환 버튼
+        Spacer(Modifier.height(8.dp))
         Button(
             onClick = {
-                currentMode = 1 - currentMode  // 0 ↔ 1 전환
-
-                // 햅틱 피드백: 50ms 진동
-                val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator.vibrate(50)
-                }
-
-                // 로그
-                val message = when (currentMode) {
-                    0 -> "터치패드 페이지로 전환"
-                    1 -> "키보드 페이지로 전환"
-                    else -> ""
-                }
-                Log.d("MainContent", message)
+                showKeyboard = !showKeyboard
+                triggerHaptic(context)
+                Log.d("StandardModePage", if (showKeyboard) "키보드 전환" else "터치패드 전환")
             },
-            modifier = Modifier
-                .padding(16.dp)
-                .size(width = 60.dp, height = 60.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF2196F3)
-            ),
+            modifier = Modifier.size(width = 56.dp, height = 56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3)),
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(
-                text = if (currentMode == 0) "⌨️" else "🖱️",
-                fontSize = 28.sp
+                text = if (!showKeyboard) "⌨️" else "🖱️",
+                fontSize = 24.sp
             )
         }
-
-        // 페이지 표시기 (현재 모드 텍스트)
         Text(
-            text = if (currentMode == 0) "터치패드" else "키보드",
+            text = if (!showKeyboard) "터치패드" else "키보드",
             color = Color(0xFFC2C2C2),
-            fontSize = 12.sp,
-            modifier = Modifier.padding(bottom = 12.dp)
+            fontSize = 11.sp,
+            modifier = Modifier.padding(bottom = 4.dp)
         )
     }
 }
 
 /**
- * 터치패드 페이지
+ * Standard 모드 컨트롤 패널 (프로토타입)
  *
- * 터치패드를 화면 최대 크기로 표시합니다.
- * 1:2 비율을 유지하며 화면 폭의 90%를 사용합니다.
+ * Essential Boot Cluster와 유사한 구조에 휠/우클릭 추가:
+ * ```
+ * [▲ Scroll]
+ * [RC Right Click]
+ * [▼ Scroll]
+ * ─────────────
+ * [Esc] [Enter]
+ *       [↑]
+ *   [←] [↓] [→]
+ * ```
  */
 @Composable
-private fun TouchpadPage(bridgeMode: BridgeMode) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(bottom = 16.dp),
-        contentAlignment = Alignment.BottomCenter
+private fun StandardControlPanel(
+    activeKeys: MutableState<Set<UByte>>,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    // 키 전송 콜백
+    val onKeyPressed: (UByte) -> Unit = { keyCode ->
+        activeKeys.value = activeKeys.value + keyCode
+        try {
+            val frame = ClickDetector.createKeyboardFrame(
+                activeModifierKeys = emptySet(),
+                keyCode1 = keyCode
+            )
+            ClickDetector.sendFrame(frame)
+        } catch (e: Exception) {
+            Log.e("StandardControlPanel", "Failed to send key: ${e.message}", e)
+        }
+    }
+
+    val onKeyReleased: (UByte) -> Unit = { keyCode ->
+        activeKeys.value = activeKeys.value - keyCode
+        try {
+            val frame = ClickDetector.createKeyboardFrame(
+                activeModifierKeys = emptySet(),
+                keyCode1 = 0u
+            )
+            ClickDetector.sendFrame(frame)
+        } catch (e: Exception) {
+            Log.e("StandardControlPanel", "Failed to send release: ${e.message}", e)
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .background(Color(0xFF121212), RoundedCornerShape(12.dp))
+            .padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        TouchpadWrapper(
-            bridgeMode = bridgeMode,
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .aspectRatio(0.5f)  // 1:2 비율 (가로:세로)
+        // ── Standard 전용: 휠 + 우클릭 ──
+
+        // [▲ Scroll Up]
+        StandardActionButton(
+            label = "▲",
+            sublabel = "Scroll",
+            onClick = {
+                triggerHaptic(context)
+                ClickDetector.sendFrame(ClickDetector.createWheelFrame(1))
+            },
+            modifier = Modifier.fillMaxWidth().weight(1f)
         )
+
+        // [RC Right Click]
+        StandardActionButton(
+            label = "RC",
+            sublabel = "Right",
+            onClick = {
+                triggerHaptic(context)
+                ClickDetector.sendFrame(ClickDetector.createRightClickFrame(pressed = true))
+                ClickDetector.sendFrame(ClickDetector.createRightClickFrame(pressed = false))
+            },
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            containerColor = Color(0xFF2E4A2E)
+        )
+
+        // [▼ Scroll Down]
+        StandardActionButton(
+            label = "▼",
+            sublabel = "Scroll",
+            onClick = {
+                triggerHaptic(context)
+                ClickDetector.sendFrame(ClickDetector.createWheelFrame(-1))
+            },
+            modifier = Modifier.fillMaxWidth().weight(1f)
+        )
+
+        // ── 구분선 ──
+        Spacer(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color(0xFF333333))
+        )
+
+        // ── 공통: 기본 키 + D-Pad ──
+
+        // [Esc] [Enter]
+        Row(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            KeyboardKeyButton(
+                keyLabel = "Esc", keyCode = KEY_ESC,
+                isActive = KEY_ESC in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_ESC) },
+                onKeyReleased = { onKeyReleased(KEY_ESC) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+            KeyboardKeyButton(
+                keyLabel = "Enter", keyCode = KEY_ENTER,
+                isActive = KEY_ENTER in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_ENTER) },
+                onKeyReleased = { onKeyReleased(KEY_ENTER) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+        }
+
+        // D-Pad: [　][↑][　]
+        Row(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Spacer(Modifier.weight(1f))
+            KeyboardKeyButton(
+                keyLabel = "↑", keyCode = KEY_UP,
+                isActive = KEY_UP in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_UP) },
+                onKeyReleased = { onKeyReleased(KEY_UP) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+            Spacer(Modifier.weight(1f))
+        }
+
+        // D-Pad: [←][↓][→]
+        Row(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            KeyboardKeyButton(
+                keyLabel = "←", keyCode = KEY_LEFT,
+                isActive = KEY_LEFT in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_LEFT) },
+                onKeyReleased = { onKeyReleased(KEY_LEFT) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+            KeyboardKeyButton(
+                keyLabel = "↓", keyCode = KEY_DOWN,
+                isActive = KEY_DOWN in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_DOWN) },
+                onKeyReleased = { onKeyReleased(KEY_DOWN) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+            KeyboardKeyButton(
+                keyLabel = "→", keyCode = KEY_RIGHT,
+                isActive = KEY_RIGHT in activeKeys.value,
+                onKeyPressed = { onKeyPressed(KEY_RIGHT) },
+                onKeyReleased = { onKeyReleased(KEY_RIGHT) },
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            )
+        }
+    }
+}
+
+/**
+ * Standard 전용 액션 버튼 (휠, 우클릭 등)
+ */
+@Composable
+private fun StandardActionButton(
+    label: String,
+    sublabel: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: Color = Color(0xFF2A2A3A)
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        colors = ButtonDefaults.buttonColors(containerColor = containerColor),
+        shape = RoundedCornerShape(6.dp)
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(text = label, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(text = sublabel, fontSize = 9.sp, color = Color(0xFFA0A0A0))
+        }
+    }
+}
+
+// ============================================================
+// 공통 유틸리티
+// ============================================================
+
+/**
+ * 햅틱 피드백 (50ms 진동)
+ */
+private fun triggerHaptic(context: Context) {
+    val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+    } else {
+        @Suppress("DEPRECATION")
+        vibrator.vibrate(50)
     }
 }
 
 /**
  * 수정자 키 코드 판별 (HID Usage 0xE0-0xE7)
- *
- * ⚠️ 이전 코드는 비트 플래그(0x01=Ctrl, 0x04=Alt, 0x08=GUI)를 키 코드로 사용했으나,
- * 이 값들이 문자 키 코드와 충돌함 (A=0x04, E=0x08 → Alt/GUI로 오인식).
- * 이제 HID Usage 표준 값(0xE0-0xE7)을 내부 식별자로 사용하고,
- * 프레임 전송 시 비트 플래그로 변환합니다.
  */
 private fun isModifierKeyCode(keyCode: UByte): Boolean =
     keyCode.toInt() in 0xE0..0xE7
@@ -281,10 +740,12 @@ private fun modifierBitFlag(keyCode: UByte): UByte = when (keyCode.toInt()) {
     else -> 0x00
 }.toUByte()
 
+// ============================================================
+// 키보드 페이지 (Standard 모드 전용)
+// ============================================================
+
 /**
- * 키보드 페이지
- *
- * 키보드를 화면 최대 크기로 표시합니다.
+ * 키보드 페이지 (Standard 모드 전체 3탭 키보드)
  */
 @Composable
 private fun KeyboardPage(
@@ -293,9 +754,7 @@ private fun KeyboardPage(
     activeModifierKeys: MutableState<Set<UByte>>
 ) {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(bottom = 16.dp),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomCenter
     ) {
         KeyboardLayout(
@@ -304,7 +763,6 @@ private fun KeyboardPage(
                 activeKeys.value = activeKeys.value + keyCode
 
                 if (isModifierKeyCode(keyCode)) {
-                    // 수정자 키: 비트 플래그로 변환하여 저장 + 프레임 전송
                     activeModifierKeys.value = activeModifierKeys.value + modifierBitFlag(keyCode)
                     try {
                         val frame = ClickDetector.createKeyboardFrame(
@@ -317,7 +775,6 @@ private fun KeyboardPage(
                         Log.e("KeyboardPage", "Failed to send modifier frame: ${e.message}", e)
                     }
                 } else {
-                    // 일반 키: 키코드 포함 프레임 전송
                     try {
                         val frame = ClickDetector.createKeyboardFrame(
                             activeModifierKeys = activeModifierKeys.value,
@@ -334,11 +791,9 @@ private fun KeyboardPage(
                 activeKeys.value = activeKeys.value - keyCode
 
                 if (isModifierKeyCode(keyCode)) {
-                    // 수정자 키 해제: 비트 플래그 제거
                     activeModifierKeys.value = activeModifierKeys.value - modifierBitFlag(keyCode)
                 }
 
-                // 모든 키 해제 시 프레임 전송 (수정자/일반 키 모두)
                 try {
                     val frame = ClickDetector.createKeyboardFrame(
                         activeModifierKeys = activeModifierKeys.value,
@@ -356,62 +811,10 @@ private fun KeyboardPage(
     }
 }
 
-/**
- * 페이지 인디케이터
- *
- * 상단 중앙에 현재 페이지를 나타내는 닷 표시합니다.
- */
-@Composable
-private fun PageIndicator(
-    currentPage: Int,
-    pageCount: Int,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        repeat(pageCount) { index ->
-            val size by animateFloatAsState(
-                targetValue = if (currentPage == index) 12f else 8f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessLow
-                ),
-                label = "PageIndicatorSize"
-            )
+// ============================================================
+// USB 디버그 패널 (임시)
+// ============================================================
 
-            Box(
-                modifier = Modifier
-                    .size(size.dp)
-                    .background(
-                        color = if (currentPage == index) {
-                            Color(0xFF2196F3)  // 파란색 (Selected)
-                        } else {
-                            Color(0xFFC2C2C2).copy(alpha = 0.6f)  // 회색 60% (Unselected)
-                        },
-                        shape = CircleShape
-                    )
-            )
-        }
-    }
-}
-
-
-@Preview(showBackground = true)
-@Composable
-private fun BridgeOneAppPreview() {
-    BridgeOneTheme {
-        BridgeOneApp()
-    }
-}
-
-// ========== USB 디버그 패널 (임시) ==========
-
-/**
- * USB 디버그 정보를 표시하는 패널.
- * 연결된 USB 장치 목록과 연결 상태를 실시간으로 표시합니다.
- */
 @Composable
 private fun UsbDebugPanel(
     debugState: UsbDebugState,
@@ -434,7 +837,6 @@ private fun UsbDebugPanel(
             )
             .padding(16.dp)
     ) {
-        // 헤더
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -463,29 +865,23 @@ private fun UsbDebugPanel(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 연결 상태
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = "상태:",
-                color = Color.Gray,
-                fontSize = 14.sp
-            )
+            Text(text = "상태:", color = Color.Gray, fontSize = 14.sp)
             Text(
                 text = debugState.connectionStatus,
                 color = when {
-                    debugState.isConnected -> Color(0xFF4CAF50)  // 녹색
-                    debugState.targetDevice != null -> Color(0xFFFFEB3B)  // 노란색
-                    else -> Color(0xFFFF5722)  // 주황색
+                    debugState.isConnected -> Color(0xFF4CAF50)
+                    debugState.targetDevice != null -> Color(0xFFFFEB3B)
+                    else -> Color(0xFFFF5722)
                 },
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             )
         }
 
-        // 에러 메시지
         debugState.lastError?.let { error ->
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -497,7 +893,6 @@ private fun UsbDebugPanel(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 타겟 VID/PID 정보
         Text(
             text = "찾는 장치: CH343P (VID=0x1A86, PID=0x55D3)",
             color = Color(0xFF888888),
@@ -507,7 +902,6 @@ private fun UsbDebugPanel(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 발견된 장치 목록
         Text(
             text = "발견된 USB 장치 (${debugState.allDevices.size}개):",
             color = Color.White,
@@ -537,9 +931,6 @@ private fun UsbDebugPanel(
     }
 }
 
-/**
- * USB 장치 항목 표시
- */
 @Composable
 private fun UsbDeviceItem(device: UsbDeviceInfo) {
     val backgroundColor = if (device.isTarget) Color(0xFF2E4A2E) else Color(0xFF2A2A3A)
@@ -590,5 +981,17 @@ private fun UsbDeviceItem(device: UsbDeviceInfo) {
                 fontSize = 10.sp
             )
         }
+    }
+}
+
+// ============================================================
+// Preview
+// ============================================================
+
+@Preview(showBackground = true)
+@Composable
+private fun BridgeOneAppPreview() {
+    BridgeOneTheme {
+        BridgeOneApp()
     }
 }

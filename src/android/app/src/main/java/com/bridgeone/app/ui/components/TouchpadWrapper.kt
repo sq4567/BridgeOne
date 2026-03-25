@@ -208,7 +208,13 @@ fun TouchpadWrapper(
                         } else {
                             val pressDuration = System.currentTimeMillis() - touchDownTime.value
                             val movement = (currentTouchPosition.value - touchDownPosition.value).getDistance()
-                            ClickDetector.detectClick(pressDuration, movement)
+                            val detected = ClickDetector.detectClick(pressDuration, movement)
+                            // Essential 모드: 롱프레스 우클릭 비활성 → 좌클릭으로 대체
+                            if (bridgeMode == BridgeMode.ESSENTIAL && detected == 0x02u.toUByte()) {
+                                0x01u.toUByte()  // RIGHT_CLICK → LEFT_CLICK
+                            } else {
+                                detected
+                            }
                         }
 
                         // 프레임 생성 (자동 시퀀스 번호 할당)
