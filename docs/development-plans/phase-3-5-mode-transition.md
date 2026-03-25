@@ -600,7 +600,7 @@ Android가 UART에서 8바이트를 수신했을 때:
 **참조 문서**:
 - `docs/android/styleframe-essential.md` §2 레이아웃 구조, §3 허용/비활성 기능
 
-**검증** (코드/빌드 수준 — UI 표시 확인은 Phase 3.5.8에서 수행):
+**검증** (코드/빌드 수준):
 - [x] `EssentialModePage`, `StandardModePage` Composable 함수 구현됨
 - [x] `EssentialBootCluster`: ⚡Del, F1-F12 (4×3), Esc/Enter, D-Pad 컴포넌트 구성됨
 - [x] `StandardControlPanel`: 휠 Up/Down, 우클릭, Esc/Enter, D-Pad 컴포넌트 구성됨
