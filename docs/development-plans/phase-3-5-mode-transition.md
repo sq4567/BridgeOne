@@ -625,17 +625,19 @@ Android가 UART에서 8바이트를 수신했을 때:
 3. 검증 완료 후 임시 코드 전체 삭제
 
 **검증**:
-- [ ] 임시 토글 버튼 동작 확인 (Essential ↔ Standard 전환)
-- [ ] Essential 모드: 2열 레이아웃 (터치패드 + Boot Cluster) 정상 표시
-- [ ] Essential 모드: F1-F12 4×3 그리드, ⚡Del, Esc, Enter, 방향키 표시 확인
-- [ ] Essential 모드: 우클릭/휠 UI 미표시 확인
-- [ ] Standard 모드: 2열 레이아웃 (터치패드 + 컨트롤 패널) 정상 표시
-- [ ] Standard 모드: 휠 Up/Down, 우클릭 버튼 표시 확인
-- [ ] Standard 모드: 키보드 전환 버튼 → 3탭 풀 키보드 레이아웃 표시 확인
-- [ ] 모드 전환 토스트 알림 정상 동작
-- [ ] 반복 전환 안정성 확인 (크래시/레이아웃 깨짐 없음)
-- [ ] 임시 코드 전체 삭제 완료 (`toggleModeForDevelopment` 함수 + 임시 버튼 UI)
-- [ ] Android Studio 빌드 및 에뮬레이터 실행 성공
+- [x] 임시 토글 버튼 동작 확인 (Essential ↔ Standard 전환)
+- [x] Essential 모드: 2열 레이아웃 (좌 터치패드 72% + 우 Boot Cluster 28%) 정상 표시
+- [x] Essential 모드: Del, F1-F12 컨테이너 버튼, Esc/Enter, D-Pad 방향키 표시 확인
+- [x] Essential 모드: F1-F12 버튼 탭 → 3×4 팝업 다이얼로그 정상 표시 및 닫힘
+- [x] Essential 모드: 휠/우클릭 UI 미표시 확인
+- [x] Standard 모드: 2열 레이아웃 (좌 터치패드 72% + 우 컨트롤 패널 28%) 정상 표시
+- [x] Standard 모드: ▲Scroll, RC Right Click, ▼Scroll 버튼 표시 확인
+- [x] Standard 모드: Esc/Enter, D-Pad 방향키 표시 확인
+- [x] Standard 모드: 하단 ⌨️/🖱️ 전환 버튼 → 3탭 풀 키보드 레이아웃 전환 확인
+- [x] 모드 전환 토스트 알림 정상 동작
+- [x] 반복 전환 안정성 확인 (크래시/레이아웃 깨짐 없음)
+- [x] 임시 코드 전체 삭제 완료 (`toggleModeForDevelopment` 함수 + 임시 버튼 UI)
+- [x] Android Studio 빌드 및 에뮬레이터 실행 성공
 
 ---
 

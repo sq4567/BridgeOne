@@ -87,7 +87,7 @@ fun EssentialModePage() {
  *
  * 레이아웃:
  * ```
- * [Del] ⚡ (Essential 진입용, 최상단 강조)
+ * [Del] (Essential 진입용)
  * [F1-F12]  (컨테이너 버튼 → 팝업 3×4)
  * [Esc] [Enter]
  *       [↑]
@@ -134,9 +134,9 @@ private fun EssentialBootCluster(
             .padding(6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // [Del] — Essential 진입용 강조 (최상단)
+        // [Del] — Essential 진입용
         KeyboardKeyButton(
-            keyLabel = "⚡Del",
+            keyLabel = "Del",
             keyCode = KEY_DELETE,
             isActive = KEY_DELETE in activeKeys.value,
             onKeyPressed = { onKeyPressed(KEY_DELETE) },

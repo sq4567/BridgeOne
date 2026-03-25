@@ -103,6 +103,7 @@ fun BridgeOneApp() {
                     .clickable { showDebugPanel = true }
             )
         }
+
     }
 }
 
