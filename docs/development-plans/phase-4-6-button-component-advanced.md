@@ -1,0 +1,173 @@
+---
+title: "BridgeOne Phase 4.6: 버튼 컴포넌트 고급 기능"
+description: "BridgeOne 프로젝트 Phase 4.6 - KeyboardKeyButton Sticky Hold, ContainerButton, Essential 모드 UI 재정비"
+tags: ["android", "button", "sticky-hold", "container-button", "essential", "ui"]
+version: "v1.0"
+owner: "Chatterbones"
+updated: "2026-03-26"
+---
+
+# BridgeOne Phase 4.6: 버튼 컴포넌트 고급 기능
+
+**개발 기간**: 2-3일
+
+**목표**: 버튼 컴포넌트의 고급 기능을 구현하여, ContainerButton, Essential 모드 UI 재정비 등 스타일프레임에 정의된 미구현 컴포넌트 기능을 완성합니다.
+
+**핵심 성과물**:
+- ~~KeyboardKeyButton Sticky Hold~~ → **이미 구현됨** (Phase 4.6.1 삭제)
+- ContainerButton (하위 버튼 그룹화, 팝업 오버레이, 일반/지속 모드)
+- Essential 모드 EssentialModePage 재정비 (스타일프레임 완전 준수)
+
+**선행 조건**: Phase 4.4 (Page 2) 완료
+
+**에뮬레이터 호환성**: ContainerButton 팝업 오버레이, Essential 모드 UI 재정비 전체 에뮬레이터에서 개발 가능.
+
+---
+
+## ~~Phase 4.6.1: KeyboardKeyButton Sticky Hold~~ — ✅ 이미 구현됨 (삭제)
+
+> **이 Phase는 이미 코드에 구현되어 있어 삭제합니다.**
+>
+> `KeyboardKeyButton.kt`에 다음 기능이 완전 구현됨:
+> - 500ms 롱프레스 Sticky Hold (LaunchedEffect 기반 타이머)
+> - Fill 애니메이션 (좌→우, `drawWithContent` + `stickyHoldProgress`)
+> - 오렌지 테두리 (`#FF9800`, 2dp border)
+> - 색상 전환: 기본 `#2196F3` → 누름 `#1976D2` → Latched `#1565C0`
+> - `stickyActivatedDuringPress` 플래그로 손 뗌 시 해제 방지
+> - 재탭 시 `onKeyReleased` → `isStickyLatched = false`
+>
+> **미구현 세부사항 (Phase 4.4.2에서 처리)**:
+> - `stickyHoldEnabled` 파라미터 (현재는 항상 활성) → Phase 4.4.2에서 `repeatEnabled`와 함께 추가
+> - 햅틱 피드백 (Hold 진입/해제 시) → 현재 미구현, 필요시 Phase 4.4.2에서 추가
+
+---
+
+## Phase 4.6.2: ContainerButton 컴포넌트
+
+**목표**: 하위 버튼을 그룹화하여 팝업 오버레이로 표시하는 ContainerButton
+
+**개발 기간**: 1.5일
+
+**세부 목표**:
+1. ContainerButton 기본 구조:
+   - 탭: 팝업 오버레이 표시 (일반 모드)
+     - 하위 버튼 탭 → 기능 실행 후 팝업 자동 닫힘
+     - 팝업 외부 탭 / Back 키 → 팝업 닫힘
+   - 롱프레스: 팝업 오버레이 표시 (지속 모드)
+     - 하위 버튼 탭 → 기능 실행 후에도 팝업 유지
+     - 팝업 외부 터치 / Back 키로만 닫힘
+2. 팝업 오버레이 스타일:
+   - 어두운 스크림 배경 (반투명 검정)
+   - 둥근 사각형 컨테이너 박스
+   - 내부: 하위 버튼 그리드 배치
+3. 시각적 피드백:
+   - 기본: `#2196F3`
+   - 팝업 열림 중: `#1976D2`
+   - Disabled: `#C2C2C2` (alpha 0.6)
+   - 롱프레스 Fill 애니메이션 (좌→우)
+   - 햅틱: Light 1회 (팝업 열기/닫기, 하위 버튼 선택)
+4. 디바운스: 150ms 내 재탭 무시
+5. Disabled 시: 팝업 열려있으면 즉시 닫힘
+6. 접근성:
+   - 키보드 네비게이션 (하위 버튼 간 이동)
+   - `contentDescription` 팝업 모드 구분 포함
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/ContainerButton.kt`
+
+**참조 문서**:
+- `docs/android/component-design-guide-app.md` §2.3.4 (ContainerButton)
+- `docs/android/technical-specification-app.md` §2.3.2.4 (설계 요구사항)
+
+**활용 위치**:
+- Essential 모드: F1-F12 컨테이너 버튼 (기존 `FKeyPopupDialog` 대체)
+- Standard 모드: 추후 그룹화 필요한 버튼 영역
+
+**검증**:
+- [ ] 탭 → 팝업 표시, 하위 버튼 선택 후 자동 닫힘
+- [ ] 롱프레스 → 지속 모드 팝업, 하위 선택 후 유지
+- [ ] 외부 터치 / Back 키로 팝업 닫힘
+- [ ] 스크림 배경 렌더링
+- [ ] Disabled 시 팝업 즉시 닫힘
+
+---
+
+## Phase 4.6.3: Essential 모드 UI 재정비
+
+**목표**: Essential 모드 페이지를 스타일프레임에 완전히 준수하도록 재정비
+
+**개발 기간**: 1일
+
+**세부 목표**:
+1. `EssentialModePage.kt` 재정비:
+   - 기존 구현과 `styleframe-essential.md` 비교 → 차이점 수정
+   - 페이지 인디케이터/탭/스와이프 완전 비활성 확인
+   - 상태 안내: 상단 토스트로만 제공
+2. Essential 진입 토스트:
+   - "PC: Essential 모드" + "Essential 페이지 표시"
+   - 두 토스트 순차 표시, 사이 간격 300ms
+3. Boot Keyboard Cluster 재정비:
+   - `FKeyPopupDialog` → Phase 4.6.2의 `ContainerButton`으로 교체
+   - Del 키: 최상단 독립 배치 (BIOS 진입용 강조)
+   - F1-F12: ContainerButton으로 그룹화 (3×4 그리드 팝업)
+   - Esc/Enter: 한 줄 배치
+   - DPad: 3×3 중앙 비움
+4. 터치패드 간이 규칙 확인:
+   - `ControlButtonContainer` 숨김 확인
+   - 모드 고정: MOVE, FREE, LEFT, SINGLE
+   - 더블탭/롱프레스/스크롤/우클릭: 비활성 확인
+   - 무효 입력 시 토스트: "고급 기능은 Windows 서버 연결 시 사용 가능합니다" (파란색, 2초)
+5. 반응형:
+   - 폭 < 360dp: 우측 패널 아이콘형 단일 열
+   - 폭 ≥ 600dp: 터치패드 확대, 키 클러스터 2열
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/EssentialModePage.kt`
+
+**참조 문서**:
+- `docs/android/styleframe-essential.md` (전체)
+- `docs/android/design-guide-app.md` §8.6 (Essential 유저 플로우)
+
+**검증**:
+- [ ] F1-F12 ContainerButton 팝업 정상 동작
+- [ ] Del 키 최상단 강조 배치
+- [ ] Essential 진입 시 순차 토스트 2개
+- [ ] 무효 입력 시 안내 토스트
+- [ ] ControlButtonContainer 완전 숨김
+- [ ] 페이지 네비게이션 완전 비활성
+
+---
+
+## Phase 4.6 완료 후 컴포넌트 기능 매트릭스
+
+| 컴포넌트 | 기본 기능 | 고급 기능 | 구현 Phase |
+|----------|----------|----------|-----------|
+| KeyboardKeyButton | ✅ 탭 KeyDown/KeyUp | ✅ Sticky Hold (이미 구현), Key Repeat (4.4.2) | 기존 + 4.4.2 |
+| ShortcutButton | ✅ 키 조합 순차 전송 | ✅ 디바운스, Alt+Tab 홀드 | 4.2.4 |
+| ContainerButton | — | ✅ 일반/지속 팝업 모드 | 4.6.2 |
+| MacroButton | — | ⏳ Phase 5+ (Disabled placeholder) | 4.2.5 (placeholder) |
+| DPad | ✅ 4방향+대각선 탭 | ✅ Sticky Hold, 드래그 전환 | 4.5.1 + 4.5.2 |
+| ModifiersBar | — | ✅ 3단계 Sticky (탭/더블탭/롱프레스) | 4.4.1 |
+| MediaControlButton | — | ✅ Play/Pause 토글, Stop | 4.4.4 |
+| LockKeyButton | — | ✅ HID LED 동기화 | 4.4.4 |
+
+---
+
+## Phase 4 전체 요약
+
+| Phase | 내용 | 기간 | 핵심 |
+|-------|------|------|------|
+| **4.1** | 스플래시 & 연결 대기 | 3-4일 | 앱 진입 흐름 완성 |
+| **4.2** | Page 1 터치패드+Actions | 4-5일 | Standard 메인 페이지, ShortcutButton |
+| **4.3** | 터치패드 고급 기능 | 5-7일 | 스크롤, 직각 이동, DPI, 가이드라인 |
+| **4.4** | Page 2 키보드 중심 | 4-5일 | Modifiers Sticky, Key Repeat, Lock Keys LED 동기화 |
+| **4.5** | Page 3 Minecraft | 4-5일 | DPad Sticky Hold, 게임 최적화 |
+| **4.6** | 버튼 고급 기능 | 2-3일 | ContainerButton, Essential 재정비 (~~Sticky Hold~~ 이미 구현) |
+| **합계** | | **22-29일** | |
+
+### Phase 4 완료 후 미구현 항목 (Phase 5+)
+- 멀티 커서 모드 (CursorModeButton → 현재 Disabled)
+- MacroButton 실제 구현 (현재 Disabled placeholder)
+- AES256 암호화 및 challenge-response 인증
+- 자동 CI/CD 테스트 파이프라인
+- 성능 벤치마킹 파이프라인

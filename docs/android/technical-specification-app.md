@@ -1973,6 +1973,144 @@ data class DPadState(
 - **60fps 애니메이션**: Sticky Hold 전환 시 부드러운 애니메이션 유지
 - **터치 추적 연속성**: 드래그 전환 시 포인터 추적 안정성 보장
 
+##### 2.3.2.6 Key Repeat 구현 요구사항
+
+**목적:** 방향키, Backspace, Enter 등 반복 입력이 필요한 키에서 롱프레스 시 키 입력을 자동 반복 전송합니다.
+
+**KeyboardKeyButton과의 관계:**
+- `KeyboardKeyButton`은 기본적으로 Sticky Hold(500ms 롱프레스 → 키 유지 → 재탭 해제) 지원
+- Key Repeat은 Sticky Hold와 **상호 배타적**: `repeatEnabled=true`면 롱프레스 시 Sticky Hold 대신 반복 전송
+- `repeatEnabled: Boolean = false` 파라미터로 동작 분기
+
+**알고리즘 명세:**
+```
+1. 사용자가 버튼을 누름 (PointerDown)
+2. 즉시 KeyDown 전송
+3. 초기 지연 대기 (REPEAT_INITIAL_DELAY_MS = 400ms)
+4. 지연 후 반복 시작:
+   a. KeyUp 전송
+   b. REPEAT_INTERVAL_MS (40ms, 25Hz) 대기
+   c. KeyDown 전송
+   d. 사용자가 떼기 전까지 b-c 반복
+5. 사용자가 버튼을 뗌 (PointerUp)
+6. KeyUp 전송, 반복 중단
+```
+
+**상수 정의:**
+| 상수명 | 값 | 단위 | 설명 |
+|--------|-----|------|------|
+| `REPEAT_INITIAL_DELAY_MS` | 400 | ms | 반복 시작 전 초기 지연 |
+| `REPEAT_INTERVAL_MS` | 40 | ms | 반복 간격 (25Hz 상한) |
+| `REPEAT_MAX_RATE_HZ` | 30 | Hz | 최대 반복 속도 |
+
+**적용 대상:**
+- 방향키 (↑↓←→): `repeatEnabled=true`
+- Backspace, Delete, Enter, Space, Tab: `repeatEnabled=true`
+- 수정자 키 (Ctrl, Shift, Alt, Win): `repeatEnabled=false` (Sticky Hold 유지)
+- F1~F12: `repeatEnabled=true`
+
+**성능 요구사항:**
+- 반복 전송이 UI 렌더링 60fps를 저해하지 않을 것
+- `LaunchedEffect` 기반 코루틴으로 구현, 메인 스레드 차단 금지
+
+##### 2.3.2.7 Modifiers Bar 3단계 Sticky 구현 요구사항
+
+**목적:** Page 2의 Modifiers Bar(Ctrl/Shift/Alt/Win)에서 탭/더블탭/롱프레스 3단계 상호작용을 구현합니다.
+
+**3단계 상호작용 명세:**
+
+| 상호작용 | 동작 | HID 전송 | 자동 해제 |
+|---------|------|---------|----------|
+| **탭** | 일시 고정 (다음 키 입력까지) | KeyDown 즉시 전송 | 다음 키 입력 후 KeyUp, 또는 800ms 타임아웃 |
+| **더블탭** (300ms 이내) | 토글 고정 | KeyDown 유지 | 재더블탭 또는 페이지 전환 시 KeyUp |
+| **롱프레스** (≥400ms) | 누르는 동안만 유지 | 누르는 동안 KeyDown | 떼면 즉시 KeyUp |
+
+**상태 관리:**
+```kotlin
+enum class ModifierState {
+    INACTIVE,           // 비활성
+    TEMPORARY_STICKY,   // 탭 → 일시 고정 (다음 키 입력까지)
+    TOGGLE_STICKY,      // 더블탭 → 토글 고정 (해제까지 지속)
+    HELD                // 롱프레스 → 누르는 동안만 유지
+}
+```
+
+**상수 정의:**
+| 상수명 | 값 | 단위 | 설명 |
+|--------|-----|------|------|
+| `MODIFIER_DOUBLE_TAP_MS` | 300 | ms | 더블탭 판정 시간 |
+| `MODIFIER_LONG_PRESS_MS` | 400 | ms | 롱프레스 임계값 |
+| `MODIFIER_TEMP_TIMEOUT_MS` | 800 | ms | 일시 고정 자동 해제 타임아웃 |
+
+**시각적 피드백:**
+- INACTIVE: 기본색 `#2196F3`
+- TEMPORARY_STICKY: 강조색 `#1976D2`
+- TOGGLE_STICKY: 강조색 `#1976D2` + 토글 배지 아이콘
+- HELD: 강조색 `#1565C0` (누르는 동안)
+
+**페이지 전환 시:**
+- TOGGLE_STICKY 상태의 모든 모디파이어 자동 KeyUp + INACTIVE 전환
+- HELD 상태는 포인터 해제와 함께 자동 해제
+
+##### 2.3.2.8 Media Controls 구현 요구사항
+
+**목적:** Page 2의 Media Controls(Play/Pause, Stop)에서 HID Consumer Control 키코드를 전송합니다.
+
+**HID Consumer Usage 매핑:**
+| 버튼 | HID Consumer Usage | 코드 | 동작 |
+|------|-------------------|------|------|
+| Play/Pause | CD (Play/Pause) | `0xCD` | 토글형 (탭마다 전환) |
+| Stop | B7 (Stop) | `0xB7` | 단발 전송 |
+
+**⚠️ 프로토콜 확장 필요:**
+- 현재 `BridgeFrame`(8바이트)은 HID Keyboard + Mouse 전용
+- Consumer Control 키코드는 별도 HID Report Type (Consumer Control) 사용
+- **구현 방안 A**: `BridgeFrame.keyCode1`에 특수 마커(0xFF 등) + `keyCode2`에 Consumer Usage 인코딩
+- **구현 방안 B**: 별도 Consumer Control 프레임 타입 정의
+- 구현 방안은 Phase 4.4.4 진행 시 확정
+
+**시각적 피드백:**
+- Play/Pause: 토글 상태에 따라 아이콘 전환 (`ic_play.xml` ↔ `ic_pause.xml`)
+- Stop: 단발 전송, Selected 상태 200ms 후 복귀
+
+##### 2.3.2.9 Lock Keys HID LED 동기화 구현 요구사항
+
+**목적:** Page 2의 Lock Keys(CapsLock, NumLock, ScrollLock)를 PC의 실제 LED 상태와 동기화합니다.
+
+**동기화 경로:**
+```
+PC (Host) → USB HID LED Report → ESP32-S3 (tud_hid_set_report_cb)
+                                           ↓
+                                  UART 알림 프레임 전송
+                                           ↓
+                              Android 수신 → Lock Key UI 업데이트
+```
+
+**ESP32-S3 측 (이미 구현된 부분):**
+- `tud_hid_set_report_cb()`: LED Report 수신 → `g_hid_keyboard_led_status` 저장 (구현됨)
+- `hid_get_keyboard_led_status()`: LED 상태 조회 (구현됨)
+- LED 비트마스크: `KEYBOARD_LED_NUMLOCK=0x01`, `KEYBOARD_LED_CAPSLOCK=0x02`, `KEYBOARD_LED_SCROLLLOCK=0x04`
+
+**ESP32-S3 측 (추가 구현 필요):**
+- `tud_hid_set_report_cb()` 내에서 LED 상태 변경 시 UART 알림 전송
+- 새 이벤트 타입: `EVENT_LED_STATUS (0x02)`
+- 알림 프레임 형식: `[0xFE, 0x02, led_status_byte]` (3바이트)
+
+**Android 측 구현 요구사항:**
+- `UsbSerialManager` 수신 스레드에서 LED 알림 프레임 파싱
+- `_ledStatus: MutableStateFlow<UByte>` 상태 노출
+- Lock Key UI 컴포넌트에서 `ledStatus` observe → Selected/Unselected 전환
+
+**폴링 폴백 (LED Report 미수신 시):**
+| 상수명 | 값 | 단위 | 설명 |
+|--------|-----|------|------|
+| `LED_POLL_INTERVAL_MS` | 2000 | ms | LED 상태 폴링 간격 |
+| `LED_POLL_MAX_RETRIES` | 3 | 회 | 최대 폴링 재시도 |
+
+**상태 미동기화 감지:**
+- Android에서 Lock Key 탭 → PC LED 상태 변경 기대
+- 2초 이내 LED Report 미수신 시: `Error` 토스트(2초) + 재동기화 시도
+
 ### 2.4 UI 상태 제어 시스템
 
 #### 2.4.1 컴포넌트 비활성화 시스템 설계
@@ -2656,7 +2794,7 @@ object ExtendedFrameBuilder {
 
 | 상수명 | 값 | 단위 | 설명 | 사용 위치 |
 |--------|----|----|------|--------|
-| `DEAD_ZONE_THRESHOLD` | 15 | dp | 터치 입력 데드존 임계값 | DeadZone Compensation |
+| `DEAD_ZONE_THRESHOLD` | 5 | dp | 터치 입력 데드존 임계값 (DeltaCalculator.DEAD_ZONE_THRESHOLD) | DeadZone Compensation |
 | `CLICK_MAX_DURATION` | 500 | ms | 클릭 인식 최대 시간 | Touch Processing |
 | `DOUBLE_TAP_MAX_INTERVAL` | 300 | ms | 더블탭 인식 최대 간격 | Touch Processing |
 | `LONG_PRESS_THRESHOLD` | 500 | ms | 길게 누르기 인식 임계값 | Button Components |
@@ -2701,6 +2839,16 @@ object ExtendedFrameBuilder {
 | `DPAD_MIN_SIZE` | 220 | dp | DPad 최소 크기 | DPad Component |
 | `DPAD_CENTER_RADIUS_RATIO` | 0.3 | 비율 | DPad 중심 영역 반지름 비율 | DPad Detection |
 | `DPAD_DIRECTION_DEBOUNCE_MS` | 50 | ms | DPad 방향 전환 디바운스 시간 | DPad Processing |
+| `REPEAT_INITIAL_DELAY_MS` | 400 | ms | Key Repeat 초기 지연 | KeyboardKeyButton |
+| `REPEAT_INTERVAL_MS` | 40 | ms | Key Repeat 반복 간격 (25Hz) | KeyboardKeyButton |
+| `REPEAT_MAX_RATE_HZ` | 30 | Hz | Key Repeat 최대 반복 속도 | KeyboardKeyButton |
+| `MODIFIER_DOUBLE_TAP_MS` | 300 | ms | Modifiers Bar 더블탭 판정 | ModifiersBar |
+| `MODIFIER_LONG_PRESS_MS` | 400 | ms | Modifiers Bar 롱프레스 임계값 | ModifiersBar |
+| `MODIFIER_TEMP_TIMEOUT_MS` | 800 | ms | Modifiers Bar 일시 고정 자동 해제 | ModifiersBar |
+| `LED_POLL_INTERVAL_MS` | 2000 | ms | Lock Key LED 폴링 간격 | LockKeyButton |
+| `LED_POLL_MAX_RETRIES` | 3 | 회 | Lock Key LED 폴링 최대 재시도 | LockKeyButton |
+| `MEDIA_HID_PLAY_PAUSE` | 0xCD | HID | Play/Pause Consumer Usage | MediaControlButton |
+| `MEDIA_HID_STOP` | 0xB7 | HID | Stop Consumer Usage | MediaControlButton |
 
 ### 3.5 애니메이션 및 타이밍 상수
 
