@@ -212,7 +212,7 @@ public sealed partial class ConnectionViewModel : ObservableObject, IDisposable
     private void CopyDebugLog()
     {
         if (!string.IsNullOrEmpty(DebugLog))
-            Clipboard.SetText(DebugLog);
+            Clipboard.SetText(DebugLog.Replace("\0", string.Empty));
     }
 
     [RelayCommand]

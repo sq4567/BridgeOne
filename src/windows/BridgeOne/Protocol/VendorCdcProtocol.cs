@@ -222,7 +222,8 @@ public sealed class VendorCdcProtocol : IDisposable
                 while (pos < _accumLength && _accumBuffer[pos] != VendorCdcFrame.Header)
                     pos++;
 
-                var text = Encoding.UTF8.GetString(_accumBuffer, textStart, pos - textStart);
+                var text = Encoding.UTF8.GetString(_accumBuffer, textStart, pos - textStart)
+                    .Replace("\0", string.Empty);
                 if (!string.IsNullOrEmpty(text))
                     DebugTextReceived?.Invoke(this, text);
 
