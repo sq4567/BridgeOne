@@ -1,4 +1,5 @@
 #include "uart_handler.h"
+#include "connection_state.h"   // bridge_mode_get() 사용
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
@@ -172,6 +173,34 @@ static bool validateBridgeFrame(const bridge_frame_t* frame) {
 }
 
 /**
+ * Android 쿼리 프레임 핸들러.
+ *
+ * 첫 바이트가 UART_QUERY_HEADER(0xFF)인 프레임을 처리합니다.
+ * 현재는 모드 쿼리(UART_QUERY_MODE)만 지원합니다.
+ *
+ * @param query_buf 수신한 8바이트 쿼리 프레임
+ */
+static void handle_uart_query(const uint8_t *query_buf)
+{
+    uint8_t query_type = query_buf[1];
+
+    if (query_type == UART_QUERY_MODE) {
+        bridge_mode_t mode = bridge_mode_get();
+        uint8_t response[8] = {
+            UART_NOTIFY_HEADER,
+            UART_EVENT_MODE_CHANGED,
+            (mode == BRIDGE_MODE_STANDARD) ? UART_MODE_STANDARD : UART_MODE_ESSENTIAL,
+            0x00, 0x00, 0x00, 0x00, 0x00
+        };
+        uart_write_bytes(UART_NUM, (const char *)response, sizeof(response));
+        ESP_LOGD(TAG, "Mode query → %s",
+                 (mode == BRIDGE_MODE_STANDARD) ? "STANDARD" : "ESSENTIAL");
+    } else {
+        ESP_LOGW(TAG, "Unknown query type: 0x%02X", query_type);
+    }
+}
+
+/**
  * UART 수신 태스크.
  *
  * UART에서 8바이트 프레임을 수신하고 검증하여 FreeRTOS 큐로 전송합니다.
@@ -182,10 +211,11 @@ static bool validateBridgeFrame(const bridge_frame_t* frame) {
  *    - len < 0: 드라이버 오류 발생
  *    - len == 0: 타임아웃 (정상적인 대기 상태)
  *    - len != 8: 불완전 수신 (프로토콜 오류)
- * 3. validateSequenceNumber()로 순번 검증
- * 4. validateBridgeFrame()으로 필드 범위 검증
- * 5. 검증 성공 시 xQueueSend()로 프레임을 큐에 전송
- * 6. esp_task_wdt_reset()으로 태스크 워치독 리셋 (무한 루프 방지)
+ * 3. 쿼리 프레임 감지 (0xFF 헤더) → 즉시 응답
+ * 4. validateSequenceNumber()로 순번 검증
+ * 5. validateBridgeFrame()으로 필드 범위 검증
+ * 6. 검증 성공 시 xQueueSend()로 프레임을 큐에 전송
+ * 7. esp_task_wdt_reset()으로 태스크 워치독 리셋 (무한 루프 방지)
  *
  * @param param 미사용
  */
@@ -230,6 +260,14 @@ void uart_task(void* param) {
             continue;
         }
         
+        // Android 쿼리 프레임 감지 (첫 바이트 0xFF)
+        // 쿼리는 일반 프레임이 아니므로 시퀀스 검증 전에 처리
+        if (frame_buffer.seq == UART_QUERY_HEADER) {
+            handle_uart_query((const uint8_t *)&frame_buffer);
+            esp_task_wdt_reset();
+            continue;
+        }
+
         // 시퀀스 번호 검증 (예약 바이트 거부 + 손실 감지)
         if (!validateSequenceNumber(frame_buffer.seq, &expected_seq)) {
             // 0xFE/0xFF 등 예약 바이트가 seq에 있는 무효 프레임 폐기
@@ -276,15 +314,14 @@ void uart_task(void* param) {
 }
 
 /**
- * ESP32-S3 → Android 역방향 알림 프레임 전송.
+ * ESP32-S3 → Android 역방향 알림 프레임 전송 (best-effort 1회).
  *
  * 동작:
  * 1. 8바이트 알림 프레임 조립: { 0xFE, event_type, data, 0x00 * 5 }
- * 2. uart_write_bytes()로 즉시 전송
- * 3. 50ms 대기 후 동일 프레임 재전송 (총 3회)
+ * 2. uart_write_bytes()로 즉시 1회 전송
  *
- * 3회 반복 전송 이유: Android가 1개라도 수신하면 충분.
- * 중복 수신은 Android 앱에서 디바운스로 처리합니다.
+ * 모드 전환 시 즉시 알림용이며, 신뢰성은
+ * Android의 주기적 모드 폴링(UART_QUERY_MODE)이 보장합니다.
  *
  * @param event_type 이벤트 종류 (UART_EVENT_* 상수)
  * @param data       이벤트 데이터
@@ -298,15 +335,11 @@ void uart_send_notification(uint8_t event_type, uint8_t data)
         0x00, 0x00, 0x00, 0x00, 0x00  // 바이트 3~7: 예약 (패딩)
     };
 
-    for (int i = 0; i < 3; i++) {
-        int written = uart_write_bytes(UART_NUM, (const char *)buf, sizeof(buf));
-        if (written != (int)sizeof(buf)) {
-            ESP_LOGW(TAG, "uart_send_notification: partial write (%d/%u bytes)", written, sizeof(buf));
-        }
-        if (i < 2) {
-            vTaskDelay(pdMS_TO_TICKS(50));
-        }
+    int written = uart_write_bytes(UART_NUM, (const char *)buf, sizeof(buf));
+    if (written != (int)sizeof(buf)) {
+        ESP_LOGW(TAG, "uart_send_notification: partial write (%d/%u bytes)", written, (unsigned)sizeof(buf));
     }
 
-    ESP_LOGI(TAG, "Notification sent (x3): event=0x%02X, data=0x%02X", event_type, data);
+    ESP_LOGI(TAG, "Notification sent: event=0x%02X, data=0x%02X", event_type, data);
 }
+

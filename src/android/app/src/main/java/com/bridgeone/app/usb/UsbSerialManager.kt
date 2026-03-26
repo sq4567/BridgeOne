@@ -170,11 +170,10 @@ object UsbSerialManager {
                 closePort()
             }
 
-            // CH343P용 CdcAcmSerialDriver 강제 지정 (Phase 3.5.8)
-            // CH343P(0x1A86:0x55D3)는 CDC-ACM 디바이스이지만,
-            // 라이브러리 기본 프로버가 Ch34xSerialDriver로 매핑함.
-            // Ch34x 벤더 프로토콜은 쓰기만 되고 읽기(ESP32→Android)가 안 됨.
-            // CdcAcmSerialDriver를 사용해야 양방향 통신이 정상 동작.
+            // CH343P: CdcAcmSerialDriver + WCH 벤더 초기화 하이브리드 방식
+            // Ch34xSerialDriver는 CH343P에서 init 실패 (Expected 0x0, got 0x8).
+            // CdcAcmSerialDriver는 표준 CDC로 열리지만 RX→USB 미활성화 가능.
+            // 해결: CdcAcmSerialDriver로 열고, 벤더 controlTransfer로 RX 활성화 시도.
             val customTable = ProbeTable()
             customTable.addProduct(
                 UsbConstants.ESP32_S3_VID,  // 0x1A86
@@ -182,7 +181,6 @@ object UsbSerialManager {
                 CdcAcmSerialDriver::class.java
             )
             val driver = UsbSerialProber(customTable).probeDevice(device)
-                ?: UsbSerialProber.getDefaultProber().probeDevice(device)
                 ?: throw IllegalStateException("No USB Serial driver found for device: ${device.deviceName}")
             Log.i(TAG, "USB Serial driver: ${driver.javaClass.simpleName}")
 
@@ -199,6 +197,17 @@ object UsbSerialManager {
 
             port.open(portConnection)
 
+            // CH343P WCH 벤더 초기화 (Phase 3.5.9)
+            // CdcAcmSerialDriver의 표준 CDC 명령만으로는 CH343P의 UART RX→USB
+            // 방향이 활성화되지 않음. WCH 벤더 전용 control transfer로 칩을 초기화하여
+            // 양방향 UART-USB 브릿지를 활성화합니다.
+            try {
+                portConnection.controlTransfer(0xC0, 0x5F, 0, 0, ByteArray(8), 8, 1000)
+                portConnection.controlTransfer(0x40, 0xA1, 0, 0, null, 0, 1000)
+            } catch (e: Exception) {
+                Log.w(TAG, "CH343P vendor init failed (non-fatal): ${e.message}")
+            }
+
             // UART 파라미터 설정: 1Mbps, 8N1
             port.setParameters(
                 UsbConstants.UART_BAUDRATE,    // 1Mbps
@@ -207,16 +216,19 @@ object UsbSerialManager {
                 UsbConstants.UART_PARITY       // No parity (0)
             )
 
-            // DTR/RTS 신호 설정 (Phase 3.5.8)
-            // CH343P 칩은 호스트가 DTR을 설정하지 않으면
-            // UART RX → USB IN 방향의 데이터 전달을 보류할 수 있음.
-            // ESP32 → Android 역방향 알림 수신을 위해 필수.
+            // DTR/RTS 토글 (Phase 3.5.9)
+            // CH343P의 UART RX→USB 방향을 확실히 활성화하기 위해
+            // DTR/RTS를 OFF→ON으로 토글합니다.
+            port.setDTR(false)
+            port.setRTS(false)
+            Thread.sleep(50)
             port.setDTR(true)
             port.setRTS(true)
 
             isConnected = true
             startSenderThread()
             startReceiverThread()
+            startPollingThread()
             Log.d(TAG, "USB Serial port opened successfully: ${device.deviceName} (1Mbps, 8N1)")
 
         } catch (e: Exception) {
@@ -251,6 +263,7 @@ object UsbSerialManager {
         } finally {
             stopSenderThread()
             stopReceiverThread()
+            stopPollingThread()
             usbSerialPort = null
             isConnected = false
             // Phase 3.5.5: 포트 닫힘 시 ESSENTIAL 모드로 강제 복귀
@@ -346,6 +359,14 @@ object UsbSerialManager {
     @Volatile
     private var receiverThread: Thread? = null
 
+    /**
+     * 모드 폴링 스레드.
+     * 2초마다 ESP32에 현재 모드를 질의합니다.
+     * UART TX push 방식의 간헐적 수신 실패를 보완하는 폴백 메커니즘입니다.
+     */
+    @Volatile
+    private var pollingThread: Thread? = null
+
     // ========== 비동기 전송 큐 (Phase 2.3.6) ==========
 
     /**
@@ -431,8 +452,6 @@ object UsbSerialManager {
         receiverThread = Thread({
             Log.d(TAG, "Receiver thread started")
             val buf = ByteArray(NotificationFrame.FRAME_SIZE)
-            var lastEventType: UByte? = null
-            var lastData: UByte? = null
 
             while (!Thread.currentThread().isInterrupted) {
                 try {
@@ -444,7 +463,9 @@ object UsbSerialManager {
 
                     // 8바이트 수신 시도 (100ms 타임아웃)
                     val len = port.read(buf, 100)
-                    if (len > 0) {
+                    if (len < 0) {
+                        Log.e(TAG, "Receiver: read error (len=$len)")
+                    } else if (len > 0) {
                         Log.d(TAG, "Receiver: read $len bytes: ${buf.take(len).joinToString(" ") { "0x%02X".format(it) }}")
                     }
                     if (len > 0 && len != NotificationFrame.FRAME_SIZE) {
@@ -455,11 +476,6 @@ object UsbSerialManager {
 
                     // 알림 프레임 파싱 (첫 바이트가 0xFE인지 확인)
                     val frame = NotificationFrame.parse(buf) ?: continue
-
-                    // 중복 알림 디바운스 (동일 이벤트+데이터 연속 수신 무시)
-                    if (frame.eventType == lastEventType && frame.data == lastData) continue
-                    lastEventType = frame.eventType
-                    lastData = frame.data
 
                     Log.i(TAG, "Notification received: eventType=0x${frame.eventType.toString(16)}, data=0x${frame.data.toString(16)}")
                     _lastNotification.value = frame
@@ -498,6 +514,47 @@ object UsbSerialManager {
     private fun stopReceiverThread() {
         receiverThread?.interrupt()
         receiverThread = null
+    }
+
+    /**
+     * 모드 폴링 스레드를 시작합니다.
+     *
+     * 2초마다 ESP32에 모드 쿼리 프레임 {0xFF, 0x01, 0x00...}을 전송합니다.
+     * ESP32의 uart_task가 이를 수신하고 현재 모드를 알림 프레임으로 응답합니다.
+     * 기존 receiverThread가 응답을 수신하여 bridgeMode를 업데이트합니다.
+     */
+    private fun startPollingThread() {
+        stopPollingThread()
+        pollingThread = Thread({
+            Log.d(TAG, "Mode polling thread started (2s interval)")
+            while (!Thread.currentThread().isInterrupted) {
+                try {
+                    Thread.sleep(2000)
+                    if (!isConnected || usbSerialPort == null) continue
+
+                    // 모드 쿼리 프레임: {0xFF=쿼리 헤더, 0x01=모드 조회, 0x00*6=패딩}
+                    val query = ByteArray(8)
+                    query[0] = 0xFF.toByte()
+                    query[1] = 0x01.toByte()
+                    frameQueue.offer(query)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                }
+            }
+            Log.d(TAG, "Mode polling thread stopped")
+        }, "BridgeOne-Mode-Poller").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    /**
+     * 모드 폴링 스레드를 중지합니다.
+     */
+    private fun stopPollingThread() {
+        pollingThread?.interrupt()
+        pollingThread = null
     }
 
     fun sendFrame(frame: BridgeFrame) {

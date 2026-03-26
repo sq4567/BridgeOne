@@ -36,7 +36,9 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
 
 # TinyUSB Debug Logging
-CONFIG_TINYUSB_DEBUG_LEVEL=2
+# 0: Disable to keep UART0 clean for Android protocol communication
+# (Level 2 sends printf debug text via stdout -> UART0, corrupting frames)
+CONFIG_TINYUSB_DEBUG_LEVEL=0
 
 # Disable Unused Peripherals (Power saving)
 CONFIG_ESP_WIFI_ENABLED=n

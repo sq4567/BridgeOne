@@ -369,6 +369,7 @@ void app_main(void) {
         return;
     }
     ESP_LOGI(TAG, "HID task created (Core 0, Priority 5)");
+
 #endif
 
     // USB 태스크: TinyUSB 스택 폴링 담당
@@ -410,6 +411,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "========================================");
 #else
     ESP_LOGI(TAG, "BridgeOne USB Bridge Ready - Waiting for Android connection...");
+
 #endif
 
     // 메인 태스크는 idle로 반환 (FreeRTOS 스케줄러가 USB 태스크 실행)

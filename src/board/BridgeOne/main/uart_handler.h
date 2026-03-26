@@ -107,21 +107,30 @@ extern QueueHandle_t frame_queue;
 #define UART_MODE_STANDARD          0x01u   /**< 데이터: Standard 모드 */
 
 /**
- * ESP32-S3 → Android 역방향 알림 프레임 전송.
+ * ESP32-S3 → Android 역방향 알림 프레임 전송 (best-effort).
  *
- * 8바이트 알림 프레임을 UART TX로 전송합니다.
- * 신뢰성을 위해 동일 프레임을 3회 반복 전송합니다 (50ms 간격).
- * Android는 중복 수신 시 디바운스 처리합니다.
+ * 8바이트 알림 프레임을 UART TX로 1회 전송합니다.
+ * 모드 전환 시 즉시 알림으로 사용되며, 신뢰성은
+ * Android의 주기적 모드 폴링(UART_QUERY_MODE)이 보장합니다.
  *
  * 프레임 구조: { 0xFE, event_type, data, 0x00, 0x00, 0x00, 0x00, 0x00 }
- *
- * 사용 예:
- *   uart_send_notification(UART_EVENT_MODE_CHANGED, UART_MODE_STANDARD);
- *   uart_send_notification(UART_EVENT_MODE_CHANGED, UART_MODE_ESSENTIAL);
  *
  * @param event_type  이벤트 종류 (UART_EVENT_* 상수)
  * @param data        이벤트 데이터 (이벤트별 의미 다름)
  */
 void uart_send_notification(uint8_t event_type, uint8_t data);
+
+/**
+ * Android → ESP32-S3 모드 쿼리 프레임 상수.
+ *
+ * Android가 주기적으로 ESP32에 현재 모드를 질의합니다.
+ * uart_task에서 첫 바이트가 0xFF인 프레임을 쿼리로 인식하고,
+ * 현재 모드를 알림 프레임(0xFE) 형식으로 즉시 응답합니다.
+ *
+ * 쿼리 프레임: { 0xFF, query_type, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }
+ * 응답 프레임: { 0xFE, UART_EVENT_MODE_CHANGED, mode, 0x00, ... }
+ */
+#define UART_QUERY_HEADER               0xFFu   /**< 쿼리 프레임 식별자 */
+#define UART_QUERY_MODE                 0x01u   /**< 쿼리 타입: 현재 모드 조회 */
 
 #endif // UART_HANDLER_H

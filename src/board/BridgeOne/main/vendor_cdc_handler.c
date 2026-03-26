@@ -648,6 +648,10 @@ static void handle_cmd_state_sync(const vendor_cdc_frame_t *frame, cJSON *json)
 
         // 상태 전이: SYNC_PENDING → CONNECTED
         if (connection_state_transition(CONN_STATE_CONNECTED)) {
+            // Keep-alive 타이머 리셋: 서버가 첫 PING을 보내기 전에
+            // 이전 세션의 오래된 타임스탬프로 타임아웃되는 것을 방지
+            s_last_ping_time_us = esp_timer_get_time();
+
             ESP_LOGI(TAG, "STATE_SYNC_ACK sent, State: %s (accepted=%u/%u features)",
                      connection_state_name(connection_state_get()),
                      negotiated.accepted_count, negotiated.requested_count);
