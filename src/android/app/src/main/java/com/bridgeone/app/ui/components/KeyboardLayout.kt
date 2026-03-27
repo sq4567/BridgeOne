@@ -32,14 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.util.Log
 import com.bridgeone.app.protocol.BridgeMode
-import com.bridgeone.app.ui.common.KEY_BACKSPACE
-import com.bridgeone.app.ui.common.KEY_DELETE
-import com.bridgeone.app.ui.common.KEY_END
-import com.bridgeone.app.ui.common.KEY_ENTER
-import com.bridgeone.app.ui.common.KEY_ESC
-import com.bridgeone.app.ui.common.KEY_HOME
-import com.bridgeone.app.ui.common.KEY_SPACE
-import com.bridgeone.app.ui.common.KEY_TAB
+import com.bridgeone.app.ui.common.*
 
 // ============================================================
 // 행 높이 / 간격 상수
@@ -49,76 +42,7 @@ private val ROW_SPACING = 3.dp
 private val BUTTON_SPACING = 2.dp
 private val TAB_HEIGHT = 32.dp
 
-// ============================================================
-// HID 키 코드 상수 (모든 탭에서 공유)
-// ============================================================
-
-// 문자 키 (HID Usage Table 0x04-0x1D)
-private val KEY_A = 0x04.toUByte(); private val KEY_B = 0x05.toUByte()
-private val KEY_C = 0x06.toUByte(); private val KEY_D = 0x07.toUByte()
-private val KEY_E = 0x08.toUByte(); private val KEY_F = 0x09.toUByte()
-private val KEY_G = 0x0A.toUByte(); private val KEY_H = 0x0B.toUByte()
-private val KEY_I = 0x0C.toUByte(); private val KEY_J = 0x0D.toUByte()
-private val KEY_K = 0x0E.toUByte(); private val KEY_L = 0x0F.toUByte()
-private val KEY_M = 0x10.toUByte(); private val KEY_N = 0x11.toUByte()
-private val KEY_O = 0x12.toUByte(); private val KEY_P = 0x13.toUByte()
-private val KEY_Q = 0x14.toUByte(); private val KEY_R = 0x15.toUByte()
-private val KEY_S = 0x16.toUByte(); private val KEY_T = 0x17.toUByte()
-private val KEY_U = 0x18.toUByte(); private val KEY_V = 0x19.toUByte()
-private val KEY_W = 0x1A.toUByte(); private val KEY_X = 0x1B.toUByte()
-private val KEY_Y = 0x1C.toUByte(); private val KEY_Z = 0x1D.toUByte()
-
-// 숫자 키 (0x1E-0x27)
-private val KEY_1 = 0x1E.toUByte(); private val KEY_2 = 0x1F.toUByte()
-private val KEY_3 = 0x20.toUByte(); private val KEY_4 = 0x21.toUByte()
-private val KEY_5 = 0x22.toUByte(); private val KEY_6 = 0x23.toUByte()
-private val KEY_7 = 0x24.toUByte(); private val KEY_8 = 0x25.toUByte()
-private val KEY_9 = 0x26.toUByte(); private val KEY_0 = 0x27.toUByte()
-
-// 기능 키 (KEY_ENTER, KEY_ESC, KEY_BACKSPACE, KEY_TAB, KEY_SPACE은 HidConstants에서 import)
-
-// 기호 키
-private val KEY_MINUS = 0x2D.toUByte()
-private val KEY_EQUAL = 0x2E.toUByte()
-private val KEY_LEFTBRACE = 0x2F.toUByte()
-private val KEY_RIGHTBRACE = 0x30.toUByte()
-private val KEY_BACKSLASH = 0x31.toUByte()
-private val KEY_SEMICOLON = 0x33.toUByte()
-private val KEY_APOSTROPHE = 0x34.toUByte()
-private val KEY_GRAVE = 0x35.toUByte()       // ` ~
-private val KEY_COMMA = 0x36.toUByte()
-private val KEY_DOT = 0x37.toUByte()
-private val KEY_SLASH = 0x38.toUByte()
-
-// F 키 (0x3A-0x45)
-private val KEY_F1 = 0x3A.toUByte(); private val KEY_F2 = 0x3B.toUByte()
-private val KEY_F3 = 0x3C.toUByte(); private val KEY_F4 = 0x3D.toUByte()
-private val KEY_F5 = 0x3E.toUByte(); private val KEY_F6 = 0x3F.toUByte()
-private val KEY_F7 = 0x40.toUByte(); private val KEY_F8 = 0x41.toUByte()
-private val KEY_F9 = 0x42.toUByte(); private val KEY_F10 = 0x43.toUByte()
-private val KEY_F11 = 0x44.toUByte(); private val KEY_F12 = 0x45.toUByte()
-
-// 네비게이션 키 (KEY_DELETE, KEY_HOME, KEY_END는 HidConstants에서 import)
-private val KEY_PRINTSCREEN = 0x46.toUByte()
-private val KEY_PAUSE = 0x48.toUByte()
-private val KEY_INSERT = 0x49.toUByte()
-private val KEY_PAGEUP = 0x4B.toUByte()
-private val KEY_PAGEDOWN = 0x4E.toUByte()
-
-// 화살표 키
-private val KEY_RIGHT = 0x4F.toUByte()
-private val KEY_LEFT = 0x50.toUByte()
-private val KEY_DOWN = 0x51.toUByte()
-private val KEY_UP = 0x52.toUByte()
-
-// 수정자 키 (HID Usage 0xE0-0xE7, 비트 플래그가 아닌 고유 식별자)
-// ⚠️ 절대 0x01-0x08 사용 금지! 문자 키코드와 충돌함 (A=0x04, E=0x08 등)
-private val KEY_CTRL_LEFT = 0xE0.toUByte()   // Left Control
-private val KEY_SHIFT_LEFT = 0xE1.toUByte()  // Left Shift
-private val KEY_ALT_LEFT = 0xE2.toUByte()    // Left Alt
-private val KEY_GUI_LEFT = 0xE3.toUByte()    // Left GUI (Win)
-private val KEY_HAN_YEONG = 0xE6.toUByte()   // Right Alt → 한/영 전환
-private val KEY_HANJA = 0xE4.toUByte()       // Right Ctrl → 한자 변환
+// HID 키 코드: HidConstants.kt에서 import (com.bridgeone.app.ui.common.*)
 
 // ============================================================
 // KeyboardLayout 메인 컴포넌트

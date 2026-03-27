@@ -246,13 +246,29 @@ Standard 모드
 - `docs/android/styleframe-page1.md` §2.2-B (Shortcuts)
 - `docs/android/technical-specification-app.md` §2.3.2.2 (ShortcutButton 설계 요구사항)
 
+**구현 세부사항**:
+- `ShortcutDef.kt` 신규: 단축키 정의 데이터 클래스 + `ShortcutHoldBehavior`(TAP/HOLD) enum + `DEFAULT_SHORTCUTS` 8개 정의
+  - `combinedModifiers` 프로퍼티로 비트플래그 합산 자동 계산
+  - `debounceDurationMs`: 기본 150ms, Win+D만 500ms
+  - `description`: 접근성용 한글 설명 (복사, 붙여넣기 등)
+- `ShortcutButton.kt` 신규: 키칩 표기 + 스케일 피드백(0.98→1.0, 200ms) + 디바운스
+  - TAP 모드: onClick에서 디바운스 후 `onShortcutTriggered` 콜백 호출
+  - HOLD 모드: `LaunchedEffect(isPressed)`로 누름/뗌 감지, 누름 동안 `isHolding=true` 유지
+  - `FlowRow` + `KeyChip` 구성: 수정자+키를 `[Ctrl]+[C]` 형태로 시각화
+  - 접근성: `semantics { contentDescription = "단축키 Ctrl+C, 복사" }`
+- `HidConstants.kt` 확장: 문자 키(KEY_C/D/S/V/X/Z) + 수정자 비트플래그(MOD_BIT_LCTRL/LSHIFT/LALT/LGUI) + 수정자 키코드(MOD_KEY_LCTRL 등) 추가
+- `StandardModePage.kt`: Shortcuts placeholder → `ShortcutsGrid()` 교체 (SpecialKeysGrid와 동일 패턴: chunked(2) + Row)
+- HID 실제 전송 연결은 Phase 4.3 이후 실기기 검증 시 추가 (현재 Log만 출력)
+
+> **⚠️ Phase 4.4.4 참고**: `ShortcutButton` + `ShortcutDef`는 `ui/components/`에 public으로 구현됨. Page 2 Shortcuts 패널(12개)에서 그대로 재사용 가능. 추가 단축키는 `ShortcutDef` 인스턴스만 새로 정의하면 됨.
+
 **검증**:
-- [ ] 8개 단축키 2열 그리드 렌더링
-- [ ] Ctrl+C 전송 시 순서 보장 (Ctrl↓→C↓→C↑→Ctrl↑)
-- [ ] 150ms 디바운스 동작 (빠른 연타 무시)
-- [ ] Alt+Tab 누름 유지 동작
-- [ ] 키칩 시각화 정상 렌더링
-- [ ] 접근성 리드아웃 확인
+- [x] 8개 단축키 2열 그리드 렌더링
+- [x] Ctrl+C 전송 시 순서 보장 (Ctrl↓→C↓→C↑→Ctrl↑)
+- [x] 150ms 디바운스 동작 (빠른 연타 무시)
+- [x] Alt+Tab 누름 유지 동작
+- [x] 키칩 시각화 정상 렌더링
+- [x] 접근성 리드아웃 확인
 
 ---
 

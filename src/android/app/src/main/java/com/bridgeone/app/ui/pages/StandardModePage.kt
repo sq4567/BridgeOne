@@ -42,7 +42,9 @@ import com.bridgeone.app.ui.common.KEY_ESC
 import com.bridgeone.app.ui.common.KEY_HOME
 import com.bridgeone.app.ui.common.KEY_SPACE
 import com.bridgeone.app.ui.common.KEY_TAB
+import com.bridgeone.app.ui.components.DEFAULT_SHORTCUTS
 import com.bridgeone.app.ui.components.KeyboardKeyButton
+import com.bridgeone.app.ui.components.ShortcutButton
 import com.bridgeone.app.ui.components.TouchpadWrapper
 
 // ============================================================
@@ -289,21 +291,7 @@ private fun ActionsPanel(
             )
         }
         item {
-            // Phase 4.2.4에서 구현: 8개 단축키 2열 그리드
-            // 임시 placeholder
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp)
-                    .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Shortcuts (Phase 4.2.4)",
-                    fontSize = 11.sp,
-                    color = Color(0xFFA0A0A0)
-                )
-            }
+            ShortcutsGrid()
         }
 
         // ── 그룹 간 간격 ──
@@ -394,6 +382,54 @@ private fun SpecialKeysGrid() {
                     )
                 }
                 if (rowKeys.size < 2) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// Shortcuts 그룹 (Phase 4.2.4)
+// ============================================================
+
+/**
+ * Shortcuts 2열 그리드
+ *
+ * 8개 단축키: Ctrl+C, Ctrl+V, Ctrl+S, Ctrl+Z, Ctrl+Shift+Z, Ctrl+X, Alt+Tab, Win+D
+ * - TAP 모드: 탭 → Modifier↓ → Key↓ → Key↑ → Modifier↑ 순차 전송
+ * - HOLD 모드: Alt+Tab — 누름 동안 유지, 뗌 시 해제
+ * - 150ms 디바운스 (Win+D는 500ms)
+ *
+ * HID 실제 전송 연결은 Phase 4.3 이후 실기기 검증 시 추가 예정.
+ * 현재는 Log만 출력.
+ */
+@Composable
+private fun ShortcutsGrid() {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        DEFAULT_SHORTCUTS.chunked(2).forEach { rowShortcuts ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowShortcuts.forEach { shortcutDef ->
+                    ShortcutButton(
+                        shortcutDef = shortcutDef,
+                        onShortcutTriggered = { mod, key ->
+                            android.util.Log.d("Shortcuts", "Triggered: ${shortcutDef.label} (mod=0x${mod.toString(16)}, key=0x${key.toString(16)})")
+                        },
+                        onShortcutReleased = { mod, key ->
+                            android.util.Log.d("Shortcuts", "Released: ${shortcutDef.label} (mod=0x${mod.toString(16)}, key=0x${key.toString(16)})")
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    )
+                }
+                if (rowShortcuts.size < 2) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }

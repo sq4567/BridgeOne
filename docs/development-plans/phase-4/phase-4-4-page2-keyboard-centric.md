@@ -9,9 +9,9 @@ updated: "2026-03-26"
 
 # BridgeOne Phase 4.4: Page 2 — 키보드 중심 페이지
 
-**개발 기간**: 4-5일
+**개발 기간**: 4.5-5.5일
 
-**목표**: 키보드 입력과 단축키 트리거에 특화된 Page 2를 구현합니다. 터치패드 없이 키 입력에 집중하는 전용 인터페이스입니다.
+**목표**: 키보드 입력과 단축키 트리거에 특화된 Page 2를 구현합니다. 터치패드 없이 키 입력에 집중하는 전용 인터페이스입니다. Phase 4.4.1에서 키 디스플레이 레지스트리를 먼저 구축하여, 이후 모든 키 배치에서 아이콘 자동 표시를 활용합니다.
 
 **핵심 성과물**:
 - Modifiers Bar (Ctrl/Shift/Alt/Win) — Sticky/토글/홀드 3단계
@@ -37,8 +37,8 @@ updated: "2026-03-26"
 - `KeyboardKeyButton.kt`: **Sticky Hold 이미 구현됨** (500ms 롱프레스 → 키 유지 → 재탭 해제)
   - Fill 애니메이션 (좌→우), 오렌지 테두리, 색상 전환
   - `isStickyLatched`, `stickyActivatedDuringPress` 상태 관리
-  - **⚠️ Phase 4.2.3 완료**: Key Repeat 파라미터(`repeatEnabled`, `stickyHoldEnabled`, `repeatInitialDelayMs`, `repeatIntervalMs`, `onRepeatStart`) 이미 추가됨. Phase 4.4.2에서 `KeyboardKeyButton.kt` 추가 수정 불필요.
-- `HidConstants.kt`: KEY_F1~F12, 방향키, 수정자 키, `isModifierKeyCode()`, `modifierBitFlag()` 완비. **Phase 4.2.3에서 `KEY_TAB`, `KEY_BACKSPACE`, `KEY_SPACE`, `KEY_HOME`, `KEY_END` 추가됨.**
+  - **⚠️ Phase 4.2.3 완료**: Key Repeat 파라미터(`repeatEnabled`, `stickyHoldEnabled`, `repeatInitialDelayMs`, `repeatIntervalMs`, `onRepeatStart`) 이미 추가됨. Phase 4.4.3에서 `KeyboardKeyButton.kt` 추가 수정 불필요.
+- `HidConstants.kt`: KEY_F1~F12, 방향키, 수정자 키, `isModifierKeyCode()`, `modifierBitFlag()` 완비. **Phase 4.2.3에서 `KEY_TAB`, `KEY_BACKSPACE`, `KEY_SPACE`, `KEY_HOME`, `KEY_END` 추가됨.** **Phase 4.2.4에서 문자 키(`KEY_C`, `KEY_D`, `KEY_S`, `KEY_V`, `KEY_X`, `KEY_Z`) + 수정자 비트플래그 상수(`MOD_BIT_LCTRL`, `MOD_BIT_LSHIFT`, `MOD_BIT_LALT`, `MOD_BIT_LGUI`) + 수정자 키 코드(`MOD_KEY_LCTRL` 등) 추가됨.**
 - ~~`StandardModePage.kt` → `KeyboardPage`: 수정자 키 추적 (`activeModifierKeys` MutableState) 로직 존재~~ **→ Phase 4.2.2에서 삭제됨**
 - Modifiers 3단계 Sticky (탭/더블탭/롱프레스) 없음, Lock Keys HID LED 동기화 없음, Media Controls 없음
 - **기존 3탭 키보드는 Page 2 구조와 완전히 다름** → 새로 구현
@@ -61,7 +61,66 @@ Page 2
 
 ---
 
-## Phase 4.4.1: Page 2 레이아웃 및 Modifiers Bar
+## Phase 4.4.1: 키 디스플레이 레지스트리 (KeyDisplayRegistry)
+
+**목표**: HID 키코드별 아이콘/레이블 매핑 레지스트리를 도입하여, `KeyboardKeyButton`에 `keyCode`만 전달하면 자동으로 적절한 아이콘+레이블이 표시되도록 개선
+
+**개발 기간**: 0.5일
+
+**배경**:
+- 현재 `KeyboardKeyButton`은 `keyLabel: String`을 호출부에서 매번 수동 지정 → 표기 불일관 (예: Enter가 `"⏎"`, `"Enter"` 등 혼재)
+- Tab, Space, Enter, Backspace, Shift 등 특정 키는 **아이콘(Material Icons / 커스텀 벡터)**과 함께 표시하면 가독성과 디자인 품질이 크게 향상
+- Phase 4.4~4.6에서 대량의 키 배치가 예정되어 있으므로, 사전에 레지스트리를 구축하면 이후 작업 효율 극대화
+
+**세부 목표**:
+1. `KeyDisplayRegistry` object:
+   - `data class KeyDisplay(val label: String, val icon: ImageVector?, val contentDescription: String)`
+   - `fun getDisplay(keyCode: UByte): KeyDisplay` — 미등록 키는 레이블 fallback
+   - 등록 대상 키 (아이콘 포함):
+     | 키 | 레이블 | 아이콘 | 비고 |
+     |---|--------|--------|------|
+     | Tab | Tab | `Icons.AutoMirrored.Filled.KeyboardTab` | ⇥ 방향 표시 |
+     | Space | Space | 하단 밑줄 바 (커스텀) 또는 `Icons.Filled.SpaceBar` | 넓은 키 |
+     | Enter | Enter | `Icons.Filled.KeyboardReturn` | ⏎ 느낌 |
+     | Backspace | ← | `Icons.AutoMirrored.Filled.Backspace` | 삭제 방향 |
+     | Delete | Del | `Icons.Filled.Delete` 또는 커스텀 | Forward delete |
+     | Shift | Shift | `Icons.Filled.KeyboardArrowUp` 또는 ⇧ | 수정자 |
+     | Ctrl | Ctrl | 텍스트만 | 아이콘 불필요 |
+     | Alt | Alt | 텍스트만 | 아이콘 불필요 |
+     | Win | Win | `Icons.Filled.Window` 또는 커스텀 | OS 키 |
+     | Esc | Esc | 텍스트만 | 아이콘 불필요 |
+     | Home | Home | `Icons.Filled.FirstPage` 또는 텍스트 | 네비게이션 |
+     | End | End | `Icons.Filled.LastPage` 또는 텍스트 | 네비게이션 |
+     | ↑←↓→ | 화살표 | 화살표 아이콘 | 방향키 |
+     | CapsLock | Caps | `Icons.Filled.KeyboardCapslock` | Lock 키 |
+   - 아이콘이 Material Icons에 없는 경우: 텍스트 레이블 fallback (아이콘 없이 표시)
+   - 향후 커스텀 벡터 아이콘 추가 가능하도록 확장성 고려
+2. `KeyboardKeyButton` 수정:
+   - 기존 `keyLabel: String` 파라미터 유지 (하위 호환)
+   - 새 파라미터: `useRegistry: Boolean = false` (true이면 keyCode 기반 자동 표시)
+   - `useRegistry = true`일 때: 아이콘이 있으면 `Icon + Text` 조합, 없으면 `Text`만
+   - 아이콘+텍스트 레이아웃: 아이콘 12dp + 텍스트 (세로 또는 가로 배치, 버튼 크기에 따라 적응)
+3. 기존 Page 1 소급 적용:
+   - `KeyboardLayout.kt`의 Special Keys (`Tab`, `Space`, `Enter`, `Backspace` 등)에 레지스트리 적용
+   - `KeyboardTabCharacters`의 `"⇧"`, `"⌫"`, `"⏎"` 하드코딩 → 레지스트리 기반으로 전환
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/KeyDisplayRegistry.kt`
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/KeyboardKeyButton.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/KeyboardLayout.kt`
+
+**검증**:
+- [ ] Tab, Space, Enter, Backspace 등 등록된 키에 아이콘 표시
+- [ ] 미등록 키는 기존과 동일하게 텍스트만 표시
+- [ ] `useRegistry = false`일 때 기존 동작 유지 (하위 호환)
+- [ ] Page 1 Special Keys에 아이콘 정상 반영
+- [ ] 아이콘+텍스트 조합이 버튼 크기 내에 자연스럽게 배치
+
+---
+
+## Phase 4.4.2: Page 2 레이아웃 및 Modifiers Bar
 
 **목표**: Page 2 기본 레이아웃 구조와 Sticky Modifiers 구현
 
@@ -113,11 +172,13 @@ Page 2
 
 ---
 
-## Phase 4.4.2: Navigation/Editing Grid
+## Phase 4.4.3: Navigation/Editing Grid
 
 **목표**: 방향키 (Inverted-T) + 편집 키 그리드 구현
 
 **개발 기간**: 1일
+
+> **⚠️ Phase 4.4.1 변경사항**: `KeyDisplayRegistry`가 도입됨. 방향키, Backspace, Delete, Enter, Tab, Home, End 등 모든 편집/네비게이션 키는 `useRegistry = true`로 설정하여 자동 아이콘 표시를 활용할 것. `keyLabel` 수동 지정 불필요.
 
 **세부 목표**:
 1. Inverted-T 방향키:
@@ -153,7 +214,7 @@ Page 2
 
 ---
 
-## Phase 4.4.3: Function Row 및 확장 Shortcuts
+## Phase 4.4.4: Function Row 및 확장 Shortcuts
 
 **목표**: F1-F12 수평 스크롤 + 12개 확장 단축키 패널
 
@@ -166,7 +227,7 @@ Page 2
    - 길게 누르기 반복 지원
 2. Shortcuts 패널 (우측, 12개):
    - 기본 12개: `Ctrl+C`, `Ctrl+V`, `Ctrl+S`, `Ctrl+Z`, `Ctrl+Shift+Z`, `Ctrl+X`, `Ctrl+N`, `Ctrl+O`, `Ctrl+P`, `Ctrl+W`, `Ctrl+T`, `Alt+F4`
-   - Phase 4.2에서 구현한 `ShortcutButton` 컴포넌트 재사용
+   - Phase 4.2.4에서 구현한 `ShortcutButton` + `ShortcutDef` 컴포넌트 재사용 (`ui/components/ShortcutButton.kt`, `ShortcutDef.kt`). `ShortcutDef`에 `holdBehavior`(TAP/HOLD), `debounceDurationMs`, `displayChips` 필드 포함.
    - 2열 그리드
    - `Alt+Tab`은 Modifiers + Tab 조합으로 대체 (UX 혼동 방지)
 
@@ -184,11 +245,13 @@ Page 2
 
 ---
 
-## Phase 4.4.4: Media Controls 및 Lock Keys
+## Phase 4.4.5: Media Controls 및 Lock Keys
 
 **목표**: 미디어 제어 버튼과 Lock Keys (HID LED 동기화)
 
 **개발 기간**: 1일
+
+> **⚠️ Phase 4.4.1 변경사항**: CapsLock 등 Lock Keys는 `KeyDisplayRegistry`에 아이콘이 등록되어 있으므로, `LockKeyButton` 구현 시 레지스트리를 활용하여 아이콘 표시 가능.
 
 **세부 목표**:
 1. Media Controls:

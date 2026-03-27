@@ -162,6 +162,8 @@ Page 3 — Minecraft
 
 **개발 기간**: 0.5-1일
 
+> **⚠️ Phase 4.4.1 변경사항**: `KeyDisplayRegistry`가 도입됨. Movement 버튼(Jump=Space, Sneak=Shift, Sprint=Ctrl)에 `KeyboardKeyButton`을 사용할 경우 `useRegistry = true`로 아이콘 자동 표시 활용 가능. 단, 게임 맥락에서는 "Jump", "Sneak" 등 게임 용어 레이블이 더 적절할 수 있으므로 `keyLabel` 수동 지정이 나을 수 있음 — 구현 시 판단.
+
 **세부 목표**:
 1. **Combat & Use** (우측 상단):
    - Attack: LClick 단발/길게=지속 공격, 버튼 크기 ≥ 64dp

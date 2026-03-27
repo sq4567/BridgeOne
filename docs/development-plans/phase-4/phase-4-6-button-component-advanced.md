@@ -40,7 +40,7 @@ updated: "2026-03-26"
 5. `stickyActivatedDuringPress` 플래그로 손 뗌 시 해제 방지
 6. 재탭 시 `onKeyReleased` → `isStickyLatched = false`
 
-**별도 처리 항목** (Phase 4.4.2에서 함께 추가):
+**별도 처리 항목** (Phase 4.4.3에서 함께 추가):
 - `stickyHoldEnabled` 파라미터 (현재는 항상 활성)
 - 햅틱 피드백 (Hold 진입/해제 시)
 
@@ -159,7 +159,7 @@ updated: "2026-03-26"
 
 | 컴포넌트 | 기본 기능 | 고급 기능 | 구현 Phase |
 |----------|----------|----------|-----------|
-| KeyboardKeyButton | ✅ 탭 KeyDown/KeyUp | ⏳ Sticky Hold (4.6.1), Key Repeat (4.4.2) | 4.6.1 + 4.4.2 |
+| KeyboardKeyButton | ✅ 탭 KeyDown/KeyUp | ⏳ Sticky Hold (4.6.1), Key Repeat (4.4.3) | 4.6.1 + 4.4.3 |
 | ShortcutButton | ✅ 키 조합 순차 전송 | ✅ 디바운스, Alt+Tab 홀드 | 4.2.4 |
 | ContainerButton | — | ✅ 일반/지속 팝업 모드 | 4.6.2 |
 | MacroButton | — | ⏳ Phase 5+ (Disabled placeholder) | 4.2.5 (placeholder) |
@@ -177,10 +177,10 @@ updated: "2026-03-26"
 | **4.1** | 스플래시 & 연결 대기 | 3-4일 | 앱 진입 흐름 완성 |
 | **4.2** | Page 1 터치패드+Actions | 4-5일 | Standard 메인 페이지, ShortcutButton |
 | **4.3** | 터치패드 고급 기능 | 5-7일 | 스크롤, 직각 이동, DPI, 가이드라인 |
-| **4.4** | Page 2 키보드 중심 | 4-5일 | Modifiers Sticky, Key Repeat, Lock Keys LED 동기화 |
+| **4.4** | Page 2 키보드 중심 | 4.5-5.5일 | KeyDisplayRegistry, Modifiers Sticky, Key Repeat, Lock Keys LED 동기화 |
 | **4.5** | Page 3 Minecraft | 4-5일 | DPad Sticky Hold, 게임 최적화 |
 | **4.6** | 버튼 고급 기능 | 2-3일 | Sticky Hold 구현, ContainerButton, Essential 재정비 |
-| **합계** | | **22-29일** | |
+| **합계** | | **22.5-29.5일** | |
 
 ### Phase 4 완료 후 미구현 항목 (Phase 5+)
 - 멀티 커서 모드 (CursorModeButton → 현재 Disabled)
