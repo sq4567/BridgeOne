@@ -92,10 +92,12 @@ Standard 모드
 > **⚠️ Phase 4.1.3 구조 참고**: `StandardModePage`는 `BridgeOneApp.kt`의 `AppState.Active(bridgeMode)` 분기 안에서 렌더링됨. `bridgeMode: BridgeMode` 파라미터로 수신. 에뮬레이터 개발 시 DEV 버튼은 여전히 정상 작동하나, Phase 4.1.5 이후 스플래시 완료 시 항상 `WaitingForConnection`을 경유하므로 앱 최초 실행 후 DEV 버튼이 나타나기까지 스플래시 2.5초 + WaitingForConnection 진입 대기가 필요함.
 
 **검증**:
-- [ ] 3페이지 스와이프 전환 동작
-- [ ] 인디케이터 닷 실시간 업데이트
-- [ ] Page 2, 3은 Placeholder 텍스트 표시
-- [ ] 에뮬레이터 빌드 성공
+- [x] 3페이지 스와이프 전환 동작 (HorizontalPager 구현)
+- [x] 인디케이터 닷 실시간 업데이트 (PageIndicator 구현)
+- [x] Page 2, 3은 Placeholder 텍스트 표시
+- [x] 에뮬레이터 빌드 성공 (2026-03-27 완료)
+
+**✅ Phase 4.2.1 완료** (2026-03-27)
 
 ---
 
@@ -105,11 +107,13 @@ Standard 모드
 
 **개발 기간**: 1일
 
+> **⚠️ Phase 4.2.1 변경사항**: `Page1TouchpadActions` Composable이 `StandardModePage.kt` 내부에 생성됨. 현재는 기존 구조(72/28 비율) 그대로 재사용 중. Phase 4.2.2에서 이를 64/36 비율로 변경하고, LazyColumn 기반 Actions 패널로 재구성할 예정.
+
 **세부 목표**:
-1. `Page1TouchpadActions` Composable 생성:
-   - 2열 Row: 좌측 64% / 우측 36%
+1. `Page1TouchpadActions` Composable 구조 개선:
+   - 2열 Row: 좌측 64% / 우측 36% (현재 72/28에서 변경)
    - 좌측: `TouchpadWrapper` (기존 컴포넌트 재사용, STANDARD 모드)
-   - 우측: 세로 스크롤 Actions 패널
+   - 우측: 세로 스크롤 Actions 패널 (새로 구현)
 2. 좌측 터치패드:
    - 좌측 모서리 밀착 (anchor-left), 상하 중앙 정렬
    - 1:2 종횡비 유지 (최소 320dp × 560dp)

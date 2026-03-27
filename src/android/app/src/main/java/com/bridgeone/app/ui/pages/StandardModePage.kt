@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -38,68 +41,131 @@ import com.bridgeone.app.ui.components.KeyboardLayout
 import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.utils.ClickDetector
 
-// ╔════════════════════════════════════════════════════════════╗
-// ║  ⚠️ PROTOTYPE — 이 파일은 임시 프로토타입입니다.            ║
-// ║                                                            ║
-// ║  Standard 모드의 최종 디자인이 확정되지 않은 상태에서       ║
-// ║  기본 동작 검증을 위해 작성된 임시 구현입니다.              ║
-// ║  향후 디자인 확정 시 전면 재작성될 예정입니다.              ║
-// ║                                                            ║
-// ║  - 레이아웃: Essential과 유사한 2열 구조 (임시)             ║
-// ║  - 컨트롤 패널: 휠/우클릭 추가 (임시 배치)                 ║
-// ║  - 키보드 뷰: 기존 3탭 키보드 레이아웃 재사용              ║
-// ╚════════════════════════════════════════════════════════════╝
-
 // ============================================================
-// Standard 모드 페이지 (프로토타입)
+// Standard 모드 페이지 (Phase 4.2.1: 3페이지 네비게이션)
 // ============================================================
 
 /**
- * Standard 모드 페이지 (프로토타입)
+ * Standard 모드 메인 페이지 (완전 재작성)
  *
- * ⚠️ 임시 구현 — 최종 디자인 확정 후 전면 재작성 예정
- *
- * Essential과 유사한 2열 구조 + 하단 키보드 전환 버튼
- * - 터치패드 뷰: 좌측 터치패드(72%) + 우측 컨트롤 패널(28%)
- * - 키보드 뷰: 전체 3탭 키보드 레이아웃
+ * Phase 4.2.1: HorizontalPager 기반 3페이지 시스템
+ * - Page 0: 터치패드 + Actions
+ * - Page 1: 키보드 (Phase 4.4에서 구현)
+ * - Page 2: 마인크래프트 (Phase 4.5에서 구현)
+ * - 하단 페이지 인디케이터 (닷 3개)
  */
 @Composable
 fun StandardModePage() {
-    var showKeyboard by remember { mutableStateOf(false) }
-    val activeKeys = remember { mutableStateOf(setOf<UByte>()) }
-    val activeModifierKeys = remember { mutableStateOf(setOf<UByte>()) }
+    val pagerState = rememberPagerState(pageCount = { 3 })
     val context = LocalContext.current
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.Bottom,
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(MaterialTheme.colorScheme.background),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // 메인 콘텐츠 영역
+        // ── 페이지 컨테이너 ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.75f),  // 화면 하단 75%만 사용, 상단 25% 여백
+                .weight(1f)
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) { page ->
+                when (page) {
+                    0 -> Page1TouchpadActions(context = context)
+                    1 -> Page2KeyboardPlaceholder()
+                    2 -> Page3MinecraftPlaceholder()
+                }
+            }
+        }
+
+        // ── 페이지 인디케이터 (닷 3개) ──
+        PageIndicator(
+            currentPage = pagerState.currentPage,
+            pageCount = 3,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(bottom = 16.dp)
+        )
+    }
+}
+
+// ============================================================
+// 페이지 인디케이터
+// ============================================================
+
+@Composable
+private fun PageIndicator(
+    currentPage: Int,
+    pageCount: Int,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(pageCount) { index ->
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(
+                        color = if (index == currentPage) Color(0xFF2196F3) else Color(0xFFC2C2C2),
+                        shape = CircleShape
+                    )
+            )
+        }
+    }
+}
+
+// ============================================================
+// Page 1: 터치패드 + Actions (임시 구현)
+// ============================================================
+
+/**
+ * Page 1: 터치패드 + Actions
+ *
+ * Phase 4.2.2에서 정식 구현될 예정
+ * 현재는 기존 구조 재사용
+ */
+@Composable
+private fun Page1TouchpadActions(context: android.content.Context) {
+    var showKeyboard by remember { mutableStateOf(false) }
+    val activeKeys = remember { mutableStateOf(setOf<UByte>()) }
+    val activeModifierKeys = remember { mutableStateOf(setOf<UByte>()) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        verticalArrangement = Arrangement.Bottom,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // 메인 콘텐츠 (터치패드 또는 키보드)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f),
             contentAlignment = Alignment.BottomCenter
         ) {
             if (!showKeyboard) {
-                // 터치패드 뷰: 2열 구조
+                // 터치패드 뷰: 좌측 터치패드(72%) + 우측 컨트롤 패널(28%)
                 Row(
                     modifier = Modifier.fillMaxSize(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // 좌측: 터치패드 (72%)
                     TouchpadWrapper(
                         bridgeMode = BridgeMode.STANDARD,
                         modifier = Modifier
                             .weight(0.72f)
                             .fillMaxHeight()
                     )
-
-                    // 우측: Standard 컨트롤 패널 (28%)
                     StandardControlPanel(
                         activeKeys = activeKeys,
                         modifier = Modifier
@@ -134,12 +200,80 @@ fun StandardModePage() {
                 fontSize = 24.sp
             )
         }
-        Text(
-            text = if (!showKeyboard) "터치패드" else "키보드",
-            color = Color(0xFFC2C2C2),
-            fontSize = 11.sp,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
+    }
+}
+
+// ============================================================
+// Page 2: 키보드 (Placeholder - Phase 4.4에서 구현)
+// ============================================================
+
+@Composable
+private fun Page2KeyboardPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1E1E1E), RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Page 2",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF2196F3)
+            )
+            Text(
+                text = "키보드 중심 레이아웃",
+                fontSize = 14.sp,
+                color = Color(0xFFC2C2C2)
+            )
+            Text(
+                text = "(Phase 4.4에서 구현 예정)",
+                fontSize = 12.sp,
+                color = Color(0xFF888888),
+                fontWeight = FontWeight.Light
+            )
+        }
+    }
+}
+
+// ============================================================
+// Page 3: 마인크래프트 (Placeholder - Phase 4.5에서 구현)
+// ============================================================
+
+@Composable
+private fun Page3MinecraftPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1E1E1E), RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Page 3",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF2196F3)
+            )
+            Text(
+                text = "마인크래프트 특화",
+                fontSize = 14.sp,
+                color = Color(0xFFC2C2C2)
+            )
+            Text(
+                text = "(Phase 4.5에서 구현 예정)",
+                fontSize = 12.sp,
+                color = Color(0xFF888888),
+                fontWeight = FontWeight.Light
+            )
+        }
     }
 }
 
