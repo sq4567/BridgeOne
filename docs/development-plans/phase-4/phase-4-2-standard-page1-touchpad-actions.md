@@ -294,10 +294,18 @@ Standard 모드
 **참조 문서**:
 - `docs/android/styleframe-page1.md` §2.2-C (Macros)
 
+**구현 세부사항**:
+- `MacrosPlaceholder` private Composable을 `StandardModePage.kt` 내부에 구현
+- 3개 매크로 버튼: `Macro 1`, `Macro 2`, `Macro 3` — 세로 리스트 (Column, 8dp 간격)
+- Disabled 상태: `alpha(0.6f)` + `Color(0xFFC2C2C2)` 텍스트/아이콘
+- PlayArrow 아이콘: `Icons.Filled.PlayArrow` (Material Icons) 사용
+- 그룹 헤더: "Macros" + "⚠️ 추후 개발 예정" 보조 캡션 (12sp)
+- 버튼은 클릭 이벤트 없음 (Box, clickable 미적용)
+
 **검증**:
-- [ ] 3개 매크로 버튼 Disabled 상태로 표시
-- [ ] 탭 시 아무 반응 없음
-- [ ] 시각적으로 비활성화 상태 명확
+- [x] 3개 매크로 버튼 Disabled 상태로 표시
+- [x] 탭 시 아무 반응 없음
+- [x] 시각적으로 비활성화 상태 명확
 
 ---
 
