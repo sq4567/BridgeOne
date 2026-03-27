@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ESP32-S3 BridgeOne Device Filter (VID: 0x303A - Espressif) -->
-    <!-- PID 0x4001: BridgeOne Composite Device (HID Keyboard + Mouse + CDC) -->
-    <usb-device vendor-id="0x303A" product-id="0x4001" />
-
-    <!-- Legacy PIDs (호환성 유지) -->
-    <usb-device vendor-id="0x303A" product-id="0x1001" />
-    <usb-device vendor-id="0x303A" product-id="0x8108" />
+    <!-- CH343P USB-to-UART Bridge (YD-ESP32-S3 보드의 USB-C 포트) -->
+    <!-- VID: 0x1A86 (6790) = WCH Qinheng, PID: 0x55D3 (21971) = CH343P -->
+    <usb-device vendor-id="6790" product-id="21971" />
 </resources>

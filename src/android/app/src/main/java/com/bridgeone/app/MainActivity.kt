@@ -1,6 +1,7 @@
 package com.bridgeone.app
 
 import android.content.Context
+import android.content.Intent
 import android.hardware.usb.UsbManager
 import android.os.Bundle
 import android.util.Log
@@ -45,6 +46,15 @@ class MainActivity : ComponentActivity() {
 
         // Phase 2.3.1.1: USB Serial 인식 검증을 위한 초기화
         initializeUsbSystem()
+
+        // USB 장치 연결로 앱이 시작된 경우 처리
+        handleUsbDeviceAttachedIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // 앱이 이미 실행 중일 때 USB 장치가 연결된 경우
+        handleUsbDeviceAttachedIntent(intent)
     }
 
     override fun onStart() {
@@ -92,6 +102,20 @@ class MainActivity : ComponentActivity() {
 
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing USB system: ${e.message}", e)
+        }
+    }
+
+    /**
+     * USB_DEVICE_ATTACHED intent 처리.
+     *
+     * device_filter.xml과 매칭되는 USB 장치가 연결되면
+     * 시스템이 이 Activity를 자동으로 시작/재시작합니다.
+     * "항상 이 앱 사용" 체크박스를 선택하면 이후 권한 팝업 없이 자동 연결됩니다.
+     */
+    private fun handleUsbDeviceAttachedIntent(intent: Intent?) {
+        if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+            Log.i(TAG, "App launched via USB_DEVICE_ATTACHED intent")
+            UsbSerialManager.connect(this)
         }
     }
 

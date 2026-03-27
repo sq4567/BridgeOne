@@ -42,8 +42,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- USB 장치 연결 Intent Filter 제거:
-                 자동 팝업 대신 UsbDeviceDetectionReceiver를 통한 수동 감지로 변경 -->
+            <!-- USB 장치 연결 시 "항상 이 앱 사용" 체크박스 팝업 표시 -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
         
         <!-- USB 권한 요청 결과 수신 BroadcastReceiver -->
