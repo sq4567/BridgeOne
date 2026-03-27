@@ -262,63 +262,46 @@ private fun ActionsPanel(
     LazyColumn(
         modifier = modifier
             .background(Color(0xFF121212), RoundedCornerShape(12.dp))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // ── Special Keys 그룹 ──
         item {
             Text(
-                text = "Special Keys",
-                fontSize = 14.sp,
+                text = "특수 키",
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFFFFFFFF),
-                modifier = Modifier.padding(vertical = 4.dp)
+                modifier = Modifier.padding(vertical = 2.dp)
             )
         }
         item {
             SpecialKeysGrid()
         }
 
-        // ── 그룹 간 간격 ──
-        item {
-            Spacer(modifier = Modifier.height(4.dp))
-        }
-
         // ── Shortcuts 그룹 ──
         item {
             Text(
-                text = "Shortcuts",
-                fontSize = 14.sp,
+                text = "단축키",
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFFFFFFFF),
-                modifier = Modifier.padding(vertical = 4.dp)
+                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
             )
         }
         item {
             ShortcutsGrid()
         }
 
-        // ── 그룹 간 간격 ──
-        item {
-            Spacer(modifier = Modifier.height(4.dp))
-        }
-
         // ── Macros 그룹 ──
         item {
-            Column {
-                Text(
-                    text = "Macros",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFFFFFFF),
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-                Text(
-                    text = "⚠️ 추후 개발 예정",
-                    fontSize = 12.sp,
-                    color = Color(0xFFA0A0A0)
-                )
-            }
+            Text(
+                text = "매크로",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFFFFFF),
+                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+            )
         }
         item {
             MacrosPlaceholder()
@@ -355,12 +338,12 @@ private fun SpecialKeysGrid() {
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         keys.chunked(2).forEach { rowKeys ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 rowKeys.forEach { (label, keyCode) ->
                     KeyboardKeyButton(
@@ -375,7 +358,7 @@ private fun SpecialKeysGrid() {
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(36.dp)
                     )
                 }
                 if (rowKeys.size < 2) {
@@ -405,12 +388,12 @@ private fun SpecialKeysGrid() {
 private fun ShortcutsGrid() {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         DEFAULT_SHORTCUTS.chunked(2).forEach { rowShortcuts ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 rowShortcuts.forEach { shortcutDef ->
                     ShortcutButton(
@@ -423,7 +406,7 @@ private fun ShortcutsGrid() {
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(36.dp)
                     )
                 }
                 if (rowShortcuts.size < 2) {
@@ -452,13 +435,13 @@ private fun MacrosPlaceholder() {
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         macros.forEach { label ->
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
+                    .height(36.dp)
                     .alpha(0.6f)
                     .background(Color(0xFF2A2A2A), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
@@ -475,7 +458,7 @@ private fun MacrosPlaceholder() {
                     )
                     Text(
                         text = label,
-                        fontSize = 13.sp,
+                        fontSize = 11.sp,
                         color = Color(0xFFC2C2C2)
                     )
                 }

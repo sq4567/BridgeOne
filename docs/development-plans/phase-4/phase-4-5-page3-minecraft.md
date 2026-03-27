@@ -86,7 +86,8 @@ Page 3 — Minecraft
 5. 우측 Actions 패널:
    - `LazyColumn` 기반 세로 스크롤
    - 터치 타겟 ≥ 64dp (한 손가락 최적화)
-   - 간격 12dp, 리플 비활성
+   - 리플 비활성
+   > **⚠️ Phase 4.2.6 변경사항**: Page 1 Actions 패널 기준으로 LazyColumn 아이템 간격 4dp, 그리드 행 간격 4dp, 열 간격 6dp, 버튼 높이 36dp로 변경됨. Page 3 Actions 패널 구현 시 동일 패턴 적용 또는 별도 조정 필요.
 
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/pages/standard/Page3Minecraft.kt`

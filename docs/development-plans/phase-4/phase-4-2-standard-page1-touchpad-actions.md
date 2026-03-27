@@ -219,14 +219,16 @@ Standard 모드
        val label: String,           // 예: "Ctrl+C"
        val modifiers: List<UByte>,  // HID 수정자 비트플래그 (HidConstants.modifierBitFlag() 활용)
        val key: UByte,              // 주 키 HID 코드 (UByte — 기존 HidConstants 타입과 통일)
-       val displayChips: List<String> // UI 표시용 ["Ctrl", "C"]
+       val icon: ImageVector,       // 버튼에 표시할 Material Icon (예: Icons.Filled.ContentCopy)
+       val displayChips: List<String> = emptyList() // 아이콘 없을 때 폴백용
    )
    ```
    - **⚠️ 타입 통일**: 기존 `KeyboardKeyButton`, `ClickDetector.createKeyboardFrame()`이 `UByte`/`Set<UByte>` 사용 → `ShortcutDef`도 `UByte` 사용
    - **전송 로직**: `ClickDetector.createKeyboardFrame(activeModifierKeys, keyCode1)` 활용하여 프레임 생성 및 `ClickDetector.sendFrame()` 전송
-3. 키칩 표기:
-   - 키 조합을 칩 형태로 시각화 (예: `[Ctrl]` + `[C]`)
-   - 색상: 기본 `#2196F3`, Disabled `#C2C2C2`
+3. 아이콘 표시:
+   - 각 단축키의 기능을 나타내는 Material Icon(20dp)으로 시각화
+   - 아이콘 매핑: ContentCopy(복사), ContentPaste(붙여넣기), Save(저장), Undo(실행취소), Redo(다시실행), ContentCut(잘라내기), SwapHoriz(창전환), DesktopWindows(바탕화면)
+   - 색상: 기본 `White`, Disabled `#666666`
 4. 기본 단축키 세트 (8개):
    - `Ctrl+C`, `Ctrl+V`, `Ctrl+S`, `Ctrl+Z`
    - `Ctrl+Shift+Z`, `Ctrl+X`, `Alt+Tab`, `Win+D`
@@ -251,10 +253,10 @@ Standard 모드
   - `combinedModifiers` 프로퍼티로 비트플래그 합산 자동 계산
   - `debounceDurationMs`: 기본 150ms, Win+D만 500ms
   - `description`: 접근성용 한글 설명 (복사, 붙여넣기 등)
-- `ShortcutButton.kt` 신규: 키칩 표기 + 스케일 피드백(0.98→1.0, 200ms) + 디바운스
+- `ShortcutButton.kt` 신규: 아이콘 표시 + 스케일 피드백(0.98→1.0, 200ms) + 디바운스
   - TAP 모드: onClick에서 디바운스 후 `onShortcutTriggered` 콜백 호출
   - HOLD 모드: `LaunchedEffect(isPressed)`로 누름/뗌 감지, 누름 동안 `isHolding=true` 유지
-  - `FlowRow` + `KeyChip` 구성: 수정자+키를 `[Ctrl]+[C]` 형태로 시각화
+  - Material Icon(20dp)으로 단축키 기능 시각화 (키칩 표기에서 변경)
   - 접근성: `semantics { contentDescription = "단축키 Ctrl+C, 복사" }`
 - `HidConstants.kt` 확장: 문자 키(KEY_C/D/S/V/X/Z) + 수정자 비트플래그(MOD_BIT_LCTRL/LSHIFT/LALT/LGUI) + 수정자 키코드(MOD_KEY_LCTRL 등) 추가
 - `StandardModePage.kt`: Shortcuts placeholder → `ShortcutsGrid()` 교체 (SpecialKeysGrid와 동일 패턴: chunked(2) + Row)
@@ -267,7 +269,7 @@ Standard 모드
 - [x] Ctrl+C 전송 시 순서 보장 (Ctrl↓→C↓→C↑→Ctrl↑)
 - [x] 150ms 디바운스 동작 (빠른 연타 무시)
 - [x] Alt+Tab 누름 유지 동작
-- [x] 키칩 시각화 정상 렌더링
+- [x] 아이콘 시각화 정상 렌더링
 - [x] 접근성 리드아웃 확인
 
 ---
@@ -306,6 +308,68 @@ Standard 모드
 - [x] 3개 매크로 버튼 Disabled 상태로 표시
 - [x] 탭 시 아무 반응 없음
 - [x] 시각적으로 비활성화 상태 명확
+
+---
+
+## Phase 4.2.6: Actions 패널 UI 압축 및 아이콘 전환
+
+**목표**: Actions 패널(특수 키, 단축키, 매크로)의 공간 효율을 개선하여 세 그룹이 스크롤 없이 화면에 모두 표시되도록 하고, 단축키 표시를 키칩에서 아이콘으로 전환
+
+**세부 목표**:
+1. Actions 패널 공간 압축:
+   - 버튼 높이: 44dp → 36dp (Special Keys, Shortcuts, Macros 전체 적용)
+   - 그리드 내부 행 간격: 8dp → 4dp
+   - 그리드 내부 열 간격: 8dp → 6dp
+   - LazyColumn 아이템 간격: 12dp → 4dp
+   - 그룹 간 Spacer(4dp × 2개) 제거
+   - 패널 패딩: horizontal 16dp → 12dp, vertical 12dp → 8dp
+   - 섹션 헤더 폰트: 14sp → 13sp
+2. 섹션 헤더 한글화:
+   - "Special Keys" → "특수 키"
+   - "Shortcuts" → "단축키"
+   - "Macros" → "매크로"
+   - "⚠️ 추후 개발 예정" 보조 캡션 삭제
+3. 단축키 버튼 아이콘 전환:
+   - `ShortcutDef`에 `icon: ImageVector` 필드 추가, `displayChips`는 선택적 폴백으로 변경 (`emptyList()` 기본값)
+   - `ShortcutButton` 내부의 `FlowRow` + `KeyChip` 키칩 표기를 Material Icon(20dp) 단일 아이콘으로 교체
+   - `KeyChip` private Composable 삭제
+   - 아이콘 매핑:
+     | 단축키 | 아이콘 |
+     |--------|--------|
+     | Ctrl+C | `Icons.Filled.ContentCopy` |
+     | Ctrl+V | `Icons.Filled.ContentPaste` |
+     | Ctrl+S | `Icons.Filled.Save` |
+     | Ctrl+Z | `Icons.AutoMirrored.Filled.Undo` |
+     | Ctrl+Shift+Z | `Icons.AutoMirrored.Filled.Redo` |
+     | Ctrl+X | `Icons.Filled.ContentCut` |
+     | Alt+Tab | `Icons.Filled.SwapHoriz` |
+     | Win+D | `Icons.Filled.DesktopWindows` |
+4. 매크로 버튼 텍스트 크기 축소: 13sp → 11sp
+5. 터치패드 스와이프 시 페이지 전환 방지:
+   - `TouchpadWrapper`의 `pointerInput`에서 DOWN/MOVE 이벤트에 `consume()` 추가
+   - 터치패드 위 스와이프가 HorizontalPager로 전파되지 않도록 차단
+   - 페이지 전환은 터치패드 바깥 영역(Actions 패널 등)에서만 동작
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/StandardModePage.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/ShortcutButton.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/ShortcutDef.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
+
+**설계 문서 반영**:
+- `docs/android/styleframe-page1.md` §2.2-B: 키칩 → 아이콘 표기 반영
+- `docs/android/styleframe-page2.md` §2.2-1: 키칩 → 아이콘 표기 반영
+- `docs/android/component-design-guide-app.md` §2.3.2: ShortcutButton 시각/피드백에 아이콘 매핑 추가
+- `docs/development-plans/phase-4/phase-4-4-page2-keyboard-centric.md`: ShortcutDef 재사용 설명에 `icon` 필드 반영
+
+**검증**:
+- [x] 세 그룹(특수 키, 단축키, 매크로)이 스크롤 없이 화면에 표시
+- [x] 버튼 높이 36dp 정상 렌더링
+- [x] 섹션 헤더 한글 표시 ("특수 키", "단축키", "매크로")
+- [x] 8개 단축키 아이콘 정상 표시
+- [x] 매크로 텍스트 11sp 정상 렌더링
+- [x] 터치패드 스와이프 시 페이지 전환되지 않음
+- [x] 빌드 성공
 
 ---
 

@@ -98,6 +98,9 @@ fun TouchpadWrapper(
                         return@awaitEachGesture
                     }
 
+                    // 터치 이벤트 소비: HorizontalPager 등 부모로 전파 방지
+                    down.changes.forEach { it.consume() }
+
                     currentTouchPosition.value = down.changes.first().position
                     previousTouchPosition.value = currentTouchPosition.value
 
@@ -121,6 +124,8 @@ fun TouchpadWrapper(
                     // 포인터 MOVE 이벤트 처리
                     var moveEvent = awaitPointerEvent()
                     while (moveEvent.type == PointerEventType.Move) {
+                        // 터치 이벤트 소비: HorizontalPager 등 부모로 전파 방지
+                        moveEvent.changes.forEach { it.consume() }
                         val change = moveEvent.changes.first()
 
                         // Phase 2.3.6: historical 터치 샘플 + 현재 위치를 모두 처리

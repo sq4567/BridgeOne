@@ -227,7 +227,8 @@ Page 2
    - 길게 누르기 반복 지원
 2. Shortcuts 패널 (우측, 12개):
    - 기본 12개: `Ctrl+C`, `Ctrl+V`, `Ctrl+S`, `Ctrl+Z`, `Ctrl+Shift+Z`, `Ctrl+X`, `Ctrl+N`, `Ctrl+O`, `Ctrl+P`, `Ctrl+W`, `Ctrl+T`, `Alt+F4`
-   - Phase 4.2.4에서 구현한 `ShortcutButton` + `ShortcutDef` 컴포넌트 재사용 (`ui/components/ShortcutButton.kt`, `ShortcutDef.kt`). `ShortcutDef`에 `holdBehavior`(TAP/HOLD), `debounceDurationMs`, `displayChips` 필드 포함.
+   - Phase 4.2.4에서 구현한 `ShortcutButton` + `ShortcutDef` 컴포넌트 재사용 (`ui/components/ShortcutButton.kt`, `ShortcutDef.kt`). `ShortcutDef`에 `icon: ImageVector`(필수), `holdBehavior`(TAP/HOLD), `debounceDurationMs` 필드 포함. `displayChips`는 선택 필드(기본값: `emptyList()`). 버튼은 아이콘(20dp)으로 표시.
+   > **⚠️ Phase 4.2.6 변경사항**: `ShortcutDef`의 `icon`이 필수 필드로 변경됨. 새 단축키 추가 시 반드시 적절한 Material Icon을 지정해야 함. `KeyChip` composable은 삭제됨.
    - 2열 그리드
    - `Alt+Tab`은 Modifiers + Tab 조합으로 대체 (UX 혼동 방지)
 

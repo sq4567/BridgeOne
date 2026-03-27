@@ -11,13 +11,11 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,13 +30,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.bridgeone.app.ui.common.*
 
 private const val TAG = "ShortcutButton"
 
@@ -57,7 +50,6 @@ private const val TAG = "ShortcutButton"
  * @param onShortcutTriggered 단축키 전송 콜백 (combinedModifiers, keyCode)
  * @param onShortcutReleased HOLD 모드 해제 콜백 (combinedModifiers, keyCode)
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ShortcutButton(
     shortcutDef: ShortcutDef,
@@ -136,59 +128,15 @@ fun ShortcutButton(
             },
         contentAlignment = Alignment.Center
     ) {
-        // 키칩 표기: [Ctrl] [C] 형태
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-        ) {
-            shortcutDef.displayChips.forEachIndexed { index, chip ->
-                KeyChip(
-                    text = chip,
-                    isEnabled = isEnabled
-                )
-                if (index < shortcutDef.displayChips.size - 1) {
-                    Text(
-                        text = "+",
-                        fontSize = 9.sp,
-                        color = if (isEnabled) Color(0xFFBBDEFB) else Color(0xFF666666),
-                        modifier = Modifier.align(Alignment.CenterVertically)
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * 키칩: 단축키 구성 요소를 작은 둥근 칩으로 표시
- */
-@Composable
-private fun KeyChip(
-    text: String,
-    isEnabled: Boolean = true
-) {
-    val chipBg = if (isEnabled) Color(0xFF1565C0) else Color(0xFF2A2A2A)
-    val chipText = if (isEnabled) Color.White else Color(0xFF666666)
-
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(3.dp))
-            .background(chipBg)
-            .padding(horizontal = 5.dp, vertical = 2.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            fontSize = if (text.length <= 1) 11.sp else 9.sp,
-            fontWeight = FontWeight.Medium,
-            color = chipText,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Clip
+        Icon(
+            imageVector = shortcutDef.icon,
+            contentDescription = shortcutDef.description,
+            tint = if (isEnabled) Color.White else Color(0xFF666666),
+            modifier = Modifier.size(20.dp)
         )
     }
 }
+
 
 @Preview(
     showBackground = true,
