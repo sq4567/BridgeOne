@@ -1,9 +1,5 @@
 package com.bridgeone.app.ui.connection
 
-import android.app.Activity
-import com.bridgeone.app.ui.common.ToastController
-import com.bridgeone.app.ui.common.ToastType
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -28,7 +24,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -68,20 +62,7 @@ fun ConnectionWaitingScreen(
     connectionState: ConnectionState = ConnectionState.WaitingForUsb,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val density = LocalDensity.current
-
-    // --- 뒤로가기 더블 탭 종료 ---
-    var lastBackPressTime by remember { mutableLongStateOf(0L) }
-    BackHandler {
-        val now = System.currentTimeMillis()
-        if (now - lastBackPressTime < 3000L) {
-            (context as? Activity)?.finish()
-        } else {
-            lastBackPressTime = now
-            ToastController.show("앱을 종료하시겠습니까?", ToastType.INFO, durationMs = 1000L)
-        }
-    }
 
     // --- 화면 진입 애니메이션 ---
     var visible by remember { mutableStateOf(false) }

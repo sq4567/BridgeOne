@@ -1,5 +1,8 @@
 package com.bridgeone.app.ui
 
+import android.app.Activity
+import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -18,6 +21,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -27,7 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.util.Log
 import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.common.BOTTOM_SAFE_ZONE
 import com.bridgeone.app.ui.common.StatusToastOverlay
@@ -42,6 +45,13 @@ import com.bridgeone.app.ui.splash.SplashScreen
 import com.bridgeone.app.ui.theme.BridgeOneTheme
 import com.bridgeone.app.usb.UsbSerialManager
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+// ============================================================
+// 상수
+// ============================================================
+
+private const val EXIT_CONFIRMATION_TOAST_DURATION_MS = 2000L
 
 // ============================================================
 // 최상위 Composable
@@ -55,12 +65,29 @@ import kotlinx.coroutines.delay
 @Composable
 fun BridgeOneApp() {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val debugState by UsbSerialManager.debugState.collectAsState()
     val bridgeMode by UsbSerialManager.bridgeMode.collectAsState()
     val isUsbConnected = debugState.isConnected
 
     // ========== 앱 상태 머신 ==========
     var appState by remember { mutableStateOf<AppState>(AppState.Splash) }
+
+    // ========== 뒤로가기 더블 탭 종료 ==========
+    // Splash를 제외한 모든 상태에서 동작: 첫 번째 → 토스트, 두 번째(토스트 표시 중) → 종료
+    var exitToastShowing by remember { mutableStateOf(false) }
+    BackHandler(enabled = appState !is AppState.Splash) {
+        if (exitToastShowing) {
+            (context as? Activity)?.finish()
+        } else {
+            exitToastShowing = true
+            ToastController.show("BridgeOne을 종료하려면 한 번 더 터치하세요", ToastType.INFO, durationMs = EXIT_CONFIRMATION_TOAST_DURATION_MS)
+            coroutineScope.launch {
+                delay(EXIT_CONFIRMATION_TOAST_DURATION_MS)
+                exitToastShowing = false
+            }
+        }
+    }
 
     // 연결 대기 화면의 현재 ConnectionState (자동 진행용)
     var connectionState by remember { mutableStateOf<ConnectionState>(ConnectionState.WaitingForUsb) }
