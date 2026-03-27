@@ -431,6 +431,45 @@ object SplashConstants {
 
 ---
 
+## Phase 4.1.7: Active 화면 상하단 Safe Zone 적용
+
+**목표**: 화면 최상단·최하단에 컴포넌트가 배치되지 않는 Safe Zone을 전역으로 적용하여 오조작 방지
+
+**개발 기간**: 0.5일 미만
+
+**세부 목표**:
+
+1. **문제 정의**:
+   - 내비게이션 바가 숨겨진 몰입 모드(`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`)에서, 내비게이션 바를 꺼내려면 화면 하단에서 위로 스와이프해야 함
+   - 스와이프 시작점이 최하단이 아닌 약간 올라온 지점이면 하단 컴포넌트가 의도치 않게 터치될 수 있음
+   - 사용자의 신체적 특성상 화면 최상단·최하단은 엄지손가락으로 닿기 어려워 컴포넌트를 배치해도 활용 가치가 낮음
+
+2. **Safe Zone 상수 정의** (`LayoutConstants.kt` 신규 생성):
+   ```kotlin
+   val TOP_SAFE_ZONE    = 40.dp  // 상단 — 손이 닿기 어려운 영역
+   val BOTTOM_SAFE_ZONE = 40.dp  // 하단 — 내비게이션 스와이프 제스처 영역
+   ```
+
+3. **전역 적용 지점 (`BridgeOneApp.kt`)**:
+   - `AppState.Active` 렌더링 Box에 `padding(top = TOP_SAFE_ZONE, bottom = BOTTOM_SAFE_ZONE)` 추가
+   - 이 한 지점만 수정하면 `EssentialModePage`, `StandardModePage` 등 모든 Active 페이지가 자동으로 Safe Zone 안에 배치됨
+   - 값 조정 시 `LayoutConstants.kt` 한 파일만 수정
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/LayoutConstants.kt`
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/BridgeOneApp.kt`
+
+**검증**:
+- [x] Active 화면 하단에 40dp Safe Zone이 확보되어 컴포넌트가 배치되지 않음
+- [x] Active 화면 상단에 40dp Safe Zone이 확보되어 컴포넌트가 배치되지 않음
+- [x] `EssentialModePage`, `StandardModePage` 양쪽 모두 Safe Zone 적용 확인
+- [x] Splash, ConnectionWaitingScreen 등 Active 외 화면에는 Safe Zone이 적용되지 않음
+- [x] `LayoutConstants.kt`의 값 변경 시 모든 페이지에 즉시 반영
+
+---
+
 ## 반응형 규칙 (전체 Phase 4.1 공통)
 
 | 화면 크기 | 스플래시 | 연결 대기 |

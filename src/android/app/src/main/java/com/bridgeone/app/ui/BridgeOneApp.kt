@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.sp
 import android.widget.Toast
 import android.util.Log
 import com.bridgeone.app.protocol.BridgeMode
+import com.bridgeone.app.ui.common.BOTTOM_SAFE_ZONE
+import com.bridgeone.app.ui.common.TOP_SAFE_ZONE
 import com.bridgeone.app.ui.connection.ConnectionState
 import com.bridgeone.app.ui.connection.ConnectionWaitingScreen
 import com.bridgeone.app.ui.debug.UsbDebugPanel
@@ -225,8 +227,12 @@ fun BridgeOneApp() {
                 }
                 is AppState.Active -> {
                     // 메인 콘텐츠 (하단 정렬)
+                    // Safe Zone: 상하단 터치 불가 영역을 확보하여 컴포넌트 오조작을 방지합니다.
+                    // 값 조정 시 LayoutConstants.kt의 TOP_SAFE_ZONE / BOTTOM_SAFE_ZONE을 수정하세요.
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = TOP_SAFE_ZONE, bottom = BOTTOM_SAFE_ZONE),
                         contentAlignment = Alignment.BottomCenter
                     ) {
                         when (state.bridgeMode) {
