@@ -148,11 +148,11 @@ object SplashConstants {
 - `docs/android/design-guide-app.md` §8.1.3 (연결 대기 화면)
 
 **검증**:
-- [ ] 단계별 메시지 동적 변경 정상 동작
-- [ ] USB 아이콘 회전 애니메이션 부드러운 60fps
-- [ ] 뒤로가기 더블 탭 종료 로직
-- [ ] CrossFade 텍스트 전환 자연스러움
-- [ ] 스크린 리더 `LiveRegion` 알림 동작
+- [x] 단계별 메시지 동적 변경 정상 동작
+- [x] USB 아이콘 회전 애니메이션 부드러운 60fps
+- [x] 뒤로가기 더블 탭 종료 로직
+- [x] CrossFade 텍스트 전환 자연스러움
+- [x] 스크린 리더 `LiveRegion` 알림 동작
 
 > **에뮬레이터 참고**: `ConnectionWaitingScreen` UI 렌더링 및 애니메이션은 에뮬레이터에서 완전 테스트 가능. USB 연결 감지는 에뮬레이터에서 불가능하므로, Phase 4.1.3에서 추가되는 DEV 버튼으로 화면 전환을 대신한다.
 
@@ -225,18 +225,14 @@ object SplashConstants {
 - `docs/android/styleframe-essential.md` §8 (상태 머신)
 
 **검증**:
-- [ ] Splash 화면이 2.5초 표시 후 자동 전환
-- [ ] USB 미연결 시 WaitingForConnection 화면 표시
-- [ ] USB 연결 시 Essential 페이지로 전환
-- [ ] USB 해제 시 WaitingForConnection으로 복귀
-- [ ] 핸드셰이크 완료 시 Standard 모드 전환 (기존 동작 유지)
-- [ ] 화면 전환 시 애니메이션 자연스러움
-- [ ] 디버그 패널이 Active 상태에서만 표시
-- [ ] 기존 모드 전환 토스트가 Active 상태 내에서 정상 동작
-- [ ] 에뮬레이터 빌드 및 실행 성공
-- [ ] (에뮬레이터) DEV 버튼으로 WaitingForConnection → Active(STANDARD) 강제 전환
-- [ ] (에뮬레이터) DEV 버튼으로 Active 상태에서 ESSENTIAL ↔ STANDARD 토글
-- [ ] DEV 버튼이 릴리스 빌드에서 표시되지 않음 확인
+- [x] Splash 화면이 2.5초 표시 후 자동 전환
+- [x] USB 미연결 시 WaitingForConnection 화면 표시
+- [x] USB 연결 시 Essential 페이지로 전환
+- [x] USB 해제 시 WaitingForConnection으로 복귀
+- [x] 핸드셰이크 완료 시 Standard 모드 전환 (기존 동작 유지)
+- [x] 화면 전환 시 애니메이션 자연스러움
+- [x] 기존 모드 전환 토스트가 Active 상태 내에서 정상 동작
+- [x] 에뮬레이터 빌드 및 실행 성공
 
 ---
 

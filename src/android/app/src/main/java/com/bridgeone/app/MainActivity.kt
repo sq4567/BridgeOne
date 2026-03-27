@@ -9,6 +9,9 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.bridgeone.app.ui.BridgeOneApp
 import com.bridgeone.app.ui.theme.BridgeOneTheme
 import com.bridgeone.app.usb.UsbDeviceDetectionReceiver
@@ -45,6 +48,14 @@ class MainActivity : ComponentActivity() {
         }
 
         enableEdgeToEdge()
+
+        // 상태 바 + 내비게이션 바 완전 숨김 (몰입 모드)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+
         setContent {
             BridgeOneTheme {
                 BridgeOneApp()
