@@ -3,6 +3,7 @@ package com.bridgeone.app
 import android.content.Context
 import android.content.Intent
 import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -37,6 +38,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Android 12+: 시스템 스플래시를 즉시 닫아 커스텀 스플래시로 전환
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { it.remove() }
+        }
+
         enableEdgeToEdge()
         setContent {
             BridgeOneTheme {

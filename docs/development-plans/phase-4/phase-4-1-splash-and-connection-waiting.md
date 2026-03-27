@@ -95,11 +95,11 @@ object SplashConstants {
 ```
 
 **검증**:
-- [ ] 6단계 애니메이션이 순서대로 정상 실행 (2.5초)
-- [ ] Canvas 기반 Path 렌더링 60fps 유지
-- [ ] 탭 스킵 동작 (500ms 이후)
-- [ ] 애니메이션 비활성 접근성 설정 시 즉시 완료
-- [ ] 에뮬레이터 및 실기기에서 시각적 확인
+- [x] 6단계 애니메이션이 순서대로 정상 실행 (2.5초)
+- [x] Canvas 기반 Path 렌더링 60fps 유지
+- [x] 탭 스킵 동작 (500ms 이후)
+- [x] 애니메이션 비활성 접근성 설정 시 즉시 완료
+- [x] 에뮬레이터 및 실기기에서 시각적 확인
 
 ---
 
@@ -190,7 +190,7 @@ object SplashConstants {
 5. **기존 모드 전환 토스트 (`LaunchedEffect(bridgeMode)`) 통합**:
    - `Active` 상태 내에서만 토스트 표시 (기존 로직 유지)
    - `isFirstMode` 플래그 로직은 `AppState` 전환으로 대체 가능
-6. 화면 전환 애니메이션:
+6. 화면 전환 애니메이션 (`AnimatedVisibility` + `fadeIn`/`fadeOut` 패턴 검증 완료):
    - Splash → WaitingForConnection: Fade Out (200ms)
    - WaitingForConnection → Active: Fade In (300ms)
    - Active → WaitingForConnection: 즉시 전환 (USB 해제는 긴급 상황)
