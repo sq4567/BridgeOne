@@ -36,6 +36,30 @@ sealed class ConnectionState(
         step = 3
     )
 
+    /** Essential 모드 진입 안내 */
+    object EnteringEssential : ConnectionState(
+        primaryMessage = "Essential 모드로 진입합니다",
+        secondaryMessage = "보드가 연결되었습니다",
+        isProcessing = false,
+        step = 2
+    )
+
+    /** Standard 모드 진입 안내 */
+    object EnteringStandard : ConnectionState(
+        primaryMessage = "Standard 모드로 진입합니다",
+        secondaryMessage = "서버와 연결되었습니다",
+        isProcessing = false,
+        step = 3
+    )
+
+    /** 연결 해제됨 — 다시 연결 안내 */
+    object Disconnected : ConnectionState(
+        primaryMessage = "연결이 해제되었습니다",
+        secondaryMessage = "USB 동글을 다시 연결해주세요",
+        isProcessing = true,
+        step = 1
+    )
+
     /** 오류 단계 */
     data class Error(val errorMessage: String) : ConnectionState(
         primaryMessage = "연결에 실패했습니다",

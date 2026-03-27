@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import android.widget.Toast
 import android.util.Log
 import com.bridgeone.app.protocol.BridgeMode
+import com.bridgeone.app.ui.connection.ConnectionState
 import com.bridgeone.app.ui.connection.ConnectionWaitingScreen
 import com.bridgeone.app.ui.debug.UsbDebugPanel
 import com.bridgeone.app.ui.pages.EssentialModePage
@@ -58,33 +59,111 @@ fun BridgeOneApp() {
     var appState by remember { mutableStateOf<AppState>(AppState.Splash) }
     var showDebugPanel by remember { mutableStateOf(true) }
 
-    // Splash 완료 콜백 → WaitingForConnection 전환
+    // 연결 대기 화면의 현재 ConnectionState (자동 진행용)
+    var connectionState by remember { mutableStateOf<ConnectionState>(ConnectionState.WaitingForUsb) }
+
+    // 자동 진행 중 여부 (이미 연결된 상태에서 스텝 애니메이션 진행 중)
+    var isAutoProgressing by remember { mutableStateOf(false) }
+
+    // Splash 완료 콜백 → 항상 WaitingForConnection 경유
     val onSplashFinished = remember {
         {
-            appState = if (isUsbConnected) {
-                AppState.Active(bridgeMode)
-            } else {
-                AppState.WaitingForConnection
-            }
-        }
-    }
-
-    // USB 연결 상태 변화 감시 (Splash 이후에만 반응)
-    LaunchedEffect(isUsbConnected) {
-        if (appState is AppState.Splash) return@LaunchedEffect
-
-        if (isUsbConnected) {
-            // USB 연결됨 → Active 상태로 전환
-            appState = AppState.Active(bridgeMode)
-        } else {
-            // USB 해제됨 → WaitingForConnection으로 복귀
             appState = AppState.WaitingForConnection
         }
     }
 
-    // Active 상태에서 bridgeMode 변경 추적
+    // WaitingForConnection 진입 시 이미 USB 연결되어 있으면 스텝 자동 진행
+    LaunchedEffect(appState) {
+        if (appState !is AppState.WaitingForConnection) {
+            isAutoProgressing = false
+            return@LaunchedEffect
+        }
+
+        // 현재 USB 상태 한 번 스캔
+        UsbSerialManager.scanAndUpdateDebugState(context)
+        // 스캔 결과 반영 대기
+        delay(100L)
+
+        val connected = UsbSerialManager.debugState.value.isConnected
+        val mode = UsbSerialManager.bridgeMode.value
+
+        if (connected) {
+            // 이미 연결된 상태 → 스텝 자동 진행 애니메이션
+            isAutoProgressing = true
+            connectionState = ConnectionState.WaitingForUsb
+
+            // Step 1 → Step 2 진행
+            delay(600L)
+            connectionState = ConnectionState.SearchingServer
+
+            if (mode == BridgeMode.STANDARD) {
+                // 서버까지 연결 → Step 3 진행 후 Standard 안내
+                delay(600L)
+                connectionState = ConnectionState.EnteringStandard
+                delay(1200L)
+                isAutoProgressing = false
+                appState = AppState.Active(BridgeMode.STANDARD)
+            } else {
+                // 보드만 연결 → Essential 안내
+                delay(600L)
+                connectionState = ConnectionState.EnteringEssential
+                delay(1200L)
+                isAutoProgressing = false
+                appState = AppState.Active(BridgeMode.ESSENTIAL)
+            }
+        } else {
+            // 미연결 → Disconnected 상태가 아닌 경우에만 WaitingForUsb로 변경
+            if (connectionState !is ConnectionState.Disconnected) {
+                connectionState = ConnectionState.WaitingForUsb
+            }
+            // USB 폴링 시작
+            while (true) {
+                UsbSerialManager.scanAndUpdateDebugState(context)
+                delay(2000L)
+            }
+        }
+    }
+
+    // USB 연결 상태 변화 감시 (Splash/자동진행 중에는 반응하지 않음)
+    LaunchedEffect(isUsbConnected) {
+        if (appState is AppState.Splash || isAutoProgressing) return@LaunchedEffect
+
+        if (isUsbConnected) {
+            if (appState is AppState.WaitingForConnection) {
+                // 대기 중 USB 연결됨 → 스텝 자동 진행 시작
+                isAutoProgressing = true
+                connectionState = ConnectionState.SearchingServer
+
+                val mode = UsbSerialManager.bridgeMode.value
+                if (mode == BridgeMode.STANDARD) {
+                    delay(600L)
+                    connectionState = ConnectionState.EnteringStandard
+                    delay(1200L)
+                    isAutoProgressing = false
+                    appState = AppState.Active(BridgeMode.STANDARD)
+                } else {
+                    delay(600L)
+                    connectionState = ConnectionState.EnteringEssential
+                    delay(1200L)
+                    isAutoProgressing = false
+                    appState = AppState.Active(BridgeMode.ESSENTIAL)
+                }
+            }
+        } else {
+            // USB 해제됨 → WaitingForConnection으로 복귀
+            // Active 상태에서 해제된 경우 재연결 안내, 그 외는 기본 대기
+            connectionState = if (appState is AppState.Active) {
+                ConnectionState.Disconnected
+            } else {
+                ConnectionState.WaitingForUsb
+            }
+            appState = AppState.WaitingForConnection
+        }
+    }
+
+    // Active 상태에서 bridgeMode 변경 추적 (USB 연결 중일 때만)
     LaunchedEffect(bridgeMode) {
-        if (appState is AppState.Active) {
+        if (appState is AppState.Active && isUsbConnected) {
             appState = AppState.Active(bridgeMode)
         }
     }
@@ -106,15 +185,6 @@ fun BridgeOneApp() {
         }
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         Log.i("BridgeOneApp", "BridgeMode toast: $message")
-    }
-
-    // WaitingForConnection 상태에서만 USB 상태 폴링 (2초 주기)
-    LaunchedEffect(appState) {
-        if (appState !is AppState.WaitingForConnection) return@LaunchedEffect
-        while (true) {
-            UsbSerialManager.scanAndUpdateDebugState(context)
-            delay(2000L)
-        }
     }
 
     // ========== UI 렌더링 ==========
@@ -149,7 +219,7 @@ fun BridgeOneApp() {
                     SplashScreen(onSplashComplete = onSplashFinished)
                 }
                 is AppState.WaitingForConnection -> {
-                    ConnectionWaitingScreen()
+                    ConnectionWaitingScreen(connectionState = connectionState)
                 }
                 is AppState.Active -> {
                     // 메인 콘텐츠 (하단 정렬)

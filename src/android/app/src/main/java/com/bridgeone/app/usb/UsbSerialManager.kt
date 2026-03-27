@@ -266,6 +266,11 @@ object UsbSerialManager {
             stopPollingThread()
             usbSerialPort = null
             isConnected = false
+            // debugState의 isConnected도 즉시 갱신 (UI가 해제를 감지할 수 있도록)
+            _debugState.value = _debugState.value.copy(
+                isConnected = false,
+                connectionStatus = "연결 해제됨"
+            )
             // Phase 3.5.5: 포트 닫힘 시 ESSENTIAL 모드로 강제 복귀
             // lastNotification은 자동 초기화되지 않으므로 bridgeMode를 직접 초기화
             _bridgeMode.value = BridgeMode.ESSENTIAL

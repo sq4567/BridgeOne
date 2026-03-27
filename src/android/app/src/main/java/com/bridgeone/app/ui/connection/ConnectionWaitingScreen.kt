@@ -3,10 +3,18 @@ package com.bridgeone.app.ui.connection
 import android.app.Activity
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
@@ -133,10 +141,25 @@ fun ConnectionWaitingScreen(
                         liveRegion = LiveRegionMode.Polite
                     }
             ) {
-                // 주 메시지
-                Crossfade(
+                // 주 메시지 (왼쪽 슬라이드 + 스케일 전환)
+                AnimatedContent(
                     targetState = connectionState.primaryMessage,
-                    animationSpec = tween(200),
+                    transitionSpec = {
+                        // 들어오는 텍스트: 오른쪽에서 작고 투명하게 → 커지며 선명해짐
+                        (slideInHorizontally(
+                            animationSpec = tween(400, easing = FastOutSlowInEasing),
+                            initialOffsetX = { it / 4 }
+                        ) + fadeIn(tween(400, easing = FastOutSlowInEasing))
+                          + scaleIn(tween(400, easing = FastOutSlowInEasing), initialScale = 0.88f)
+                        ) togetherWith
+                        // 나가는 텍스트: 왼쪽으로 작아지며 사라짐
+                        (slideOutHorizontally(
+                            animationSpec = tween(350, easing = FastOutLinearInEasing),
+                            targetOffsetX = { -it / 4 }
+                        ) + fadeOut(tween(300, easing = FastOutLinearInEasing))
+                          + scaleOut(tween(350, easing = FastOutLinearInEasing), targetScale = 0.88f)
+                        )
+                    },
                     label = "primaryMessage"
                 ) { message ->
                     Text(
@@ -151,10 +174,23 @@ fun ConnectionWaitingScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // 부 메시지
-                Crossfade(
+                // 부 메시지 (왼쪽 슬라이드 + 스케일 전환)
+                AnimatedContent(
                     targetState = connectionState.secondaryMessage,
-                    animationSpec = tween(200),
+                    transitionSpec = {
+                        (slideInHorizontally(
+                            animationSpec = tween(400, easing = FastOutSlowInEasing),
+                            initialOffsetX = { it / 4 }
+                        ) + fadeIn(tween(400, easing = FastOutSlowInEasing))
+                          + scaleIn(tween(400, easing = FastOutSlowInEasing), initialScale = 0.88f)
+                        ) togetherWith
+                        (slideOutHorizontally(
+                            animationSpec = tween(350, easing = FastOutLinearInEasing),
+                            targetOffsetX = { -it / 4 }
+                        ) + fadeOut(tween(300, easing = FastOutLinearInEasing))
+                          + scaleOut(tween(350, easing = FastOutLinearInEasing), targetScale = 0.88f)
+                        )
+                    },
                     label = "secondaryMessage"
                 ) { message ->
                     Text(
@@ -211,6 +247,30 @@ private fun ConnectionWaitingScreenSearchingPreview() {
 private fun ConnectionWaitingScreenPermissionPreview() {
     BridgeOneTheme {
         ConnectionWaitingScreen(connectionState = ConnectionState.PermissionRequired)
+    }
+}
+
+@Preview(showBackground = true, name = "Essential 진입")
+@Composable
+private fun ConnectionWaitingScreenEnteringEssentialPreview() {
+    BridgeOneTheme {
+        ConnectionWaitingScreen(connectionState = ConnectionState.EnteringEssential)
+    }
+}
+
+@Preview(showBackground = true, name = "Standard 진입")
+@Composable
+private fun ConnectionWaitingScreenEnteringStandardPreview() {
+    BridgeOneTheme {
+        ConnectionWaitingScreen(connectionState = ConnectionState.EnteringStandard)
+    }
+}
+
+@Preview(showBackground = true, name = "연결 해제")
+@Composable
+private fun ConnectionWaitingScreenDisconnectedPreview() {
+    BridgeOneTheme {
+        ConnectionWaitingScreen(connectionState = ConnectionState.Disconnected)
     }
 }
 

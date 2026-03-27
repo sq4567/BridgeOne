@@ -1,12 +1,14 @@
 package com.bridgeone.app.ui.connection
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -36,10 +39,16 @@ private val InactiveTextColor = Color(0xFF555555)
 
 private val StepLabels = listOf("USB 연결", "서버 탐색", "준비 완료")
 
+/** 각 라벨/점 영역의 폭 */
+private val StepItemWidth = 64.dp
+/** 라벨 사이 간격 (= 점선이 차지하는 가로 폭) */
+private val LineGapWidth = 28.dp
+
 /**
  * 연결 단계 스텝 인디케이터.
  *
- * 3개의 점 위에 단계 라벨이 표시되며, 현재 단계의 라벨이 커지고 강조됩니다.
+ * 라벨 행과 점+점선 행을 분리하여 점선이 점과 점 사이에 정확히 위치합니다.
+ * 현재 활성 단계의 점선 위를 펄스 점이 흘러갑니다.
  *
  * @param currentStep 현재 단계 (1~3)
  */
@@ -50,55 +59,45 @@ fun StepIndicator(
 ) {
     val step = currentStep.coerceIn(1, 3)
 
-    Row(
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.Center,
-        modifier = modifier
-            .semantics { contentDescription = "연결 단계 $step/3" }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.semantics { contentDescription = "연결 단계 $step/3" }
     ) {
-        // 스텝 1
-        StepItem(
-            label = StepLabels[0],
-            isActive = step >= 1,
-            isCurrent = step == 1
-        )
+        // ── 라벨 행 ──
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.Bottom
+        ) {
+            for (i in 0..2) {
+                StepLabel(
+                    label = StepLabels[i],
+                    isActive = step >= i + 1,
+                    isCurrent = step == i + 1,
+                    modifier = Modifier.width(StepItemWidth)
+                )
+                if (i < 2) {
+                    Spacer(modifier = Modifier.width(LineGapWidth))
+                }
+            }
+        }
 
-        // 연결선 1
-        StepLine(modifier = Modifier.align(Alignment.CenterVertically))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // 스텝 2
-        StepItem(
-            label = StepLabels[1],
-            isActive = step >= 2,
-            isCurrent = step == 2
-        )
-
-        // 연결선 2
-        StepLine(modifier = Modifier.align(Alignment.CenterVertically))
-
-        // 스텝 3
-        StepItem(
-            label = StepLabels[2],
-            isActive = step >= 3,
-            isCurrent = step == 3
-        )
+        // ── 점 + 점선 행 (단일 Canvas) ──
+        DotsAndLines(currentStep = step)
     }
 }
 
 /**
- * 개별 스텝 아이템 (라벨 + 점).
+ * 개별 스텝 라벨.
  */
 @Composable
-private fun StepItem(
+private fun StepLabel(
     label: String,
     isActive: Boolean,
-    isCurrent: Boolean
+    isCurrent: Boolean,
+    modifier: Modifier = Modifier
 ) {
-    val dotColor by animateColorAsState(
-        targetValue = if (isActive) ActiveColor else InactiveColor,
-        animationSpec = tween(300),
-        label = "dotColor"
-    )
     val textColor by animateColorAsState(
         targetValue = when {
             isCurrent -> ActiveColor
@@ -114,61 +113,137 @@ private fun StepItem(
         label = "fontSize"
     )
     val fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-    val dotSize by animateDpAsState(
-        targetValue = if (isCurrent) 10.dp else 8.dp,
-        animationSpec = tween(300),
-        label = "dotSize"
+
+    Text(
+        text = label,
+        fontFamily = PretendardFontFamily,
+        fontWeight = fontWeight,
+        fontSize = fontSize.sp,
+        color = textColor,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        modifier = modifier
     )
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.width(64.dp)
-    ) {
-        // 라벨
-        Text(
-            text = label,
-            fontFamily = PretendardFontFamily,
-            fontWeight = fontWeight,
-            fontSize = fontSize.sp,
-            color = textColor,
-            textAlign = TextAlign.Center,
-            maxLines = 1
-        )
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // 점
-        val density = LocalDensity.current
-        Canvas(
-            modifier = Modifier
-                .width(dotSize)
-                .height(dotSize)
-        ) {
-            drawCircle(
-                color = dotColor,
-                radius = size.minDimension / 2f
-            )
-        }
-    }
 }
 
 /**
- * 스텝 간 연결선.
+ * 점 3개 + 점선 2개 + 펄스를 하나의 Canvas로 렌더링.
+ *
+ * 점은 각 라벨 중앙 하단에 정렬되고, 점선은 점과 점 사이를 정확히 연결합니다.
  */
 @Composable
-private fun StepLine(modifier: Modifier = Modifier) {
+private fun DotsAndLines(
+    currentStep: Int,
+    modifier: Modifier = Modifier
+) {
     val density = LocalDensity.current
+    val step = currentStep.coerceIn(1, 3)
+
+    // 점 색상 애니메이션
+    val dotColors = arrayOf(
+        animateColorAsState(if (step >= 1) ActiveColor else InactiveColor, tween(300), label = "d1").value,
+        animateColorAsState(if (step >= 2) ActiveColor else InactiveColor, tween(300), label = "d2").value,
+        animateColorAsState(if (step >= 3) ActiveColor else InactiveColor, tween(300), label = "d3").value
+    )
+
+    // 점선 색상 애니메이션
+    val lineColors = arrayOf(
+        animateColorAsState(if (step >= 2) ActiveColor else InactiveColor, tween(300), label = "l1").value,
+        animateColorAsState(if (step >= 3) ActiveColor else InactiveColor, tween(300), label = "l2").value
+    )
+
+    // 점 반지름 (현재 단계 = 더 큼)
+    val dotRadii = arrayOf(
+        animateFloatAsState(if (step == 1) 5f else 4f, tween(300), label = "r1").value,
+        animateFloatAsState(if (step == 2) 5f else 4f, tween(300), label = "r2").value,
+        animateFloatAsState(if (step == 3) 5f else 4f, tween(300), label = "r3").value
+    )
+
+    // 펄스 애니메이션 (0→1 반복)
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing)),
+        label = "pulseProgress"
+    )
+
+    val totalWidth = StepItemWidth * 3 + LineGapWidth * 2
+
     Canvas(
         modifier = modifier
-            .width(28.dp)
-            .height(1.dp)
+            .width(totalWidth)
+            .height(14.dp)
     ) {
-        drawLine(
-            color = InactiveColor,
-            start = Offset(0f, size.height / 2f),
-            end = Offset(size.width, size.height / 2f),
-            strokeWidth = with(density) { 1.dp.toPx() }
+        val itemW = with(density) { StepItemWidth.toPx() }
+        val gapW = with(density) { LineGapWidth.toPx() }
+        val centerY = size.height / 2f
+
+        // 점 중심 X좌표 (각 라벨 영역의 중앙)
+        val dotX = floatArrayOf(
+            itemW / 2f,
+            itemW + gapW + itemW / 2f,
+            (itemW + gapW) * 2f + itemW / 2f
         )
+
+        // 점 반지름 (dp → px)
+        val radii = floatArrayOf(
+            with(density) { dotRadii[0].dp.toPx() },
+            with(density) { dotRadii[1].dp.toPx() },
+            with(density) { dotRadii[2].dp.toPx() }
+        )
+
+        val dashLen = with(density) { 4.dp.toPx() }
+        val gapLen = with(density) { 3.dp.toPx() }
+        val strokeW = with(density) { 1.dp.toPx() }
+        val dotPad = with(density) { 4.dp.toPx() }
+
+        // ── 점선 + 펄스 ──
+        for (i in 0..1) {
+            val startX = dotX[i] + radii[i] + dotPad
+            val endX = dotX[i + 1] - radii[i + 1] - dotPad
+
+            // 점선
+            drawLine(
+                color = lineColors[i],
+                start = Offset(startX, centerY),
+                end = Offset(endX, centerY),
+                strokeWidth = strokeW,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashLen, gapLen))
+            )
+
+            // 현재 단계 → 다음 단계로 흐르는 펄스
+            if (step == i + 1) {
+                val lineLen = endX - startX
+                val px = startX + lineLen * pulseProgress
+                val alpha = when {
+                    pulseProgress < 0.12f -> pulseProgress / 0.12f
+                    pulseProgress > 0.88f -> (1f - pulseProgress) / 0.12f
+                    else -> 1f
+                }
+                // 글로우
+                drawCircle(
+                    color = ActiveColor.copy(alpha = alpha * 0.25f),
+                    radius = with(density) { 6.dp.toPx() },
+                    center = Offset(px, centerY)
+                )
+                // 코어 점
+                drawCircle(
+                    color = ActiveColor.copy(alpha = alpha * 0.85f),
+                    radius = with(density) { 2.5.dp.toPx() },
+                    center = Offset(px, centerY)
+                )
+            }
+        }
+
+        // ── 점 (선 위에 그려서 겹침 방지) ──
+        for (i in 0..2) {
+            drawCircle(
+                color = dotColors[i],
+                radius = radii[i],
+                center = Offset(dotX[i], centerY)
+            )
+        }
     }
 }
 

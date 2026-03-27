@@ -282,6 +282,108 @@ object SplashConstants {
 
 ---
 
+## Phase 4.1.5: 연결 대기 화면 진입 안내 및 전환 애니메이션 개선
+
+**목표**: 앱 실행 시 보드가 이미 연결되어 있어도 연결 대기 화면을 잠깐 거치며 모드 진입을 안내하고, 스텝 인디케이터 구조 개편·펄스 점선 애니메이션·텍스트 슬라이드 전환·연결 해제 안내·USB 해제 감지 수정을 포함
+
+**개발 기간**: 0.5-1일
+
+**세부 목표**:
+
+1. **스플래시 완료 후 항상 `WaitingForConnection` 경유**:
+   - `onSplashFinished`에서 USB 연결 여부와 무관하게 **항상** `AppState.WaitingForConnection`으로 전환
+   - `WaitingForConnection` 진입 시 현재 USB 상태를 스캔하여 이미 연결되어 있으면 스텝 자동 진행 시작
+
+2. **스텝 자동 진행 (이미 연결된 경우)**:
+   - `BridgeOneApp.kt`에 `connectionState` 상태 변수 및 `isAutoProgressing` 플래그 도입
+   - `LaunchedEffect(appState)`: WaitingForConnection 진입 시 USB 스캔 → 연결 감지 시 자동 진행
+   - 보드만 연결: `WaitingForUsb`(600ms) → `SearchingServer`(600ms) → `EnteringEssential`(1200ms) → `Active(ESSENTIAL)`
+   - 보드+서버: `WaitingForUsb`(600ms) → `SearchingServer`(600ms) → `EnteringStandard`(1200ms) → `Active(STANDARD)`
+   - 미연결: 기존과 동일하게 2초 주기 USB 폴링 대기
+   - 대기 중 새로 USB 연결 시에도 `LaunchedEffect(isUsbConnected)`에서 동일한 자동 진행 시퀀스 실행
+
+3. **`ConnectionState` 확장** (3개 상태 추가):
+   ```kotlin
+   /** Essential 모드 진입 안내 */
+   object EnteringEssential : ConnectionState(
+       primaryMessage = "Essential 모드로 진입합니다",
+       secondaryMessage = "보드가 연결되었습니다",
+       isProcessing = false, step = 2
+   )
+
+   /** Standard 모드 진입 안내 */
+   object EnteringStandard : ConnectionState(
+       primaryMessage = "Standard 모드로 진입합니다",
+       secondaryMessage = "서버와 연결되었습니다",
+       isProcessing = false, step = 3
+   )
+
+   /** 연결 해제됨 — 다시 연결 안내 */
+   object Disconnected : ConnectionState(
+       primaryMessage = "연결이 해제되었습니다",
+       secondaryMessage = "USB 동글을 다시 연결해주세요",
+       isProcessing = true, step = 1
+   )
+   ```
+
+4. **연결 해제 시 재연결 안내**:
+   - Active 상태(Essential/Standard)에서 USB 해제 시 `ConnectionState.Disconnected`로 설정 후 `WaitingForConnection` 전환
+   - "연결이 해제되었습니다 / USB 동글을 다시 연결해주세요" 메시지가 재연결 시까지 유지
+   - `LaunchedEffect(appState)`의 미연결 분기에서 `Disconnected` 상태를 `WaitingForUsb`로 덮어쓰지 않도록 조건 분기 (`connectionState !is ConnectionState.Disconnected`)
+   - 초기 앱 실행의 "USB 동글을 연결해주세요"와 시각적으로 구분
+
+5. **USB 해제 감지 버그 수정** (`UsbSerialManager.closePort()`):
+   - **문제**: `closePort()`에서 내부 `isConnected = false`만 설정하고 `_debugState`의 `isConnected`를 갱신하지 않아 UI에서 해제를 감지하지 못함
+   - **수정**: `closePort()`의 `finally` 블록에서 `_debugState.value`를 `isConnected = false`로 즉시 갱신, `_bridgeMode` 변경보다 **먼저** 실행
+   - **추가 수정**: `LaunchedEffect(bridgeMode)`에 `isUsbConnected` 조건 추가 — USB 해제로 인한 bridgeMode 변경(STANDARD→ESSENTIAL)은 무시하고 `LaunchedEffect(isUsbConnected)`가 `WaitingForConnection` 전환을 담당
+
+6. **스텝 인디케이터 구조 전면 개편** (`StepIndicator.kt`):
+   - **문제**: 기존 Row 안에 Column(라벨+점)과 StepLine을 혼재시켜 연결선이 점 높이가 아닌 Row의 수직 중앙(라벨 높이 부근)에 위치
+   - **수정**: 라벨 행과 점+선 행을 Column으로 분리
+     - 상단 Row: `StepLabel` × 3 + `Spacer(LineGapWidth)` × 2
+     - 하단: 단일 `Canvas`에서 점 3개 + 점선 2개 + 펄스를 정확한 좌표로 렌더링
+   - 점선: `PathEffect.dashPathEffect(dash=4dp, gap=3dp)`, 점과 점 사이 4dp 패딩
+   - 점 크기: 현재 단계 반지름 5dp, 비활성 4dp (animateFloatAsState)
+   - 완료 구간 점선: 활성 색상 `#FF9800`, 미완료: `#404040`
+
+7. **스텝 인디케이터 펄스 애니메이션**:
+   - 현재 활성 단계의 점선 위를 펄스 점이 왼쪽→오른쪽으로 흘러감 (1.2초 주기, `infiniteRepeatable` + `LinearEasing`)
+   - 코어 점: 반지름 2.5dp, 투명도 85%
+   - 글로우: 반지름 6dp, 투명도 25%
+   - 양 끝 12% 구간에서 페이드 인/아웃으로 자연스러운 출현/소멸
+
+8. **텍스트 왼쪽 슬라이드 전환 애니메이션** (`ConnectionWaitingScreen.kt`):
+   - 주/부 메시지를 `Crossfade` → `AnimatedContent`로 교체
+   - 나가는 텍스트: 왼쪽 1/4폭 슬라이드 아웃 + 0.88배 축소 + fadeOut (350ms, `FastOutLinearInEasing`)
+   - 들어오는 텍스트: 오른쪽 1/4폭에서 0.88배 작은 상태로 시작 → 원래 크기로 커지며 fadeIn (400ms, `FastOutSlowInEasing`)
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/BridgeOneApp.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/connection/ConnectionState.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/connection/ConnectionWaitingScreen.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/connection/StepIndicator.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/usb/UsbSerialManager.kt`
+
+**참조 문서**:
+- `docs/android/design-guide-app.md` §8.1.1 (앱 실행 및 초기 상태 감지)
+- `docs/android/styleframe-connection-waiting.md`
+
+**검증**:
+- [x] 보드 미연결 상태에서 앱 실행 → "USB 동글을 연결해주세요" 대기 화면 표시
+- [x] 보드만 연결된 상태에서 앱 실행 → 스텝 1→2 진행 → "Essential 모드로 진입합니다" → Active(ESSENTIAL)
+- [x] 보드+서버 연결 상태에서 앱 실행 → 스텝 1→2→3 진행 → "Standard 모드로 진입합니다" → Active(STANDARD)
+- [x] 스텝 인디케이터 점선이 점과 점 사이에 정확히 위치
+- [x] 스텝 인디케이터 점선 위 펄스 점이 현재 단계에서 다음 방향으로 흘러감 (글로우 포함)
+- [x] 텍스트 전환 시 왼쪽 슬라이드 + 축소 + 페이드 애니메이션이 끊김 없이 부드러움
+- [x] Essential 모드에서 USB 해제 시 "연결이 해제되었습니다" 메시지 표시 및 유지
+- [x] Standard 모드에서 USB 해제 시 Essential이 아닌 "연결이 해제되었습니다" 화면으로 전환
+- [x] 재연결 안내 메시지가 "USB 동글을 연결해주세요"로 변경되지 않고 유지
+- [x] USB 재연결 시 자동 진행 시퀀스 정상 동작
+- [x] 전체 자동 진행 체류 시간이 약 2.5초 (600ms+600ms+1200ms)
+- [x] 에뮬레이터 및 실기기에서 전환 흐름 확인
+
+---
+
 ## 반응형 규칙 (전체 Phase 4.1 공통)
 
 | 화면 크기 | 스플래시 | 연결 대기 |
