@@ -39,7 +39,7 @@ updated: "2026-03-26"
   - `isStickyLatched`, `stickyActivatedDuringPress` 상태 관리
   - **⚠️ Key Repeat(반복 전송)은 미구현** — Phase 4.4.2에서 추가 필요
 - `HidConstants.kt`: KEY_F1~F12, 방향키, 수정자 키, `isModifierKeyCode()`, `modifierBitFlag()` 완비
-- `StandardModePage.kt` → `KeyboardPage`: 수정자 키 추적 (`activeModifierKeys` MutableState) 로직 존재
+- ~~`StandardModePage.kt` → `KeyboardPage`: 수정자 키 추적 (`activeModifierKeys` MutableState) 로직 존재~~ **→ Phase 4.2.2에서 삭제됨**
 - Modifiers 3단계 Sticky (탭/더블탭/롱프레스) 없음, Lock Keys HID LED 동기화 없음, Media Controls 없음
 - **기존 3탭 키보드는 Page 2 구조와 완전히 다름** → 새로 구현
 - **ESP32 펌웨어**: `tud_hid_set_report_cb()` 구현됨, `g_hid_keyboard_led_status`에 LED 상태 저장됨. 단, **UART를 통한 Android 전달 로직은 미구현** (TODO 주석만 존재)
@@ -101,6 +101,8 @@ Page 2
 > **⚠️ Phase 4.1.7 변경사항**: Page 2 레이아웃은 `AppState.Active` 박스 내 `padding(top=40dp, bottom=40dp)` 적용 영역 안에서 렌더링됨. Function Row, Lock Keys 등 하단 요소 배치 시 유효 화면 높이 = 전체 높이 − 80dp 기준 사용. 새 레이아웃 상수 추가 시 `ui/common/LayoutConstants.kt`에 함께 정의.
 
 > **⚠️ Phase 4.1.8 변경사항**: 커스텀 토스트 시스템 도입. `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)` 로 표시. 타입: `INFO`(파란색) · `SUCCESS`(초록색) · `WARNING`(주황색, 검은 텍스트) · `ERROR`(빨간색). 무제한 표시: `TOAST_DURATION_INFINITE`.
+
+> **⚠️ Phase 4.2.2 변경사항**: `StandardModePage.kt`에서 `KeyboardPage` Composable 및 `showKeyboard` 상태 관리 로직이 **완전 삭제됨**. 기존 코드에서 참조 불가. `Page2KeyboardCentric`은 `StandardModePage.kt`의 `HorizontalPager` page=1 분기에서 렌더링되며, 현재는 `Page2KeyboardPlaceholder()`로 대체 중. Phase 4.4 구현 시 이 placeholder를 `Page2KeyboardCentric` Composable로 교체하면 됨. 수정자 키 추적(`activeModifierKeys`)은 Page 2 내부에서 새로 선언해야 함.
 
 **검증**:
 - [ ] 4개 모디파이어 키 렌더링

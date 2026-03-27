@@ -140,10 +140,28 @@ Standard 모드
 > **⚠️ Phase 4.1.8 변경사항**: 커스텀 토스트 시스템 도입. `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)` 로 표시. 타입: `INFO`(파란색) · `SUCCESS`(초록색) · `WARNING`(주황색, 검은 텍스트) · `ERROR`(빨간색). 무제한 표시: `TOAST_DURATION_INFINITE`.
 
 **검증**:
-- [ ] 2열 비율 (64/36) 정상 렌더링
-- [ ] 터치패드 1:2 비율 유지
-- [ ] Actions 패널 세로 스크롤 동작
-- [ ] 반응형 비율 조정 동작
+- [x] 2열 비율 (64/36) 정상 렌더링
+- [x] 터치패드 1:2 비율 유지
+- [x] Actions 패널 세로 스크롤 동작
+- [x] 반응형 비율 조정 동작
+- [x] 에뮬레이터 빌드 성공 (2026-03-28 완료)
+
+**✅ Phase 4.2.2 완료** (2026-03-28)
+
+**구현 세부사항**:
+- `StandardModePage.kt`에서 `Page1TouchpadActions` Composable 완전 재작성
+  - 64/36 비율 Row 레이아웃 (폭 < 360dp 시 60/40 반응형)
+  - 좌측: `TouchpadWrapper(BridgeMode.STANDARD)` — `Box`로 감싸 오버레이 예약 (Phase 4.3용)
+  - 우측: `ActionsPanel` (LazyColumn, 3개 그룹 헤더 + placeholder)
+- **제거된 코드**: 프로토타입 `StandardControlPanel`, `StandardActionButton`, `KeyboardPage` Composable 전부 삭제
+- **페이지 인디케이터 THIN_WORM 구현** (Phase 4.2.1 인디케이터 대체):
+  - `pagerState.currentPageOffsetFraction` 기반 실시간 스와이프 추적 (드래그 중 연속 업데이트)
+  - Head/Tail 분리 애니메이션: head(앞 가장자리)가 먼저 도달 → tail(뒤 가장자리)이 뒤따라옴
+  - 캡슐 모양(`clip(CircleShape)`)으로 늘어나고 줄어드는 효과 구현
+
+> **⚠️ Phase 4.2.3~4.2.5 참고**: `ActionsPanel` 내부 구조는 `LazyColumn`이며, 각 그룹은 헤더 `item` + 콘텐츠 `item` 쌍으로 구성됨. Special Keys / Shortcuts / Macros 순서로 배치되어 있으며 현재는 placeholder `Box`. 각 Phase에서 해당 그룹의 `item` 블록만 교체하면 됨.
+
+> **⚠️ Phase 4.3 참고**: `Page1TouchpadActions`에서 좌측 터치패드는 `Box` → `TouchpadWrapper` 구조로 감싸져 있음. `ControlButtonContainer` 오버레이는 이 `Box` 내부에 `TouchpadWrapper` 위에 추가하면 됨.
 
 ---
 

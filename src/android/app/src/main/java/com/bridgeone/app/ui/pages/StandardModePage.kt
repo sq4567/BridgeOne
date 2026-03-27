@@ -12,34 +12,29 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.util.Log
 import com.bridgeone.app.protocol.BridgeMode
-import com.bridgeone.app.ui.common.*
-import com.bridgeone.app.ui.components.KeyboardKeyButton
-import com.bridgeone.app.ui.components.KeyboardLayout
 import com.bridgeone.app.ui.components.TouchpadWrapper
-import com.bridgeone.app.ui.utils.ClickDetector
 
 // ============================================================
 // Standard 모드 페이지 (Phase 4.2.1: 3페이지 네비게이션)
@@ -57,7 +52,6 @@ import com.bridgeone.app.ui.utils.ClickDetector
 @Composable
 fun StandardModePage() {
     val pagerState = rememberPagerState(pageCount = { 3 })
-    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -78,7 +72,7 @@ fun StandardModePage() {
                     .padding(16.dp)
             ) { page ->
                 when (page) {
-                    0 -> Page1TouchpadActions(context = context)
+                    0 -> Page1TouchpadActions()
                     1 -> Page2KeyboardPlaceholder()
                     2 -> Page3MinecraftPlaceholder()
                 }
@@ -87,7 +81,7 @@ fun StandardModePage() {
 
         // ── 페이지 인디케이터 (닷 3개) ──
         PageIndicator(
-            currentPage = pagerState.currentPage,
+            pagerState = pagerState,
             pageCount = 3,
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
@@ -102,25 +96,73 @@ fun StandardModePage() {
 
 @Composable
 private fun PageIndicator(
-    currentPage: Int,
+    pagerState: PagerState,
     pageCount: Int,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+    val dotSizeDp = 8.dp
+    val dotSpacingDp = 16.dp
+    val totalWidth = (dotSizeDp * pageCount) + (dotSpacingDp * (pageCount - 1))
+
+    val density = LocalDensity.current
+    val dotSizePx = with(density) { dotSizeDp.toPx() }
+    val dotSpacingPx = with(density) { dotSpacingDp.toPx() }
+    val dotStepPx = dotSizePx + dotSpacingPx  // 한 닷에서 다음 닷까지 거리
+
+    // 실시간 스와이프 오프셋 (드래그하는 동안 연속적으로 변함)
+    val currentPage = pagerState.currentPage
+    val offsetFraction = pagerState.currentPageOffsetFraction  // -1.0 ~ 1.0
+
+    val absOffset = kotlin.math.abs(offsetFraction)
+    val direction = if (offsetFraction > 0) 1f else -1f
+
+    // THIN_WORM 효과:
+    // head(앞 가장자리)가 먼저 빠르게 도달하고, tail(뒤 가장자리)이 나중에 따라옴
+    val headProgress = minOf(1f, absOffset * 2f)   // 0.0 → 0.5 구간에서 0→1
+    val tailProgress = maxOf(0f, absOffset * 2f - 1f)  // 0.5 → 1.0 구간에서 0→1
+
+    val currentOriginPx = currentPage * dotStepPx
+
+    // tail: 후반부에 출발점을 이동
+    val tailPx = currentOriginPx + tailProgress * direction * dotStepPx
+    // head: 전반부에 도착점으로 이동
+    val headPx = currentOriginPx + dotSizePx + headProgress * direction * dotStepPx
+
+    val leftPx = minOf(tailPx, headPx)
+    val widthPx = maxOf(dotSizePx, kotlin.math.abs(headPx - tailPx))
+
+    val leftDp = with(density) { leftPx.toDp() }
+    val widthDp = with(density) { widthPx.toDp() }
+
+    Box(
+        modifier = modifier
+            .width(totalWidth)
+            .height(dotSizeDp)
     ) {
-        repeat(pageCount) { index ->
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .background(
-                        color = if (index == currentPage) Color(0xFF2196F3) else Color(0xFFC2C2C2),
-                        shape = CircleShape
-                    )
-            )
+        // ── 배경 닷들 (비활성, 회색) ──
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(dotSpacingDp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            repeat(pageCount) {
+                Box(
+                    modifier = Modifier
+                        .size(dotSizeDp)
+                        .background(Color(0xFFC2C2C2), CircleShape)
+                )
+            }
         }
+
+        // ── THIN_WORM 슬라이더 (파란색, 늘어나는 캡슐 모양) ──
+        Box(
+            modifier = Modifier
+                .offset(x = leftDp)
+                .width(widthDp)
+                .height(dotSizeDp)
+                .clip(CircleShape)
+                .background(Color(0xFF2196F3))
+        )
     }
 }
 
@@ -131,74 +173,175 @@ private fun PageIndicator(
 /**
  * Page 1: 터치패드 + Actions
  *
- * Phase 4.2.2에서 정식 구현될 예정
- * 현재는 기존 구조 재사용
+ * Phase 4.2.2: 정식 레이아웃 구현
+ * - 좌측: 터치패드 (64%)
+ * - 우측: Actions 패널 (36%, LazyColumn 기반)
+ * - 반응형: 폭 < 360dp 일 때 좌 60% / 우 40% 조정
  */
 @Composable
-private fun Page1TouchpadActions(context: android.content.Context) {
-    var showKeyboard by remember { mutableStateOf(false) }
-    val activeKeys = remember { mutableStateOf(setOf<UByte>()) }
-    val activeModifierKeys = remember { mutableStateOf(setOf<UByte>()) }
+private fun Page1TouchpadActions() {
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp
+
+    // 반응형 비율 계산
+    val (touchpadWeight, actionsPanelWeight) = if (screenWidthDp < 360) {
+        0.60f to 0.40f
+    } else {
+        0.64f to 0.36f
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        verticalArrangement = Arrangement.Bottom,
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        // 메인 콘텐츠 (터치패드 또는 키보드)
-        Box(
+        // 2열 레이아웃: 좌측 터치패드 + 우측 Actions 패널
+        Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.85f),
-            contentAlignment = Alignment.BottomCenter
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (!showKeyboard) {
-                // 터치패드 뷰: 좌측 터치패드(72%) + 우측 컨트롤 패널(28%)
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    TouchpadWrapper(
-                        bridgeMode = BridgeMode.STANDARD,
-                        modifier = Modifier
-                            .weight(0.72f)
-                            .fillMaxHeight()
-                    )
-                    StandardControlPanel(
-                        activeKeys = activeKeys,
-                        modifier = Modifier
-                            .weight(0.28f)
-                            .fillMaxHeight()
-                    )
-                }
-            } else {
-                // 키보드 뷰: 전체 3탭 레이아웃
-                KeyboardPage(
+            // ── 좌측: 터치패드 (64% / 60%) ──
+            Box(
+                modifier = Modifier
+                    .weight(touchpadWeight)
+                    .fillMaxHeight()
+                    .align(Alignment.CenterVertically)
+            ) {
+                TouchpadWrapper(
                     bridgeMode = BridgeMode.STANDARD,
-                    activeKeys = activeKeys,
-                    activeModifierKeys = activeModifierKeys
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            color = Color(0xFF1A1A1A),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                )
+            }
+
+            // ── 우측: Actions 패널 (36% / 40%) ──
+            ActionsPanel(
+                modifier = Modifier
+                    .weight(actionsPanelWeight)
+                    .fillMaxHeight()
+            )
+        }
+    }
+}
+
+// ============================================================
+// Actions 패널 (우측, LazyColumn 기반)
+// ============================================================
+
+/**
+ * Actions 패널: 특수 키, 단축키, 매크로
+ *
+ * Phase 4.2.2: 기본 구조 구현 (그룹 헤더만)
+ * Phase 4.2.3+: 각 그룹의 실제 버튼 구현
+ */
+@Composable
+private fun ActionsPanel(
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier
+            .background(Color(0xFF121212), RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // ── Special Keys 그룹 ──
+        item {
+            Text(
+                text = "Special Keys",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFFFFFF),
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        }
+        item {
+            // Phase 4.2.3에서 구현: 8개 키 2열 그리드
+            // 임시 placeholder
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Special Keys (Phase 4.2.3)",
+                    fontSize = 11.sp,
+                    color = Color(0xFFA0A0A0)
                 )
             }
         }
 
-        // 하단: 전환 버튼
-        Spacer(Modifier.height(8.dp))
-        Button(
-            onClick = {
-                showKeyboard = !showKeyboard
-                triggerHaptic(context)
-                Log.d("StandardModePage", if (showKeyboard) "키보드 전환" else "터치패드 전환")
-            },
-            modifier = Modifier.size(width = 56.dp, height = 56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3)),
-            shape = RoundedCornerShape(12.dp)
-        ) {
+        // ── 그룹 간 간격 ──
+        item {
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+
+        // ── Shortcuts 그룹 ──
+        item {
             Text(
-                text = if (!showKeyboard) "⌨️" else "🖱️",
-                fontSize = 24.sp
+                text = "Shortcuts",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFFFFFF),
+                modifier = Modifier.padding(vertical = 4.dp)
             )
+        }
+        item {
+            // Phase 4.2.4에서 구현: 8개 단축키 2열 그리드
+            // 임시 placeholder
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Shortcuts (Phase 4.2.4)",
+                    fontSize = 11.sp,
+                    color = Color(0xFFA0A0A0)
+                )
+            }
+        }
+
+        // ── 그룹 간 간격 ──
+        item {
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+
+        // ── Macros 그룹 ──
+        item {
+            Text(
+                text = "Macros",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFFFFFF),
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        }
+        item {
+            // Phase 4.2.5에서 구현: 3개 disabled 버튼
+            // 임시 placeholder
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(80.dp)
+                    .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Macros (Phase 4.2.5)",
+                    fontSize = 11.sp,
+                    color = Color(0xFFA0A0A0)
+                )
+            }
         }
     }
 }
@@ -277,278 +420,3 @@ private fun Page3MinecraftPlaceholder() {
     }
 }
 
-// ============================================================
-// Standard 컨트롤 패널 (프로토타입)
-// ============================================================
-
-/**
- * Standard 모드 컨트롤 패널 (프로토타입)
- *
- * ⚠️ 임시 구현 — Essential Boot Cluster와 유사한 구조에 휠/우클릭 추가
- *
- * ```
- * [▲ Scroll]
- * [RC Right Click]
- * [▼ Scroll]
- * ─────────────
- * [Esc] [Enter]
- *       [↑]
- *   [←] [↓] [→]
- * ```
- */
-@Composable
-private fun StandardControlPanel(
-    activeKeys: MutableState<Set<UByte>>,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-
-    // 키 전송 콜백
-    val onKeyPressed: (UByte) -> Unit = { keyCode ->
-        activeKeys.value = activeKeys.value + keyCode
-        try {
-            val frame = ClickDetector.createKeyboardFrame(
-                activeModifierKeys = emptySet(),
-                keyCode1 = keyCode
-            )
-            ClickDetector.sendFrame(frame)
-        } catch (e: Exception) {
-            Log.e("StandardControlPanel", "Failed to send key: ${e.message}", e)
-        }
-    }
-
-    val onKeyReleased: (UByte) -> Unit = { keyCode ->
-        activeKeys.value = activeKeys.value - keyCode
-        try {
-            val frame = ClickDetector.createKeyboardFrame(
-                activeModifierKeys = emptySet(),
-                keyCode1 = 0u
-            )
-            ClickDetector.sendFrame(frame)
-        } catch (e: Exception) {
-            Log.e("StandardControlPanel", "Failed to send release: ${e.message}", e)
-        }
-    }
-
-    Column(
-        modifier = modifier
-            .background(Color(0xFF121212), RoundedCornerShape(12.dp))
-            .padding(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        // ── Standard 전용: 휠 + 우클릭 ──
-
-        // [▲ Scroll Up]
-        StandardActionButton(
-            label = "▲",
-            sublabel = "Scroll",
-            onClick = {
-                triggerHaptic(context)
-                ClickDetector.sendFrame(ClickDetector.createWheelFrame(1))
-            },
-            modifier = Modifier.fillMaxWidth().weight(1f)
-        )
-
-        // [RC Right Click]
-        StandardActionButton(
-            label = "RC",
-            sublabel = "Right",
-            onClick = {
-                triggerHaptic(context)
-                ClickDetector.sendFrame(ClickDetector.createRightClickFrame(pressed = true))
-                ClickDetector.sendFrame(ClickDetector.createRightClickFrame(pressed = false))
-            },
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            containerColor = Color(0xFF2E4A2E)
-        )
-
-        // [▼ Scroll Down]
-        StandardActionButton(
-            label = "▼",
-            sublabel = "Scroll",
-            onClick = {
-                triggerHaptic(context)
-                ClickDetector.sendFrame(ClickDetector.createWheelFrame(-1))
-            },
-            modifier = Modifier.fillMaxWidth().weight(1f)
-        )
-
-        // ── 구분선 ──
-        Spacer(
-            Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(Color(0xFF333333))
-        )
-
-        // ── 공통: 기본 키 + D-Pad ──
-
-        // [Esc] [Enter]
-        Row(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            KeyboardKeyButton(
-                keyLabel = "Esc", keyCode = KEY_ESC,
-                isActive = KEY_ESC in activeKeys.value,
-                onKeyPressed = { onKeyPressed(KEY_ESC) },
-                onKeyReleased = { onKeyReleased(KEY_ESC) },
-                modifier = Modifier.weight(1f).fillMaxHeight()
-            )
-            KeyboardKeyButton(
-                keyLabel = "Enter", keyCode = KEY_ENTER,
-                isActive = KEY_ENTER in activeKeys.value,
-                onKeyPressed = { onKeyPressed(KEY_ENTER) },
-                onKeyReleased = { onKeyReleased(KEY_ENTER) },
-                modifier = Modifier.weight(1f).fillMaxHeight()
-            )
-        }
-
-        // D-Pad: [　][↑][　]
-        Row(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Spacer(Modifier.weight(1f))
-            KeyboardKeyButton(
-                keyLabel = "↑", keyCode = KEY_UP,
-                isActive = KEY_UP in activeKeys.value,
-                onKeyPressed = { onKeyPressed(KEY_UP) },
-                onKeyReleased = { onKeyReleased(KEY_UP) },
-                modifier = Modifier.weight(1f).fillMaxHeight()
-            )
-            Spacer(Modifier.weight(1f))
-        }
-
-        // D-Pad: [←][↓][→]
-        Row(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            KeyboardKeyButton(
-                keyLabel = "←", keyCode = KEY_LEFT,
-                isActive = KEY_LEFT in activeKeys.value,
-                onKeyPressed = { onKeyPressed(KEY_LEFT) },
-                onKeyReleased = { onKeyReleased(KEY_LEFT) },
-                modifier = Modifier.weight(1f).fillMaxHeight()
-            )
-            KeyboardKeyButton(
-                keyLabel = "↓", keyCode = KEY_DOWN,
-                isActive = KEY_DOWN in activeKeys.value,
-                onKeyPressed = { onKeyPressed(KEY_DOWN) },
-                onKeyReleased = { onKeyReleased(KEY_DOWN) },
-                modifier = Modifier.weight(1f).fillMaxHeight()
-            )
-            KeyboardKeyButton(
-                keyLabel = "→", keyCode = KEY_RIGHT,
-                isActive = KEY_RIGHT in activeKeys.value,
-                onKeyPressed = { onKeyPressed(KEY_RIGHT) },
-                onKeyReleased = { onKeyReleased(KEY_RIGHT) },
-                modifier = Modifier.weight(1f).fillMaxHeight()
-            )
-        }
-    }
-}
-
-// ============================================================
-// Standard 전용 컴포넌트 (프로토타입)
-// ============================================================
-
-/**
- * Standard 전용 액션 버튼 (휠, 우클릭 등)
- *
- * ⚠️ 임시 구현
- */
-@Composable
-private fun StandardActionButton(
-    label: String,
-    sublabel: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    containerColor: Color = Color(0xFF2A2A3A)
-) {
-    Button(
-        onClick = onClick,
-        modifier = modifier,
-        colors = ButtonDefaults.buttonColors(containerColor = containerColor),
-        shape = RoundedCornerShape(6.dp)
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = label, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text(text = sublabel, fontSize = 9.sp, color = Color(0xFFA0A0A0))
-        }
-    }
-}
-
-// ============================================================
-// 키보드 페이지 (Standard 모드 전용, 프로토타입)
-// ============================================================
-
-/**
- * 키보드 페이지 (Standard 모드 전체 3탭 키보드)
- *
- * ⚠️ 임시 구현
- */
-@Composable
-private fun KeyboardPage(
-    bridgeMode: BridgeMode,
-    activeKeys: MutableState<Set<UByte>>,
-    activeModifierKeys: MutableState<Set<UByte>>
-) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.BottomCenter
-    ) {
-        KeyboardLayout(
-            bridgeMode = bridgeMode,
-            onKeyPressed = { keyCode ->
-                activeKeys.value = activeKeys.value + keyCode
-
-                if (isModifierKeyCode(keyCode)) {
-                    activeModifierKeys.value = activeModifierKeys.value + modifierBitFlag(keyCode)
-                    try {
-                        val frame = ClickDetector.createKeyboardFrame(
-                            activeModifierKeys = activeModifierKeys.value,
-                            keyCode1 = 0u,
-                            keyCode2 = 0u
-                        )
-                        ClickDetector.sendFrame(frame)
-                    } catch (e: Exception) {
-                        Log.e("KeyboardPage", "Failed to send modifier frame: ${e.message}", e)
-                    }
-                } else {
-                    try {
-                        val frame = ClickDetector.createKeyboardFrame(
-                            activeModifierKeys = activeModifierKeys.value,
-                            keyCode1 = keyCode,
-                            keyCode2 = 0u
-                        )
-                        ClickDetector.sendFrame(frame)
-                    } catch (e: Exception) {
-                        Log.e("KeyboardPage", "Failed to send key frame: ${e.message}", e)
-                    }
-                }
-            },
-            onKeyReleased = { keyCode ->
-                activeKeys.value = activeKeys.value - keyCode
-
-                if (isModifierKeyCode(keyCode)) {
-                    activeModifierKeys.value = activeModifierKeys.value - modifierBitFlag(keyCode)
-                }
-
-                try {
-                    val frame = ClickDetector.createKeyboardFrame(
-                        activeModifierKeys = activeModifierKeys.value,
-                        keyCode1 = 0u,
-                        keyCode2 = 0u
-                    )
-                    ClickDetector.sendFrame(frame)
-                } catch (e: Exception) {
-                    Log.e("KeyboardPage", "Failed to send release frame: ${e.message}", e)
-                }
-            },
-            activeKeys = activeKeys.value,
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
