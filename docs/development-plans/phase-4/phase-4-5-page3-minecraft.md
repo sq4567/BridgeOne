@@ -98,6 +98,8 @@ Page 3 — Minecraft
 
 > **⚠️ Phase 4.1.7 변경사항**: Page 3 레이아웃은 `AppState.Active` 박스 내 `padding(top=40dp, bottom=40dp)` 적용 영역 안에서 렌더링됨. DPad(하단 40%) 및 Hotbar 등 하단 요소 치수 계산 시 유효 화면 높이 = 전체 높이 − 80dp 기준 사용. DPad 터치 영역 등 새 레이아웃 상수 정의 시 `ui/common/LayoutConstants.kt`에 추가.
 
+> **⚠️ Phase 4.1.8 변경사항**: 커스텀 토스트 시스템 도입. `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)` 로 표시. 타입: `INFO`(파란색) · `SUCCESS`(초록색) · `WARNING`(주황색, 검은 텍스트) · `ERROR`(빨간색). 무제한 표시: `TOAST_DURATION_INFINITE`.
+
 **검증**:
 - [ ] 2열 50/50 레이아웃 정상
 - [ ] 터치패드 + DPad 상하 배치 (60/40)

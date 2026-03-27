@@ -1,7 +1,8 @@
 package com.bridgeone.app.ui.connection
 
 import android.app.Activity
-import android.widget.Toast
+import com.bridgeone.app.ui.common.ToastController
+import com.bridgeone.app.ui.common.ToastType
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -78,7 +79,7 @@ fun ConnectionWaitingScreen(
             (context as? Activity)?.finish()
         } else {
             lastBackPressTime = now
-            Toast.makeText(context, "앱을 종료하시겠습니까?", Toast.LENGTH_SHORT).show()
+            ToastController.show("앱을 종료하시겠습니까?", ToastType.INFO, durationMs = 1000L)
         }
     }
 

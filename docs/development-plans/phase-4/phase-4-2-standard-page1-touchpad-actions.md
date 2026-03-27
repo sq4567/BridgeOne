@@ -133,6 +133,8 @@ Standard 모드
 
 > **⚠️ Phase 4.1.7 변경사항**: `LayoutConstants.kt` 신규 (`TOP_SAFE_ZONE = 40.dp`, `BOTTOM_SAFE_ZONE = 40.dp`). `BridgeOneApp.kt`의 `AppState.Active` 박스에 이미 `padding(top=40dp, bottom=40dp)` 적용됨 → 이 Composable 내부에서 safe zone 패딩 추가 불필요. 레이아웃 치수 계산 시 유효 화면 높이 = 전체 높이 − 80dp 기준 사용.
 
+> **⚠️ Phase 4.1.8 변경사항**: 커스텀 토스트 시스템 도입. `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)` 로 표시. 타입: `INFO`(파란색) · `SUCCESS`(초록색) · `WARNING`(주황색, 검은 텍스트) · `ERROR`(빨간색). 무제한 표시: `TOAST_DURATION_INFINITE`.
+
 **검증**:
 - [ ] 2열 비율 (64/36) 정상 렌더링
 - [ ] 터치패드 1:2 비율 유지
@@ -157,7 +159,7 @@ Standard 모드
    - 탭: KeyDown → KeyUp 즉시 전송 (기존 `KeyboardKeyButton` 기본 동작)
 3. `Enter` 롱프레스 반복 입력:
    - 400ms 초기 지연 후 60ms 간격 반복
-   - 반복 중 토스트 피드백
+   - 반복 중 토스트 피드백: `ToastController.show("Enter 반복 입력 중", ToastType.INFO, 1500L)`
    - **⚠️ 기존 `KeyboardKeyButton` Sticky Hold(500ms)와 충돌**: Page 1 Special Keys에서는 Sticky Hold 대신 Key Repeat 동작이 필요
    - **구현 방안**: `KeyboardKeyButton`에 `repeatEnabled: Boolean = false` 파라미터 추가, `repeatEnabled=true`일 때 Sticky Hold 대신 Key Repeat 동작 수행
    - 또는 Phase 4.4.2에서 Key Repeat 기능을 `KeyboardKeyButton`에 통합 구현 시 함께 적용

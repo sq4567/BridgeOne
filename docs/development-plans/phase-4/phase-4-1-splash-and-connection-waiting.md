@@ -470,6 +470,80 @@ object SplashConstants {
 
 ---
 
+## Phase 4.1.8: 커스텀 상태 알림 토스트 (Status Toast)
+
+**목표**: 시스템 기본 Toast를 대체하는 세련된 커스텀 토스트 컴포넌트로 앱의 전체 상태 알림 경험을 고도화
+
+**개발 기간**: 0.5일
+
+**세부 목표**:
+
+1. **`StatusToast.kt` 신규 컴포넌트**:
+   - `ToastType` enum: INFO, SUCCESS, WARNING, ERROR 4가지 상태
+   - `ToastMessage` data class: 메시지, 타입, 지속시간 관리
+   - `ToastController` 싱글톤: 어디서든 `ToastController.show(...)` 호출 가능
+   - `StatusToastOverlay` Composable: BridgeOneApp 최상위 Box에 배치
+
+2. **디자인 구현**:
+   - **형태**: 알약 모양 (28dp border-radius)
+   - **색상**: 상태별 배경 (INFO: #2196F3 파란색, SUCCESS: #4CAF50 초록색, WARNING: #FF9800 주황색, ERROR: #F44336 빨간색)
+   - **아이콘**: 흰 원형 배경(34dp) 위에 배경색 아이콘(26dp) 표시
+   - **텍스트**: 13sp Pretendard-Medium, 대부분 흰색 (WARNING만 검은색 #121212)
+   - **애니메이션**:
+     - 등장: 상단에서 슬라이드 인, 350ms, EaseOutBack (탄력감)
+     - 퇴장: 상단으로 슬라이드 아웃, 300ms, EaseInBack (당겨지는 느낌)
+   - **위치**: 상태표시줄 아래 35dp, 화면 중앙 정렬, 좌우 16dp 여백
+   - **높이**: 약 38dp (상하 10dp 패딩 + 18dp 아이콘/텍스트)
+
+3. **의존성 추가**:
+   - `libs.versions.toml`: `androidx-compose-material-icons-extended` 라이브러리 등록
+   - `build.gradle.kts`: `implementation(libs.androidx.compose.material.icons.extended)` 추가
+   - Material Icons Extended에서 Info, CheckCircle, Warning, Error 아이콘 사용
+
+4. **기존 Toast 제거**:
+   - `BridgeOneApp.kt`: 모드 전환 토스트를 `android.widget.Toast` → `ToastController.show(...)` 교체
+   - `ConnectionWaitingScreen.kt`: 뒤로가기 확인 토스트를 커스텀 토스트로 교체
+
+5. **토스트 호출 예시**:
+   ```kotlin
+   // INFO 타입, 2초 후 자동 사라짐
+   ToastController.show("Standard 모드로 전환되었습니다", ToastType.INFO, 2000L)
+
+   // WARNING 타입, 1초 후 자동 사라짐
+   ToastController.show("앱을 종료하시겠습니까?", ToastType.WARNING, 1000L)
+
+   // SUCCESS 타입, 3초 후 자동 사라짐
+   ToastController.show("연결 성공", ToastType.SUCCESS, 3000L)
+
+   // ERROR 타입, 무제한 표시
+   ToastController.show("연결 실패", ToastType.ERROR, TOAST_DURATION_INFINITE)
+   ```
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/StatusToast.kt`
+
+**수정 파일**:
+- `src/android/gradle/libs.versions.toml` (material-icons-extended 등록)
+- `src/android/app/build.gradle.kts` (material-icons-extended 의존성)
+- `src/android/app/src/main/java/com/bridgeone/app/ui/BridgeOneApp.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/connection/ConnectionWaitingScreen.kt`
+
+**검증**:
+- [x] ToastController를 통해 모드 전환 토스트 표시 (BridgeOneApp)
+- [x] ToastController를 통해 뒤로가기 확인 토스트 표시 (ConnectionWaitingScreen)
+- [x] INFO 타입 토스트 표시 (파란색 배경, 흰 텍스트)
+- [x] SUCCESS 타입 토스트 표시 (초록색 배경, 흰 텍스트)
+- [x] WARNING 타입 토스트 표시 (주황색 배경, 검은 텍스트)
+- [x] ERROR 타입 토스트 표시 (빨간색 배경, 흰 텍스트)
+- [x] 등장 애니메이션 정상 실행 (상단에서 탄력감 있게 내려옴)
+- [x] 퇴장 애니메이션 정상 실행 (상단으로 스르륵 올라감)
+- [x] durationMs 설정에 따라 자동 사라짐 (3000ms 이내)
+- [x] TOAST_DURATION_INFINITE 사용 시 무제한 표시
+- [x] 아이콘이 흰 원형 배경 위에 배경색으로 명확히 표시
+- [x] 새로운 토스트가 나타나면 기존 토스트 교체
+
+---
+
 ## 반응형 규칙 (전체 Phase 4.1 공통)
 
 | 화면 크기 | 스플래시 | 연결 대기 |

@@ -100,6 +100,8 @@ Page 2
 
 > **⚠️ Phase 4.1.7 변경사항**: Page 2 레이아웃은 `AppState.Active` 박스 내 `padding(top=40dp, bottom=40dp)` 적용 영역 안에서 렌더링됨. Function Row, Lock Keys 등 하단 요소 배치 시 유효 화면 높이 = 전체 높이 − 80dp 기준 사용. 새 레이아웃 상수 추가 시 `ui/common/LayoutConstants.kt`에 함께 정의.
 
+> **⚠️ Phase 4.1.8 변경사항**: 커스텀 토스트 시스템 도입. `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)` 로 표시. 타입: `INFO`(파란색) · `SUCCESS`(초록색) · `WARNING`(주황색, 검은 텍스트) · `ERROR`(빨간색). 무제한 표시: `TOAST_DURATION_INFINITE`.
+
 **검증**:
 - [ ] 4개 모디파이어 키 렌더링
 - [ ] 탭 → 일시 고정 (다음 키와 조합 후 해제)
@@ -205,7 +207,7 @@ Page 2
      - Host(PC)가 LED Report를 ESP32-S3로 전송
      - ESP32-S3가 UART를 통해 Android로 LED 상태 전달
      - LED Report 미수신 시: 2초 간격 폴링, 최대 3회 재시도
-   - 상태 미동기화 감지 시: `Error` 토스트 (2초) + 재동기화 시도
+   - 상태 미동기화 감지 시: `ToastController.show("Lock Key 상태 동기화 실패", ToastType.ERROR, 2000L)` + 재동기화 시도
 3. LED Report 수신 경로:
    - ESP32-S3 `tud_hid_set_report_cb()` → UART 알림 → Android 파싱
    - Phase 3.5.4에서 구현한 역방향 UART 알림 시스템 활용

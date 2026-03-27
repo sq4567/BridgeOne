@@ -103,8 +103,12 @@ updated: "2026-03-26"
    - 기존 구현과 `styleframe-essential.md` 비교 → 차이점 수정
    - 페이지 인디케이터/탭/스와이프 완전 비활성 확인
    - 상태 안내: 상단 토스트로만 제공
-2. Essential 진입 토스트:
-   - "PC: Essential 모드" + "Essential 페이지 표시"
+2. Essential 진입 토스트 (`ToastController` 사용):
+   ```kotlin
+   ToastController.show("PC: Essential 모드", ToastType.INFO, 3000L)
+   delay(300L)
+   ToastController.show("Essential 페이지 표시", ToastType.INFO, 3000L)
+   ```
    - 두 토스트 순차 표시, 사이 간격 300ms
 3. Boot Keyboard Cluster 재정비:
    - `FKeyPopupDialog` → Phase 4.6.2의 `ContainerButton`으로 교체
@@ -116,7 +120,7 @@ updated: "2026-03-26"
    - `ControlButtonContainer` 숨김 확인
    - 모드 고정: MOVE, FREE, LEFT, SINGLE
    - 더블탭/롱프레스/스크롤/우클릭: 비활성 확인
-   - 무효 입력 시 토스트: "고급 기능은 Windows 서버 연결 시 사용 가능합니다" (파란색, 2초)
+   - 무효 입력 시: `ToastController.show("고급 기능은 Windows 서버 연결 시 사용 가능합니다", ToastType.INFO, 2000L)`
 5. 반응형:
    - 폭 < 360dp: 우측 패널 아이콘형 단일 열
    - 폭 ≥ 600dp: 터치패드 확대, 키 클러스터 2열
@@ -129,6 +133,8 @@ updated: "2026-03-26"
 - `docs/android/design-guide-app.md` §8.6 (Essential 유저 플로우)
 
 > **⚠️ Phase 4.1.7 변경사항**: Safe Zone은 `BridgeOneApp.kt`의 `AppState.Active` 박스에서 이미 적용됨(`TOP/BOTTOM_SAFE_ZONE = 40.dp`) → `EssentialModePage` 자체에 safe zone 패딩 추가 불필요. 기존 프로토타입 코드에 safe zone 관련 패딩이 있다면 중복 적용 방지를 위해 제거. DPad 크기·버튼 간격 등 새 레이아웃 상수 추가 시 `ui/common/LayoutConstants.kt`에 정의. BridgeOne 별 로고가 필요하면 `ui/common/BridgeOneLogo.kt` 재사용.
+
+> **⚠️ Phase 4.1.8 변경사항**: 커스텀 토스트 시스템 도입. `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)` 로 표시. 타입: `INFO`(파란색) · `SUCCESS`(초록색) · `WARNING`(주황색, 검은 텍스트) · `ERROR`(빨간색). 무제한 표시: `TOAST_DURATION_INFINITE`.
 
 **검증**:
 - [ ] F1-F12 ContainerButton 팝업 정상 동작

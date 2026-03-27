@@ -22,11 +22,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import android.widget.Toast
 import android.util.Log
 import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.common.BOTTOM_SAFE_ZONE
+import com.bridgeone.app.ui.common.StatusToastOverlay
 import com.bridgeone.app.ui.common.TOP_SAFE_ZONE
+import com.bridgeone.app.ui.common.ToastController
+import com.bridgeone.app.ui.common.ToastType
 import com.bridgeone.app.ui.connection.ConnectionState
 import com.bridgeone.app.ui.connection.ConnectionWaitingScreen
 import com.bridgeone.app.ui.pages.EssentialModePage
@@ -177,11 +179,11 @@ fun BridgeOneApp() {
             hasShownFirstModeInActive = true
             return@LaunchedEffect
         }
-        val message = when (bridgeMode) {
-            BridgeMode.STANDARD -> "Standard 모드로 전환되었습니다"
-            BridgeMode.ESSENTIAL -> "Essential 모드로 전환되었습니다"
+        val (message, toastType) = when (bridgeMode) {
+            BridgeMode.STANDARD -> "Standard 모드로 전환되었습니다" to ToastType.INFO
+            BridgeMode.ESSENTIAL -> "Essential 모드로 전환되었습니다" to ToastType.WARNING
         }
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        ToastController.show(message, toastType, durationMs = 2000L)
         Log.i("BridgeOneApp", "BridgeMode toast: $message")
     }
 
@@ -238,6 +240,8 @@ fun BridgeOneApp() {
             }
         }
 
+        // 커스텀 토스트 오버레이 (항상 최상단에 렌더링)
+        StatusToastOverlay()
     }
 }
 
