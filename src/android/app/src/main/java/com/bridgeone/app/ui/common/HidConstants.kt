@@ -10,7 +10,12 @@ import android.os.Vibrator
 // ============================================================
 val KEY_ENTER = 0x28.toUByte()
 val KEY_ESC = 0x29.toUByte()
+val KEY_BACKSPACE = 0x2A.toUByte()
+val KEY_TAB = 0x2B.toUByte()
+val KEY_SPACE = 0x2C.toUByte()
+val KEY_HOME = 0x4A.toUByte()
 val KEY_DELETE = 0x4C.toUByte()
+val KEY_END = 0x4D.toUByte()
 val KEY_F1 = 0x3A.toUByte(); val KEY_F2 = 0x3B.toUByte()
 val KEY_F3 = 0x3C.toUByte(); val KEY_F4 = 0x3D.toUByte()
 val KEY_F5 = 0x3E.toUByte(); val KEY_F6 = 0x3F.toUByte()

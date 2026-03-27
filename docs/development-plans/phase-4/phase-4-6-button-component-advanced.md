@@ -14,7 +14,7 @@ updated: "2026-03-26"
 **목표**: 버튼 컴포넌트의 고급 기능을 구현하여, ContainerButton, Essential 모드 UI 재정비 등 스타일프레임에 정의된 미구현 컴포넌트 기능을 완성합니다.
 
 **핵심 성과물**:
-- ~~KeyboardKeyButton Sticky Hold~~ → **이미 구현됨** (Phase 4.6.1 삭제)
+- KeyboardKeyButton Sticky Hold
 - ContainerButton (하위 버튼 그룹화, 팝업 오버레이, 일반/지속 모드)
 - Essential 모드 EssentialModePage 재정비 (스타일프레임 완전 준수)
 
@@ -24,21 +24,30 @@ updated: "2026-03-26"
 
 ---
 
-## ~~Phase 4.6.1: KeyboardKeyButton Sticky Hold~~ — ✅ 이미 구현됨 (삭제)
+## Phase 4.6.1: KeyboardKeyButton Sticky Hold
 
-> **이 Phase는 이미 코드에 구현되어 있어 삭제합니다.**
->
-> `KeyboardKeyButton.kt`에 다음 기능이 완전 구현됨:
-> - 500ms 롱프레스 Sticky Hold (LaunchedEffect 기반 타이머)
-> - Fill 애니메이션 (좌→우, `drawWithContent` + `stickyHoldProgress`)
-> - 오렌지 테두리 (`#FF9800`, 2dp border)
-> - 색상 전환: 기본 `#2196F3` → 누름 `#1976D2` → Latched `#1565C0`
-> - `stickyActivatedDuringPress` 플래그로 손 뗌 시 해제 방지
-> - 재탭 시 `onKeyReleased` → `isStickyLatched = false`
->
-> **미구현 세부사항 (Phase 4.4.2에서 처리)**:
-> - `stickyHoldEnabled` 파라미터 (현재는 항상 활성) → Phase 4.4.2에서 `repeatEnabled`와 함께 추가
-> - 햅틱 피드백 (Hold 진입/해제 시) → 현재 미구현, 필요시 Phase 4.4.2에서 추가
+**개발 기간**: 0.5-1일
+
+**목표**: KeyboardKeyButton의 Sticky Hold 기능을 구현하여, 사용자가 클릭하고 있을 때 시각적 피드백을 명확히 제공
+
+**구현 항목**:
+1. 500ms 롱프레스 Sticky Hold 감지 (LaunchedEffect 기반 타이머)
+2. Fill 애니메이션 (좌→우, `drawWithContent` + `stickyHoldProgress`)
+   - 500ms 동안 버튼 너비에 걸쳐 색상 채움 애니메이션
+   - Sticky Hold 완성 시각적 피드백의 핵심 요소
+3. 오렌지 테두리 (`#FF9800`, 2dp border)
+4. 색상 전환: 기본 `#2196F3` → 누름 `#1976D2` → Latched `#1565C0`
+5. `stickyActivatedDuringPress` 플래그로 손 뗌 시 해제 방지
+6. 재탭 시 `onKeyReleased` → `isStickyLatched = false`
+
+**별도 처리 항목** (Phase 4.4.2에서 함께 추가):
+- `stickyHoldEnabled` 파라미터 (현재는 항상 활성)
+- 햅틱 피드백 (Hold 진입/해제 시)
+
+**검증**:
+- [ ] 500ms 동안 버튼 좌→우 Fill 애니메이션 실행
+- [ ] Hold 완료 후 오렌지 테두리 유지
+- [ ] 재탭 시 Sticky Hold 해제
 
 ---
 
@@ -150,7 +159,7 @@ updated: "2026-03-26"
 
 | 컴포넌트 | 기본 기능 | 고급 기능 | 구현 Phase |
 |----------|----------|----------|-----------|
-| KeyboardKeyButton | ✅ 탭 KeyDown/KeyUp | ✅ Sticky Hold (이미 구현), Key Repeat (4.4.2) | 기존 + 4.4.2 |
+| KeyboardKeyButton | ✅ 탭 KeyDown/KeyUp | ⏳ Sticky Hold (4.6.1), Key Repeat (4.4.2) | 4.6.1 + 4.4.2 |
 | ShortcutButton | ✅ 키 조합 순차 전송 | ✅ 디바운스, Alt+Tab 홀드 | 4.2.4 |
 | ContainerButton | — | ✅ 일반/지속 팝업 모드 | 4.6.2 |
 | MacroButton | — | ⏳ Phase 5+ (Disabled placeholder) | 4.2.5 (placeholder) |
@@ -170,7 +179,7 @@ updated: "2026-03-26"
 | **4.3** | 터치패드 고급 기능 | 5-7일 | 스크롤, 직각 이동, DPI, 가이드라인 |
 | **4.4** | Page 2 키보드 중심 | 4-5일 | Modifiers Sticky, Key Repeat, Lock Keys LED 동기화 |
 | **4.5** | Page 3 Minecraft | 4-5일 | DPad Sticky Hold, 게임 최적화 |
-| **4.6** | 버튼 고급 기능 | 2-3일 | ContainerButton, Essential 재정비 (~~Sticky Hold~~ 이미 구현) |
+| **4.6** | 버튼 고급 기능 | 2-3일 | Sticky Hold 구현, ContainerButton, Essential 재정비 |
 | **합계** | | **22-29일** | |
 
 ### Phase 4 완료 후 미구현 항목 (Phase 5+)

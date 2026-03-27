@@ -34,6 +34,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.protocol.BridgeMode
+import com.bridgeone.app.ui.common.KEY_BACKSPACE
+import com.bridgeone.app.ui.common.KEY_DELETE
+import com.bridgeone.app.ui.common.KEY_END
+import com.bridgeone.app.ui.common.KEY_ENTER
+import com.bridgeone.app.ui.common.KEY_ESC
+import com.bridgeone.app.ui.common.KEY_HOME
+import com.bridgeone.app.ui.common.KEY_SPACE
+import com.bridgeone.app.ui.common.KEY_TAB
+import com.bridgeone.app.ui.components.KeyboardKeyButton
 import com.bridgeone.app.ui.components.TouchpadWrapper
 
 // ============================================================
@@ -261,21 +270,7 @@ private fun ActionsPanel(
             )
         }
         item {
-            // Phase 4.2.3에서 구현: 8개 키 2열 그리드
-            // 임시 placeholder
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp)
-                    .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Special Keys (Phase 4.2.3)",
-                    fontSize = 11.sp,
-                    color = Color(0xFFA0A0A0)
-                )
-            }
+            SpecialKeysGrid()
         }
 
         // ── 그룹 간 간격 ──
@@ -341,6 +336,66 @@ private fun ActionsPanel(
                     fontSize = 11.sp,
                     color = Color(0xFFA0A0A0)
                 )
+            }
+        }
+    }
+}
+
+// ============================================================
+// Special Keys 그룹 (Phase 4.2.3)
+// ============================================================
+
+/**
+ * Special Keys 2열 그리드
+ *
+ * 8개 키: Esc, Tab, Enter, Backspace, Delete, Space, Home, End
+ * - 모두 stickyHoldEnabled=false (자연 홀드)
+ * - 길게 누르면 PC OS가 자체적으로 키 반복 처리 (물리 키보드와 동일)
+ *
+ * ClickDetector 연결은 Phase 4.3 이후 실기기 검증 시 추가 예정.
+ * 현재는 Log만 출력.
+ */
+@Composable
+private fun SpecialKeysGrid() {
+    val keys = listOf(
+        "Esc" to KEY_ESC,
+        "Tab" to KEY_TAB,
+        "Enter" to KEY_ENTER,
+        "⌫" to KEY_BACKSPACE,
+        "Del" to KEY_DELETE,
+        "Space" to KEY_SPACE,
+        "Home" to KEY_HOME,
+        "End" to KEY_END
+    )
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        keys.chunked(2).forEach { rowKeys ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowKeys.forEach { (label, keyCode) ->
+                    KeyboardKeyButton(
+                        keyLabel = label,
+                        keyCode = keyCode,
+                        stickyHoldEnabled = false,
+                        onKeyPressed = { code ->
+                            android.util.Log.d("SpecialKeys", "KeyDown: $label (0x${code.toString(16)})")
+                        },
+                        onKeyReleased = { code ->
+                            android.util.Log.d("SpecialKeys", "KeyUp: $label (0x${code.toString(16)})")
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    )
+                }
+                if (rowKeys.size < 2) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
         }
     }

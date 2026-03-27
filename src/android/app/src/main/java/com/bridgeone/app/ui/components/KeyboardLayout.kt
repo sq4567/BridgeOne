@@ -32,6 +32,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.util.Log
 import com.bridgeone.app.protocol.BridgeMode
+import com.bridgeone.app.ui.common.KEY_BACKSPACE
+import com.bridgeone.app.ui.common.KEY_DELETE
+import com.bridgeone.app.ui.common.KEY_END
+import com.bridgeone.app.ui.common.KEY_ENTER
+import com.bridgeone.app.ui.common.KEY_ESC
+import com.bridgeone.app.ui.common.KEY_HOME
+import com.bridgeone.app.ui.common.KEY_SPACE
+import com.bridgeone.app.ui.common.KEY_TAB
 
 // ============================================================
 // 행 높이 / 간격 상수
@@ -67,12 +75,7 @@ private val KEY_5 = 0x22.toUByte(); private val KEY_6 = 0x23.toUByte()
 private val KEY_7 = 0x24.toUByte(); private val KEY_8 = 0x25.toUByte()
 private val KEY_9 = 0x26.toUByte(); private val KEY_0 = 0x27.toUByte()
 
-// 기능 키
-private val KEY_ENTER = 0x28.toUByte()
-private val KEY_ESC = 0x29.toUByte()
-private val KEY_BACKSPACE = 0x2A.toUByte()
-private val KEY_TAB = 0x2B.toUByte()
-private val KEY_SPACE = 0x2C.toUByte()
+// 기능 키 (KEY_ENTER, KEY_ESC, KEY_BACKSPACE, KEY_TAB, KEY_SPACE은 HidConstants에서 import)
 
 // 기호 키
 private val KEY_MINUS = 0x2D.toUByte()
@@ -95,14 +98,11 @@ private val KEY_F7 = 0x40.toUByte(); private val KEY_F8 = 0x41.toUByte()
 private val KEY_F9 = 0x42.toUByte(); private val KEY_F10 = 0x43.toUByte()
 private val KEY_F11 = 0x44.toUByte(); private val KEY_F12 = 0x45.toUByte()
 
-// 네비게이션 키
+// 네비게이션 키 (KEY_DELETE, KEY_HOME, KEY_END는 HidConstants에서 import)
 private val KEY_PRINTSCREEN = 0x46.toUByte()
 private val KEY_PAUSE = 0x48.toUByte()
-private val KEY_DELETE = 0x4C.toUByte()
 private val KEY_INSERT = 0x49.toUByte()
-private val KEY_HOME = 0x4A.toUByte()
 private val KEY_PAGEUP = 0x4B.toUByte()
-private val KEY_END = 0x4D.toUByte()
 private val KEY_PAGEDOWN = 0x4E.toUByte()
 
 // 화살표 키

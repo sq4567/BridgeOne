@@ -109,6 +109,7 @@ TouchpadWrapper
 **검증**:
 - [ ] 상단 15% 오버레이 정상 배치
 - [ ] 6개 버튼 렌더링 및 터치 반응
+- [ ] Phase 4.2.3 Special Keys: ClickDetector 연결 후 HID KeyDown/KeyUp 실기기 전송 확인
 - [ ] 버튼 가시성 규칙 (스크롤 모드 시 전환)
 - [ ] Essential 모드에서 컨테이너 숨김
 - [ ] 히트 영역 48×48dp 보장

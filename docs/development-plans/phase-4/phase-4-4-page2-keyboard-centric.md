@@ -37,8 +37,8 @@ updated: "2026-03-26"
 - `KeyboardKeyButton.kt`: **Sticky Hold 이미 구현됨** (500ms 롱프레스 → 키 유지 → 재탭 해제)
   - Fill 애니메이션 (좌→우), 오렌지 테두리, 색상 전환
   - `isStickyLatched`, `stickyActivatedDuringPress` 상태 관리
-  - **⚠️ Key Repeat(반복 전송)은 미구현** — Phase 4.4.2에서 추가 필요
-- `HidConstants.kt`: KEY_F1~F12, 방향키, 수정자 키, `isModifierKeyCode()`, `modifierBitFlag()` 완비
+  - **⚠️ Phase 4.2.3 완료**: Key Repeat 파라미터(`repeatEnabled`, `stickyHoldEnabled`, `repeatInitialDelayMs`, `repeatIntervalMs`, `onRepeatStart`) 이미 추가됨. Phase 4.4.2에서 `KeyboardKeyButton.kt` 추가 수정 불필요.
+- `HidConstants.kt`: KEY_F1~F12, 방향키, 수정자 키, `isModifierKeyCode()`, `modifierBitFlag()` 완비. **Phase 4.2.3에서 `KEY_TAB`, `KEY_BACKSPACE`, `KEY_SPACE`, `KEY_HOME`, `KEY_END` 추가됨.**
 - ~~`StandardModePage.kt` → `KeyboardPage`: 수정자 키 추적 (`activeModifierKeys` MutableState) 로직 존재~~ **→ Phase 4.2.2에서 삭제됨**
 - Modifiers 3단계 Sticky (탭/더블탭/롱프레스) 없음, Lock Keys HID LED 동기화 없음, Media Controls 없음
 - **기존 3탭 키보드는 Page 2 구조와 완전히 다름** → 새로 구현
@@ -122,30 +122,23 @@ Page 2
 **세부 목표**:
 1. Inverted-T 방향키:
    - `↑` 중앙 상단, `←`/`→` 좌우, `↓` 중앙 하단
-   - Key Repeat: 길게 누르면 반복 전송
-     - 초기 지연: 400ms
-     - 반복 간격: 최소 40ms (25-30Hz 상한)
+   - 자연 홀드: `stickyHoldEnabled = false` → 누름=KeyDown, 뗌=KeyUp
+   - **앱 레벨 Key Repeat 불필요** — USB HID에서 키를 누른 상태로 유지하면 PC OS Typematic Repeat이 자동 작동 (물리 키보드와 동일)
    - 기존 `KeyboardKeyButton` 재사용
 2. 편집 키 (2-3열 그리드):
    - `Backspace`, `Delete`, `Enter`, `Tab`
    - `Home`, `End`, `PageUp`, `PageDown`
-   - Backspace/Space/Enter: Key Repeat 지원
-3. Key Repeat 구현:
-   - `LaunchedEffect` 기반 반복 전송
-   - OS 설정 기본값 존중, 앱 레벨 25-30Hz 스로틀링
-   - 60fps 성능 저해 방지
-   - **⚠️ 기존 Sticky Hold(500ms)와의 관계 정리**:
-     - 현재 `KeyboardKeyButton`은 롱프레스 시 Sticky Hold 진입 (키 유지, 재탭 해제)
-     - Key Repeat은 롱프레스 시 **반복 전송** (키 누름/뗌 반복)
-     - 두 기능은 **상호 배타적**: `repeatEnabled=true`면 Sticky Hold 비활성, 반복 전송 수행
-     - `KeyboardKeyButton`에 `repeatEnabled: Boolean = false` 파라미터 추가
-     - 방향키, Backspace, Enter 등에 `repeatEnabled=true` 적용
-     - 수정자 키(Ctrl, Shift 등)에는 `repeatEnabled=false` (Sticky Hold 유지)
-   - **Phase 4.2.3의 Enter 롱프레스 반복 입력도 이 구현에 통합**
+   - 모두 `stickyHoldEnabled = false` (자연 홀드)
+3. 키 동작 모드 구분:
+   - **⚠️ Phase 4.2.3 변경사항**: `KeyboardKeyButton`에 `stickyHoldEnabled` 파라미터로 두 가지 모드 구현됨:
+     - `stickyHoldEnabled = true` (기본): 수정자 키용 Sticky Hold (500ms 롱프레스 → latch → 재탭 해제)
+     - `stickyHoldEnabled = false`: 자연 홀드 (누름=KeyDown, 뗌=KeyUp, OS가 반복 처리)
+   - 방향키/편집 키: `stickyHoldEnabled = false`
+   - 수정자 키(Ctrl, Shift 등): `stickyHoldEnabled = true` (Sticky Hold 유지)
+   - `KeyboardKeyButton.kt` 추가 수정 불필요 (파라미터 이미 완비)
 
 **수정 파일**:
 - `Page2KeyboardCentric.kt`
-- `KeyboardKeyButton.kt` (Key Repeat 기능 추가 — `repeatEnabled` 파라미터)
 
 **참조 문서**:
 - `docs/android/styleframe-page2.md` §2.1-2 (Navigation/Editing Grid)
@@ -153,9 +146,10 @@ Page 2
 
 **검증**:
 - [ ] Inverted-T 배치 정상
-- [ ] 방향키 롱프레스 시 반복 전송
-- [ ] 반복 주기 25-30Hz 이내
+- [ ] 방향키 롱프레스 시 OS Typematic Repeat 동작 확인 (실기기 검증)
 - [ ] 편집 키 8개 정상 동작
+- [ ] 수정자 키 Sticky Hold 정상 동작
+- [ ] Phase 4.2.3 Special Keys: 햅틱 피드백 통합 적용 확인
 
 ---
 
