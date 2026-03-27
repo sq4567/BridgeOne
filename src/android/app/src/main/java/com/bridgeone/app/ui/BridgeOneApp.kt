@@ -85,26 +85,26 @@ fun BridgeOneApp() {
         delay(100L)
 
         val connected = UsbSerialManager.debugState.value.isConnected
-        val mode = UsbSerialManager.bridgeMode.value
 
         if (connected) {
             // 이미 연결된 상태 → 스텝 자동 진행 애니메이션
             isAutoProgressing = true
             connectionState = ConnectionState.WaitingForUsb
 
-            // Step 1 → Step 2 진행
+            // Step 1 → Step 2: 서버 탐색 중 (모드 확정 대기)
             delay(600L)
             connectionState = ConnectionState.SearchingServer
 
+            // 모드 확정 대기 (최대 5초, 100ms 간격)
+            val mode = waitForModeConfirmed()
+
             if (mode == BridgeMode.STANDARD) {
-                // 서버까지 연결 → Step 3 진행 후 Standard 안내
                 delay(600L)
                 connectionState = ConnectionState.EnteringStandard
                 delay(1200L)
                 isAutoProgressing = false
                 appState = AppState.Active(BridgeMode.STANDARD)
             } else {
-                // 보드만 연결 → Essential 안내
                 delay(600L)
                 connectionState = ConnectionState.EnteringEssential
                 delay(1200L)
@@ -134,7 +134,9 @@ fun BridgeOneApp() {
                 isAutoProgressing = true
                 connectionState = ConnectionState.SearchingServer
 
-                val mode = UsbSerialManager.bridgeMode.value
+                // 모드 확정 대기 (최대 5초)
+                val mode = waitForModeConfirmed()
+
                 if (mode == BridgeMode.STANDARD) {
                     delay(600L)
                     connectionState = ConnectionState.EnteringStandard
@@ -261,6 +263,30 @@ fun BridgeOneApp() {
         }
 
     }
+}
+
+// ============================================================
+// 모드 확정 대기
+// ============================================================
+
+/**
+ * ESP32로부터 모드 응답이 올 때까지 대기합니다.
+ * 최대 5초 대기 후 타임아웃 시 현재 bridgeMode 값을 반환합니다.
+ */
+private suspend fun waitForModeConfirmed(): BridgeMode {
+    val maxWaitMs = 5000L
+    val intervalMs = 100L
+    var elapsed = 0L
+
+    while (elapsed < maxWaitMs) {
+        if (UsbSerialManager.modeConfirmed.value) {
+            return UsbSerialManager.bridgeMode.value
+        }
+        delay(intervalMs)
+        elapsed += intervalMs
+    }
+    Log.w("BridgeOneApp", "Mode confirmation timed out (${maxWaitMs}ms), using current: ${UsbSerialManager.bridgeMode.value}")
+    return UsbSerialManager.bridgeMode.value
 }
 
 // ============================================================

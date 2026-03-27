@@ -226,6 +226,7 @@ object UsbSerialManager {
             port.setRTS(true)
 
             isConnected = true
+            _modeConfirmed.value = false
             startSenderThread()
             startReceiverThread()
             startPollingThread()
@@ -274,6 +275,7 @@ object UsbSerialManager {
             // Phase 3.5.5: 포트 닫힘 시 ESSENTIAL 모드로 강제 복귀
             // lastNotification은 자동 초기화되지 않으므로 bridgeMode를 직접 초기화
             _bridgeMode.value = BridgeMode.ESSENTIAL
+            _modeConfirmed.value = false
             Log.d(TAG, "BridgeMode reset to ESSENTIAL on port close")
         }
     }
@@ -356,6 +358,14 @@ object UsbSerialManager {
      */
     private val _bridgeMode = MutableStateFlow(BridgeMode.ESSENTIAL)
     val bridgeMode: StateFlow<BridgeMode> = _bridgeMode.asStateFlow()
+
+    /**
+     * 모드 확정 여부.
+     * 포트 열림 후 ESP32로부터 첫 모드 응답을 수신하면 true.
+     * 포트 닫힘 시 false로 리셋.
+     */
+    private val _modeConfirmed = MutableStateFlow(false)
+    val modeConfirmed: StateFlow<Boolean> = _modeConfirmed.asStateFlow()
 
     /**
      * 수신 전용 백그라운드 스레드.
@@ -493,7 +503,8 @@ object UsbSerialManager {
                             else -> BridgeMode.ESSENTIAL
                         }
                         _bridgeMode.value = newMode
-                        Log.i(TAG, "BridgeMode changed: $oldMode → $newMode")
+                        _modeConfirmed.value = true
+                        Log.i(TAG, "BridgeMode changed: $oldMode → $newMode (confirmed)")
                     }
 
                 } catch (e: InterruptedException) {
@@ -531,17 +542,22 @@ object UsbSerialManager {
     private fun startPollingThread() {
         stopPollingThread()
         pollingThread = Thread({
-            Log.d(TAG, "Mode polling thread started (2s interval)")
+            Log.d(TAG, "Mode polling thread started (immediate first query, then 2s interval)")
             while (!Thread.currentThread().isInterrupted) {
                 try {
-                    Thread.sleep(2000)
-                    if (!isConnected || usbSerialPort == null) continue
+                    if (!isConnected || usbSerialPort == null) {
+                        Thread.sleep(500)
+                        continue
+                    }
 
                     // 모드 쿼리 프레임: {0xFF=쿼리 헤더, 0x01=모드 조회, 0x00*6=패딩}
                     val query = ByteArray(8)
                     query[0] = 0xFF.toByte()
                     query[1] = 0x01.toByte()
                     frameQueue.offer(query)
+
+                    // 쿼리 전송 후 2초 대기 (첫 쿼리는 즉시 전송됨)
+                    Thread.sleep(2000)
                 } catch (e: InterruptedException) {
                     Thread.currentThread().interrupt()
                     break
