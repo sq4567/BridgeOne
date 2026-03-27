@@ -36,6 +36,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bridgeone.app.ui.common.STAR_PATH_DATA
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.min
@@ -43,11 +44,6 @@ import kotlin.math.min
 // ============================================================
 // Logo SVG Path 데이터 (viewBox: 0 0 669.6 669.6)
 // ============================================================
-
-/** 별 모양 Path: 4개 곡선 꼭짓점을 가진 별 (중심 334.8, 240) */
-private const val STAR_PATH_DATA =
-    "M334.8,465h0c0-124.3-100.7-225-225-225h0c124.3,0,225-100.7,225-225h0" +
-    "c0,124.3,100.7,225,225,225h0c-124.3,0-225,100.7-225,225Z"
 
 /** 브릿지 Path: Y=537.7 시작, 양쪽으로 확장되는 아치 구조 */
 private const val BRIDGE_PATH_DATA =

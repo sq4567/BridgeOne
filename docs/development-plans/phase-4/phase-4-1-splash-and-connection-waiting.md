@@ -236,6 +236,52 @@ object SplashConstants {
 
 ---
 
+## Phase 4.1.4: 연결 대기 화면 UI 개선
+
+**목표**: 밋밋한 연결 대기 화면을 스플래시의 브랜드 아이덴티티와 이어지는 세련된 UI로 개선
+
+**개발 기간**: 0.5-1일
+
+**세부 목표**:
+1. 방사형 그라데이션 배경 (#1E1E2E 중앙 → #121212 외곽, 깊이감)
+2. USB 케이블을 핸드폰에 꽂는 Canvas 애니메이션 (`UsbPlugAnimation`)
+   - 핸드폰 하단 실루엣 + USB-C 커넥터 (외곽선 스타일)
+   - 3초 루프: 상승 → 꽂힘 → 글로우 → 빠짐
+   - `isProcessing = false` 시 꽂힌 정지 상태
+3. 라벨 포함 연결 단계 스텝 인디케이터 (`StepIndicator`)
+   - "USB 연결 ── 서버 탐색 ── 준비 완료" 3단계
+   - 현재 단계 텍스트 크기/색상 애니메이션 강조
+4. 상단 BridgeOne 별 로고 (`BridgeOneLogo` 공용 Composable)
+   - `SplashScreen`의 `STAR_PATH_DATA`를 `ui/common/`으로 분리
+5. `ConnectionState`에 `step` 프로퍼티 추가 (스텝 인디케이터 연동)
+6. 화면 레이아웃 재구성: 상단(로고+텍스트+스텝) / 하단(USB 꽂기 애니메이션)
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/connection/UsbPlugAnimation.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/connection/StepIndicator.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/BridgeOneLogo.kt`
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/connection/ConnectionWaitingScreen.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/connection/ConnectionState.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/splash/SplashScreen.kt`
+
+**삭제 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/connection/PulseRingAnimation.kt`
+
+**참조 문서**:
+- `docs/android/styleframe-connection-waiting.md`
+
+**검증**:
+- [x] 방사형 그라데이션 배경이 자연스럽게 표시
+- [x] USB 케이블 꽂기 애니메이션 정상 동작 (커넥터가 폰 내부 통과하지 않음)
+- [x] 라벨 포함 스텝 인디케이터가 ConnectionState에 따라 정확히 변경
+- [x] 상단 별 로고 표시
+- [x] 기존 기능 (뒤로가기, CrossFade, 접근성) 정상 동작
+- [x] 에뮬레이터 실행 확인
+
+---
+
 ## 반응형 규칙 (전체 Phase 4.1 공통)
 
 | 화면 크기 | 스플래시 | 연결 대기 |

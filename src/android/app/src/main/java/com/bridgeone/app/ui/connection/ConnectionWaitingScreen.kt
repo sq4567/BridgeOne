@@ -5,23 +5,16 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,14 +25,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -47,17 +38,21 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.bridgeone.app.R
+import com.bridgeone.app.ui.common.BridgeOneLogo
+import com.bridgeone.app.ui.theme.BackgroundPrimary
 import com.bridgeone.app.ui.theme.BridgeOneTheme
 import com.bridgeone.app.ui.theme.PretendardFontFamily
-import com.bridgeone.app.ui.theme.BackgroundPrimary
 import com.bridgeone.app.ui.theme.StateWarning
+import kotlin.math.min
+
+// 배경 그라데이션 색상
+private val GradientCenter = Color(0xFF1E1E2E)
 
 /**
  * USB 동글 미연결 시 표시되는 연결 대기 화면.
  *
- * 단계별 상태에 따라 아이콘, 주 메시지, 부 메시지가 동적으로 변경됩니다.
- * USB 아이콘은 처리 중일 때 2초 주기로 회전합니다.
+ * 상단: 별 로고 + 안내 텍스트 + 스텝 인디케이터
+ * 하단: USB 케이블을 핸드폰에 꽂는 애니메이션
  */
 @Composable
 fun ConnectionWaitingScreen(
@@ -79,65 +74,66 @@ fun ConnectionWaitingScreen(
         }
     }
 
-    // --- USB 아이콘 회전 애니메이션 ---
-    val infiniteTransition = rememberInfiniteTransition(label = "usbRotation")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = LinearEasing)
-        ),
-        label = "usbIconRotation"
-    )
-    val currentRotation = if (connectionState.isProcessing) rotation else 0f
-
-    // --- 접근성: contentDescription ---
-    val iconDescription = when (connectionState) {
-        is ConnectionState.WaitingForUsb -> "USB 연결 진행 중"
-        is ConnectionState.SearchingServer -> "서버 연결 진행 중"
-        is ConnectionState.PermissionRequired -> "USB 권한 요청 중"
-        is ConnectionState.Error -> "연결 실패, 자동 재시도 중"
-    }
-
     // --- 화면 진입 애니메이션 ---
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(BackgroundPrimary),
-        contentAlignment = Alignment.Center
+        modifier = modifier.fillMaxSize()
     ) {
+        // --- 배경: 방사형 그라데이션 ---
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .clearAndSetSemantics { }
+        ) {
+            drawRect(color = BackgroundPrimary)
+
+            val center = androidx.compose.ui.geometry.Offset(
+                size.width / 2f, size.height * 0.35f
+            )
+            val radius = min(size.width, size.height) * 0.7f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(GradientCenter, Color.Transparent),
+                    center = center,
+                    radius = radius
+                ),
+                radius = radius,
+                center = center
+            )
+        }
+
+        // --- 상단 별 로고 ---
+        BridgeOneLogo(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 48.dp),
+            size = 32.dp,
+            color = Color(0xFF2AA9FF),
+            alpha = 0.6f
+        )
+
+        // --- 상단 텍스트 영역 (진입 애니메이션) ---
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(300)) + slideInVertically(
                 animationSpec = tween(300),
                 initialOffsetY = { with(density) { 20.dp.roundToPx() } }
-            )
+            ),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 120.dp)
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
                 modifier = Modifier
-                    .padding(32.dp)
+                    .padding(horizontal = 32.dp)
                     .semantics {
                         liveRegion = LiveRegionMode.Polite
                     }
             ) {
-                // USB 아이콘 (128dp, 회전)
-                Image(
-                    painter = painterResource(id = R.drawable.ic_usb),
-                    contentDescription = iconDescription,
-                    colorFilter = ColorFilter.tint(StateWarning),
-                    modifier = Modifier
-                        .size(128.dp)
-                        .rotate(currentRotation)
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // 주 메시지 (CrossFade 전환)
+                // 주 메시지
                 Crossfade(
                     targetState = connectionState.primaryMessage,
                     animationSpec = tween(200),
@@ -153,9 +149,9 @@ fun ConnectionWaitingScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // 부 메시지 (CrossFade 전환)
+                // 부 메시지
                 Crossfade(
                     targetState = connectionState.secondaryMessage,
                     animationSpec = tween(200),
@@ -170,8 +166,23 @@ fun ConnectionWaitingScreen(
                         textAlign = TextAlign.Center
                     )
                 }
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // 스텝 인디케이터
+                StepIndicator(currentStep = connectionState.step)
             }
         }
+
+        // --- 하단 USB 꽂기 애니메이션 ---
+        UsbPlugAnimation(
+            isAnimating = connectionState.isProcessing,
+            accentColor = StateWarning,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 20.dp)
+        )
+
     }
 }
 
