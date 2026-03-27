@@ -96,6 +96,8 @@ Page 3 — Minecraft
 - `docs/android/styleframe-page3.md` §2 (레이아웃 구조)
 - `docs/android/component-design-guide-app.md` §3 (DPad)
 
+> **⚠️ Phase 4.1.7 변경사항**: Page 3 레이아웃은 `AppState.Active` 박스 내 `padding(top=40dp, bottom=40dp)` 적용 영역 안에서 렌더링됨. DPad(하단 40%) 및 Hotbar 등 하단 요소 치수 계산 시 유효 화면 높이 = 전체 높이 − 80dp 기준 사용. DPad 터치 영역 등 새 레이아웃 상수 정의 시 `ui/common/LayoutConstants.kt`에 추가.
+
 **검증**:
 - [ ] 2열 50/50 레이아웃 정상
 - [ ] 터치패드 + DPad 상하 배치 (60/40)

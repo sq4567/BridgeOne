@@ -98,6 +98,8 @@ Page 2
 - `docs/android/component-design-guide-app.md` §2.3.1 (KeyboardKeyButton Sticky Hold)
 - `docs/android/technical-specification-app.md` §2.3.2.7 (Modifiers Bar 3단계 Sticky 구현 요구사항)
 
+> **⚠️ Phase 4.1.7 변경사항**: Page 2 레이아웃은 `AppState.Active` 박스 내 `padding(top=40dp, bottom=40dp)` 적용 영역 안에서 렌더링됨. Function Row, Lock Keys 등 하단 요소 배치 시 유효 화면 높이 = 전체 높이 − 80dp 기준 사용. 새 레이아웃 상수 추가 시 `ui/common/LayoutConstants.kt`에 함께 정의.
+
 **검증**:
 - [ ] 4개 모디파이어 키 렌더링
 - [ ] 탭 → 일시 고정 (다음 키와 조합 후 해제)

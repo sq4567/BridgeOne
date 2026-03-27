@@ -89,6 +89,8 @@ Standard 모드
 **참조 문서**:
 - `docs/android/design-guide-app.md` §8.2.1 (페이지 전환 방식)
 
+> **⚠️ Phase 4.1.3 구조 참고**: `StandardModePage`는 `BridgeOneApp.kt`의 `AppState.Active(bridgeMode)` 분기 안에서 렌더링됨. `bridgeMode: BridgeMode` 파라미터로 수신. 에뮬레이터 개발 시 DEV 버튼은 여전히 정상 작동하나, Phase 4.1.5 이후 스플래시 완료 시 항상 `WaitingForConnection`을 경유하므로 앱 최초 실행 후 DEV 버튼이 나타나기까지 스플래시 2.5초 + WaitingForConnection 진입 대기가 필요함.
+
 **검증**:
 - [ ] 3페이지 스와이프 전환 동작
 - [ ] 인디케이터 닷 실시간 업데이트
@@ -128,6 +130,8 @@ Standard 모드
 **참조 문서**:
 - `docs/android/styleframe-page1.md` §2 (레이아웃 구조)
 - `docs/android/component-touchpad.md` §1.1 (터치패드 래퍼 크기 규칙)
+
+> **⚠️ Phase 4.1.7 변경사항**: `LayoutConstants.kt` 신규 (`TOP_SAFE_ZONE = 40.dp`, `BOTTOM_SAFE_ZONE = 40.dp`). `BridgeOneApp.kt`의 `AppState.Active` 박스에 이미 `padding(top=40dp, bottom=40dp)` 적용됨 → 이 Composable 내부에서 safe zone 패딩 추가 불필요. 레이아웃 치수 계산 시 유효 화면 높이 = 전체 높이 − 80dp 기준 사용.
 
 **검증**:
 - [ ] 2열 비율 (64/36) 정상 렌더링

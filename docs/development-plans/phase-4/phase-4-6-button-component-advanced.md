@@ -128,6 +128,8 @@ updated: "2026-03-26"
 - `docs/android/styleframe-essential.md` (전체)
 - `docs/android/design-guide-app.md` §8.6 (Essential 유저 플로우)
 
+> **⚠️ Phase 4.1.7 변경사항**: Safe Zone은 `BridgeOneApp.kt`의 `AppState.Active` 박스에서 이미 적용됨(`TOP/BOTTOM_SAFE_ZONE = 40.dp`) → `EssentialModePage` 자체에 safe zone 패딩 추가 불필요. 기존 프로토타입 코드에 safe zone 관련 패딩이 있다면 중복 적용 방지를 위해 제거. DPad 크기·버튼 간격 등 새 레이아웃 상수 추가 시 `ui/common/LayoutConstants.kt`에 정의. BridgeOne 별 로고가 필요하면 `ui/common/BridgeOneLogo.kt` 재사용.
+
 **검증**:
 - [ ] F1-F12 ContainerButton 팝업 정상 동작
 - [ ] Del 키 최상단 강조 배치
