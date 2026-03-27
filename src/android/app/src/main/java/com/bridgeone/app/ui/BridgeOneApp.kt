@@ -6,12 +6,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -21,11 +19,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import android.widget.Toast
 import android.util.Log
 import com.bridgeone.app.protocol.BridgeMode
@@ -33,7 +29,6 @@ import com.bridgeone.app.ui.common.BOTTOM_SAFE_ZONE
 import com.bridgeone.app.ui.common.TOP_SAFE_ZONE
 import com.bridgeone.app.ui.connection.ConnectionState
 import com.bridgeone.app.ui.connection.ConnectionWaitingScreen
-import com.bridgeone.app.ui.debug.UsbDebugPanel
 import com.bridgeone.app.ui.pages.EssentialModePage
 import com.bridgeone.app.ui.pages.StandardModePage
 import com.bridgeone.app.ui.splash.SplashScreen
@@ -59,7 +54,6 @@ fun BridgeOneApp() {
 
     // ========== 앱 상태 머신 ==========
     var appState by remember { mutableStateOf<AppState>(AppState.Splash) }
-    var showDebugPanel by remember { mutableStateOf(true) }
 
     // 연결 대기 화면의 현재 ConnectionState (자동 진행용)
     var connectionState by remember { mutableStateOf<ConnectionState>(ConnectionState.WaitingForUsb) }
@@ -241,30 +235,6 @@ fun BridgeOneApp() {
                         }
                     }
                 }
-            }
-        }
-
-        // 디버그 패널 (Active 상태에서만 표시)
-        if (appState is AppState.Active) {
-            if (showDebugPanel) {
-                UsbDebugPanel(
-                    debugState = debugState,
-                    onClose = { showDebugPanel = false },
-                    onRefresh = { UsbSerialManager.scanAndUpdateDebugState(context) },
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 32.dp)
-                )
-            } else {
-                Text(
-                    text = "🔍 USB Debug",
-                    color = Color.Gray,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 40.dp, end = 16.dp)
-                        .clickable { showDebugPanel = true }
-                )
             }
         }
 
