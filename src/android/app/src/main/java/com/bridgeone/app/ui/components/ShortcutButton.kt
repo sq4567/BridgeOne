@@ -84,18 +84,25 @@ fun ShortcutButton(
         label = "ShortcutBgColor"
     )
 
-    // HOLD 모드: 누름/뗌 감지
+    // 모든 모드 공통: 누름 즉시 press, 뗌 즉시 release
     LaunchedEffect(isPressed) {
-        if (shortcutDef.holdBehavior == ShortcutHoldBehavior.HOLD) {
-            if (isPressed && !isHolding) {
-                isHolding = true
-                onShortcutTriggered?.invoke(shortcutDef.combinedModifiers, shortcutDef.key)
-                Log.d(TAG, "Hold start: ${shortcutDef.label}")
-            } else if (!isPressed && isHolding) {
-                isHolding = false
-                onShortcutReleased?.invoke(shortcutDef.combinedModifiers, shortcutDef.key)
-                Log.d(TAG, "Hold end: ${shortcutDef.label}")
+        if (isPressed && !isHolding) {
+            // TAP 모드: 디바운스 적용
+            if (shortcutDef.holdBehavior == ShortcutHoldBehavior.TAP) {
+                val now = System.currentTimeMillis()
+                if (now - lastTriggerTime < shortcutDef.debounceDurationMs) {
+                    Log.d(TAG, "Debounced: ${shortcutDef.label}")
+                    return@LaunchedEffect
+                }
+                lastTriggerTime = now
             }
+            isHolding = true
+            onShortcutTriggered?.invoke(shortcutDef.combinedModifiers, shortcutDef.key)
+            Log.d(TAG, "Press: ${shortcutDef.label} (mod=0x${shortcutDef.combinedModifiers.toString(16)}, key=0x${shortcutDef.key.toString(16)})")
+        } else if (!isPressed && isHolding) {
+            isHolding = false
+            onShortcutReleased?.invoke(shortcutDef.combinedModifiers, shortcutDef.key)
+            Log.d(TAG, "Release: ${shortcutDef.label}")
         }
     }
 
@@ -113,18 +120,8 @@ fun ShortcutButton(
                 indication = null,
                 enabled = isEnabled
             ) {
-                // TAP 모드에서만 onClick 처리
-                if (shortcutDef.holdBehavior == ShortcutHoldBehavior.TAP) {
-                    val now = System.currentTimeMillis()
-                    if (now - lastTriggerTime >= shortcutDef.debounceDurationMs) {
-                        lastTriggerTime = now
-                        onShortcutTriggered?.invoke(shortcutDef.combinedModifiers, shortcutDef.key)
-                        Log.d(TAG, "Tap: ${shortcutDef.label} (mod=0x${shortcutDef.combinedModifiers.toString(16)}, key=0x${shortcutDef.key.toString(16)})")
-                    } else {
-                        Log.d(TAG, "Debounced: ${shortcutDef.label}")
-                    }
-                }
-                // HOLD 모드: onClick에서 아무것도 안 함 (LaunchedEffect가 처리)
+                // press/release는 LaunchedEffect(isPressed)에서 처리
+                // onClick은 clickable의 interactionSource 연동을 위해 빈 블록 유지
             },
         contentAlignment = Alignment.Center
     ) {
