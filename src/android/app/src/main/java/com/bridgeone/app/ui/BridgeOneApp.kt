@@ -53,6 +53,9 @@ import kotlinx.coroutines.launch
 
 private const val EXIT_CONFIRMATION_TOAST_DURATION_MS = 2000L
 
+// [DEV] true → USB 연결 없이 UI 테스트 (Splash 후 바로 Active, 모드 전환 버튼 표시)
+private const val DEV_SKIP_CONNECTION = false
+
 // ============================================================
 // 최상위 Composable
 // ============================================================
@@ -98,10 +101,10 @@ fun BridgeOneApp() {
     // [DEV] 임시 모드 전환 상태 (USB 연결 없이 UI 테스트용)
     var devMode by remember { mutableStateOf<BridgeMode>(BridgeMode.ESSENTIAL) }
 
-    // Splash 완료 콜백 → [DEV] WaitingForConnection 스킵, 바로 Active 진입
+    // Splash 완료 콜백
     val onSplashFinished = remember {
         {
-            appState = AppState.Active(devMode)
+            appState = if (DEV_SKIP_CONNECTION) AppState.Active(devMode) else AppState.WaitingForConnection
         }
     }
 
@@ -273,20 +276,22 @@ fun BridgeOneApp() {
                     }
 
                     // [DEV] 임시 모드 전환 버튼 (좌상단 고정)
-                    val nextMode = if (state.bridgeMode == BridgeMode.ESSENTIAL) BridgeMode.STANDARD else BridgeMode.ESSENTIAL
-                    val btnColor = if (state.bridgeMode == BridgeMode.ESSENTIAL) Color(0xFF1565C0) else Color(0xFF6A1B9A)
-                    Button(
-                        onClick = {
-                            devMode = nextMode
-                            appState = AppState.Active(nextMode)
-                        },
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = btnColor)
-                    ) {
-                        Text(
-                            text = "→ ${if (nextMode == BridgeMode.STANDARD) "Standard" else "Essential"}",
-                            fontSize = 11.sp
-                        )
+                    if (DEV_SKIP_CONNECTION) {
+                        val nextMode = if (state.bridgeMode == BridgeMode.ESSENTIAL) BridgeMode.STANDARD else BridgeMode.ESSENTIAL
+                        val btnColor = if (state.bridgeMode == BridgeMode.ESSENTIAL) Color(0xFF1565C0) else Color(0xFF6A1B9A)
+                        Button(
+                            onClick = {
+                                devMode = nextMode
+                                appState = AppState.Active(nextMode)
+                            },
+                            modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = btnColor)
+                        ) {
+                            Text(
+                                text = "→ ${if (nextMode == BridgeMode.STANDARD) "Standard" else "Essential"}",
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
             }
