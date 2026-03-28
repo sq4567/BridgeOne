@@ -6,12 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **BridgeOne**는 근육장애로 인해 기존 키보드/마우스 사용이 어려운 사용자를 위한 접근성 우선 Android-PC 입력 브릿지입니다. Android 스마트폰을 터치패드로 사용하여 ESP32-S3 하드웨어 동글을 통해 PC의 마우스/키보드를 제어합니다.
 
-### 핵심 설계 원칙
-- **단일 터치**: 모든 기능을 한 번의 터치로 수행
-- **컴팩트 레이아웃**: 중앙 하단 240×280dp 영역에 모든 조작 집중
-- **한손 조작**: 엄지손가락만으로 완전한 PC 제어
-- **즉시 사용**: 복잡한 설정 없이 연결만 하면 바로 사용 가능
-
 ## 시스템 아키텍처
 
 본 프로젝트는 3개의 독립적인 서브 프로젝트로 구성됩니다:
@@ -34,17 +28,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **언어**: C#
 - **플랫폼**: WPF
 - **주요 역할**: 양방향 통신 및 고급 기능 제공 (매크로, 멀티 커서 등)
-
-## 상세 참조 문서 (Slash Commands)
-
-특정 작업 시 필요한 상세 정보는 다음 슬래시 명령어로 참조하세요:
-
-| 명령어 | 용도 |
-|--------|------|
-| `/bridgeone-esp32` | ESP32-S3 하드웨어: USB 포트, 로그 경로, 연결 방식, TinyUSB 설정 |
-| `/bridgeone-protocol` | 통신 프로토콜: UART 프레임 구조, USB HID 프로토콜, 키코드 매핑 |
-| `/bridgeone-commands` | 개발 명령어: Android Gradle, ESP-IDF, Git 워크플로우 |
-| `/bridgeone-troubleshoot` | 트러블슈팅: 디버깅 가이드, 환경 설정, 자주 발생하는 문제 |
 
 ## 코드 구조 및 주요 컴포넌트
 
@@ -107,33 +90,6 @@ src/board/BridgeOne/main/
 - **RTOS**: FreeRTOS
 - **UART 통신**: UART0 (GPIO43/44, CH343P 브릿지)
 
-## 개발 가이드라인
-
-### USB 통신 최적화
-- Android에서 ESP32-S3 USB Serial 장치 인식 시 VID: 0x303A 필터링
-- 1Mbps UART 속도 필수 설정 (8N1)
-- 8바이트 복합 프레임 구조 준수
-- 순번(seq) 필드로 패킷 유실 감지
-- 마우스와 키보드 입력을 단일 프레임으로 전송
-
-### 터치패드 알고리즘
-- **데드존**: 작은 움직임 무시하여 손떨림 방지 (기본 5dp, `DeltaCalculator.DEAD_ZONE_THRESHOLD`)
-- **델타 계산**: 이전 터치 위치와의 상대 이동량 계산 (DeltaCalculator)
-- **클릭 감지**: 짧은 탭 감지 시 마우스 클릭 전송 (ClickDetector)
-- **비동기 전송**: 120Hz 주기로 프레임 전송 (디바이스 성능에 따라 적응)
-
-### 키보드 레이아웃
-- **수정자 키**: Ctrl, Shift, Alt, Win 조합 지원
-- **단축키**: 자주 사용하는 단축키를 큰 버튼으로 제공
-- **탭 시스템**: 페이지 좌우 슬라이드로 터치패드 ↔ 키보드 전환
-- **HID Usage**: 표준 HID 키코드 사용
-
-### 접근성 고려사항
-- **최소 터치 영역**: 80×60dp (권장)
-- **햅틱 피드백**: 모든 터치 이벤트에 진동 응답
-- **시각적 피드백**: 연결 상태 및 처리 결과 명확히 표시
-- **컴팩트 레이아웃**: 중앙 하단 240×280dp 영역에 UI 집중
-
 ## 문서 구조
 
 프로젝트 문서는 `docs/` 디렉토리에 체계적으로 정리되어 있습니다:
@@ -190,7 +146,7 @@ src/board/BridgeOne/main/
 5. **계획에 없던 새 하위 Phase 추가**: 원래 계획에 없던 하위 Phase를 새로 만들었는가?
    - 있으면 → 그 Phase에서 발생한 ①②③④ 변경사항도 동일하게 후속 Phase에 전파
 
-#### 기록 위치 — 문서 최상단이 아닌 영향받는 하위 Phase 섹션 안에 직접 기록
+#### 문서 최상단이 아닌 영향받는 하위 Phase 섹션 안에 직접 기록
 변경 내용을 Phase 문서 최상단에 일괄 나열하지 않습니다. **실제로 영향을 받는 하위 Phase 섹션**(예: `## Phase 4.2.2`) 안에 직접 기록해야, 그 Phase 작업 시 즉시 눈에 띕니다.
 
 ```markdown

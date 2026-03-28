@@ -37,8 +37,8 @@ updated: "2026-03-26"
 - `DeltaCalculator.kt`: 상대 이동량 계산 (데드존 **5dp** 임계값)
   - `calculateAndCompensate()`: 델타 계산 → dp→px 변환 → 데드존 보상 → -127~127 정규화
   - `normalizeOnly()`: 데드존 탈출 후 범위 정규화만 수행
-  - **⚠️ DPI 곱수 미지원** — Phase 4.3.5에서 추가 필요
-  - **⚠️ 축 잠금(직각 이동) 미지원** — Phase 4.3.4에서 추가 필요
+  - **⚠️ DPI 곱수 미지원** — Phase 4.3.6에서 추가 필요
+  - **⚠️ 축 잠금(직각 이동) 미지원** — Phase 4.3.5에서 추가 필요
 - `ClickDetector.kt`: 프레임 생성 및 전송
   - `createFrame()`: 마우스 이동/클릭 프레임
   - `createWheelFrame(wheelDelta)`: 휠 스크롤 프레임
@@ -122,7 +122,60 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.2: 일반 스크롤 모드
+## Phase 4.3.2: ControlButtonContainer 등장/사라짐 애니메이션
+
+**목표**: ControlButtonContainer 및 개별 버튼의 표시/숨김 전환을 자연스러운 슬라이드 애니메이션으로 구현
+
+**개발 기간**: 0.5일
+
+**쉬운 설명**: 제어 버튼들이 갑자기 교체되지 않고, 기존 버튼이 위로 올라가며 사라진 뒤 새 버튼이 위에서 내려오면서 나타나도록 합니다. 예를 들어 스크롤 모드로 전환하면 DPI 버튼이 위로 올라가며 완전히 사라진 후 스크롤 감도 버튼이 위에서 내려오는 식입니다. 단, 버튼이 나가는 모습이 터치패드 영역 밖까지 보이면 어색하므로 ControlButtonContainer 경계에서 잘려야 합니다. 또한 스크롤 버튼 자체는 ON/OFF 전환 시 위치가 바뀌지 않고 제자리를 유지합니다.
+
+**실제 구현 내용**:
+1. ControlButtonContainer 컨테이너 전체 애니메이션:
+   - Standard → Essential 모드 전환: 위로 슬라이드 아웃 + 페이드아웃 (300ms)
+   - Essential → Standard 모드 전환: 위에서 슬라이드 인 + 페이드인 (300ms)
+   - `AnimatedVisibility(visible = isStandardMode)` — `isStandardMode` 파라미터 추가 (기본값 `true`)
+2. 개별 버튼 교체 애니메이션 (위에서 아래로):
+   - 퇴장: 위로 슬라이드 아웃 (200ms, `slideOutVertically { -it }`)
+   - 등장: **위에서 아래로** 슬라이드 인 (200ms, `slideInVertically { -it }`)
+   - 퇴장하는 버튼은 AnimatedVisibility 퇴장 시 자동 비활성화
+   - 대상 버튼: 스크롤 모드 전환 시 ClickModeButton, MoveModeButton, DPIControlButton ↔ ScrollSensitivityButton
+3. DPI ↔ ScrollSensitivity 순차 교체:
+   - 퇴장 200ms → 200ms 대기 → 등장 200ms (`tween(200, delayMillis = 200)`)
+   - 동일 Box 슬롯 공유 (기존 별도 Row → 단일 Box로 변경)
+4. 퇴장 버튼 클리핑:
+   - Row, 좌측 Row, 우측 Box에 `Modifier.clipToBounds()` 적용
+   - 좌측 ClickMode/MoveMode는 고정 크기 `Box(Modifier.size(...).clipToBounds())` 내부 AnimatedVisibility
+5. 스크롤 버튼 위치 고정:
+   - ClickModeButton, MoveModeButton을 고정 크기 Box로 감싸 공간 항상 확보
+   - ScrollModeButton은 항상 3번째 위치 유지
+6. 아이콘 추가 (§1.4 설계 반영):
+   - `ControlButton`에 `iconResId: Int` 파라미터 추가
+   - 텍스트 하단에 버튼 높이 40% 크기로 배치
+   - 모든 버튼에 상태별 VectorDrawable 아이콘 매핑
+7. 버튼 너비: 6등분 → 5등분 (DPI/ScrollSensitivity 동일 슬롯 공유 반영)
+8. disabled 투명도 제거 (alpha 항상 1f)
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/ControlButtonContainer.kt`
+
+**참조 문서**:
+- `docs/android/component-touchpad.md` §1.3 (제어 버튼 컨테이너)
+- `docs/android/component-touchpad.md` §1.4 (공통 구조 — 아이콘 사양)
+
+**검증**:
+- [x] Standard↔Essential 전환 시 컨테이너 슬라이드 인/아웃
+- [x] 스크롤 모드 ON: ClickModeButton·MoveModeButton·DPIControlButton 위로 슬라이드 아웃, ScrollSensitivityButton 위에서 슬라이드 인
+- [x] 스크롤 모드 OFF: ScrollSensitivityButton 위로 슬라이드 아웃, ClickModeButton·MoveModeButton·DPIControlButton 위에서 슬라이드 인
+- [x] DPI↔ScrollSensitivity 순차 교체 (퇴장 완료 후 등장)
+- [x] 퇴장 버튼이 ControlButtonContainer 경계 밖으로 노출되지 않음 (클립 확인)
+- [x] ScrollModeButton이 스크롤 ON/OFF 전환 시 동일 위치 유지
+- [x] 애니메이션 도중 고정 버튼 탭 정상 동작
+- [x] 모든 버튼에 상태별 아이콘 표시
+
+---
+
+## Phase 4.3.3: 일반 스크롤 모드
 
 > **⚠️ Phase 4.3.1 변경사항**:
 > - 신규 파일 `ui/components/touchpad/TouchpadMode.kt`: `TouchpadState` 데이터 클래스에 모든 모드 상태 통합 관리 (ClickMode, MoveMode, ScrollMode, CursorMode, DpiLevel, ScrollSensitivity).
@@ -175,7 +228,7 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.3: 무한 스크롤 모드 + 관성
+## Phase 4.3.4: 무한 스크롤 모드 + 관성
 
 > **⚠️ Phase 4.3.1 변경사항**: `ScrollMode.INFINITE_SCROLL` enum과 ScrollModeButton 전환 로직은 이미 구현됨. `TouchpadState.lastScrollMode`로 마지막 스크롤 모드 기억. 스크롤 버튼 탭=토글(ON/OFF), 롱프레스=NORMAL↔INFINITE 전환. 이 Phase에서는 관성 알고리즘과 TouchpadWrapper 연동에 집중.
 
@@ -218,7 +271,7 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.4: 직각 커서 이동 모드
+## Phase 4.3.5: 직각 커서 이동 모드
 
 > **⚠️ Phase 4.3.1 변경사항**: `MoveMode.FREE` / `MoveMode.RIGHT_ANGLE` enum 및 MoveModeButton 전환 로직은 이미 구현됨. `TouchpadState.moveMode`로 상태 관리. 이 Phase에서는 `DeltaCalculator`에 축 잠금 알고리즘 추가와 `TouchpadWrapper`에서 `moveMode` 반영에 집중.
 
@@ -256,9 +309,14 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.5: DPI 조절 시스템
+## Phase 4.3.6: DPI 조절 시스템
 
 > **⚠️ Phase 4.3.1 변경사항**: `DpiLevel` enum (LOW/NORMAL/HIGH, multiplier 포함)과 DPIControlButton 순환 로직은 이미 구현됨. `TouchpadState.dpiLevel`로 상태 관리. 이 Phase에서는 `DeltaCalculator`에 DPI 곱수 적용과 SharedPreferences 저장에 집중.
+
+> **⚠️ Phase 4.3.2 변경사항**:
+> - `ControlButton`에 `iconResId: Int` 파라미터 필수 추가됨. DPIControlButton 아이콘(`ic_slow`/`ic_normal`/`ic_fast`)은 `dpiButtonIcon()` 헬퍼로 이미 매핑 완료 → 아이콘 관련 작업 불필요.
+> - 버튼 너비 6등분 → 5등분 변경 (DPI/ScrollSensitivity 동일 슬롯 공유).
+> - disabled 투명도(alpha 0.4f) 제거됨 — 모든 버튼 항상 alpha 1f.
 
 **목표**: 터치패드 커서 감도를 3단계로 조절하는 DPI 시스템
 
@@ -296,7 +354,7 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.6: 스크롤 가이드라인 시각적 피드백
+## Phase 4.3.7: 스크롤 가이드라인 시각적 피드백
 
 > **⚠️ Phase 4.3.1 변경사항**: `TouchpadState.scrollMode`로 현재 스크롤 모드 판별 가능 (`NORMAL_SCROLL` / `INFINITE_SCROLL`). 색상 상수 `ColorGreen`(#84E268), `ColorRed`(#F32121)은 `ControlButtonContainer.kt`에 private으로 정의되어 있으므로, 공용 색상이 필요하면 별도 상수 파일로 추출 필요.
 
@@ -331,7 +389,9 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.7: 터치패드 테두리 모드 색상 표시
+## Phase 4.3.8: 터치패드 테두리 모드 색상 표시
+
+> **⚠️ Phase 4.3.2 변경사항**: `ControlButtonContainer.kt`의 색상 상수는 여전히 private. 아이콘 헬퍼 함수(`dpiButtonIcon`, `scrollModeButtonIcon`, `scrollSensitivityButtonIcon`)도 private으로 추가됨. 색상을 `TouchpadColors.kt`로 추출 시 아이콘 헬퍼는 ControlButtonContainer에 유지하면 됨.
 
 **목표**: 현재 활성 모드 조합에 따라 터치패드 테두리를 단색 또는 좌→우 그라데이션으로 표시
 
