@@ -107,16 +107,28 @@ TouchpadWrapper
 > **⚠️ Phase 4.2.2 변경사항**: `Page1TouchpadActions`에서 좌측 터치패드 영역은 `Box { TouchpadWrapper(...) }` 구조로 감싸져 있음. `ControlButtonContainer`는 이 `Box` 내부에서 `TouchpadWrapper` 위에 오버레이로 추가하면 됨 — 별도 부모 레이아웃 변경 불필요. `TouchpadWrapper`에 `modifier = Modifier.fillMaxSize()` 적용되어 있으므로 오버레이는 `Box` 내 `align(Alignment.TopCenter)` 또는 `offset`으로 배치.
 
 **검증**:
-- [ ] 상단 15% 오버레이 정상 배치
-- [ ] 6개 버튼 렌더링 및 터치 반응
-- [ ] Phase 4.2.3 Special Keys: ClickDetector 연결 후 HID KeyDown/KeyUp 실기기 전송 확인
-- [ ] 버튼 가시성 규칙 (스크롤 모드 시 전환)
-- [ ] Essential 모드에서 컨테이너 숨김
-- [ ] 히트 영역 48×48dp 보장
+- [x] 상단 15% 오버레이 정상 배치
+- [x] 6개 버튼 렌더링 및 터치 반응
+- [x] Phase 4.2.3 Special Keys: ClickDetector 연결 후 HID KeyDown/KeyUp 실기기 전송 확인
+- [x] 버튼 가시성 규칙 (스크롤 모드 시 전환)
+- [x] Essential 모드에서 컨테이너 숨김
+- [x] 히트 영역 48×48dp 보장
 
 ---
 
 ## Phase 4.3.2: 일반 스크롤 모드
+
+> **⚠️ Phase 4.3.1 변경사항**:
+> - 신규 파일 `ui/components/touchpad/TouchpadMode.kt`: `TouchpadState` 데이터 클래스에 모든 모드 상태 통합 관리 (ClickMode, MoveMode, ScrollMode, CursorMode, DpiLevel, ScrollSensitivity).
+> - 신규 파일 `ui/components/touchpad/ControlButtonContainer.kt`: 6개 제어 버튼 오버레이 구현 완료.
+> - **스크롤 버튼 동작 변경**: `cycleScrollMode()` 제거됨 → `toggleScrollMode()` + `switchScrollMode()` 분리.
+>   - **탭**: OFF ↔ lastScrollMode 토글 (켜기/끄기). OFF→lastScrollMode 복원, NORMAL/INFINITE→OFF (lastScrollMode 저장).
+>   - **롱프레스** (스크롤 ON 중만): NORMAL ↔ INFINITE 전환.
+>   - 기존 3단계 순환(OFF→NORMAL→INFINITE→OFF)이 아닌 **토글+롱프레스** 패턴.
+> - `TouchpadState`는 `StandardModePage.kt`의 `Page1TouchpadActions`에서 `remember { mutableStateOf(TouchpadState()) }`로 관리됨 — `TouchpadWrapper`에 `touchpadState`를 전달하는 연결은 아직 미구현.
+> - 스크롤 모드 enum: `ScrollMode.OFF` / `ScrollMode.NORMAL_SCROLL` / `ScrollMode.INFINITE_SCROLL` (문서의 `TouchpadMode.SCROLL_NORMAL`이 아님).
+> - ScrollSensitivityButton, ScrollModeButton은 ControlButtonContainer에서 이미 동작 → 이 Phase에서는 `TouchpadWrapper`에 스크롤 입력 변환 로직 추가와 `touchpadState` 연결에 집중.
+> - `ControlButton`은 `combinedClickable` 사용 (`onLongClick` 파라미터 지원).
 
 **목표**: 터치 드래그를 수직 스크롤 입력으로 변환하는 일반 스크롤 모드
 
@@ -124,8 +136,8 @@ TouchpadWrapper
 
 **세부 목표**:
 1. 스크롤 모드 상태 관리:
-   - `TouchpadMode.SCROLL_NORMAL` 상태 추가
-   - ScrollModeButton 탭으로 진입
+   - `TouchpadState.scrollMode == ScrollMode.NORMAL_SCROLL` 상태 활용 (이미 정의됨)
+   - ScrollModeButton 탭으로 진입 (이미 구현됨)
    - 터치패드 영역 더블탭으로 스크롤 모드 종료 → 커서 이동 복귀
 2. 스크롤 입력 변환:
    - 터치 드래그 Y축 → 휠 스크롤 프레임 전송
@@ -159,15 +171,17 @@ TouchpadWrapper
 
 ## Phase 4.3.3: 무한 스크롤 모드 + 관성
 
+> **⚠️ Phase 4.3.1 변경사항**: `ScrollMode.INFINITE_SCROLL` enum과 ScrollModeButton 전환 로직은 이미 구현됨. `TouchpadState.lastScrollMode`로 마지막 스크롤 모드 기억. 스크롤 버튼 탭=토글(ON/OFF), 롱프레스=NORMAL↔INFINITE 전환. 이 Phase에서는 관성 알고리즘과 TouchpadWrapper 연동에 집중.
+
 **목표**: 관성 기반 무한 스크롤 모드 구현 (Standard 모드 전용)
 
 **개발 기간**: 1-1.5일
 
 **세부 목표**:
 1. 무한 스크롤 상태:
-   - `TouchpadMode.SCROLL_INFINITE` 상태 추가
-   - 일반 스크롤 상태에서 ScrollModeButton 탭으로 전환
-   - 무한 스크롤에서 ScrollModeButton 탭 → 일반 스크롤로 복귀
+   - `TouchpadState.scrollMode == ScrollMode.INFINITE_SCROLL` 활용 (이미 정의됨)
+   - 일반 스크롤 상태에서 ScrollModeButton 탭으로 전환 (이미 구현됨)
+   - 무한 스크롤에서 ScrollModeButton 탭 → 일반 스크롤로 복귀 (이미 구현됨)
 2. 관성 알고리즘:
    - 프레임-레이트 독립적 지수 감쇠 (exponential decay)
    - 손가락 떼는 순간의 속도를 초기 관성 속도로 사용
@@ -199,6 +213,8 @@ TouchpadWrapper
 ---
 
 ## Phase 4.3.4: 직각 커서 이동 모드
+
+> **⚠️ Phase 4.3.1 변경사항**: `MoveMode.FREE` / `MoveMode.RIGHT_ANGLE` enum 및 MoveModeButton 전환 로직은 이미 구현됨. `TouchpadState.moveMode`로 상태 관리. 이 Phase에서는 `DeltaCalculator`에 축 잠금 알고리즘 추가와 `TouchpadWrapper`에서 `moveMode` 반영에 집중.
 
 **목표**: X축 또는 Y축으로만 커서를 이동하는 축 잠금 알고리즘
 
@@ -236,6 +252,8 @@ TouchpadWrapper
 
 ## Phase 4.3.5: DPI 조절 시스템
 
+> **⚠️ Phase 4.3.1 변경사항**: `DpiLevel` enum (LOW/NORMAL/HIGH, multiplier 포함)과 DPIControlButton 순환 로직은 이미 구현됨. `TouchpadState.dpiLevel`로 상태 관리. 이 Phase에서는 `DeltaCalculator`에 DPI 곱수 적용과 SharedPreferences 저장에 집중.
+
 **목표**: 터치패드 커서 감도를 3단계로 조절하는 DPI 시스템
 
 **개발 기간**: 0.5일
@@ -246,9 +264,9 @@ TouchpadWrapper
    - 보통: 델타 곱수 ×1.0 (기본)
    - 높음: 델타 곱수 ×2.0 (빠른 이동용)
 2. DPIControlButton:
-   - 탭으로 순환: 낮음 → 보통 → 높음 → 낮음
+   - 탭으로 순환: 낮음 → 보통 → 높음 → 낮음 (이미 구현됨)
    - 아이콘: `ic_slow.xml` / `ic_normal.xml` / `ic_fast.xml`
-   - 텍스트: "DPI" + 현재 레벨
+   - 텍스트: "DPI" + 현재 레벨 (이미 구현됨)
 3. `DeltaCalculator` 연동:
    - DPI 곱수를 `calculateAndCompensate()` 또는 `applyDeadZone()` 결과에 곱하여 적용
    - **구현 위치**: `DeltaCalculator`에 `dpiMultiplier: Float = 1.0f` 파라미터 추가, 또는 `TouchpadWrapper`에서 결과에 곱수 적용
@@ -273,6 +291,8 @@ TouchpadWrapper
 ---
 
 ## Phase 4.3.6: 스크롤 가이드라인 시각적 피드백
+
+> **⚠️ Phase 4.3.1 변경사항**: `TouchpadState.scrollMode`로 현재 스크롤 모드 판별 가능 (`NORMAL_SCROLL` / `INFINITE_SCROLL`). 색상 상수 `ColorGreen`(#84E268), `ColorRed`(#F32121)은 `ControlButtonContainer.kt`에 private으로 정의되어 있으므로, 공용 색상이 필요하면 별도 상수 파일로 추출 필요.
 
 **목표**: 스크롤 방향을 시각적으로 표시하는 가이드라인 UI
 

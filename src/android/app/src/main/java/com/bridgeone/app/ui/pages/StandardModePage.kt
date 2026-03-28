@@ -24,6 +24,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
@@ -50,6 +54,9 @@ import com.bridgeone.app.ui.components.DEFAULT_SHORTCUTS
 import com.bridgeone.app.ui.components.KeyboardKeyButton
 import com.bridgeone.app.ui.components.ShortcutButton
 import com.bridgeone.app.ui.components.TouchpadWrapper
+import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
+import com.bridgeone.app.ui.components.touchpad.TouchpadState
+import com.bridgeone.app.ui.utils.ClickDetector
 
 // ============================================================
 // Standard 모드 페이지 (Phase 4.2.1: 3페이지 네비게이션)
@@ -198,6 +205,9 @@ private fun Page1TouchpadActions() {
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
 
+    // Phase 4.3.1: 터치패드 모드 상태 관리
+    var touchpadState by remember { mutableStateOf(TouchpadState()) }
+
     // 반응형 비율 계산
     val (touchpadWeight, actionsPanelWeight) = if (screenWidthDp < 360) {
         0.60f to 0.40f
@@ -218,6 +228,7 @@ private fun Page1TouchpadActions() {
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // ── 좌측: 터치패드 (64% / 60%) ──
+            // Phase 4.3.1: Box 내부에 ControlButtonContainer 오버레이 추가
             Box(
                 modifier = Modifier
                     .weight(touchpadWeight)
@@ -232,6 +243,15 @@ private fun Page1TouchpadActions() {
                             color = Color(0xFF1A1A1A),
                             shape = RoundedCornerShape(12.dp)
                         )
+                )
+
+                // Phase 4.3.1: ControlButtonContainer 오버레이 (상단 15%)
+                ControlButtonContainer(
+                    touchpadState = touchpadState,
+                    onStateChange = { touchpadState = it },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .align(Alignment.TopCenter)
                 )
             }
 
@@ -320,8 +340,6 @@ private fun ActionsPanel(
  * - 모두 stickyHoldEnabled=false (자연 홀드)
  * - 길게 누르면 PC OS가 자체적으로 키 반복 처리 (물리 키보드와 동일)
  *
- * ClickDetector 연결은 Phase 4.3 이후 실기기 검증 시 추가 예정.
- * 현재는 Log만 출력.
  */
 @Composable
 private fun SpecialKeysGrid() {
@@ -351,10 +369,18 @@ private fun SpecialKeysGrid() {
                         keyCode = keyCode,
                         stickyHoldEnabled = false,
                         onKeyPressed = { code ->
-                            android.util.Log.d("SpecialKeys", "KeyDown: $label (0x${code.toString(16)})")
+                            val frame = ClickDetector.createKeyboardFrame(
+                                activeModifierKeys = emptySet(),
+                                keyCode1 = code
+                            )
+                            ClickDetector.sendFrame(frame)
                         },
-                        onKeyReleased = { code ->
-                            android.util.Log.d("SpecialKeys", "KeyUp: $label (0x${code.toString(16)})")
+                        onKeyReleased = { _ ->
+                            val frame = ClickDetector.createKeyboardFrame(
+                                activeModifierKeys = emptySet(),
+                                keyCode1 = 0u
+                            )
+                            ClickDetector.sendFrame(frame)
                         },
                         modifier = Modifier
                             .weight(1f)
@@ -381,8 +407,6 @@ private fun SpecialKeysGrid() {
  * - HOLD 모드: Alt+Tab — 누름 동안 유지, 뗌 시 해제
  * - 150ms 디바운스 (Win+D는 500ms)
  *
- * HID 실제 전송 연결은 Phase 4.3 이후 실기기 검증 시 추가 예정.
- * 현재는 Log만 출력.
  */
 @Composable
 private fun ShortcutsGrid() {
@@ -399,10 +423,18 @@ private fun ShortcutsGrid() {
                     ShortcutButton(
                         shortcutDef = shortcutDef,
                         onShortcutTriggered = { mod, key ->
-                            android.util.Log.d("Shortcuts", "Triggered: ${shortcutDef.label} (mod=0x${mod.toString(16)}, key=0x${key.toString(16)})")
+                            val frame = ClickDetector.createKeyboardFrame(
+                                activeModifierKeys = if (mod != 0u.toUByte()) setOf(mod) else emptySet(),
+                                keyCode1 = key
+                            )
+                            ClickDetector.sendFrame(frame)
                         },
-                        onShortcutReleased = { mod, key ->
-                            android.util.Log.d("Shortcuts", "Released: ${shortcutDef.label} (mod=0x${mod.toString(16)}, key=0x${key.toString(16)})")
+                        onShortcutReleased = { _, _ ->
+                            val frame = ClickDetector.createKeyboardFrame(
+                                activeModifierKeys = emptySet(),
+                                keyCode1 = 0u
+                            )
+                            ClickDetector.sendFrame(frame)
                         },
                         modifier = Modifier
                             .weight(1f)
