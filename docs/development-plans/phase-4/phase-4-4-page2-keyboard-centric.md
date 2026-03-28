@@ -161,6 +161,11 @@ Page 2
 
 > **⚠️ Phase 4.1.8 변경사항**: 커스텀 토스트 시스템 도입. `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)` 로 표시. 타입: `INFO`(파란색) · `SUCCESS`(초록색) · `WARNING`(주황색, 검은 텍스트) · `ERROR`(빨간색). 무제한 표시: `TOAST_DURATION_INFINITE`.
 
+> **⚠️ StatusToast 개선 사항 (Phase 4.2 이후 반영)**: `StatusToast.kt` 대폭 업데이트 — 호출 측 API(`ToastController.show`) 변경 없음.
+> 1. **타이머 테두리**: 유한 `durationMs` 토스트는 자동으로 남은 시간 비례 shrinking border 표시 — 호출 측 코드 변경 불필요.
+> 2. **다중 토스트 스태킹**: 기존 토스트 표시 중 새 토스트 표시 시 → 새 토스트가 위에서 아래로 슬라이드인(350ms) → 완료 후 기존 토스트가 위로 슬라이드아웃(300ms). 두 토스트가 잠시 동시에 표시됨.
+> 3. **중복 제거**: `ToastMessage.equals()`가 message·type·durationMs 내용 기준(내부 id 제외). 동일 내용의 `show()` 연속 호출 → StateFlow 충돌 방지 → 단일 토스트만 표시.
+
 > **⚠️ Phase 4.2.2 변경사항**: `StandardModePage.kt`에서 `KeyboardPage` Composable 및 `showKeyboard` 상태 관리 로직이 **완전 삭제됨**. 기존 코드에서 참조 불가. `Page2KeyboardCentric`은 `StandardModePage.kt`의 `HorizontalPager` page=1 분기에서 렌더링되며, 현재는 `Page2KeyboardPlaceholder()`로 대체 중. Phase 4.4 구현 시 이 placeholder를 `Page2KeyboardCentric` Composable로 교체하면 됨. 수정자 키 추적(`activeModifierKeys`)은 Page 2 내부에서 새로 선언해야 함.
 
 **검증**:
