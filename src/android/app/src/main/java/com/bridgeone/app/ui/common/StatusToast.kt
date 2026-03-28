@@ -8,6 +8,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -218,13 +219,19 @@ fun StatusToastOverlay() {
                                 easing = FastOutSlowInEasing
                             )
                         ) + fadeIn(animationSpec = tween(durationMillis = ENTER_DURATION_MS)),
-                        // 기존 토스트: 위로 슬라이드아웃
+                        // 기존 토스트: 위로 슬라이드아웃 + 공간 축소 (아래 토스트가 자연스럽게 올라옴)
                         exit = slideOutVertically(
                             targetOffsetY = { -it },
                             animationSpec = tween(
                                 durationMillis = EXIT_DURATION_MS,
                                 easing = FastOutLinearInEasing
                             )
+                        ) + shrinkVertically(
+                            animationSpec = tween(
+                                durationMillis = EXIT_DURATION_MS,
+                                easing = FastOutLinearInEasing
+                            ),
+                            shrinkTowards = Alignment.Top
                         ) + fadeOut(animationSpec = tween(durationMillis = EXIT_DURATION_MS))
                     ) {
                         StatusToastContent(

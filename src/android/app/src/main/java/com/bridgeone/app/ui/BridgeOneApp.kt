@@ -217,7 +217,7 @@ fun BridgeOneApp() {
             hasShownFirstModeInActive = true
             return@LaunchedEffect
         }
-        val (message, toastType) = when ((appState as AppState.Active).bridgeMode) {
+        val (message, toastType) = when (bridgeMode) {
             BridgeMode.STANDARD -> "Standard 모드로 전환되었습니다" to ToastType.INFO
             BridgeMode.ESSENTIAL -> "Essential 모드로 전환되었습니다" to ToastType.WARNING
         }
