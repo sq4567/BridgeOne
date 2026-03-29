@@ -505,3 +505,4 @@ build/
 
 # ESP-IDF sdkconfig backups
 sdkconfig.old
+src/android/.kotlin/sessions/kotlin-compiler-*.salive

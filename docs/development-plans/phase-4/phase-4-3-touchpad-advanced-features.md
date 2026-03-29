@@ -407,39 +407,88 @@ TouchpadWrapper
 
 > **⚠️ Phase 4.3.3 추가 변경사항**: `StandardModePage.kt`의 `Page1TouchpadActions`가 파라미터로 `touchpadState`/`onTouchpadStateChange`를 받는 구조로 변경됨. DPI 상태는 `TouchpadWrapper` 내부에서 `latestState.dpiLevel`로 접근하므로 추가 변경 불필요.
 
-**목표**: 터치패드 커서 감도를 3단계로 조절하는 DPI 시스템
+**목표**: 터치패드 커서 감도를 3단계 + 커스텀 값으로 조절하는 DPI 시스템
 
-**개발 기간**: 0.5일
+**개발 기간**: 1일
+
+**쉬운 설명**: DPI 버튼을 짧게 누르면 느림/보통/빠름이 바뀌고, 길게 누르면 터치패드 영역이 조절판이 되어 손가락을 밀면 원하는 정확한 배율 값을 고를 수 있습니다. 값을 정하면 버튼에 "1.3x"처럼 표시됩니다. 커스텀 값은 앱을 껐다 켜거나 케이블을 뽑으면 사라집니다.
 
 **세부 목표**:
-1. DPI 3단계:
+1. DPI 3단계 + 커스텀(임시 값):
    - 낮음: 델타 곱수 ×0.5 (정밀 작업용)
    - 보통: 델타 곱수 ×1.0 (기본)
    - 높음: 델타 곱수 ×2.0 (빠른 이동용)
-2. DPIControlButton:
-   - 탭으로 순환: 낮음 → 보통 → 높음 → 낮음 (이미 구현됨)
-   - 아이콘: `ic_slow.xml` / `ic_normal.xml` / `ic_fast.xml`
-   - 텍스트: "DPI" + 현재 레벨 (이미 구현됨)
-3. `DeltaCalculator` 연동:
+   - 커스텀: 0.1x ~ 5.0x 범위에서 0.1 단위로 자유 설정 (임시 값 — 영속 저장 안 함)
+2. DPIControlButton 탭 순환:
+   - 커스텀 없을 때: 높음 → 낮음 → 보통 → 높음
+   - 커스텀 있을 때: 커스텀 → **커스텀 값보다 큰 사전 정의 값 중 가장 작은 것** (이 순간 커스텀 소멸) → 이후 사전 정의 순환
+     - 예: 커스텀 1.3x → 높음(2.0) → 낮음 → 보통 → 높음
+     - 예: 커스텀 0.4x → 낮음(0.5) → 보통 → 높음 → 낮음
+     - 예: 커스텀 0.7x → 보통(1.0) → 높음 → 낮음 → 보통
+     - 예: 커스텀 3.0x (모든 사전 정의 값 초과) → 낮음(0.5)으로 wrap → 보통 → 높음 → 낮음
+   - 아이콘/배경색: 커스텀일 때 탭 순환 연결 대상(커스텀 값보다 큰 사전 정의 값 중 가장 작은 것)의 아이콘·색상 사용
+     - 예: 커스텀 1.3x → 높음 아이콘(`ic_fast.xml`) + 높음 색상
+     - 예: 커스텀 0.4x → 낮음 아이콘(`ic_slow.xml`) + 낮음 색상
+     - 예: 커스텀 3.0x → 낮음 아이콘(`ic_slow.xml`) + 낮음 색상 (wrap)
+   - 텍스트: 사전 정의 레벨은 "DPI\n낮음/보통/높음", 커스텀은 "DPI\n1.3x" 형식
+3. DPIControlButton 롱 프레스 → DPI 세밀 조절 팝업:
+   - `DpiAdjustPopup` Composable 신규 작성
+   - **터치패드 영역 안에만** 표시되는 반투명 오버레이
+   - 터치패드 정중앙에 현재 배율 값을 크게 표시 (예: "1.3x")
+   - 터치패드 내 상하 또는 좌우 스와이프 → 드래그 거리에 비례하여 0.1 단위로 값 증감
+     - 드래그 시작 기준값: 팝업 오픈 시점의 현재 배율
+     - 범위 제한: 0.1x ~ 5.0x, 경계 초과 시도 시 피드백:
+       - 배율 텍스트 잠시 붉은색으로 변경 후 원래 색으로 복귀
+       - 텍스트 좌우 shake 애니메이션
+       - 진동 피드백 (햅틱)
+   - 터치패드 내 탭 → 현재 값 확정, 팝업 닫힘, 햅틱
+   - **페이지 전환 발생 시** → 커스텀 값 적용 없이 팝업 취소
+   - 사전 정의 값(0.5/1.0/2.0)과 정확히 일치할 경우 해당 DpiLevel로 자동 매핑
+4. 커스텀 값 초기화 조건 (임시 값이므로 아래 이벤트 발생 시 `customDpiMultiplier = null`):
+   - 탭 순환으로 사전 정의 값 전환 시
+   - 앱 종료 후 재시작 시 (SharedPreferences에 저장 안 함)
+   - USB 연결 끊김 이벤트 감지 시
+   - 스크롤 모드 진입 시
+5. `TouchpadState` 확장:
+   - `customDpiMultiplier: Float? = null` 필드 추가 (null = 커스텀 없음)
+   - DPI 유효 배율: `customDpiMultiplier ?: dpiLevel.multiplier`
+6. `DeltaCalculator` 연동:
    - DPI 곱수를 `calculateAndCompensate()` 또는 `applyDeadZone()` 결과에 곱하여 적용
    - **구현 위치**: `DeltaCalculator`에 `dpiMultiplier: Float = 1.0f` 파라미터 추가, 또는 `TouchpadWrapper`에서 결과에 곱수 적용
    - 기존 데드존(5dp), `normalizeOnly()` 범위 정규화(-127~127)와 호환 필요
    - **⚠️ 곱수 적용 후 -127~127 범위 초과 가능** → `coerceIn()` 재적용 필요
-4. 상태 저장:
-   - DPI 설정은 앱 종료 후에도 유지 (SharedPreferences)
+7. 상태 저장:
+   - DPI 레벨(사전 정의 값)은 앱 종료 후에도 유지 (SharedPreferences)
+   - 커스텀 값은 저장하지 않음 (메모리에만 유지)
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DpiAdjustPopup.kt`
 
 **수정 파일**:
+- `TouchpadMode.kt` (`TouchpadState`에 `customDpiMultiplier` 추가)
 - `DeltaCalculator.kt` (DPI 곱수 적용)
-- `ControlButtonContainer.kt`
+- `ControlButtonContainer.kt` (롱 프레스 핸들러 + 버튼 텍스트 커스텀 표시 + 탭 시 커스텀 소멸 처리)
+- `StandardModePage.kt` 또는 `TouchpadWrapper.kt` (팝업 표시 상태 관리, 페이지 전환 취소 처리)
+- USB 연결 끊김 핸들러 (커스텀 DPI 초기화 연동)
 
 **참조 문서**:
 - `docs/android/component-touchpad.md` §1.3.2.1 (DPIControlButton)
+- `docs/android/component-touchpad.md` §1.3.2.3 (DpiAdjustPopup)
+- `docs/android/component-touchpad.md` §3.2.5 (DPI 유저 플로우)
 
 **검증**:
-- [ ] DPI 3단계 전환 동작
+- [ ] DPI 3단계 탭 순환 동작 (높음 → 낮음 → 보통 → 높음)
 - [ ] 낮음에서 정밀한 커서 이동
 - [ ] 높음에서 빠른 커서 이동
-- [ ] 앱 재시작 후 DPI 설정 유지
+- [ ] 롱 프레스 시 터치패드 영역 내 팝업 표시
+- [ ] 팝업 내 스와이프로 DPI 값 실시간 변경
+- [ ] 터치패드 영역 내 탭으로 값 확정 및 팝업 닫힘
+- [ ] 확정 후 버튼 텍스트 "1.3x" 형식 표시
+- [ ] 커스텀 상태에서 탭 순환 시 커스텀 소멸 후 사전 정의 순환 진입
+- [ ] 페이지 전환 시 팝업 취소 (커스텀 미적용)
+- [ ] 앱 재시작 후 커스텀 값 초기화 (레벨만 유지)
+- [ ] USB 끊김 시 커스텀 값 초기화
+- [ ] 스크롤 모드 진입 시 커스텀 값 초기화
 
 ---
 
