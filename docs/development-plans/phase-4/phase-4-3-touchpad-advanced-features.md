@@ -341,14 +341,14 @@ TouchpadWrapper
 - `docs/android/component-touchpad.md` §2.4 (스크롤 가이드라인 색상)
 
 **검증**:
-- [ ] 손가락 떼면 관성 스크롤 지속
-- [ ] 관성 감쇠로 자연스러운 정지
-- [ ] 관성 중 터치 시 즉시 정지
-- [ ] 감도 설정 적용
-- [ ] 무한 스크롤 중 빨간색 가이드라인 표시
-- [ ] 스크롤 속도에 따라 가이드라인 강도 변화
-- [ ] 관성 감속 중 가이드라인 강도 점진적 감소
-- [ ] 일반 ↔ 무한 스크롤 전환 시 가이드라인 색상 즉시 반영
+- [x] 손가락 떼면 관성 스크롤 지속
+- [x] 관성 감쇠로 자연스러운 정지
+- [x] 관성 중 터치 시 즉시 정지
+- [x] 감도 설정 적용
+- [x] 무한 스크롤 중 빨간색 가이드라인 표시
+- [x] 가이드라인이 손가락/관성과 1:1 연속 이동 (단위별 스텝 아닌 연속 추적)
+- [x] 무한 스크롤 햅틱이 속도 비례 연속 진동 (빠르면 강하고, 감속 시 약해짐)
+- [x] 일반 ↔ 무한 스크롤 전환 시 가이드라인 색상 즉시 반영
 
 ---
 
@@ -448,6 +448,8 @@ TouchpadWrapper
 > **⚠️ Phase 4.3.2 변경사항**: `ControlButtonContainer.kt`의 색상 상수는 여전히 private. 아이콘 헬퍼 함수(`dpiButtonIcon`, `scrollModeButtonIcon`, `scrollSensitivityButtonIcon`)도 private으로 추가됨. 색상을 `TouchpadColors.kt`로 추출 시 아이콘 헬퍼는 ControlButtonContainer에 유지하면 됨.
 
 > **⚠️ Phase 4.3.3 변경사항**: `ScrollGuideline.kt` 신규 생성됨. `ScrollGuidelineColor = Color(0xFF84E268)` (초록) 상수가 `ScrollGuideline.kt` 내부에 private로 정의됨. `TouchpadColors.kt` 추출 시 이 색상도 함께 이동하여 단일 소스로 관리. Phase 4.3.4에서 무한 스크롤 빨간색 추가 시 `ScrollGuideline`에 `scrollMode` 파라미터를 추가해 내부에서 색상 분기 구현.
+
+> **⚠️ Phase 4.3.4 변경사항**: `ScrollGuideline.kt`에 `scrollMode: ScrollMode` 파라미터 추가됨 (색상 결정). 색상 상수가 두 개로 분리: `ScrollGuidelineColorNormal = Color(0xFF84E268)` (초록), `ScrollGuidelineColorInfinite = Color(0xFFF32121)` (빨강). `TouchpadColors.kt`로 추출 시 이 두 상수 모두 이동 + `ScrollGuideline.kt`에서 참조 변경 필요. `TouchpadWrapper.kt`에 `Vibrator` 인스턴스 추가됨 (무한 스크롤 속도 비례 연속 진동용). `ScrollConstants.kt`에 `INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS = 2.0f` 추가됨.
 
 > **⚠️ Phase 4.3.3 추가 변경사항**:
 > - `ScrollGuideline.kt`는 등간격 다중 선 패턴으로 구현됨 (단일 선이 아님). `DrawScope.rotate()` 기반 축 전환 회전 애니메이션 포함.
@@ -584,7 +586,7 @@ TouchpadWrapper
 | 30 | 수직 드래그 후 손가락 뗌 | 관성 스크롤 지속 후 자연스러운 감속 정지 |
 | 31 | 관성 스크롤 중 터치 | 관성 즉시 정지 |
 | 32 | 가이드라인 빨간색 표시 확인 | 무한 스크롤 중 빨간색 가이드라인 |
-| 33 | 관성 감속 중 가이드라인 강도 점진적 감소 확인 | 관성이 줄어들수록 가이드라인도 약해짐 |
+| 33 | 드래그 및 관성 중 진동 속도 비례 확인 | 빠를수록 강한 진동, 감속 시 점점 약해지다 정지 시 멈춤 |
 | 34 | ScrollModeButton 탭으로 일반 스크롤 복귀 | 무한 스크롤 OFF, 초록색 테두리 복귀 |
 | 35 | ScrollModeButton 탭으로 스크롤 OFF | 커서 이동 모드 복귀 |
 
