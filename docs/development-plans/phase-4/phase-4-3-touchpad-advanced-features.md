@@ -440,6 +440,11 @@ TouchpadWrapper
 3. DPIControlButton 롱 프레스 → DPI 세밀 조절 팝업:
    - `DpiAdjustPopup` Composable 신규 작성
    - **터치패드 영역 안에만** 표시되는 반투명 오버레이
+   - **블러 배경**: 팝업이 열리면 뒤쪽의 ControlButtonContainer + 터치패드 영역 전체에 블러 적용
+     - `Modifier.blur(radius = 8.dp)` — 팝업 뒤 전체 콘텐츠에 적용
+     - 적용 위치: `StandardModePage`(또는 `Page1TouchpadActions`) 최상위 Column/Box에 팝업 상태에 따라 조건부 블러
+     - 블러 + 반투명 오버레이 `Color.Black.copy(alpha = 0.4f)` 중첩 (블러만으로는 조작 불가능함이 시각적으로 불분명)
+     - 블러 진입/해제: `animateDpAsState`로 0.dp ↔ 8.dp 부드럽게 전환
    - 터치패드 정중앙에 현재 배율 값을 크게 표시 (예: "1.3x")
    - 터치패드 내 상하 또는 좌우 스와이프 → 드래그 거리에 비례하여 0.1 단위로 값 증감
      - 드래그 시작 기준값: 팝업 오픈 시점의 현재 배율
@@ -487,6 +492,8 @@ TouchpadWrapper
 - [ ] 낮음에서 정밀한 커서 이동
 - [ ] 높음에서 빠른 커서 이동
 - [ ] 롱 프레스 시 터치패드 영역 내 팝업 표시
+- [ ] 팝업 표시 시 ControlButtonContainer + 터치패드 전체 블러 배경 적용 확인
+- [ ] 블러 진입/해제 시 부드러운 애니메이션 전환 확인
 - [ ] 팝업 내 스와이프로 DPI 값 실시간 변경
 - [ ] 터치패드 영역 내 탭으로 값 확정 및 팝업 닫힘
 - [ ] 확정 후 버튼 텍스트 "1.3x" 형식 표시
@@ -502,11 +509,11 @@ TouchpadWrapper
 
 > **⚠️ Phase 4.3.6 변경사항**: `TouchpadState`에 `customDpiMultiplier: Float?` 필드 추가됨. DPI 유효 배율은 `customDpiMultiplier ?: dpiLevel.multiplier`로 계산됨. `DeltaCalculator.kt`에 DPI 곱수 적용 완료 (`coerceIn(-127f, 127f)` 포함). 포인터 다이나믹스 배율은 DPI 배율 **이후** 순서로 적용할 것 — 최종 delta = `rawDelta × dpiMultiplier × dynamicsMultiplier` → `coerceIn(-127f, 127f)`.
 
-**목표**: 손가락 이동 속도에 따라 커서 이동량이 동적으로 변하는 포인터 가속 알고리즘 구현. 유저가 알고리즘 종류와 파라미터를 조절하여 자신에게 맞는 커서 감도를 설정할 수 있게 합니다.
+**목표**: 손가락 이동 속도에 따라 커서 이동량이 동적으로 변하는 포인터 가속 알고리즘 구현. 알고리즘 파라미터는 `PointerDynamicsConstants.kt`에 프리셋으로 정의하고, 커서 이동 모드에서 터치패드 왼쪽 하단 버튼으로 프리셋을 전환합니다. 향후 Windows 서버 연동 시 런타임 변경도 지원합니다.
 
-**개발 기간**: 1-1.5일
+**개발 기간**: 1.5-2일
 
-**쉬운 설명**: 실제 마우스처럼, 손가락을 느리게 움직이면 커서도 조금만 이동하고(정밀 작업에 유리), 손가락을 빠르게 움직이면 커서가 훨씬 더 멀리 이동합니다(화면 전체를 빠르게 횡단). 세 가지 가속 알고리즘 중 하나를 고르고, 필요하면 세부 파라미터를 조절해 자신의 손에 맞는 감도를 만들 수 있습니다.
+**쉬운 설명**: 실제 마우스처럼, 손가락을 느리게 움직이면 커서도 조금만 이동하고(정밀 작업에 유리), 손가락을 빠르게 움직이면 커서가 훨씬 더 멀리 이동합니다(화면 전체를 빠르게 횡단). 스크롤 모드에서 위/아래 버튼이 뜨듯이, 커서 이동 모드에서는 왼쪽 하단에 프리셋 선택 버튼이 나타납니다. 탭하면 다음 프리셋으로 전환되고, 꾹 누르면 전체 목록 팝업에서 원하는 걸 골라 선택할 수 있습니다.
 
 **알고리즘 종류**:
 
@@ -515,76 +522,221 @@ TouchpadWrapper
 | **None** | 가속 없음 (기본값) — 속도 무관하게 DPI 배율만 적용 |
 | **Windows EPP** | Windows "포인터 정밀도 향상"과 유사 — 느리면 배율 그대로, 빠르면 비선형(S커브) 가속 |
 | **Linear** | 속도에 비례하여 배율이 선형으로 증가 — 단순하고 예측 가능 |
-| **Custom** | 가속 강도·시작 속도·최대 배율을 직접 조절 (고급 사용자용) |
 
 **세부 목표**:
-1. `PointerDynamicsProfile` 데이터 모델 (`TouchpadMode.kt`에 추가):
-   - `DynamicsAlgorithm` enum: `NONE`, `WINDOWS_EPP`, `LINEAR`, `CUSTOM`
-   - `PointerDynamicsProfile` data class:
-     ```kotlin
-     data class PointerDynamicsProfile(
-         val algorithm: DynamicsAlgorithm = DynamicsAlgorithm.NONE,
-         val intensityFactor: Float = 1.0f,          // 가속 강도 (0.5 ~ 3.0)
-         val velocityThresholdDpMs: Float = 0.5f,    // 가속 시작 속도 임계값 (dp/ms)
-         val maxMultiplier: Float = 3.0f             // 최대 배율 상한 (1.0 ~ 5.0)
-     )
-     ```
-   - `TouchpadState`에 `dynamicsProfile: PointerDynamicsProfile = PointerDynamicsProfile()` 필드 추가
-2. 알고리즘 구현 (`DeltaCalculator.kt`):
-   - `applyPointerDynamics(rawDelta: Float, velocityDpMs: Float, profile: PointerDynamicsProfile): Float` 추가
+1. `PointerDynamicsConstants.kt` 신규 파일 (프리셋 정의):
+   ```kotlin
+   // PointerDynamicsConstants.kt
+   // 프리셋 목록 — 코드에서 추가/수정/삭제합니다. (3~5개 권장)
+   val DYNAMICS_PRESETS: List<PointerDynamicsPreset> = listOf(
+       PointerDynamicsPreset(
+           name = "Off",
+           algorithm = DynamicsAlgorithm.NONE,
+           intensityFactor = 1.0f,
+           velocityThresholdDpMs = 0.5f,
+           maxMultiplier = 1.0f
+       ),
+       PointerDynamicsPreset(
+           name = "Precision",
+           algorithm = DynamicsAlgorithm.WINDOWS_EPP,
+           intensityFactor = 0.8f,
+           velocityThresholdDpMs = 0.6f,
+           maxMultiplier = 2.5f
+       ),
+       PointerDynamicsPreset(
+           name = "Standard",
+           algorithm = DynamicsAlgorithm.WINDOWS_EPP,
+           intensityFactor = 1.2f,
+           velocityThresholdDpMs = 0.5f,
+           maxMultiplier = 3.0f
+       ),
+       PointerDynamicsPreset(
+           name = "Fast",
+           algorithm = DynamicsAlgorithm.LINEAR,
+           intensityFactor = 1.5f,
+           velocityThresholdDpMs = 0.4f,
+           maxMultiplier = 4.0f
+       ),
+   )
+   val DEFAULT_PRESET_INDEX = 0  // "Off" — 가속 없음
+   ```
+2. `PointerDynamicsPreset` 데이터 모델 (`TouchpadMode.kt`에 추가):
+   - `DynamicsAlgorithm` enum: `NONE`, `WINDOWS_EPP`, `LINEAR`
+   - `PointerDynamicsPreset` data class (name + algorithm + 파라미터 3개)
+   - `TouchpadState`에 `dynamicsPresetIndex: Int` 필드 추가 (기본값: `DEFAULT_PRESET_INDEX`)
+   - 현재 프리셋 접근: `DYNAMICS_PRESETS[touchpadState.dynamicsPresetIndex]`
+3. 알고리즘 구현 (`DeltaCalculator.kt`):
+   - `applyPointerDynamics(rawDelta: Float, velocityDpMs: Float, preset: PointerDynamicsPreset): Float` 추가
    - **NONE**: `rawDelta` 그대로 반환 (배율 = 1.0)
    - **WINDOWS_EPP**: `velocity < threshold` → 배율 1.0, 이후 sigmoid 근사 S커브 증가
      - `multiplier = 1.0 + intensityFactor × sigmoid((velocity / threshold − 1) × 2)`
    - **LINEAR**: `multiplier = 1.0 + intensityFactor × max(0f, (velocity − threshold) / threshold)`
-   - **CUSTOM**: `intensityFactor`, `velocityThresholdDpMs`, `maxMultiplier` 파라미터 기반 자유 설정
-   - 모든 알고리즘: 최종 배율 `coerceIn(1.0f, profile.maxMultiplier)` 적용
-3. 속도 계산 및 `TouchpadWrapper.kt` 연동:
+   - 모든 알고리즘: 최종 배율 `coerceIn(1.0f, preset.maxMultiplier)` 적용
+4. 속도 계산 및 `TouchpadWrapper.kt` 연동:
    - Historical 터치 샘플 기반 순간 속도(`velocityDpMs`) 계산 (이미 Historical 샘플 처리 코드 존재 → 재활용)
    - 적용 순서: `rawDelta × dpiMultiplier` 결과에 다이나믹스 배율 추가 적용 → `coerceIn(-127f, 127f)`
    - 스크롤 모드·직각 이동 모드 중에는 다이나믹스 배율 적용 **제외** (커서 이동 모드에만 적용)
-4. 설정 UI — `DynamicsAdjustPopup` Composable (`DpiAdjustPopup`과 동일 패턴):
-   - **진입**: DPIControlButton 롱프레스로 `DpiAdjustPopup`이 열릴 때, 팝업 내 "다이나믹스 설정" 버튼으로 이 팝업으로 전환 (Phase 5+ 설정 화면 완성 전까지 임시 진입 방법)
-   - 팝업 내용:
-     - 알고리즘 선택 버튼 4개 (None / Windows EPP / Linear / Custom), 현재 선택에 강조 표시
-     - Custom 선택 시: 가속 강도 슬라이더 (0.5 ~ 3.0), 시작 속도 슬라이더 (0.1 ~ 2.0 dp/ms), 최대 배율 슬라이더 (1.0 ~ 5.0)
-     - 터치패드 드래그 시 현재 설정값으로 실시간 커서 반응 미리보기
-   - 터치패드 탭으로 확정 및 팝업 닫힘, 페이지 전환 시 미적용 취소
-5. 상태 저장:
-   - `DynamicsAlgorithm` 선택 및 Custom 파라미터 4개 → SharedPreferences 영속 저장
-   - 앱 재시작 후 마지막 설정 복원
+5. **프리셋 선택 버튼 UI** (`DynamicsPresetButton.kt` 신규):
+   - **위치**: 커서 이동 모드(`ScrollMode.OFF`)일 때 터치패드 왼쪽 하단 (`Alignment.BottomStart`, `padding(start = 8.dp, bottom = 8.dp)`) — `NormalScrollButtons`와 동일 위치, `AnimatedVisibility`로 교대 표시
+   - **크기**: 40dp × 40dp (기존 스크롤 버튼과 동일)
+   - **표시 내용**: 현재 프리셋 이름 약어 (예: "Off", "Pre", "Std", "Fst") — 텍스트 또는 아이콘
+   - **원탭**: 다음 프리셋으로 사이클 전환 (`index = (index + 1) % DYNAMICS_PRESETS.size`)
+   - **롱프레스**: 프리셋 목록 팝업 표시 → 탭으로 원하는 프리셋 직접 선택
+   - **이벤트 소비**: `down.changes.forEach { it.consume() }` — 부모 터치패드 제스처에 전파 차단
+   - **Essential 모드**: 숨김 (ControlButtonContainer와 동일하게)
+6. **프리셋 선택 팝업 오버레이** (`DynamicsPresetPopup.kt` 신규) — `DpiAdjustPopup`과 동일 패턴:
+   - **트리거**: `DynamicsPresetButton` 롱프레스 시 `showPresetPopup = true` → 팝업 표시
+   - **구현 방식**: TouchpadWrapper Box 내부에 `AnimatedVisibility` 오버레이 (`DpiAdjustPopup`과 동일 패턴)
+   - **영역**: 터치패드 **전체 영역**을 덮는 반투명 오버레이
+   - **블러 배경**: DPI 팝업과 동일 — 팝업이 열리면 뒤쪽의 ControlButtonContainer + 터치패드 영역 전체에 블러 적용
+     - `Modifier.blur(radius = 8.dp)` — 팝업 뒤 전체 콘텐츠에 적용
+     - 블러 + 반투명 오버레이 `Color.Black.copy(alpha = 0.4f)` 중첩
+     - 블러 진입/해제: `animateDpAsState`로 0.dp ↔ 8.dp 부드럽게 전환
+     - **구현 공유**: DPI 팝업과 프리셋 팝업이 동일한 블러 로직을 사용하므로, 블러 상태 관리를 `showDpiPopup || showPresetPopup`으로 통합
+   - **레이아웃**:
+     ```
+     ┌─────────────────────────────────────┐
+     │       (블러 + 반투명 오버레이)         │
+     │                                     │
+     │          ▲ 위로 스와이프              │
+     │                                     │
+     │        ┌─────────────┐              │
+     │        │  Precision  │              │
+     │        │     EPP     │              │
+     │        └─────────────┘              │
+     │                                     │
+     │          ▼ 아래로 스와이프            │
+     │                                     │
+     │   (탭하면 확정)                       │
+     └─────────────────────────────────────┘
+     ```
+   - **중앙 표시**:
+     - 1행: 현재 프리셋 이름 (큰 텍스트, 24sp, `Color.White`, `FontWeight.Bold`)
+     - 2행: 알고리즘 타입 (작은 텍스트, 14sp, `Color.Gray`) — "NONE" / "Windows EPP" / "Linear"
+     - 프리셋 전환 시 텍스트 전환 애니메이션 (`AnimatedContent` 또는 `Crossfade`)
+   - **스와이프 조작** (상하 드래그로 프리셋 전환):
+     - 위로 스와이프: 다음 프리셋으로 전환 (`index + 1`)
+     - 아래로 스와이프: 이전 프리셋으로 전환 (`index - 1`)
+     - 전환 임계값: 30dp 드래그 시 1단계 전환 (DPI 팝업의 0.1 단위 전환과 유사한 감도)
+     - 범위 초과 시 피드백 (DPI 팝업과 동일):
+       - 프리셋 이름 텍스트 잠시 붉은색으로 변경 후 원래 색으로 복귀
+       - 텍스트 좌우 shake 애니메이션
+       - 진동 피드백 (햅틱)
+     - 순환하지 않음: 첫 프리셋에서 아래로 / 마지막 프리셋에서 위로 스와이프 시 경계 피드백
+   - **확정**: 터치패드 내 **탭** → 현재 프리셋 확정, 팝업 닫힘, 햅틱 피드백
+   - **취소 조건**:
+     - 페이지 전환 발생 시 → 프리셋 변경 없이 팝업 취소 (원래 프리셋 유지)
+     - 스크롤 모드 전환 시 → 팝업 취소
+   - **이벤트 차단**: 팝업 내 `pointerInput`에서 `event.changes.forEach { it.consume() }` — TouchpadWrapper의 `if (down.changes.any { it.isConsumed }) return@awaitEachGesture` 패턴으로 자동 차단 (Phase 4.3.4.5에서 확립된 패턴)
+   - **Compose 구조 (의사 코드)**:
+     ```kotlin
+     @Composable
+     fun DynamicsPresetPopup(
+         currentIndex: Int,
+         presets: List<PointerDynamicsPreset>,
+         onPresetConfirmed: (Int) -> Unit,
+         onDismiss: () -> Unit
+     ) {
+         // 드래그 중 임시 인덱스 (확정 전까지 원본 유지)
+         var tempIndex by remember { mutableIntStateOf(currentIndex) }
+         var accumulatedDragDp by remember { mutableFloatStateOf(0f) }
+
+         Box(
+             modifier = Modifier
+                 .fillMaxSize()
+                 .background(Color.Black.copy(alpha = 0.6f))
+                 .pointerInput(Unit) {
+                     awaitEachGesture {
+                         val down = awaitFirstDown()
+                         down.consume()
+
+                         // 탭 vs 드래그 판별
+                         var dragged = false
+                         while (true) {
+                             val event = awaitPointerEvent()
+                             val change = event.changes.first()
+                             if (change.pressed) {
+                                 val dragDelta = change.positionChange().y.toDp()
+                                 accumulatedDragDp += dragDelta
+                                 // 30dp마다 1단계 전환
+                                 val steps = (accumulatedDragDp / 30f).toInt()
+                                 if (steps != 0) {
+                                     tempIndex = (tempIndex - steps)
+                                         .coerceIn(0, presets.lastIndex)
+                                     accumulatedDragDp -= steps * 30f
+                                     dragged = true
+                                 }
+                                 change.consume()
+                             } else {
+                                 // 터치 업
+                                 if (!dragged) {
+                                     // 탭 → 확정
+                                     onPresetConfirmed(tempIndex)
+                                 }
+                                 break
+                             }
+                         }
+                     }
+                 },
+             contentAlignment = Alignment.Center
+         ) {
+             Column(horizontalAlignment = CenterHorizontally) {
+                 AnimatedContent(targetState = tempIndex) { idx ->
+                     Text(presets[idx].name, fontSize = 24.sp, ...)
+                 }
+                 Text(presets[tempIndex].algorithm.name, fontSize = 14.sp, ...)
+             }
+         }
+     }
+     ```
+7. Windows 서버 연동 준비:
+   - `TouchpadState.dynamicsPresetIndex`는 런타임에 교체 가능한 구조
+   - 향후 서버에서 프리셋 인덱스를 전달받아 `onTouchpadStateChange`로 업데이트하면 즉시 적용됨
 
 **신규 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsAdjustPopup.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/PointerDynamicsConstants.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsPresetButton.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsPresetPopup.kt`
 
 **수정 파일**:
-- `TouchpadMode.kt` (`DynamicsAlgorithm` enum + `PointerDynamicsProfile` data class + `TouchpadState` 확장)
+- `TouchpadMode.kt` (`DynamicsAlgorithm` enum + `PointerDynamicsPreset` data class + `TouchpadState` 확장)
 - `DeltaCalculator.kt` (`applyPointerDynamics()` 추가)
-- `TouchpadWrapper.kt` (속도 계산 + 다이나믹스 배율 적용)
-- `ControlButtonContainer.kt` 또는 `DpiAdjustPopup.kt` (다이나믹스 설정 진입 버튼 추가)
+- `TouchpadWrapper.kt` (속도 계산 + 다이나믹스 배율 적용 + `DynamicsPresetButton` 오버레이 추가)
 
 **참조 문서**:
 - `docs/android/technical-specification-app.md` §2.2 (터치패드 알고리즘)
-- `docs/android/component-touchpad.md` §1.3.2.1 (DPIControlButton — 설정 진입 참고)
-- `docs/android/component-touchpad.md` §1.3.2.3 (DpiAdjustPopup — UI 패턴 참고)
+- `NormalScrollButtons.kt` (동일 위치·패턴 참조)
 
-> **⚠️ Phase 4.3.8 참고**: `TouchpadWrapper.kt`에서 delta 적용 순서(`dpiMultiplier` → `dynamicsMultiplier`)가 테두리 색상 Modifier와 독립적으로 구현됨. 두 기능의 코드 위치 충돌 없음.
+> **⚠️ Phase 4.3.8 참고**: `TouchpadWrapper.kt`에서 delta 적용 순서(`dpiMultiplier` → `dynamicsMultiplier`)가 테두리 색상 Modifier와 독립적으로 구현됨. 두 기능의 코드 위치 충돌 없음. `DynamicsPresetButton`은 `NormalScrollButtons`와 동일 위치에 `AnimatedVisibility`로 교대 표시되므로 오버레이 충돌 없음.
 
 **검증**:
-- [ ] None 알고리즘: 속도와 무관하게 일정한 커서 이동 (기존과 동일)
-- [ ] Windows EPP: 느린 드래그 시 정밀 이동, 빠른 드래그 시 커서 가속 확인
-- [ ] Linear: 속도 증가에 비례하여 커서 이동량 선형 증가 확인
-- [ ] Custom: 슬라이더 조절 시 실시간 반응 변화 확인
-- [ ] DPI 배율과 다이나믹스 배율 중첩 적용 정상 동작 (Low DPI + 가속 알고리즘 조합)
+- [ ] None 프리셋: 속도와 무관하게 일정한 커서 이동 (기존과 동일)
+- [ ] Precision 프리셋 (Windows EPP): 느린 드래그 시 정밀 이동, 빠른 드래그 시 커서 가속 확인
+- [ ] Standard 프리셋 (Windows EPP): Precision보다 강한 가속 적용 확인
+- [ ] Fast 프리셋 (Linear): 속도 증가에 비례하여 커서 이동량 선형 증가 확인
+- [ ] DPI 배율과 다이나믹스 배율 중첩 적용 정상 동작 (Low DPI + 가속 프리셋 조합)
 - [ ] 최대 배율 상한 초과 방지 (`coerceIn` 확인)
 - [ ] 스크롤 모드 중 다이나믹스 배율 미적용 확인 (커서 이동 모드 전용)
-- [ ] SharedPreferences 저장 및 앱 재시작 후 알고리즘·파라미터 복원
+- [ ] **프리셋 버튼 — 커서 이동 모드에서 왼쪽 하단에 표시** 확인
+- [ ] **프리셋 버튼 — 원탭으로 프리셋 사이클 전환** (Off → Precision → Standard → Fast → Off)
+- [ ] **프리셋 버튼 — 롱프레스 시 터치패드 전체 영역 팝업 오버레이** 표시 확인
+- [ ] **팝업 — ControlButtonContainer + 터치패드 전체 블러 배경** 적용 확인
+- [ ] **팝업 — 블러 진입/해제 시 부드러운 애니메이션 전환** 확인
+- [ ] **팝업 — 중앙에 현재 프리셋 이름 + 알고리즘 타입 큰 텍스트** 표시 확인
+- [ ] **팝업 — 상하 스와이프로 프리셋 전환** (30dp당 1단계)
+- [ ] **팝업 — 범위 초과 시 붉은색 + shake + 햅틱 피드백** 확인
+- [ ] **팝업 — 탭으로 현재 프리셋 확정 + 팝업 닫힘** 확인
+- [ ] **팝업 — 페이지 전환 시 변경 없이 취소** 확인
+- [ ] **프리셋 버튼 — 스크롤 모드 진입 시 버튼 페이드아웃** 확인
+- [ ] **프리셋 버튼 — Essential 모드에서 숨김** 확인
+- [ ] 프리셋 버튼 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 확인)
 - [ ] PC에서 실제 커서 가속 동작 확인 (하드웨어 E2E — Phase 4.3.9에서 추가 검증)
 
 ---
 
 ## Phase 4.3.8: 터치패드 테두리 모드 색상 표시
 
-> **⚠️ Phase 4.3.7 변경사항**: `TouchpadMode.kt`에 `DynamicsAlgorithm` enum + `PointerDynamicsProfile` data class 추가됨. `TouchpadState`에 `dynamicsProfile: PointerDynamicsProfile` 필드 추가됨. 테두리 색상 결정 함수(`touchpadBorderBrush()`)는 `TouchpadState`를 입력으로 받지만 `dynamicsProfile` 필드는 테두리 색상 로직에 영향을 주지 않음 — 별도 처리 불필요.
+> **⚠️ Phase 4.3.7 변경사항**: `TouchpadMode.kt`에 `DynamicsAlgorithm` enum + `PointerDynamicsPreset` data class 추가됨. `TouchpadState`에 `dynamicsPresetIndex: Int` 필드 추가됨. 테두리 색상 결정 함수(`touchpadBorderBrush()`)는 `TouchpadState`를 입력으로 받지만 `dynamicsPresetIndex` 필드는 테두리 색상 로직에 영향을 주지 않음 — 별도 처리 불필요. `TouchpadWrapper.kt`에 `DynamicsPresetButton` 오버레이가 추가됨 (커서 이동 모드 시 `Alignment.BottomStart`, `NormalScrollButtons`와 동일 위치에 교대 표시). 테두리 Modifier는 Box 외곽에 적용되므로 내부 오버레이와 충돌 없음.
 
 > **⚠️ Phase 4.3.2 변경사항**: `ControlButtonContainer.kt`의 색상 상수는 여전히 private. 아이콘 헬퍼 함수(`dpiButtonIcon`, `scrollModeButtonIcon`, `scrollSensitivityButtonIcon`)도 private으로 추가됨. 색상을 `TouchpadColors.kt`로 추출 시 아이콘 헬퍼는 ControlButtonContainer에 유지하면 됨.
 
@@ -771,15 +923,26 @@ TouchpadWrapper
 
 | # | 테스트 항목 | 기대 결과 |
 |---|------------|---------|
-| 50 | None 알고리즘으로 느린 드래그와 빠른 드래그 비교 | 두 속도에서 이동 거리가 속도에 정비례 (가속 없음) |
-| 51 | Windows EPP 알고리즘으로 느린 드래그 | 커서가 None보다 정밀하게 이동 (작은 배율 유지) |
-| 52 | Windows EPP 알고리즘으로 빠른 드래그 | 커서가 빠르게 가속되어 더 멀리 이동 |
-| 53 | Linear 알고리즘으로 점진적 속도 증가 | 드래그 속도에 비례하여 커서 이동 거리 선형 증가 |
-| 54 | Custom 파라미터 조절 후 드래그 | 조절한 값이 실시간으로 커서 반응에 반영됨 |
-| 55 | DPI Low + Windows EPP 조합 | 두 배율이 중첩 적용되어 느린 드래그 시 더욱 정밀 |
-| 56 | DPI High + Windows EPP 조합 | 두 배율 중첩 후 최대 배율 상한 초과 없음 (`coerceIn`) |
-| 57 | 스크롤 모드 중 빠른 드래그 | 가속 알고리즘 미적용 — 스크롤 속도는 감도 배율만 따름 |
-| 58 | 앱 종료 후 재시작 | 마지막 알고리즘·파라미터 설정 복원 확인 |
+| 50 | 커서 이동 모드에서 왼쪽 하단 프리셋 버튼 표시 확인 | 40×40dp 버튼에 현재 프리셋 이름 표시 |
+| 51 | 프리셋 버튼 원탭 → 다음 프리셋으로 전환 | Off → Precision → Standard → Fast → Off 사이클 |
+| 52 | 프리셋 버튼 롱프레스 → 터치패드 전체 영역 팝업 오버레이 | 블러 배경 + 반투명 오버레이 + 중앙에 프리셋 이름/알고리즘 표시 |
+| 53 | 팝업 블러 배경 확인 | ControlButtonContainer + 터치패드 전체에 블러 적용, 부드러운 전환 |
+| 54 | 팝업에서 위로 스와이프 → 다음 프리셋 전환 | 30dp 드래그당 1단계, 텍스트 전환 애니메이션 |
+| 55 | 팝업에서 아래로 스와이프 → 이전 프리셋 전환 | 역방향 전환 정상 동작 |
+| 56 | 팝업에서 범위 초과 스와이프 (첫/마지막 프리셋) | 붉은색 텍스트 + shake + 햅틱 피드백 |
+| 57 | 팝업에서 탭으로 프리셋 확정 | 선택 즉시 적용, 팝업 닫힘, 블러 해제, 햅틱 |
+| 58 | 팝업 열린 상태에서 페이지 전환 | 프리셋 변경 없이 팝업 취소, 블러 해제 |
+| 59 | Off 프리셋으로 느린/빠른 드래그 비교 | 두 속도에서 이동 거리가 속도에 정비례 (가속 없음) |
+| 60 | Precision 프리셋 (Windows EPP)으로 느린 드래그 | 커서가 Off보다 정밀하게 이동 (작은 배율 유지) |
+| 61 | Precision 프리셋 (Windows EPP)으로 빠른 드래그 | 커서가 빠르게 가속되어 더 멀리 이동 |
+| 62 | Standard 프리셋으로 빠른 드래그 | Precision보다 강한 가속 적용 확인 |
+| 63 | Fast 프리셋 (Linear)으로 점진적 속도 증가 | 드래그 속도에 비례하여 커서 이동 거리 선형 증가 |
+| 64 | DPI Low + Precision 프리셋 조합 | 두 배율이 중첩 적용되어 느린 드래그 시 더욱 정밀 |
+| 65 | DPI High + Standard 프리셋 조합 | 두 배율 중첩 후 최대 배율 상한 초과 없음 (`coerceIn`) |
+| 66 | 스크롤 모드 진입 시 프리셋 버튼 페이드아웃 | 버튼 사라지고 NormalScrollButtons와 교대 |
+| 67 | 스크롤 모드 중 빠른 드래그 | 가속 알고리즘 미적용 — 스크롤 속도는 감도 배율만 따름 |
+| 68 | Essential 모드에서 프리셋 버튼 숨김 확인 | 버튼 비표시 |
+| 69 | 프리셋 버튼 탭 시 커서 이동 미발생 | 이벤트 소비 정상 동작 (터치패드 제스처 분리) |
 
 ---
 
@@ -793,7 +956,7 @@ TouchpadWrapper
 - [ ] 4.3.9.6 무한 스크롤 모드 항목 전체 통과 (29~35번)
 - [ ] 4.3.9.7 테두리 모드 색상 항목 전체 통과 (36~43번)
 - [ ] 4.3.9.8 ControlButtonContainer 전반 항목 전체 통과 (44~49번)
-- [ ] 4.3.9.9 포인터 다이나믹스 항목 전체 통과 (50~58번)
+- [ ] 4.3.9.9 포인터 다이나믹스 항목 전체 통과 (50~69번)
 
 ---
 
@@ -808,7 +971,7 @@ TouchpadWrapper
 | 일반 스크롤 | ❌ | ✅ (ScrollModeButton) |
 | 무한 스크롤 | ❌ | ✅ (ScrollModeButton) |
 | DPI 조절 | ❌ | ✅ (DPIControlButton) |
-| 포인터 다이나믹스 | ❌ | ✅ (None/EPP/Linear/Custom 알고리즘 선택) |
+| 포인터 다이나믹스 | ❌ | ✅ (프리셋 버튼: 원탭 사이클 / 롱프레스 팝업 선택) |
 | 스크롤 감도 | ❌ | ✅ (ScrollSensitivityButton) |
 | 멀티 커서 | ❌ | ⏳ Phase 4+ |
 | ControlButtonContainer | ❌ 숨김 | ✅ 표시 |
