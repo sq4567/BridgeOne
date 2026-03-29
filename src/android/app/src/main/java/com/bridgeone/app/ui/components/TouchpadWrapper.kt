@@ -31,7 +31,6 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.bridgeone.app.protocol.BridgeMode
-import com.bridgeone.app.ui.common.ScrollConstants.DOUBLE_TAP_MAX_INTERVAL_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_MIN_VELOCITY_DP_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_TIME_CONSTANT_MS
@@ -80,8 +79,10 @@ import kotlin.math.exp
  *    - 0°~30° = HORIZONTAL, 60°~90° = VERTICAL
  * 3. 축 확정 후 해당 축으로만 스크롤 프레임 전송 (UP까지 유지)
  *
- * **더블탭으로 스크롤 종료:**
- * 스크롤 모드에서 드래그 없는 탭 두 번 → [onTouchpadStateChange] 호출, scrollMode = OFF
+ * **원탭으로 스크롤 종료:**
+ * 스크롤 모드에서 드래그 없는 탭 한 번 → [onTouchpadStateChange] 호출, scrollMode = OFF.
+ * 단, NORMAL_SCROLL에서 직전 제스처가 드래그였으면 차단 (빠른 스와이프 후 실수 탭 방지),
+ * INFINITE_SCROLL에서 관성 진행 중 탭이었으면 차단.
  *
  * @param modifier 외부에서 추가할 Modifier
  * @param bridgeMode Essential/Standard 모드 구분
@@ -122,8 +123,8 @@ fun TouchpadWrapper(
     val deadZoneEscaped = remember { mutableStateOf(false) }
 
     // ── 스크롤 모드 상태 (Phase 4.3.3) ──
-    // 더블탭 감지: 스크롤 모드에서 연속 탭으로 종료
-    var lastScrollTapTime by remember { mutableStateOf(0L) }
+    // 원탭 해제 조건: DOWN 시 관성이 활성이었으면 INFINITE_SCROLL 탭 해제 차단
+    var inertiaWasActiveOnDown by remember { mutableStateOf(false) }
 
     // ScrollGuideline 표시 상태
     var guidelineVisible by remember { mutableStateOf(false) }
@@ -165,6 +166,8 @@ fun TouchpadWrapper(
                     down.changes.forEach { it.consume() }
 
                     // 관성 중 터치 → 즉시 관성 정지 (Phase 4.3.4)
+                    // 탭 해제 조건 판단을 위해 취소 전에 상태 캡처
+                    inertiaWasActiveOnDown = inertiaJob?.isActive == true
                     inertiaJob?.cancel()
                     inertiaJob = null
 
@@ -368,9 +371,13 @@ fun TouchpadWrapper(
                             latestState.scrollMode == ScrollMode.INFINITE_SCROLL
                         ) {
                             if (!deadZoneEscaped.value) {
-                                // 탭 판정 → 더블탭으로 스크롤 종료
-                                val now = System.currentTimeMillis()
-                                if (now - lastScrollTapTime <= DOUBLE_TAP_MAX_INTERVAL_MS) {
+                                // 탭 판정 → 원탭으로 스크롤 종료
+                                // NORMAL_SCROLL: 현재 제스처에 드래그 없음 → 그냥 해제
+                                // INFINITE_SCROLL: 관성 진행 중 탭이었으면 차단 (inertiaWasActiveOnDown)
+                                val isInertiaInterruption =
+                                    latestState.scrollMode == ScrollMode.INFINITE_SCROLL &&
+                                    inertiaWasActiveOnDown
+                                if (!isInertiaInterruption) {
                                     latestOnStateChange(
                                         latestState.copy(
                                             scrollMode = ScrollMode.OFF,
@@ -381,9 +388,6 @@ fun TouchpadWrapper(
                                     guidelineHideJob?.cancel()
                                     inertiaJob?.cancel()
                                     inertiaJob = null
-                                    lastScrollTapTime = 0L
-                                } else {
-                                    lastScrollTapTime = now
                                 }
                             } else if (latestState.scrollMode == ScrollMode.INFINITE_SCROLL &&
                                 scrollAxis != ScrollAxis.UNDECIDED
