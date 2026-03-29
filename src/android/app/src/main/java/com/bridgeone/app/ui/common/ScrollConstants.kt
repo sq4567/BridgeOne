@@ -46,9 +46,6 @@ object ScrollConstants {
     /** 스크롤 축 전환 시 가이드라인 회전 애니메이션 시간 (ms) */
     const val SCROLL_GUIDELINE_AXIS_ROTATION_MS = 100
 
-    /** 더블탭 인식 최대 간격 (ms) */
-    const val DOUBLE_TAP_MAX_INTERVAL_MS = 300L
-
     // ── 무한 스크롤 관성 (Phase 4.3.4) ──
 
     /** 관성 지수 감쇠 시간 상수 (ms). 이 시간 후 속도가 약 37%(1/e)로 감소. 클수록 오래 지속 */
