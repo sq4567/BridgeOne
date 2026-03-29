@@ -332,6 +332,30 @@ object ClickDetector {
     }
 
     /**
+     * 수평(가로) 휠 스크롤 프레임을 생성합니다 (Phase 4.3.3).
+     *
+     * 프로토콜 인코딩:
+     * - buttons bit3 (0x08): 수평 스크롤 인디케이터
+     * - wheel: 수평 스크롤 이동량 (양수=오른쪽, 음수=왼쪽)
+     *
+     * ESP32 펌웨어에서 buttons & 0x08 을 확인해 수직/수평 구분.
+     *
+     * @param wheelDelta 수평 스크롤 이동량 (-128 ~ 127)
+     * @return BridgeFrame 객체
+     */
+    fun createHorizontalWheelFrame(wheelDelta: Byte): BridgeFrame {
+        return FrameBuilder.buildFrame(
+            buttons = 0x08u,   // bit3: 수평 스크롤 인디케이터
+            deltaX = 0,
+            deltaY = 0,
+            wheel = wheelDelta,
+            modifiers = 0u,
+            keyCode1 = 0u,
+            keyCode2 = 0u
+        )
+    }
+
+    /**
      * 우클릭 프레임을 생성합니다 (Standard 모드 전용 버튼).
      *
      * @param pressed true=버튼 누름, false=버튼 해제

@@ -31,6 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +58,7 @@ import com.bridgeone.app.ui.components.KeyboardKeyButton
 import com.bridgeone.app.ui.components.ShortcutButton
 import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
+import com.bridgeone.app.ui.components.touchpad.ScrollMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.utils.ClickDetector
 
@@ -75,6 +79,10 @@ import com.bridgeone.app.ui.utils.ClickDetector
 fun StandardModePage() {
     val pagerState = rememberPagerState(pageCount = { 3 })
 
+    // Phase 4.3.3: 터치패드 상태를 페이지 레벨로 호이스팅
+    // 스크롤 모드 활성화 시 HorizontalPager 스와이프 비활성화
+    var touchpadState by remember { mutableStateOf(TouchpadState()) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -82,19 +90,37 @@ fun StandardModePage() {
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         // ── 페이지 컨테이너 ──
+        // 스크롤 모드 활성 시: HorizontalPager보다 먼저 Initial 패스에서
+        // Move 이벤트를 소비하여 페이저의 수평 드래그 감지를 원천 차단
+        val isScrollActive = touchpadState.scrollMode != ScrollMode.OFF
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .pointerInput(isScrollActive) {
+                    if (!isScrollActive) return@pointerInput
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.type == PointerEventType.Move) {
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    }
+                }
         ) {
             HorizontalPager(
                 state = pagerState,
+                userScrollEnabled = touchpadState.scrollMode == ScrollMode.OFF,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(16.dp)
             ) { page ->
                 when (page) {
-                    0 -> Page1TouchpadActions()
+                    0 -> Page1TouchpadActions(
+                        touchpadState = touchpadState,
+                        onTouchpadStateChange = { touchpadState = it }
+                    )
                     1 -> Page2KeyboardPlaceholder()
                     2 -> Page3MinecraftPlaceholder()
                 }
@@ -201,12 +227,12 @@ private fun PageIndicator(
  * - 반응형: 폭 < 360dp 일 때 좌 60% / 우 40% 조정
  */
 @Composable
-private fun Page1TouchpadActions() {
+private fun Page1TouchpadActions(
+    touchpadState: TouchpadState,
+    onTouchpadStateChange: (TouchpadState) -> Unit
+) {
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
-
-    // Phase 4.3.1: 터치패드 모드 상태 관리
-    var touchpadState by remember { mutableStateOf(TouchpadState()) }
 
     // 반응형 비율 계산
     val (touchpadWeight, actionsPanelWeight) = if (screenWidthDp < 360) {
@@ -237,6 +263,8 @@ private fun Page1TouchpadActions() {
             ) {
                 TouchpadWrapper(
                     bridgeMode = BridgeMode.STANDARD,
+                    touchpadState = touchpadState,
+                    onTouchpadStateChange = onTouchpadStateChange,
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
@@ -248,7 +276,7 @@ private fun Page1TouchpadActions() {
                 // Phase 4.3.1: ControlButtonContainer 오버레이 (상단 15%)
                 ControlButtonContainer(
                     touchpadState = touchpadState,
-                    onStateChange = { touchpadState = it },
+                    onStateChange = onTouchpadStateChange,
                     modifier = Modifier
                         .fillMaxSize()
                         .align(Alignment.TopCenter)

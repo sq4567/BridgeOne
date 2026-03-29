@@ -189,41 +189,88 @@ TouchpadWrapper
 > - ScrollSensitivityButton, ScrollModeButton은 ControlButtonContainer에서 이미 동작 → 이 Phase에서는 `TouchpadWrapper`에 스크롤 입력 변환 로직 추가와 `touchpadState` 연결에 집중.
 > - `ControlButton`은 `combinedClickable` 사용 (`onLongClick` 파라미터 지원).
 
-**목표**: 터치 드래그를 수직 스크롤 입력으로 변환하는 일반 스크롤 모드 구현 + ScrollGuideline Composable 기본 구현 (초록색)
+**목표**: 터치 드래그를 세로/가로 스크롤 입력으로 변환하는 일반 스크롤 모드 구현 + ScrollGuideline Composable 기본 구현 (초록색, 스크롤 단위마다 끊기는 애니메이션 + 햅틱)
 
 **개발 기간**: 1-1.5일
+
+**쉬운 설명**: 스크롤 모드에서 손가락을 움직이면, 처음 움직인 방향을 기준으로 세로 스크롤인지 가로 스크롤인지 자동으로 결정됩니다. 그 이후로는 손가락을 어떻게 움직여도 처음 정해진 방향으로만 스크롤됩니다 (실제 마우스 휠처럼). 화면에는 스크롤 단위마다 가이드라인이 톡톡톡 끊기면서 움직이고, 그때마다 진동으로 피드백을 줍니다.
+
+**상수 정의** (`ui/common/ScrollConstants.kt` 신규 파일에 정의):
+
+| 상수명 | 기본값 | 설명 |
+|---|---|---|
+| `SCROLL_AXIS_LOCK_DISTANCE_DP` | `8f` | 축 확정을 시도하기 위한 누적 이동 임계값 (dp). 이 거리 이전에는 UNDECIDED 유지 |
+| `SCROLL_AXIS_DIAGONAL_DEAD_ZONE_DEG` | `15f` | 45°에서 이 각도 이내이면 대각선으로 판정 — 축을 확정하지 않고 계속 누적 (0이면 비활성화) |
+| `SCROLL_UNIT_DISTANCE_DP` | `20f` | 스크롤 1단위를 전송하기 위해 손가락이 이동해야 하는 거리 (dp). 값이 작을수록 빠름 |
+| `SCROLL_SENSITIVITY_SLOW` | `0.5f` | 느림 단계 스크롤 비율 배수 |
+| `SCROLL_SENSITIVITY_NORMAL` | `1.0f` | 보통 단계 스크롤 비율 배수 (기본) |
+| `SCROLL_SENSITIVITY_FAST` | `2.0f` | 빠름 단계 스크롤 비율 배수 |
+| `SCROLL_GUIDELINE_STEP_DP` | `20f` | 스크롤 1단위 전송 시 가이드라인이 이동하는 스텝 거리 (dp) |
+| `SCROLL_GUIDELINE_HIDE_DELAY_MS` | `800L` | 스크롤 정지 판정 후 가이드라인이 사라지기 시작하기까지의 대기 시간 (ms) |
+| `SCROLL_STOP_THRESHOLD_MS` | `150L` | 마지막 스크롤 이벤트 이후 이 시간 동안 입력 없으면 스크롤 정지로 판정 (ms) |
+| `SCROLL_GUIDELINE_SPRING_STIFFNESS` | `10_000f` | 가이드라인 spring 강성 (높을수록 빠르고 즉각적 / `Spring.StiffnessHigh` 기준) |
+| `SCROLL_GUIDELINE_SPRING_DAMPING` | `1.0f` | 가이드라인 spring 감쇠비 (1.0=오버슈트 없음 / 0.5 이하=통통 튀는 느낌) |
 
 **세부 목표**:
 1. 스크롤 모드 상태 관리:
    - `TouchpadState.scrollMode == ScrollMode.NORMAL_SCROLL` 상태 활용 (이미 정의됨)
    - ScrollModeButton 탭으로 진입 (이미 구현됨)
    - 터치패드 영역 더블탭으로 스크롤 모드 종료 → 커서 이동 복귀
-2. 스크롤 입력 변환:
-   - 터치 드래그 Y축 → 휠 스크롤 프레임 전송
-   - 정량적 스크롤: 일정 이동량당 1 스크롤 단위 전송
-   - `ClickDetector.createWheelFrame()` 활용
-3. 스크롤 감도 3단계:
-   - 느림: 이동량 대비 스크롤 비율 ×0.5
-   - 보통: 이동량 대비 스크롤 비율 ×1.0 (기본)
-   - 빠름: 이동량 대비 스크롤 비율 ×2.0
+2. 스크롤 축 확정 알고리즘 (스크롤 방향 잠금):
+   - 터치 DOWN 시점에 `scrollAxis: ScrollAxis = ScrollAxis.UNDECIDED` 초기화 (`UNDECIDED / HORIZONTAL / VERTICAL`)
+   - 드래그 중 누적 이동 벡터(ΔX, ΔY) 크기가 `SCROLL_AXIS_LOCK_DISTANCE_DP`를 초과하는 순간 축 판정 시도:
+     - `angle = atan2(|ΔY|, |ΔX|)` (0°=완전가로, 90°=완전세로)
+     - `|angle − 45°| ≤ SCROLL_AXIS_DIAGONAL_DEAD_ZONE_DEG` → 대각선 구간 → **UNDECIDED 유지**, 계속 누적
+     - `angle < 45° − SCROLL_AXIS_DIAGONAL_DEAD_ZONE_DEG` → `HORIZONTAL` 확정
+     - `angle > 45° + SCROLL_AXIS_DIAGONAL_DEAD_ZONE_DEG` → `VERTICAL` 확정
+   - 축이 한 번 결정되면 손가락을 뗄 때(UP)까지 변경 불가
+   - UNDECIDED 상태에서는 스크롤 프레임을 전송하지 않음
+3. 스크롤 입력 변환:
+   - `VERTICAL`: 터치 드래그 Y축 누적량 → 수직 휠 스크롤 프레임 전송 (`createWheelFrame(delta)`)
+   - `HORIZONTAL`: 터치 드래그 X축 누적량 → 수평 휠 스크롤 프레임 전송 (`createHorizontalWheelFrame(delta)` 신규 추가)
+   - 정량적 스크롤: `SCROLL_UNIT_DISTANCE_DP` 이동당 1 스크롤 단위 전송 (소수점 누적으로 단위 손실 방지)
+   - 감도 배수(`SCROLL_SENSITIVITY_*`) 적용 후 스크롤 단위 계산
+   - 축 확정 시 누적된 이동량(임계값 이전 분)은 버리고 확정 시점 이후부터 새로 누적
+4. 스크롤 감도 3단계 (`SCROLL_SENSITIVITY_*` 상수 사용):
+   - 느림: `SCROLL_SENSITIVITY_SLOW` (×0.5)
+   - 보통: `SCROLL_SENSITIVITY_NORMAL` (×1.0, 기본)
+   - 빠름: `SCROLL_SENSITIVITY_FAST` (×2.0)
    - ScrollSensitivityButton으로 순환
-4. 모드 전환 시 입력 정리:
+5. 모드 전환 시 입력 정리:
    - 커서 모드 → 스크롤 모드: 진행 중 드래그 중단
-   - 스크롤 모드 → 커서 모드: 스크롤 관성 정지
-5. `ScrollGuideline` Composable 기본 구현:
+   - 스크롤 모드 → 커서 모드: 스크롤 관성 정지, `scrollAxis` 초기화
+6. `ScrollGuideline` Composable 기본 구현:
    - 위치: 터치패드 내부 (테두리 제외)
-   - 표시 조건: 스크롤 모드에서 드래그 시작 시
-   - 숨김 조건: 스크롤 정지 판정 후 일정 시간 경과, 또는 모드 종료 시 즉시
+   - 표시 조건: 스크롤 모드에서 축 확정 후 첫 스크롤 단위 전송 시
+   - 숨김 조건: 마지막 입력 후 `SCROLL_STOP_THRESHOLD_MS` 경과 시 정지 판정 → `SCROLL_GUIDELINE_HIDE_DELAY_MS` 대기 후 페이드아웃, 또는 모드 종료 시 즉시 숨김
    - 일반 스크롤 색상: `#84E268` (초록)
-   - 방향 표시: 수직 스크롤 방향에 따른 화살표 또는 라인
+   - 방향 표시: 확정된 축(`VERTICAL` / `HORIZONTAL`)에 따라 수직선 또는 수평선으로 표시
+   - **스크롤 속도 연동 이동 애니메이션**:
+     - 각 스텝마다 고정 duration 애니메이션을 독립 실행하는 방식이 **아님** — 이 방식은 빠른 스크롤 시 이전 애니메이션 큐가 쌓여 뒤처지는 문제가 생김
+     - **설계 방식: 목표 추적(target-chasing) + spring 애니메이션**
+       - `Animatable<Float>` 하나로 가이드라인의 오프셋 위치를 관리
+       - 스크롤 단위 전송 시마다 `targetOffset += SCROLL_GUIDELINE_STEP_DP` (또는 방향에 따라 -=)로 목표만 업데이트
+       - `animatable.animateTo(targetOffset, animationSpec = spring(stiffness = ..., dampingRatio = ...))` 호출
+       - Compose spring은 목표가 바뀌어도 **현재 속도·위치를 유지하며 새 목표로 자연스럽게 방향 전환** — 고정 duration 없이 속도에 따라 자동 조절됨
+     - **스크롤 속도에 따른 자동 반응**:
+       - 느린 스크롤: 목표가 드문드문 이동 → spring이 여유 있게 따라가며 감속 정지
+       - 빠른 스크롤: 목표가 빠르게 앞서 나감 → spring이 강하게 가속해서 쫓아가며 감속 정지 → "확 치고 확 멈추는" 느낌이 자동으로 발생
+     - spring 파라미터 상수화 (`ScrollConstants.kt`):
+       - `SCROLL_GUIDELINE_SPRING_STIFFNESS`: stiffness (기본값 `Spring.StiffnessHigh` ≈ `10_000f`) — 높을수록 빠르고 즉각적
+       - `SCROLL_GUIDELINE_SPRING_DAMPING`: dampingRatio (기본값 `Spring.DampingRatioNoBouncy` = `1f`) — 1이면 오버슈트 없이 딱 멈춤, 0.5 이하면 통통 튀는 느낌
+     - 가이드라인이 터치패드 끝에 도달하면 반대쪽 끝으로 랩어라운드
+   - **스크롤 단위마다 햅틱 피드백**:
+     - 스크롤 단위 1이 전송될 때마다 `GESTURE_TICK` 또는 `KEYBOARD_TAP` 수준의 Light 햅틱
    - `TouchpadWrapper` 내부에서 `ScrollMode.NORMAL_SCROLL` 상태에 따라 표시/숨김
 
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/ScrollGuideline.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/ScrollConstants.kt` (스크롤 관련 조정 가능 상수 일괄 정의)
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
-- `TouchpadMode.kt`
+- `TouchpadMode.kt` (`ScrollAxis` enum 추가: `UNDECIDED`, `HORIZONTAL`, `VERTICAL`)
+- `ClickDetector.kt` (`createHorizontalWheelFrame(delta)` 추가)
 
 **참조 문서**:
 - `docs/android/component-touchpad.md` §1.3.1.3 (ScrollModeButton)
@@ -231,20 +278,34 @@ TouchpadWrapper
 - `docs/android/technical-specification-app.md` §2.2 (터치패드 알고리즘)
 
 **검증**:
-- [ ] ScrollModeButton 탭으로 스크롤 모드 진입
-- [ ] Y축 드래그 시 휠 프레임 전송
-- [ ] 감도 3단계 전환 동작
-- [ ] 더블탭으로 커서 이동 모드 복귀
-- [ ] PC에서 실제 스크롤 동작 확인 (하드웨어 E2E)
-- [ ] 드래그 시 초록색 가이드라인 표시
-- [ ] 스크롤 정지 후 가이드라인 자연스럽게 숨김
-- [ ] 모드 종료 시 가이드라인 즉시 숨김
+- [x] ScrollModeButton 탭으로 스크롤 모드 진입
+- [x] 세로 드래그 시 수직 휠 프레임 전송 (PC에서 세로 스크롤 동작)
+- [x] 가로 드래그 시 수평 휠 프레임 전송 (PC에서 가로 스크롤 동작)
+- [x] 축 확정 후 대각선 드래그 시 확정된 축으로만 스크롤 (다른 축 무시)
+- [x] 손가락 떼면 축 초기화, 다음 터치에서 새로 축 확정
+- [x] 감도 3단계 전환 동작
+- [x] 더블탭으로 커서 이동 모드 복귀
+- [x] PC에서 실제 세로/가로 스크롤 동작 확인 (하드웨어 E2E)
+- [x] 드래그 시 초록색 가이드라인 표시 (축 방향에 맞게 수직선/수평선)
+- [x] 스크롤 단위마다 가이드라인이 톡톡톡 끊기며 이동
+- [x] 스크롤 단위마다 햅틱 피드백 발생
+- [x] 스크롤 정지 후 가이드라인 자연스럽게 숨김
+- [x] 모드 종료 시 가이드라인 즉시 숨김
 
 ---
 
 ## Phase 4.3.4: 무한 스크롤 모드 + 관성 + ScrollGuideline 색상 확장
 
 > **⚠️ Phase 4.3.1 변경사항**: `ScrollMode.INFINITE_SCROLL` enum과 ScrollModeButton 전환 로직은 이미 구현됨. `TouchpadState.lastScrollMode`로 마지막 스크롤 모드 기억. 스크롤 버튼 탭=토글(ON/OFF), 롱프레스=NORMAL↔INFINITE 전환. 이 Phase에서는 관성 알고리즘과 TouchpadWrapper 연동, ScrollGuideline 무한 스크롤 확장에 집중.
+
+> **⚠️ Phase 4.3.3 변경사항**:
+> - **`ScrollGuideline.kt` 현재 파라미터**: `isVisible: Boolean`, `scrollAxis: ScrollAxis`, `targetOffset: Float`. 무한 스크롤 빨간색을 지원하려면 `scrollMode: ScrollMode` 파라미터 추가 후 내부에서 색상 분기 필요.
+> - **`ScrollGuideline.kt` 구현 구조 변경**: 단일 선이 아닌 **등간격 다중 선 패턴** + **굵은/얇은 선 구분**(매 4번째 굵은 선). 항상 수평선으로 그린 뒤 `DrawScope.rotate()`로 축 방향 전환. 축 전환 시 `FastOutSlowInEasing` tween 회전 애니메이션 적용. 색상을 변경하려면 `ScrollGuidelineColor` (현재 private)를 파라미터화하거나 `scrollMode` 기반으로 내부 분기.
+> - **`ScrollConstants.kt` 추가 상수**: `SCROLL_GUIDELINE_SPACING_DP = 40f` (선 간격), `SCROLL_GUIDELINE_AXIS_ROTATION_MS = 100` (축 전환 회전 애니메이션 시간).
+> - **`TouchpadWrapper.kt` 스크롤 상태 변수들**: `guidelineVisible`, `guidelineAxis`, `guidelineTarget`(mutableFloatStateOf), `guidelineHideJob` — 이미 존재. 스크롤 틱마다 `guidelineVisible = true` 재설정하여 타이머 숨김 후 스크롤 재개 시 자동 재표시. 무한 스크롤 관성 루프는 `ScrollMode.INFINITE_SCROLL` 분기를 기존 `ScrollMode.NORMAL_SCROLL` 분기와 나란히 추가하면 됨.
+> - **`scheduleGuidelineHide()`**: 이미 TouchpadWrapper 내부에 구현됨 — 재활용 가능.
+> - **`ScrollConstants.kt`**: `SCROLL_STOP_THRESHOLD_MS`, `SCROLL_GUIDELINE_HIDE_DELAY_MS` 등 관련 상수 이미 정의됨. 관성 감쇠 계수는 이 파일에 추가할 것.
+> - **HorizontalPager 제스처 충돌 방지**: `StandardModePage.kt`에서 스크롤 모드 활성 시 `userScrollEnabled = false` + 부모 Box에 `PointerEventPass.Initial` Move 이벤트 선제 소비 구현됨 — 무한 스크롤 모드에서도 동일하게 적용됨 (`touchpadState.scrollMode != ScrollMode.OFF` 조건).
 
 **목표**: 관성 기반 무한 스크롤 모드 구현 + ScrollGuideline 무한 스크롤 색상 및 속도 비례 강도 추가 (Standard 모드 전용)
 
@@ -295,6 +356,10 @@ TouchpadWrapper
 
 > **⚠️ Phase 4.3.1 변경사항**: `MoveMode.FREE` / `MoveMode.RIGHT_ANGLE` enum 및 MoveModeButton 전환 로직은 이미 구현됨. `TouchpadState.moveMode`로 상태 관리. 이 Phase에서는 `DeltaCalculator`에 축 잠금 알고리즘 추가와 `TouchpadWrapper`에서 `moveMode` 반영에 집중.
 
+> **⚠️ Phase 4.3.3 변경사항**: `TouchpadWrapper.kt`의 커서 이동 분기는 `else { ... }` 블록 (스크롤 모드가 아닌 경우). 직각 이동 로직은 이 `else` 블록 안의 `finalDelta` 계산 이후에 `latestState.moveMode == MoveMode.RIGHT_ANGLE` 체크를 추가하면 됨. `latestState`는 `rememberUpdatedState`로 이미 제공됨.
+
+> **⚠️ Phase 4.3.3 추가 변경사항**: `StandardModePage.kt`의 `Page1TouchpadActions`가 `touchpadState: TouchpadState`, `onTouchpadStateChange: (TouchpadState) -> Unit` 파라미터를 받는 구조로 변경됨. `touchpadState`는 `StandardModePage` 레벨에서 관리됨. 이 Phase에서 직각 이동은 `TouchpadWrapper` 내부에서 `latestState.moveMode`만 참조하므로 상위 구조 변경 불필요.
+
 **목표**: X축 또는 Y축으로만 커서를 이동하는 축 잠금 알고리즘
 
 **개발 기간**: 0.5-1일
@@ -338,6 +403,10 @@ TouchpadWrapper
 > - 버튼 너비 6등분 → 5등분 변경 (DPI/ScrollSensitivity 동일 슬롯 공유).
 > - disabled 투명도(alpha 0.4f) 제거됨 — 모든 버튼 항상 alpha 1f.
 
+> **⚠️ Phase 4.3.3 변경사항**: `TouchpadWrapper.kt`의 커서 이동 `else` 분기에서 `finalDelta` 산출 후 `latestState.dpiLevel.multiplier`를 곱한 뒤 `coerceIn(-127f, 127f)` 적용. `latestState`는 `rememberUpdatedState`로 이미 제공됨.
+
+> **⚠️ Phase 4.3.3 추가 변경사항**: `StandardModePage.kt`의 `Page1TouchpadActions`가 파라미터로 `touchpadState`/`onTouchpadStateChange`를 받는 구조로 변경됨. DPI 상태는 `TouchpadWrapper` 내부에서 `latestState.dpiLevel`로 접근하므로 추가 변경 불필요.
+
 **목표**: 터치패드 커서 감도를 3단계로 조절하는 DPI 시스템
 
 **개발 기간**: 0.5일
@@ -378,7 +447,12 @@ TouchpadWrapper
 
 > **⚠️ Phase 4.3.2 변경사항**: `ControlButtonContainer.kt`의 색상 상수는 여전히 private. 아이콘 헬퍼 함수(`dpiButtonIcon`, `scrollModeButtonIcon`, `scrollSensitivityButtonIcon`)도 private으로 추가됨. 색상을 `TouchpadColors.kt`로 추출 시 아이콘 헬퍼는 ControlButtonContainer에 유지하면 됨.
 
-> **⚠️ Phase 4.3.3 변경사항**: `ScrollGuideline.kt` 신규 생성됨. `#84E268`(초록), `#F32121`(빨강) 색상 상수가 이미 `ScrollGuideline.kt` 내부에 정의되어 있을 수 있음 → `TouchpadColors.kt` 추출 시 `ScrollGuideline.kt`의 색상도 함께 이동하여 단일 소스로 관리.
+> **⚠️ Phase 4.3.3 변경사항**: `ScrollGuideline.kt` 신규 생성됨. `ScrollGuidelineColor = Color(0xFF84E268)` (초록) 상수가 `ScrollGuideline.kt` 내부에 private로 정의됨. `TouchpadColors.kt` 추출 시 이 색상도 함께 이동하여 단일 소스로 관리. Phase 4.3.4에서 무한 스크롤 빨간색 추가 시 `ScrollGuideline`에 `scrollMode` 파라미터를 추가해 내부에서 색상 분기 구현.
+
+> **⚠️ Phase 4.3.3 추가 변경사항**:
+> - `ScrollGuideline.kt`는 등간격 다중 선 패턴으로 구현됨 (단일 선이 아님). `DrawScope.rotate()` 기반 축 전환 회전 애니메이션 포함.
+> - `TouchpadWrapper.kt`의 테두리 Modifier 적용 시 기존 `.clip(RoundedCornerShape(5.dp))` 위치에 주의. 현재 `CORNER_RADIUS = 5.dp`.
+> - `StandardModePage.kt`에서 스크롤 모드 활성 시 부모 Box에 `PointerEventPass.Initial` Move 이벤트 선제 소비가 적용됨. 테두리 관련 Modifier는 `TouchpadWrapper` 내부에 적용하므로 충돌 없음.
 
 **목표**: 현재 활성 모드 조합에 따라 터치패드 테두리를 단색 또는 좌→우 그라데이션으로 표시
 
