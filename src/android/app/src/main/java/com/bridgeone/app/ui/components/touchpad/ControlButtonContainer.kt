@@ -41,9 +41,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalView
@@ -345,7 +346,10 @@ private fun ControlButton(
             modifier = Modifier
                 .width(buttonWidth)
                 .height(buttonHeight)
-                .scale(scale)
+                .graphicsLayer {
+                    scaleY = scale
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                }
                 .shadow(elevation = 6.dp, shape = RoundedCornerShape(
                     topStart = 0.dp,
                     topEnd = 0.dp,
@@ -383,7 +387,6 @@ private fun ControlButton(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
-            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = annotatedText,
                 color = ColorButtonText,
@@ -401,7 +404,7 @@ private fun ControlButton(
                 modifier = Modifier.size(iconSize),
                 tint = ColorButtonText.copy(alpha = alpha)
             )
-            Spacer(modifier = Modifier.height(1.dp))
+            Spacer(modifier = Modifier.height(6.dp))
         }
     }
 }
