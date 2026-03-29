@@ -1,6 +1,6 @@
 ---
 title: "BridgeOne Phase 4.3: 터치패드 고급 기능"
-description: "BridgeOne 프로젝트 Phase 4.3 - ControlButtonContainer, 스크롤 모드, 직각 이동, DPI 조절, 스크롤 가이드라인 구현"
+description: "BridgeOne 프로젝트 Phase 4.3 - ControlButtonContainer, 스크롤 모드+가이드라인, 직각 이동, DPI 조절, 테두리 색상 구현"
 tags: ["android", "touchpad", "scroll", "dpi", "control-buttons", "right-angle", "ui"]
 version: "v1.0"
 owner: "Chatterbones"
@@ -175,7 +175,7 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.3: 일반 스크롤 모드
+## Phase 4.3.3: 일반 스크롤 모드 + ScrollGuideline 기본 구현
 
 > **⚠️ Phase 4.3.1 변경사항**:
 > - 신규 파일 `ui/components/touchpad/TouchpadMode.kt`: `TouchpadState` 데이터 클래스에 모든 모드 상태 통합 관리 (ClickMode, MoveMode, ScrollMode, CursorMode, DpiLevel, ScrollSensitivity).
@@ -189,9 +189,9 @@ TouchpadWrapper
 > - ScrollSensitivityButton, ScrollModeButton은 ControlButtonContainer에서 이미 동작 → 이 Phase에서는 `TouchpadWrapper`에 스크롤 입력 변환 로직 추가와 `touchpadState` 연결에 집중.
 > - `ControlButton`은 `combinedClickable` 사용 (`onLongClick` 파라미터 지원).
 
-**목표**: 터치 드래그를 수직 스크롤 입력으로 변환하는 일반 스크롤 모드
+**목표**: 터치 드래그를 수직 스크롤 입력으로 변환하는 일반 스크롤 모드 구현 + ScrollGuideline Composable 기본 구현 (초록색)
 
-**개발 기간**: 1일
+**개발 기간**: 1-1.5일
 
 **세부 목표**:
 1. 스크롤 모드 상태 관리:
@@ -210,6 +210,16 @@ TouchpadWrapper
 4. 모드 전환 시 입력 정리:
    - 커서 모드 → 스크롤 모드: 진행 중 드래그 중단
    - 스크롤 모드 → 커서 모드: 스크롤 관성 정지
+5. `ScrollGuideline` Composable 기본 구현:
+   - 위치: 터치패드 내부 (테두리 제외)
+   - 표시 조건: 스크롤 모드에서 드래그 시작 시
+   - 숨김 조건: 스크롤 정지 판정 후 일정 시간 경과, 또는 모드 종료 시 즉시
+   - 일반 스크롤 색상: `#84E268` (초록)
+   - 방향 표시: 수직 스크롤 방향에 따른 화살표 또는 라인
+   - `TouchpadWrapper` 내부에서 `ScrollMode.NORMAL_SCROLL` 상태에 따라 표시/숨김
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/ScrollGuideline.kt`
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
@@ -217,6 +227,7 @@ TouchpadWrapper
 
 **참조 문서**:
 - `docs/android/component-touchpad.md` §1.3.1.3 (ScrollModeButton)
+- `docs/android/component-touchpad.md` §1.5 (스크롤 가이드라인)
 - `docs/android/technical-specification-app.md` §2.2 (터치패드 알고리즘)
 
 **검증**:
@@ -225,14 +236,17 @@ TouchpadWrapper
 - [ ] 감도 3단계 전환 동작
 - [ ] 더블탭으로 커서 이동 모드 복귀
 - [ ] PC에서 실제 스크롤 동작 확인 (하드웨어 E2E)
+- [ ] 드래그 시 초록색 가이드라인 표시
+- [ ] 스크롤 정지 후 가이드라인 자연스럽게 숨김
+- [ ] 모드 종료 시 가이드라인 즉시 숨김
 
 ---
 
-## Phase 4.3.4: 무한 스크롤 모드 + 관성
+## Phase 4.3.4: 무한 스크롤 모드 + 관성 + ScrollGuideline 색상 확장
 
-> **⚠️ Phase 4.3.1 변경사항**: `ScrollMode.INFINITE_SCROLL` enum과 ScrollModeButton 전환 로직은 이미 구현됨. `TouchpadState.lastScrollMode`로 마지막 스크롤 모드 기억. 스크롤 버튼 탭=토글(ON/OFF), 롱프레스=NORMAL↔INFINITE 전환. 이 Phase에서는 관성 알고리즘과 TouchpadWrapper 연동에 집중.
+> **⚠️ Phase 4.3.1 변경사항**: `ScrollMode.INFINITE_SCROLL` enum과 ScrollModeButton 전환 로직은 이미 구현됨. `TouchpadState.lastScrollMode`로 마지막 스크롤 모드 기억. 스크롤 버튼 탭=토글(ON/OFF), 롱프레스=NORMAL↔INFINITE 전환. 이 Phase에서는 관성 알고리즘과 TouchpadWrapper 연동, ScrollGuideline 무한 스크롤 확장에 집중.
 
-**목표**: 관성 기반 무한 스크롤 모드 구현 (Standard 모드 전용)
+**목표**: 관성 기반 무한 스크롤 모드 구현 + ScrollGuideline 무한 스크롤 색상 및 속도 비례 강도 추가 (Standard 모드 전용)
 
 **개발 기간**: 1-1.5일
 
@@ -249,17 +263,20 @@ TouchpadWrapper
 3. 햅틱 피드백:
    - 스크롤 단위마다 Light 햅틱
    - 관성 감속 시 점진적으로 햅틱 간격 증가
-4. 가이드라인 색상 구분:
-   - 일반 스크롤: `#84E268` (초록)
-   - 무한 스크롤: `#F32121` (빨강)
+4. ScrollGuideline 무한 스크롤 확장:
+   - 무한 스크롤 색상: `#F32121` (빨강) — `ScrollMode`에 따라 초록/빨강 자동 전환
+   - 스크롤 속도에 비례하는 시각적 강도 (관성 중 강도 점진적 감소)
+   - 관성 중에도 가이드라인 유지, 관성 정지 후 숨김
 
 **수정 파일**:
 - `TouchpadWrapper.kt`
 - `DeltaCalculator.kt` (관성 계산 추가)
 - `TouchpadMode.kt`
+- `ScrollGuideline.kt` (무한 스크롤 색상 + 속도 비례 강도 추가)
 
 **참조 문서**:
 - `docs/android/component-touchpad.md` §1.3.1.3 (스크롤 모드 버튼)
+- `docs/android/component-touchpad.md` §1.5 (스크롤 가이드라인)
 - `docs/android/component-touchpad.md` §2.4 (스크롤 가이드라인 색상)
 
 **검증**:
@@ -267,7 +284,10 @@ TouchpadWrapper
 - [ ] 관성 감쇠로 자연스러운 정지
 - [ ] 관성 중 터치 시 즉시 정지
 - [ ] 감도 설정 적용
-- [ ] 빨간색 가이드라인 표시
+- [ ] 무한 스크롤 중 빨간색 가이드라인 표시
+- [ ] 스크롤 속도에 따라 가이드라인 강도 변화
+- [ ] 관성 감속 중 가이드라인 강도 점진적 감소
+- [ ] 일반 ↔ 무한 스크롤 전환 시 가이드라인 색상 즉시 반영
 
 ---
 
@@ -354,44 +374,11 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.7: 스크롤 가이드라인 시각적 피드백
-
-> **⚠️ Phase 4.3.1 변경사항**: `TouchpadState.scrollMode`로 현재 스크롤 모드 판별 가능 (`NORMAL_SCROLL` / `INFINITE_SCROLL`). 색상 상수 `ColorGreen`(#84E268), `ColorRed`(#F32121)은 `ControlButtonContainer.kt`에 private으로 정의되어 있으므로, 공용 색상이 필요하면 별도 상수 파일로 추출 필요.
-
-**목표**: 스크롤 방향을 시각적으로 표시하는 가이드라인 UI
-
-**개발 기간**: 0.5일
-
-**세부 목표**:
-1. `ScrollGuideline` Composable:
-   - 위치: 터치패드 내부 (테두리 제외)
-   - 표시 조건: 스크롤 모드에서 드래그 시작 시
-   - 숨김 조건: 스크롤 정지 판정 후 일정 시간 경과, 또는 모드 종료 시 즉시
-2. 색상:
-   - 일반 스크롤: `#84E268` (초록)
-   - 무한 스크롤: `#F32121` (빨강)
-3. 방향 표시:
-   - 수직 스크롤 방향에 따른 화살표 또는 라인 표시
-   - 스크롤 속도에 비례하는 시각적 강도
-
-**신규 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/ScrollGuideline.kt`
-
-**참조 문서**:
-- `docs/android/component-touchpad.md` §1.5 (스크롤 가이드라인)
-- `docs/android/component-touchpad.md` §2.4 (색상)
-
-**검증**:
-- [ ] 스크롤 모드 드래그 시 가이드라인 표시
-- [ ] 일반/무한 모드에 따른 색상 구분
-- [ ] 스크롤 정지 시 자연스러운 숨김
-- [ ] 모드 종료 시 즉시 숨김
-
----
-
-## Phase 4.3.8: 터치패드 테두리 모드 색상 표시
+## Phase 4.3.7: 터치패드 테두리 모드 색상 표시
 
 > **⚠️ Phase 4.3.2 변경사항**: `ControlButtonContainer.kt`의 색상 상수는 여전히 private. 아이콘 헬퍼 함수(`dpiButtonIcon`, `scrollModeButtonIcon`, `scrollSensitivityButtonIcon`)도 private으로 추가됨. 색상을 `TouchpadColors.kt`로 추출 시 아이콘 헬퍼는 ControlButtonContainer에 유지하면 됨.
+
+> **⚠️ Phase 4.3.3 변경사항**: `ScrollGuideline.kt` 신규 생성됨. `#84E268`(초록), `#F32121`(빨강) 색상 상수가 이미 `ScrollGuideline.kt` 내부에 정의되어 있을 수 있음 → `TouchpadColors.kt` 추출 시 `ScrollGuideline.kt`의 색상도 함께 이동하여 단일 소스로 관리.
 
 **목표**: 현재 활성 모드 조합에 따라 터치패드 테두리를 단색 또는 좌→우 그라데이션으로 표시
 
