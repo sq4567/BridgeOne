@@ -48,4 +48,18 @@ object ScrollConstants {
 
     /** 더블탭 인식 최대 간격 (ms) */
     const val DOUBLE_TAP_MAX_INTERVAL_MS = 300L
+
+    // ── 무한 스크롤 관성 (Phase 4.3.4) ──
+
+    /** 관성 지수 감쇠 시간 상수 (ms). 이 시간 후 속도가 약 37%(1/e)로 감소. 클수록 오래 지속 */
+    const val INFINITE_SCROLL_TIME_CONSTANT_MS = 800f
+
+    /** 관성 정지 임계 속도 (dp/ms). 이 속도 미만이 되면 관성 종료 */
+    const val INFINITE_SCROLL_MIN_VELOCITY_DP_MS = 0.08f
+
+    /** 관성 속도 샘플 윈도우 (ms). 이 시간 범위 내 이동량으로 초기 속도 계산 */
+    const val INFINITE_SCROLL_VELOCITY_WINDOW_MS = 100L
+
+    /** 무한 스크롤 진동 최대 기준 속도 (dp/ms). 이 속도 이상이면 진동 amplitude 최대(255) */
+    const val INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS = 2.0f
 }

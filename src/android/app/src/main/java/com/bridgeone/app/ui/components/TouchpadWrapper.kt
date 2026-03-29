@@ -1,5 +1,9 @@
 package com.bridgeone.app.ui.components
 
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -28,6 +32,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.common.ScrollConstants.DOUBLE_TAP_MAX_INTERVAL_MS
+import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS
+import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_MIN_VELOCITY_DP_MS
+import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_TIME_CONSTANT_MS
+import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_VELOCITY_WINDOW_MS
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_AXIS_DIAGONAL_DEAD_ZONE_DEG
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_AXIS_LOCK_DISTANCE_DP
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_HIDE_DELAY_MS
@@ -46,6 +54,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.exp
 
 /**
  * TouchpadWrapper Composable
@@ -57,6 +66,12 @@ import kotlin.math.atan2
  * - [onTouchpadStateChange] 파라미터 추가 (더블탭으로 스크롤 모드 종료)
  * - 일반 스크롤 모드 (NORMAL_SCROLL): 축 확정 알고리즘 + 스크롤 프레임 전송
  * - ScrollGuideline 오버레이 표시
+ *
+ * Phase 4.3.4 업데이트:
+ * - 무한 스크롤 모드 (INFINITE_SCROLL): 드래그 중 속도 샘플 수집 → UP 시 관성 코루틴 시작
+ * - 관성: 프레임-레이트 독립적 지수 감쇠 (exp(-dt/τ)), τ = INFINITE_SCROLL_TIME_CONSTANT_MS
+ * - 관성 중 터치 DOWN → 즉시 관성 정지
+ * - ScrollGuideline에 scrollMode/scrollIntensity 전달 (무한 스크롤: 빨강 + 강도 감소)
  *
  * **스크롤 축 확정 알고리즘:**
  * 1. DOWN 시 scrollAxis = UNDECIDED, 누적 벡터 초기화
@@ -90,6 +105,8 @@ fun TouchpadWrapper(
     val density = LocalDensity.current
     val view = LocalView.current
     val coroutineScope = rememberCoroutineScope()
+    @Suppress("DEPRECATION")
+    val vibrator = remember { view.context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator }
 
     // rememberUpdatedState: pointerInput(Unit) 제스처 루프 재시작 없이 최신 상태 참조
     val latestState by rememberUpdatedState(touchpadState)
@@ -112,9 +129,13 @@ fun TouchpadWrapper(
     var guidelineVisible by remember { mutableStateOf(false) }
     var guidelineAxis by remember { mutableStateOf(ScrollAxis.VERTICAL) }
     var guidelineTarget by remember { mutableFloatStateOf(0f) }
+    var guidelineScrollMode by remember { mutableStateOf(ScrollMode.NORMAL_SCROLL) }
 
     // 가이드라인 자동 숨김 Job
     var guidelineHideJob by remember { mutableStateOf<Job?>(null) }
+
+    // 무한 스크롤 관성 Job (Phase 4.3.4)
+    var inertiaJob by remember { mutableStateOf<Job?>(null) }
 
     // 가이드라인 숨김 스케줄러
     fun scheduleGuidelineHide() {
@@ -143,6 +164,10 @@ fun TouchpadWrapper(
                     if (down.type != PointerEventType.Press) return@awaitEachGesture
                     down.changes.forEach { it.consume() }
 
+                    // 관성 중 터치 → 즉시 관성 정지 (Phase 4.3.4)
+                    inertiaJob?.cancel()
+                    inertiaJob = null
+
                     currentTouchPosition.value = down.changes.first().position
                     previousTouchPosition.value = currentTouchPosition.value
                     touchDownTime.value = System.currentTimeMillis()
@@ -156,6 +181,10 @@ fun TouchpadWrapper(
                     var axisAccumX = 0f   // 축 확정용 누적 X (px)
                     var axisAccumY = 0f   // 축 확정용 누적 Y (px)
                     var scrollAccum = 0f  // 스크롤 단위 누적 (소수점 보존)
+
+                    // 무한 스크롤 속도 샘플 (Phase 4.3.4)
+                    // 각 샘플: Pair(이동량 dp, 타임스탬프 ms)
+                    val velocitySamples = ArrayDeque<Pair<Float, Long>>()
 
                     onTouchEvent(PointerEventType.Press, currentTouchPosition.value, previousTouchPosition.value)
 
@@ -175,12 +204,14 @@ fun TouchpadWrapper(
                                 currentTouchPosition.value
                             )
 
-                            // ── 스크롤 모드 분기 ──
-                            if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL) {
+                            // ── 스크롤 모드 분기 (NORMAL_SCROLL / INFINITE_SCROLL 공통) ──
+                            if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL ||
+                                latestState.scrollMode == ScrollMode.INFINITE_SCROLL
+                            ) {
                                 val sensitivity = latestState.scrollSensitivity.multiplier
                                 val effectiveUnitPx = scrollUnitPx / sensitivity
 
-                                // 데드존 체크 (스크롤 모드에서도 동일 로직 재활용)
+                                // 데드존 체크
                                 if (!deadZoneEscaped.value) {
                                     val dist = (currentTouchPosition.value - touchDownPosition.value).getDistance()
                                     if (dist >= deadZoneThresholdPx) {
@@ -210,8 +241,10 @@ fun TouchpadWrapper(
                                         if (scrollAxis != ScrollAxis.UNDECIDED) {
                                             // 축 확정: 누적 초기화 (확정 이전 분 버림)
                                             scrollAccum = 0f
+                                            velocitySamples.clear()
                                             // 가이드라인 설정
                                             guidelineAxis = scrollAxis
+                                            guidelineScrollMode = latestState.scrollMode
                                             guidelineVisible = true
                                             scheduleGuidelineHide()
                                         }
@@ -227,7 +260,6 @@ fun TouchpadWrapper(
                                     }
 
                                     // 스크롤 단위 누적 (소수점 보존으로 단위 손실 방지)
-                                    // scrollAccum 양수 = 아래/오른쪽 방향
                                     scrollAccum += axisDelta
 
                                     while (abs(scrollAccum) >= effectiveUnitPx) {
@@ -235,7 +267,6 @@ fun TouchpadWrapper(
                                         scrollAccum -= direction * effectiveUnitPx
 
                                         // 스크롤 프레임 전송
-                                        // 손가락 아래 → 화면 내려감 → 음수 휠 (클래식 스크롤 방향)
                                         val wheelDelta = (-direction).toByte()
                                         val frame = when (scrollAxis) {
                                             ScrollAxis.VERTICAL ->
@@ -246,15 +277,36 @@ fun TouchpadWrapper(
                                         }
                                         ClickDetector.sendFrame(frame)
 
-                                        // 가이드라인 재표시 (타이머로 숨겨진 후 스크롤 재개 시)
+                                        // 가이드라인 재표시 및 타이머 리셋
                                         guidelineVisible = true
-                                        guidelineTarget += direction * SCROLL_GUIDELINE_STEP_DP
+                                        // 일반 스크롤: 단위별 스텝 이동 (무한 스크롤은 아래에서 연속 추적)
+                                        if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL) {
+                                            guidelineTarget += direction * SCROLL_GUIDELINE_STEP_DP
+                                        }
 
-                                        // 햅틱 피드백 (스크롤 틱: 가벼운 CLOCK_TICK)
-                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                        // 햅틱 피드백 (일반 스크롤: 단위별 틱)
+                                        if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                        }
 
-                                        // 가이드라인 숨김 타이머 리셋
                                         scheduleGuidelineHide()
+                                    }
+
+                                    // 무한 스크롤 전용: 가이드라인 연속 추적 + 속도 샘플 수집
+                                    if (latestState.scrollMode == ScrollMode.INFINITE_SCROLL) {
+                                        val now = System.currentTimeMillis()
+                                        // dp 단위로 변환 (px / density)
+                                        val axisDeltaDp = axisDelta / density.density
+                                        // 가이드라인이 손가락과 함께 연속 이동
+                                        guidelineTarget += axisDeltaDp
+                                        velocitySamples.addLast(Pair(axisDeltaDp, now))
+                                        // 윈도우 밖 오래된 샘플 제거
+                                        val cutoff = now - INFINITE_SCROLL_VELOCITY_WINDOW_MS
+                                        while (velocitySamples.isNotEmpty() &&
+                                            velocitySamples.first().second < cutoff
+                                        ) {
+                                            velocitySamples.removeFirst()
+                                        }
                                     }
                                 }
 
@@ -287,6 +339,22 @@ fun TouchpadWrapper(
                             }
                         }
 
+                        // 무한 스크롤: 속도 비례 연속 진동 (MOVE 이벤트당 1회)
+                        if (latestState.scrollMode == ScrollMode.INFINITE_SCROLL &&
+                            scrollAxis != ScrollAxis.UNDECIDED &&
+                            velocitySamples.size >= 2 &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        ) {
+                            val oldest = velocitySamples.first()
+                            val newest = velocitySamples.last()
+                            val totalDp = velocitySamples.sumOf { it.first.toDouble() }.toFloat()
+                            val timeSpanMs = (newest.second - oldest.second).toFloat()
+                            val speed = if (timeSpanMs > 0f) abs(totalDp / timeSpanMs) else 0f
+                            val amplitude = (speed / INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS * 255)
+                                .toInt().coerceIn(1, 255)
+                            vibrator.vibrate(VibrationEffect.createOneShot(20, amplitude))
+                        }
+
                         onTouchEvent(PointerEventType.Move, currentTouchPosition.value, previousTouchPosition.value)
                         moveEvent = awaitPointerEvent()
                     }
@@ -296,12 +364,13 @@ fun TouchpadWrapper(
                         previousTouchPosition.value = currentTouchPosition.value
                         currentTouchPosition.value = moveEvent.changes.first().position
 
-                        if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL) {
-                            // 스크롤 모드: 탭 판정 → 더블탭으로 스크롤 종료
+                        if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL ||
+                            latestState.scrollMode == ScrollMode.INFINITE_SCROLL
+                        ) {
                             if (!deadZoneEscaped.value) {
+                                // 탭 판정 → 더블탭으로 스크롤 종료
                                 val now = System.currentTimeMillis()
                                 if (now - lastScrollTapTime <= DOUBLE_TAP_MAX_INTERVAL_MS) {
-                                    // 더블탭 감지 → 스크롤 모드 종료
                                     latestOnStateChange(
                                         latestState.copy(
                                             scrollMode = ScrollMode.OFF,
@@ -310,9 +379,86 @@ fun TouchpadWrapper(
                                     )
                                     guidelineVisible = false
                                     guidelineHideJob?.cancel()
+                                    inertiaJob?.cancel()
+                                    inertiaJob = null
                                     lastScrollTapTime = 0L
                                 } else {
                                     lastScrollTapTime = now
+                                }
+                            } else if (latestState.scrollMode == ScrollMode.INFINITE_SCROLL &&
+                                scrollAxis != ScrollAxis.UNDECIDED
+                            ) {
+                                // 무한 스크롤 손가락 릴리즈 → 관성 시작 (Phase 4.3.4)
+                                val capturedAxis = scrollAxis
+                                val capturedSensitivity = latestState.scrollSensitivity.multiplier
+
+                                // 속도 샘플에서 초기 속도 계산 (dp/ms, 부호 포함)
+                                val initialVelocity = if (velocitySamples.size >= 2) {
+                                    val oldest = velocitySamples.first()
+                                    val newest = velocitySamples.last()
+                                    val totalDp = velocitySamples.sumOf { it.first.toDouble() }.toFloat()
+                                    val timeSpanMs = (newest.second - oldest.second).toFloat()
+                                    if (timeSpanMs > 0f) totalDp / timeSpanMs else 0f
+                                } else if (velocitySamples.size == 1) {
+                                    velocitySamples.first().first / 16f  // 1프레임(16ms) 기준
+                                } else {
+                                    0f
+                                }
+
+                                if (abs(initialVelocity) > INFINITE_SCROLL_MIN_VELOCITY_DP_MS) {
+                                    val capturedScrollUnitDp = SCROLL_UNIT_DISTANCE_DP
+
+                                    inertiaJob = coroutineScope.launch {
+                                        var velocity = initialVelocity
+                                        var inertiaScrollAccum = 0f
+                                        var lastTimestamp = System.currentTimeMillis()
+                                        val effectiveUnitDp = capturedScrollUnitDp / capturedSensitivity
+
+                                        while (abs(velocity) > INFINITE_SCROLL_MIN_VELOCITY_DP_MS) {
+                                            delay(16L)  // ~60fps
+
+                                            val now = System.currentTimeMillis()
+                                            val dt = (now - lastTimestamp).toFloat()
+                                            lastTimestamp = now
+
+                                            // 지수 감쇠: v(t) = v0 * e^(-dt/τ)
+                                            velocity *= exp(-dt / INFINITE_SCROLL_TIME_CONSTANT_MS)
+
+                                            // 속도 비례 연속 진동 (매 프레임)
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                                val amplitude = (abs(velocity) / INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS * 255)
+                                                    .toInt().coerceIn(1, 255)
+                                                vibrator.vibrate(VibrationEffect.createOneShot(20, amplitude))
+                                            }
+
+                                            // 이동량 누적 (dp 단위, velocity * dt = dp)
+                                            val moveDp = velocity * dt
+                                            inertiaScrollAccum += moveDp
+                                            // 가이드라인 연속 추적
+                                            guidelineTarget += moveDp
+
+                                            while (abs(inertiaScrollAccum) >= effectiveUnitDp) {
+                                                val dir = if (inertiaScrollAccum > 0) 1 else -1
+                                                inertiaScrollAccum -= dir * effectiveUnitDp
+
+                                                val wheelDelta = (-dir).toByte()
+                                                val frame = when (capturedAxis) {
+                                                    ScrollAxis.VERTICAL ->
+                                                        ClickDetector.createWheelFrame(wheelDelta)
+                                                    ScrollAxis.HORIZONTAL ->
+                                                        ClickDetector.createHorizontalWheelFrame(wheelDelta)
+                                                    ScrollAxis.UNDECIDED -> break
+                                                }
+                                                ClickDetector.sendFrame(frame)
+
+                                                guidelineVisible = true
+                                                scheduleGuidelineHide()
+                                            }
+                                        }
+
+                                        // 관성 종료: 숨김 스케줄
+                                        scheduleGuidelineHide()
+                                    }
                                 }
                             }
                         } else {
@@ -377,6 +523,7 @@ fun TouchpadWrapper(
             isVisible = guidelineVisible,
             scrollAxis = guidelineAxis,
             targetOffset = guidelineTarget,
+            scrollMode = guidelineScrollMode,
             modifier = Modifier.fillMaxSize()
         )
     }

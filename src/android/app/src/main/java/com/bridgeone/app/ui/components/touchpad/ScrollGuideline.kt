@@ -27,8 +27,11 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.sqrt
 
-/** 스크롤 가이드라인 선 색상 (일반 스크롤: 초록) */
-private val ScrollGuidelineColor = Color(0xFF84E268)
+/** 일반 스크롤 가이드라인 색상 (초록) */
+private val ScrollGuidelineColorNormal = Color(0xFF84E268)
+
+/** 무한 스크롤 가이드라인 색상 (빨강) */
+private val ScrollGuidelineColorInfinite = Color(0xFFF32121)
 
 /** 일반 선 두께 */
 private val GuidelineStrokeWidthThin = 1.dp
@@ -41,7 +44,7 @@ private const val MAJOR_LINE_INTERVAL = 4
 
 
 /**
- * 스크롤 가이드라인 Composable (Phase 4.3.3)
+ * 스크롤 가이드라인 Composable (Phase 4.3.3 ~ 4.3.4)
  *
  * 스크롤 모드에서 확정된 축 방향으로 **등간격 다중 선**을 표시합니다.
  * 스크롤 단위 전송 시마다 [targetOffset]이 업데이트되면 spring 애니메이션으로
@@ -54,12 +57,17 @@ private const val MAJOR_LINE_INTERVAL = 4
  * **선 패턴:**
  * - 간격: [SCROLL_GUIDELINE_SPACING_DP] dp
  * - 항상 수평선으로 그린 뒤 [scrollAxis]에 따라 회전 (VERTICAL=0°, HORIZONTAL=90°)
- * - 축 전환 시 90° 회전 tween 애니메이션 ([AXIS_ROTATION_DURATION_MS]ms)
+ * - 축 전환 시 90° 회전 tween 애니메이션 ([SCROLL_GUIDELINE_AXIS_ROTATION_MS]ms)
  * - 회전 중에도 화면을 완전히 채우기 위해 대각선 길이만큼 선을 확장
+ *
+ * **색상 (Phase 4.3.4):**
+ * - [scrollMode] == NORMAL_SCROLL → 초록(#84E268)
+ * - [scrollMode] == INFINITE_SCROLL → 빨강(#F32121)
  *
  * @param isVisible 가이드라인 표시 여부
  * @param scrollAxis 확정된 스크롤 축 (VERTICAL=수평선들, HORIZONTAL=수직선들)
  * @param targetOffset 목표 오프셋 (dp 단위, unbounded, 스크롤 틱마다 업데이트)
+ * @param scrollMode 현재 스크롤 모드 (색상 결정)
  * @param modifier 외부 Modifier
  */
 @Composable
@@ -67,6 +75,7 @@ fun ScrollGuideline(
     isVisible: Boolean,
     scrollAxis: ScrollAxis,
     targetOffset: Float,
+    scrollMode: ScrollMode = ScrollMode.NORMAL_SCROLL,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -114,6 +123,13 @@ fun ScrollGuideline(
                 )
             }
 
+            // 스크롤 모드에 따른 색상 선택
+            val guidelineColor = if (scrollMode == ScrollMode.INFINITE_SCROLL) {
+                ScrollGuidelineColorInfinite
+            } else {
+                ScrollGuidelineColorNormal
+            }
+
             Canvas(modifier = Modifier.fillMaxSize()) {
                 // 90° 시계 회전 시 Y↑ → X← 로 방향이 반전되므로 가로 스크롤은 부호 반전
                 val sign = if (scrollAxis == ScrollAxis.HORIZONTAL) -1f else 1f
@@ -140,7 +156,7 @@ fun ScrollGuideline(
                         val y = i * spacingPx + offsetPx
                         val isMajor = Math.floorMod(i - majorPhase, MAJOR_LINE_INTERVAL) == 0
                         drawLine(
-                            color = ScrollGuidelineColor,
+                            color = guidelineColor,
                             start = Offset(lineStartX, y),
                             end = Offset(lineEndX, y),
                             strokeWidth = if (isMajor) strokeThickPx else strokeThinPx
