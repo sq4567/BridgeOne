@@ -59,4 +59,9 @@ object ScrollConstants {
 
     /** 무한 스크롤 진동 최대 기준 속도 (dp/ms). 이 속도 이상이면 진동 amplitude 최대(255) */
     const val INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS = 2.0f
+
+    // ── 일반 스크롤 버튼 (Phase 4.3.x) ──
+
+    /** 일반 스크롤 버튼을 홀드할 때 스크롤 프레임 전송 간격 (ms). 값이 작을수록 빠름 */
+    const val NORMAL_SCROLL_BUTTON_INTERVAL_MS = 100L
 }

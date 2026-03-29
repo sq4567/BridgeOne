@@ -409,6 +409,10 @@ TouchpadWrapper
 
 > **⚠️ Phase 4.3.3 추가 변경사항**: `StandardModePage.kt`의 `Page1TouchpadActions`가 파라미터로 `touchpadState`/`onTouchpadStateChange`를 받는 구조로 변경됨. DPI 상태는 `TouchpadWrapper` 내부에서 `latestState.dpiLevel`로 접근하므로 추가 변경 불필요.
 
+> **⚠️ Phase 4.3.4.5 변경사항**: `TouchpadWrapper.kt` DOWN 이벤트에 이벤트 소비 체크 패턴 추가됨:
+> `if (down.changes.any { it.isConsumed }) return@awaitEachGesture`
+> `DpiAdjustPopup`을 TouchpadWrapper Box 내에 오버레이로 배치 시, 팝업 내 `pointerInput`에서 `event.changes.forEach { it.consume() }` 호출하면 TouchpadWrapper 제스처 처리가 자동 차단됨 — 별도 분기 로직 불필요.
+
 **목표**: 터치패드 커서 감도를 3단계 + 커스텀 값으로 조절하는 DPI 시스템
 
 **개발 기간**: 1일
@@ -494,7 +498,93 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.7: 터치패드 테두리 모드 색상 표시
+## Phase 4.3.7: 포인터 다이나믹스 (커서 가속 알고리즘)
+
+> **⚠️ Phase 4.3.6 변경사항**: `TouchpadState`에 `customDpiMultiplier: Float?` 필드 추가됨. DPI 유효 배율은 `customDpiMultiplier ?: dpiLevel.multiplier`로 계산됨. `DeltaCalculator.kt`에 DPI 곱수 적용 완료 (`coerceIn(-127f, 127f)` 포함). 포인터 다이나믹스 배율은 DPI 배율 **이후** 순서로 적용할 것 — 최종 delta = `rawDelta × dpiMultiplier × dynamicsMultiplier` → `coerceIn(-127f, 127f)`.
+
+**목표**: 손가락 이동 속도에 따라 커서 이동량이 동적으로 변하는 포인터 가속 알고리즘 구현. 유저가 알고리즘 종류와 파라미터를 조절하여 자신에게 맞는 커서 감도를 설정할 수 있게 합니다.
+
+**개발 기간**: 1-1.5일
+
+**쉬운 설명**: 실제 마우스처럼, 손가락을 느리게 움직이면 커서도 조금만 이동하고(정밀 작업에 유리), 손가락을 빠르게 움직이면 커서가 훨씬 더 멀리 이동합니다(화면 전체를 빠르게 횡단). 세 가지 가속 알고리즘 중 하나를 고르고, 필요하면 세부 파라미터를 조절해 자신의 손에 맞는 감도를 만들 수 있습니다.
+
+**알고리즘 종류**:
+
+| 알고리즘 | 설명 |
+|---------|------|
+| **None** | 가속 없음 (기본값) — 속도 무관하게 DPI 배율만 적용 |
+| **Windows EPP** | Windows "포인터 정밀도 향상"과 유사 — 느리면 배율 그대로, 빠르면 비선형(S커브) 가속 |
+| **Linear** | 속도에 비례하여 배율이 선형으로 증가 — 단순하고 예측 가능 |
+| **Custom** | 가속 강도·시작 속도·최대 배율을 직접 조절 (고급 사용자용) |
+
+**세부 목표**:
+1. `PointerDynamicsProfile` 데이터 모델 (`TouchpadMode.kt`에 추가):
+   - `DynamicsAlgorithm` enum: `NONE`, `WINDOWS_EPP`, `LINEAR`, `CUSTOM`
+   - `PointerDynamicsProfile` data class:
+     ```kotlin
+     data class PointerDynamicsProfile(
+         val algorithm: DynamicsAlgorithm = DynamicsAlgorithm.NONE,
+         val intensityFactor: Float = 1.0f,          // 가속 강도 (0.5 ~ 3.0)
+         val velocityThresholdDpMs: Float = 0.5f,    // 가속 시작 속도 임계값 (dp/ms)
+         val maxMultiplier: Float = 3.0f             // 최대 배율 상한 (1.0 ~ 5.0)
+     )
+     ```
+   - `TouchpadState`에 `dynamicsProfile: PointerDynamicsProfile = PointerDynamicsProfile()` 필드 추가
+2. 알고리즘 구현 (`DeltaCalculator.kt`):
+   - `applyPointerDynamics(rawDelta: Float, velocityDpMs: Float, profile: PointerDynamicsProfile): Float` 추가
+   - **NONE**: `rawDelta` 그대로 반환 (배율 = 1.0)
+   - **WINDOWS_EPP**: `velocity < threshold` → 배율 1.0, 이후 sigmoid 근사 S커브 증가
+     - `multiplier = 1.0 + intensityFactor × sigmoid((velocity / threshold − 1) × 2)`
+   - **LINEAR**: `multiplier = 1.0 + intensityFactor × max(0f, (velocity − threshold) / threshold)`
+   - **CUSTOM**: `intensityFactor`, `velocityThresholdDpMs`, `maxMultiplier` 파라미터 기반 자유 설정
+   - 모든 알고리즘: 최종 배율 `coerceIn(1.0f, profile.maxMultiplier)` 적용
+3. 속도 계산 및 `TouchpadWrapper.kt` 연동:
+   - Historical 터치 샘플 기반 순간 속도(`velocityDpMs`) 계산 (이미 Historical 샘플 처리 코드 존재 → 재활용)
+   - 적용 순서: `rawDelta × dpiMultiplier` 결과에 다이나믹스 배율 추가 적용 → `coerceIn(-127f, 127f)`
+   - 스크롤 모드·직각 이동 모드 중에는 다이나믹스 배율 적용 **제외** (커서 이동 모드에만 적용)
+4. 설정 UI — `DynamicsAdjustPopup` Composable (`DpiAdjustPopup`과 동일 패턴):
+   - **진입**: DPIControlButton 롱프레스로 `DpiAdjustPopup`이 열릴 때, 팝업 내 "다이나믹스 설정" 버튼으로 이 팝업으로 전환 (Phase 5+ 설정 화면 완성 전까지 임시 진입 방법)
+   - 팝업 내용:
+     - 알고리즘 선택 버튼 4개 (None / Windows EPP / Linear / Custom), 현재 선택에 강조 표시
+     - Custom 선택 시: 가속 강도 슬라이더 (0.5 ~ 3.0), 시작 속도 슬라이더 (0.1 ~ 2.0 dp/ms), 최대 배율 슬라이더 (1.0 ~ 5.0)
+     - 터치패드 드래그 시 현재 설정값으로 실시간 커서 반응 미리보기
+   - 터치패드 탭으로 확정 및 팝업 닫힘, 페이지 전환 시 미적용 취소
+5. 상태 저장:
+   - `DynamicsAlgorithm` 선택 및 Custom 파라미터 4개 → SharedPreferences 영속 저장
+   - 앱 재시작 후 마지막 설정 복원
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsAdjustPopup.kt`
+
+**수정 파일**:
+- `TouchpadMode.kt` (`DynamicsAlgorithm` enum + `PointerDynamicsProfile` data class + `TouchpadState` 확장)
+- `DeltaCalculator.kt` (`applyPointerDynamics()` 추가)
+- `TouchpadWrapper.kt` (속도 계산 + 다이나믹스 배율 적용)
+- `ControlButtonContainer.kt` 또는 `DpiAdjustPopup.kt` (다이나믹스 설정 진입 버튼 추가)
+
+**참조 문서**:
+- `docs/android/technical-specification-app.md` §2.2 (터치패드 알고리즘)
+- `docs/android/component-touchpad.md` §1.3.2.1 (DPIControlButton — 설정 진입 참고)
+- `docs/android/component-touchpad.md` §1.3.2.3 (DpiAdjustPopup — UI 패턴 참고)
+
+> **⚠️ Phase 4.3.8 참고**: `TouchpadWrapper.kt`에서 delta 적용 순서(`dpiMultiplier` → `dynamicsMultiplier`)가 테두리 색상 Modifier와 독립적으로 구현됨. 두 기능의 코드 위치 충돌 없음.
+
+**검증**:
+- [ ] None 알고리즘: 속도와 무관하게 일정한 커서 이동 (기존과 동일)
+- [ ] Windows EPP: 느린 드래그 시 정밀 이동, 빠른 드래그 시 커서 가속 확인
+- [ ] Linear: 속도 증가에 비례하여 커서 이동량 선형 증가 확인
+- [ ] Custom: 슬라이더 조절 시 실시간 반응 변화 확인
+- [ ] DPI 배율과 다이나믹스 배율 중첩 적용 정상 동작 (Low DPI + 가속 알고리즘 조합)
+- [ ] 최대 배율 상한 초과 방지 (`coerceIn` 확인)
+- [ ] 스크롤 모드 중 다이나믹스 배율 미적용 확인 (커서 이동 모드 전용)
+- [ ] SharedPreferences 저장 및 앱 재시작 후 알고리즘·파라미터 복원
+- [ ] PC에서 실제 커서 가속 동작 확인 (하드웨어 E2E — Phase 4.3.9에서 추가 검증)
+
+---
+
+## Phase 4.3.8: 터치패드 테두리 모드 색상 표시
+
+> **⚠️ Phase 4.3.7 변경사항**: `TouchpadMode.kt`에 `DynamicsAlgorithm` enum + `PointerDynamicsProfile` data class 추가됨. `TouchpadState`에 `dynamicsProfile: PointerDynamicsProfile` 필드 추가됨. 테두리 색상 결정 함수(`touchpadBorderBrush()`)는 `TouchpadState`를 입력으로 받지만 `dynamicsProfile` 필드는 테두리 색상 로직에 영향을 주지 않음 — 별도 처리 불필요.
 
 > **⚠️ Phase 4.3.2 변경사항**: `ControlButtonContainer.kt`의 색상 상수는 여전히 private. 아이콘 헬퍼 함수(`dpiButtonIcon`, `scrollModeButtonIcon`, `scrollSensitivityButtonIcon`)도 private으로 추가됨. 색상을 `TouchpadColors.kt`로 추출 시 아이콘 헬퍼는 ControlButtonContainer에 유지하면 됨.
 
@@ -506,6 +596,8 @@ TouchpadWrapper
 > - `ScrollGuideline.kt`는 등간격 다중 선 패턴으로 구현됨 (단일 선이 아님). `DrawScope.rotate()` 기반 축 전환 회전 애니메이션 포함.
 > - `TouchpadWrapper.kt`의 테두리 Modifier 적용 시 기존 `.clip(RoundedCornerShape(5.dp))` 위치에 주의. 현재 `CORNER_RADIUS = 5.dp`.
 > - `StandardModePage.kt`에서 스크롤 모드 활성 시 부모 Box에 `PointerEventPass.Initial` Move 이벤트 선제 소비가 적용됨. 테두리 관련 Modifier는 `TouchpadWrapper` 내부에 적용하므로 충돌 없음.
+
+> **⚠️ Phase 4.3.4.5 변경사항**: `TouchpadWrapper.kt` Box 내부에 `NormalScrollButtons` 오버레이가 추가됨 (NORMAL_SCROLL 모드 시 `Alignment.BottomStart`, `padding(start=8.dp, bottom=8.dp)`, 40dp×84dp 영역 점유). 테두리 Modifier는 Box 외곽에 적용되므로 내부 오버레이와 충돌 없음.
 
 **목표**: 현재 활성 모드 조합에 따라 터치패드 테두리를 단색 또는 좌→우 그라데이션으로 표시
 
@@ -561,7 +653,7 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.8: 터치패드 E2E 하드웨어 테스트
+## Phase 4.3.9: 터치패드 E2E 하드웨어 테스트
 
 **목표**: Phase 4.3에서 구현한 터치패드 기능 전체를 실기기 + 실제 PC 연결 환경에서 하나씩 검증하여 하드웨어 수준의 이상 없음을 확인
 
@@ -576,7 +668,7 @@ TouchpadWrapper
 
 ---
 
-### 4.3.8.1 커서 기본 이동
+### 4.3.9.1 커서 기본 이동
 
 | # | 테스트 항목 | 기대 결과 |
 |---|------------|---------|
@@ -585,7 +677,7 @@ TouchpadWrapper
 | 3 | 드래그 중 손가락 정지 | PC 커서 즉시 정지 |
 | 4 | 손가락을 떼면 커서 이동 없음 확인 | 터치업 후 커서 멈춤 |
 
-### 4.3.8.2 클릭 동작
+### 4.3.9.2 클릭 동작
 
 | # | 테스트 항목 | 기대 결과 |
 |---|------------|---------|
@@ -594,7 +686,7 @@ TouchpadWrapper
 | 7 | 롱탭 (500ms 이상 유지 후 떼기) | PC에서 우클릭 발생 |
 | 8 | 클릭 후 ClickModeButton으로 좌클릭 복귀 | 좌클릭 정상 동작 복귀 확인 |
 
-### 4.3.8.3 직각 커서 이동
+### 4.3.9.3 직각 커서 이동
 
 | # | 테스트 항목 | 기대 결과 |
 |---|------------|---------|
@@ -605,7 +697,7 @@ TouchpadWrapper
 | 13 | 손가락 떼고 재터치 후 다른 방향 드래그 | 이전 축 잠금 해제, 새 방향으로 주축 재확정 |
 | 14 | MoveModeButton으로 자유 이동 복귀 | 대각선 드래그 시 커서 대각선 이동 정상 동작 |
 
-### 4.3.8.4 DPI 조절
+### 4.3.9.4 DPI 조절
 
 | # | 테스트 항목 | 기대 결과 |
 |---|------------|---------|
@@ -614,7 +706,7 @@ TouchpadWrapper
 | 17 | DPIControlButton으로 높음(High) 선택 후 드래그 | PC 커서가 빠르게 이동 |
 | 18 | 앱 종료 후 재시작 | 마지막 DPI 설정이 복원됨 (SharedPreferences) |
 
-### 4.3.8.5 일반 스크롤 모드
+### 4.3.9.5 일반 스크롤 모드
 
 | # | 테스트 항목 | 기대 결과 |
 |---|------------|---------|
@@ -629,7 +721,17 @@ TouchpadWrapper
 | 27 | 스크롤 정지 후 가이드라인 자연 소멸 | 정지 800ms 후 가이드라인 페이드아웃 |
 | 28 | 터치패드 원탭으로 커서 이동 모드 복귀 | 스크롤 모드 OFF, 테두리 색상 파란색 복귀 |
 
-### 4.3.8.6 무한 스크롤 모드
+### 4.3.9.5.1 일반 스크롤 버튼 (Phase 4.3.4.5)
+
+| # | 테스트 항목 | 기대 결과 |
+|---|------------|---------|
+| 1 | 일반 스크롤 모드 ON 시 왼쪽 하단 위/아래 버튼 표시 확인 | 두 버튼 200ms 페이드인 |
+| 2 | 위 버튼 홀드 (1초 이상) | 위로 연속 스크롤 (PC에서 확인, 100ms 간격) |
+| 3 | 아래 버튼 홀드 (1초 이상) | 아래로 연속 스크롤 |
+| 4 | 버튼 홀드 중 터치패드 영역 제스처 없음 확인 | 클릭/드래그 미발생 |
+| 5 | 스크롤 모드 해제 후 버튼 페이드아웃 확인 | 버튼 사라짐 |
+
+### 4.3.9.6 무한 스크롤 모드
 
 | # | 테스트 항목 | 기대 결과 |
 |---|------------|---------|
@@ -641,7 +743,7 @@ TouchpadWrapper
 | 34 | ScrollModeButton 탭으로 일반 스크롤 복귀 | 무한 스크롤 OFF, 초록색 테두리 복귀 |
 | 35 | ScrollModeButton 탭으로 스크롤 OFF | 커서 이동 모드 복귀 |
 
-### 4.3.8.7 테두리 모드 색상
+### 4.3.9.7 테두리 모드 색상
 
 | # | 테스트 항목 | 기대 결과 |
 |---|------------|---------|
@@ -654,7 +756,7 @@ TouchpadWrapper
 | 42 | DEV 버튼으로 Essential 모드 전환 | 테두리 완전 비표시 |
 | 43 | Essential → Standard 복귀 | 테두리 즉시 재표시 (현재 모드 색상) |
 
-### 4.3.8.8 ControlButtonContainer 전반
+### 4.3.9.8 ControlButtonContainer 전반
 
 | # | 테스트 항목 | 기대 결과 |
 |---|------------|---------|
@@ -665,17 +767,33 @@ TouchpadWrapper
 | 48 | 모든 버튼의 아이콘 상태별 올바른 표시 확인 | 각 모드/상태에 맞는 아이콘 표시 |
 | 49 | 터치패드 영역과 ControlButtonContainer 동시 조작 | 제어 버튼 탭 시 커서 이동 없음 (입력 분리) |
 
+### 4.3.9.9 포인터 다이나믹스
+
+| # | 테스트 항목 | 기대 결과 |
+|---|------------|---------|
+| 50 | None 알고리즘으로 느린 드래그와 빠른 드래그 비교 | 두 속도에서 이동 거리가 속도에 정비례 (가속 없음) |
+| 51 | Windows EPP 알고리즘으로 느린 드래그 | 커서가 None보다 정밀하게 이동 (작은 배율 유지) |
+| 52 | Windows EPP 알고리즘으로 빠른 드래그 | 커서가 빠르게 가속되어 더 멀리 이동 |
+| 53 | Linear 알고리즘으로 점진적 속도 증가 | 드래그 속도에 비례하여 커서 이동 거리 선형 증가 |
+| 54 | Custom 파라미터 조절 후 드래그 | 조절한 값이 실시간으로 커서 반응에 반영됨 |
+| 55 | DPI Low + Windows EPP 조합 | 두 배율이 중첩 적용되어 느린 드래그 시 더욱 정밀 |
+| 56 | DPI High + Windows EPP 조합 | 두 배율 중첩 후 최대 배율 상한 초과 없음 (`coerceIn`) |
+| 57 | 스크롤 모드 중 빠른 드래그 | 가속 알고리즘 미적용 — 스크롤 속도는 감도 배율만 따름 |
+| 58 | 앱 종료 후 재시작 | 마지막 알고리즘·파라미터 설정 복원 확인 |
+
 ---
 
 **검증**:
-- [ ] 4.3.8.1 커서 기본 이동 항목 전체 통과 (1~4번)
-- [ ] 4.3.8.2 클릭 동작 항목 전체 통과 (5~8번)
-- [ ] 4.3.8.3 직각 커서 이동 항목 전체 통과 (9~14번)
-- [ ] 4.3.8.4 DPI 조절 항목 전체 통과 (15~18번)
-- [ ] 4.3.8.5 일반 스크롤 모드 항목 전체 통과 (19~28번)
-- [ ] 4.3.8.6 무한 스크롤 모드 항목 전체 통과 (29~35번)
-- [ ] 4.3.8.7 테두리 모드 색상 항목 전체 통과 (36~43번)
-- [ ] 4.3.8.8 ControlButtonContainer 전반 항목 전체 통과 (44~49번)
+- [ ] 4.3.9.1 커서 기본 이동 항목 전체 통과 (1~4번)
+- [ ] 4.3.9.2 클릭 동작 항목 전체 통과 (5~8번)
+- [ ] 4.3.9.3 직각 커서 이동 항목 전체 통과 (9~14번)
+- [ ] 4.3.9.4 DPI 조절 항목 전체 통과 (15~18번)
+- [ ] 4.3.9.5 일반 스크롤 모드 항목 전체 통과 (19~28번)
+- [ ] 4.3.9.5.1 일반 스크롤 버튼 항목 전체 통과 (1~5번)
+- [ ] 4.3.9.6 무한 스크롤 모드 항목 전체 통과 (29~35번)
+- [ ] 4.3.9.7 테두리 모드 색상 항목 전체 통과 (36~43번)
+- [ ] 4.3.9.8 ControlButtonContainer 전반 항목 전체 통과 (44~49번)
+- [ ] 4.3.9.9 포인터 다이나믹스 항목 전체 통과 (50~58번)
 
 ---
 
@@ -690,6 +808,7 @@ TouchpadWrapper
 | 일반 스크롤 | ❌ | ✅ (ScrollModeButton) |
 | 무한 스크롤 | ❌ | ✅ (ScrollModeButton) |
 | DPI 조절 | ❌ | ✅ (DPIControlButton) |
+| 포인터 다이나믹스 | ❌ | ✅ (None/EPP/Linear/Custom 알고리즘 선택) |
 | 스크롤 감도 | ❌ | ✅ (ScrollSensitivityButton) |
 | 멀티 커서 | ❌ | ⏳ Phase 4+ |
 | ControlButtonContainer | ❌ 숨김 | ✅ 표시 |
