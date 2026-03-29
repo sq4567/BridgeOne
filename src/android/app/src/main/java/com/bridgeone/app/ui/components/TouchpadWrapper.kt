@@ -5,10 +5,15 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.HapticFeedbackConstants
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -27,6 +32,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
@@ -41,6 +47,7 @@ import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_HIDE_DELAY_M
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_STEP_DP
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_STOP_THRESHOLD_MS
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_UNIT_DISTANCE_DP
+import com.bridgeone.app.ui.components.touchpad.NormalScrollButtons
 import com.bridgeone.app.ui.components.touchpad.ScrollAxis
 import com.bridgeone.app.ui.components.touchpad.ScrollGuideline
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
@@ -163,6 +170,8 @@ fun TouchpadWrapper(
                     // ── DOWN ──
                     val down = awaitPointerEvent()
                     if (down.type != PointerEventType.Press) return@awaitEachGesture
+                    // NormalScrollButtons 등 자식 컴포넌트가 이미 이벤트 소비 시 터치패드 처리 건너뜀
+                    if (down.changes.any { it.isConsumed }) return@awaitEachGesture
                     down.changes.forEach { it.consume() }
 
                     // 관성 중 터치 → 즉시 관성 정지 (Phase 4.3.4)
@@ -530,6 +539,18 @@ fun TouchpadWrapper(
             scrollMode = guidelineScrollMode,
             modifier = Modifier.fillMaxSize()
         )
+
+        // 일반 스크롤 버튼 (NORMAL_SCROLL 모드에서만 표시)
+        AnimatedVisibility(
+            visible = touchpadState.scrollMode == ScrollMode.NORMAL_SCROLL,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(200)),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 8.dp, bottom = 8.dp)
+        ) {
+            NormalScrollButtons()
+        }
     }
 }
 
