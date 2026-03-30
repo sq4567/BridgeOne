@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -189,8 +190,9 @@ fun DpiAdjustPopup(
             )
             Text(
                 text = "스와이프로 조절 · 탭하여 확정",
-                fontSize = 14.sp,
+                fontSize = 11.sp,
                 color = Color.White.copy(alpha = 0.6f),
+                textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 12.dp)
             )
         }
