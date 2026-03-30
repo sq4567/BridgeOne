@@ -321,6 +321,187 @@ void processMouseFrame(const bridge_frame_t* frame) {
 - **오류 프레임 폐기**: CRC 불일치 시 해당 프레임 폐기, 타임아웃에 의해 해당 단계 자동 재시도
 - **폴백 모드**: 오류 지속 시 절대 좌표 모드로 전환
 
+#### 2.4.6.1.1 HID Absolute Mouse Interface (절대좌표 모드)
+
+**개요:**
+절대좌표 모드는 터치패드 영역의 터치 위치를 PC 화면 좌표에 1:1로 매핑하는 기능입니다. 기존 상대좌표(Boot Mouse) 인터페이스와 별도의 HID Report ID를 사용하여, 하나의 HID Mouse 인터페이스 내에서 상대/절대 리포트를 구분합니다.
+
+**프로토콜 스펙:**
+```typescript
+// HID Absolute Mouse 프레임 구조 (7바이트)
+interface HidAbsoluteMouseFrame {
+  reportId: uint8;    // 리포트 ID (0x02: 절대좌표)
+  buttons: uint8;     // 버튼 상태 (좌/우/중앙 클릭)
+  absoluteX: uint16;  // X축 절대 좌표 (0~32767, Little-Endian)
+  absoluteY: uint16;  // Y축 절대 좌표 (0~32767, Little-Endian)
+  wheel: int8;        // 휠 이동 (스크롤)
+}
+```
+
+**좌표 범위 및 매핑:**
+- X축: 0 (화면 왼쪽 끝) ~ 32767 (화면 오른쪽 끝)
+- Y축: 0 (화면 위쪽 끝) ~ 32767 (화면 아래쪽 끝)
+- Android 터치 좌표 → 비율(0.0~1.0) → HID 절대좌표(0~32767) 변환
+- 변환 공식: `absoluteCoord = (touchPos / touchpadSize) * 32767`
+
+**Report ID 기반 리포트 구분:**
+- Report ID 0x01: 상대좌표 리포트 (기존 Boot Mouse와 동일한 데이터, Report ID 추가)
+- Report ID 0x02: 절대좌표 리포트
+
+**ESP-IDF TinyUSB 기반 구현 방식:**
+```c
+// HID Absolute Mouse 리포트 전송
+void processAbsoluteMouseFrame(uint8_t buttons, uint16_t absX, uint16_t absY, int8_t wheel) {
+    struct {
+        uint8_t buttons;
+        uint16_t x;
+        uint16_t y;
+        int8_t wheel;
+    } __attribute__((packed)) abs_report;
+
+    abs_report.buttons = buttons;
+    abs_report.x = absX;    // 0~32767
+    abs_report.y = absY;    // 0~32767
+    abs_report.wheel = wheel;
+
+    // Report ID 0x02로 절대좌표 리포트 전송
+    tud_hid_n_report(ITF_NUM_HID_MOUSE, REPORT_ID_ABS_MOUSE, &abs_report, sizeof(abs_report));
+}
+```
+
+**BridgeOne UART 프레임 확장:**
+절대좌표 전송 시 기존 8바이트 프레임 대신 확장 프레임을 사용합니다:
+```typescript
+// 절대좌표 UART 프레임 (8바이트)
+interface AbsoluteCoordinateFrame {
+  seq: uint8;          // [0] 시퀀스 번호 (0~255)
+  frameType: uint8;    // [1] 0x80 (절대좌표 프레임 식별자)
+  buttons: uint8;      // [2] 버튼 상태 (bit0=L, bit1=R, bit2=M)
+  absoluteX_H: uint8;  // [3] X좌표 상위 바이트
+  absoluteX_L: uint8;  // [4] X좌표 하위 바이트
+  absoluteY_H: uint8;  // [5] Y좌표 상위 바이트
+  absoluteY_L: uint8;  // [6] Y좌표 하위 바이트
+  wheel: int8;         // [7] 휠 이동 (스크롤)
+}
+```
+- `frameType == 0x80`: ESP32-S3가 절대좌표 프레임임을 식별
+- 기존 프레임(`frameType != 0x80`): 상대좌표로 처리 (하위 호환성 유지)
+
+**HID Report Descriptor (절대좌표 포함):**
+```c
+// 기존 상대좌표 + 절대좌표를 Report ID로 구분하는 통합 디스크립터
+uint8_t const desc_hid_mouse_report[] = {
+    HID_USAGE_PAGE(HID_USAGE_PAGE_DESKTOP),
+    HID_USAGE(HID_USAGE_DESKTOP_MOUSE),
+    HID_COLLECTION(HID_COLLECTION_APPLICATION),
+
+        // === Report ID 0x01: 상대좌표 (기존 Boot Mouse 호환) ===
+        HID_REPORT_ID(0x01),
+        HID_USAGE(HID_USAGE_DESKTOP_POINTER),
+        HID_COLLECTION(HID_COLLECTION_PHYSICAL),
+            // Buttons (3 bits)
+            HID_USAGE_PAGE(HID_USAGE_PAGE_BUTTON),
+            HID_USAGE_MIN(1), HID_USAGE_MAX(3),
+            HID_LOGICAL_MIN(0), HID_LOGICAL_MAX(1),
+            HID_REPORT_COUNT(3), HID_REPORT_SIZE(1),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_ABSOLUTE),
+            HID_REPORT_COUNT(1), HID_REPORT_SIZE(5),
+            HID_INPUT(HID_CONSTANT),
+            // X, Y (relative)
+            HID_USAGE_PAGE(HID_USAGE_PAGE_DESKTOP),
+            HID_USAGE(HID_USAGE_DESKTOP_X), HID_USAGE(HID_USAGE_DESKTOP_Y),
+            HID_LOGICAL_MIN(-127), HID_LOGICAL_MAX(127),
+            HID_REPORT_COUNT(2), HID_REPORT_SIZE(8),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_RELATIVE),
+            // Wheel (relative)
+            HID_USAGE(HID_USAGE_DESKTOP_WHEEL),
+            HID_LOGICAL_MIN(-127), HID_LOGICAL_MAX(127),
+            HID_REPORT_COUNT(1), HID_REPORT_SIZE(8),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_RELATIVE),
+        HID_COLLECTION_END,
+
+        // === Report ID 0x02: 절대좌표 (Absolute Digitizer) ===
+        HID_REPORT_ID(0x02),
+        HID_USAGE(HID_USAGE_DESKTOP_POINTER),
+        HID_COLLECTION(HID_COLLECTION_PHYSICAL),
+            // Buttons (3 bits)
+            HID_USAGE_PAGE(HID_USAGE_PAGE_BUTTON),
+            HID_USAGE_MIN(1), HID_USAGE_MAX(3),
+            HID_LOGICAL_MIN(0), HID_LOGICAL_MAX(1),
+            HID_REPORT_COUNT(3), HID_REPORT_SIZE(1),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_ABSOLUTE),
+            HID_REPORT_COUNT(1), HID_REPORT_SIZE(5),
+            HID_INPUT(HID_CONSTANT),
+            // X, Y (absolute, 0~32767)
+            HID_USAGE_PAGE(HID_USAGE_PAGE_DESKTOP),
+            HID_USAGE(HID_USAGE_DESKTOP_X), HID_USAGE(HID_USAGE_DESKTOP_Y),
+            HID_LOGICAL_MIN(0), HID_LOGICAL_MAX_N(32767, 2),
+            HID_REPORT_COUNT(2), HID_REPORT_SIZE(16),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_ABSOLUTE),
+            // Wheel (relative)
+            HID_USAGE(HID_USAGE_DESKTOP_WHEEL),
+            HID_LOGICAL_MIN(-127), HID_LOGICAL_MAX(127),
+            HID_REPORT_COUNT(1), HID_REPORT_SIZE(8),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_RELATIVE),
+        HID_COLLECTION_END,
+
+    HID_COLLECTION_END
+};
+```
+
+**최적화 전략:**
+- **즉시 응답**: 절대좌표는 델타 누적이 불필요하므로 터치 즉시 전송
+- **좌표 캐싱**: 동일 좌표 연속 전송 방지 (이전 좌표와 동일하면 전송 스킵)
+- **해상도 매핑**: 16비트 해상도(0~32767)로 PC 모니터 전체 해상도를 충분히 커버
+- **모드 전환 지연 최소화**: 상대↔절대 전환 시 1프레임 이내 적용
+
+**BIOS/UEFI 호환성 참고:**
+- Report ID를 사용하는 HID 디스크립터는 Boot Protocol과 호환되지 않음
+- BIOS/UEFI 환경에서는 상대좌표(Boot Mouse) 폴백 필요
+- ESP32-S3는 호스트의 Set_Protocol 요청에 따라 Boot/Report Protocol 자동 전환
+
+#### 2.4.6.1.2 줌 상태 Vendor CDC 메시지 (AbsolutePointingPad 연동)
+
+AbsolutePointingPad의 줌 기능이 활성화되면, Android는 줌 영역 정보를 Windows 서버로 전송하여 PC 화면 위에 줌 영역 박스 오버레이를 렌더링합니다.
+
+**통신 경로**:
+```
+Android → UART (0xFF 커스텀 명령) → ESP32 → Vendor CDC → Windows 서버
+```
+
+**Vendor CDC 명령 코드**: `VCDC_CMD_ZOOM_STATE (0x30)`
+
+**JSON Payload 구조**:
+```json
+{
+  "command": "ZOOM_STATE",
+  "zoom_level": 2.0,
+  "min_x": 8192,
+  "min_y": 8192,
+  "max_x": 24576,
+  "max_y": 24576
+}
+```
+
+| 필드 | 타입 | 범위 | 설명 |
+|------|------|------|------|
+| `zoom_level` | float | 1.0 ~ 8.0 | 줌 배율. 1.0 = 전체 화면 (오버레이 숨김) |
+| `min_x` | int | 0 ~ 32767 | 매핑 범위 X축 최솟값 |
+| `min_y` | int | 0 ~ 32767 | 매핑 범위 Y축 최솟값 |
+| `max_x` | int | 0 ~ 32767 | 매핑 범위 X축 최댓값 |
+| `max_y` | int | 0 ~ 32767 | 매핑 범위 Y축 최댓값 |
+
+**전송 시점**:
+- 줌 확정 시 (드래그 후 손 뗄 때): 1회 전송
+- 줌 드래그 중: 30Hz 이하로 스로틀링하여 실시간 전송 (PC 오버레이 미리보기용)
+- 줌 해제 시 (`zoom_level = 1.0`): 1회 전송 → Windows 서버가 오버레이 숨김
+
+**ESP32 중계 동작**:
+- ESP32는 Android로부터 UART로 수신한 줌 상태 커스텀 명령을 파싱하지 않고, Vendor CDC Frame으로 감싸서 Windows 서버로 그대로 전달 (투명 중계)
+- Windows 서버 미연결 시 (Essential 모드): 줌 상태 명령은 ESP32에서 폐기
+
+**Windows 서버 수신 처리**: `technical-specification-server.md` §3.6.1.4 참조
+
 #### 2.4.6.2 HID Boot Keyboard Interface 최적화
 
 **프로토콜 스펙:**
@@ -628,7 +809,18 @@ CONFIG_TINYUSB_CDC_ENABLED=y
 | `HID_POLLING_RATE` | 1 | ms | HID 인터페이스 폴링 간격 | USB HID Descriptor §0.1 |
 | `HID_BOOT_MOUSE_REPORT_SIZE` | 4 | byte | HID Boot Mouse 리포트 크기 | HID Boot Protocol §0.2 |
 | `HID_BOOT_KEYBOARD_REPORT_SIZE` | 8 | byte | HID Boot Keyboard 리포트 크기 | HID Boot Protocol §0.2 |
+| `HID_ABS_MOUSE_REPORT_SIZE` | 6 | byte | HID 절대좌표 마우스 리포트 크기 (Report ID 제외) | HID Report Protocol |
 | `USB_STABILIZATION_DELAY_MS` | 50 | ms | TinyUSB 초기화 후 안정화 지연 | TinyUSB 권장 사항 |
+
+**절대좌표 관련 상수:**
+
+| 상수명 | 값 | 단위 | 설명 | 적용 대상 |
+|--------|-----|------|------|----------|
+| `REPORT_ID_REL_MOUSE` | 0x01 | ID | 상대좌표 마우스 리포트 ID | HID Report Descriptor |
+| `REPORT_ID_ABS_MOUSE` | 0x02 | ID | 절대좌표 마우스 리포트 ID | HID Report Descriptor |
+| `ABS_COORDINATE_MAX` | 32767 | 정수 | 절대좌표 최대값 (16비트) | HID Absolute Report |
+| `ABS_COORDINATE_MIN` | 0 | 정수 | 절대좌표 최소값 | HID Absolute Report |
+| `ABS_FRAME_TYPE_MARKER` | 0x80 | uint8 | 절대좌표 UART 프레임 식별자 | UART 프레임 파싱 |
 
 ### 3.2 성능 임계값
 

@@ -49,30 +49,33 @@ updated: "2026-03-26"
 ```
 Standard 모드
 ├── Page 1: 터치패드 + Actions (Special Keys / Shortcuts / Macros)
-├── Page 2: 키보드 중심 (Modifiers / Navigation / Function / Shortcuts / Media / Lock)
-└── Page 3: Minecraft 특화 (Touchpad + DPad + Game Actions)
+├── Page 2: 절대좌표 패드 (AbsolutePointingPad + Zoom)
+├── Page 3: 키보드 중심 (Modifiers / Navigation / Function / Shortcuts / Media / Lock)
+└── Page 4: Minecraft 특화 (Touchpad + DPad + Game Actions)
 ```
 
 ---
 
 ## Phase 4.2.1: 페이지 네비게이션 시스템
 
-**목표**: Standard 모드에서 3페이지 간 스와이프 전환 및 인디케이터 구현
+**목표**: Standard 모드에서 4페이지 간 스와이프 전환 및 인디케이터 구현
 
 **개발 기간**: 0.5-1일
 
 **세부 목표**:
 1. `StandardModePage.kt` 완전 재작성:
-   - `HorizontalPager` (Compose Foundation) 기반 3페이지 컨테이너
-   - 페이지 인디케이터 (하단 닷 3개): Selected `#2196F3`, Unselected `#C2C2C2`
+   - `HorizontalPager` (Compose Foundation) 기반 4페이지 컨테이너
+   - 페이지 인디케이터 (하단 닷 4개): Selected `#2196F3`, Unselected `#C2C2C2`
    - 스와이프 제스처로 페이지 전환
 2. 페이지 구조:
    ```kotlin
-   HorizontalPager(pageCount = 3) { page ->
+   HorizontalPager(pageCount = 4) { page ->
        when (page) {
            0 -> Page1TouchpadActions(...)
-           1 -> Page2KeyboardCentric(...)  // Phase 4.4에서 구현, 임시 Placeholder
-           2 -> Page3Minecraft(...)         // Phase 4.5에서 구현, 임시 Placeholder
+           1 -> Page2AbsolutePointing(...)  // 절대좌표 패드, 임시 Placeholder
+           1 -> Page2AbsolutePointing(...)  // Phase 4.4에서 구현, 임시 Placeholder
+           2 -> Page3KeyboardCentric(...)   // Phase 4.5에서 구현, 임시 Placeholder
+           3 -> Page4Minecraft(...)          // Phase 4.6에서 구현, 임시 Placeholder
        }
    }
    ```
@@ -92,9 +95,9 @@ Standard 모드
 > **⚠️ Phase 4.1.3 구조 참고**: `StandardModePage`는 `BridgeOneApp.kt`의 `AppState.Active(bridgeMode)` 분기 안에서 렌더링됨. `bridgeMode: BridgeMode` 파라미터로 수신. 에뮬레이터 개발 시 DEV 버튼은 여전히 정상 작동하나, Phase 4.1.5 이후 스플래시 완료 시 항상 `WaitingForConnection`을 경유하므로 앱 최초 실행 후 DEV 버튼이 나타나기까지 스플래시 2.5초 + WaitingForConnection 진입 대기가 필요함.
 
 **검증**:
-- [x] 3페이지 스와이프 전환 동작 (HorizontalPager 구현)
+- [x] 3페이지 스와이프 전환 동작 (HorizontalPager 구현) → 4페이지로 확장 필요
 - [x] 인디케이터 닷 실시간 업데이트 (PageIndicator 구현)
-- [x] Page 2, 3은 Placeholder 텍스트 표시
+- [x] Page 2, 3은 Placeholder 텍스트 표시 → Page 2(절대좌표), 3(키보드), 4(Minecraft) Placeholder로 변경 필요
 - [x] 에뮬레이터 빌드 성공 (2026-03-27 완료)
 
 ---
@@ -262,7 +265,7 @@ Standard 모드
 - `StandardModePage.kt`: Shortcuts placeholder → `ShortcutsGrid()` 교체 (SpecialKeysGrid와 동일 패턴: chunked(2) + Row)
 - HID 실제 전송 연결은 Phase 4.3 이후 실기기 검증 시 추가 (현재 Log만 출력)
 
-> **⚠️ Phase 4.4.4 참고**: `ShortcutButton` + `ShortcutDef`는 `ui/components/`에 public으로 구현됨. Page 2 Shortcuts 패널(12개)에서 그대로 재사용 가능. 추가 단축키는 `ShortcutDef` 인스턴스만 새로 정의하면 됨.
+> **⚠️ Phase 4.5.4 참고**: `ShortcutButton` + `ShortcutDef`는 `ui/components/`에 public으로 구현됨. Page 3 Shortcuts 패널(12개)에서 그대로 재사용 가능. 추가 단축키는 `ShortcutDef` 인스턴스만 새로 정의하면 됨.
 
 **검증**:
 - [x] 8개 단축키 2열 그리드 렌더링
@@ -358,9 +361,9 @@ Standard 모드
 
 **설계 문서 반영**:
 - `docs/android/styleframe-page1.md` §2.2-B: 키칩 → 아이콘 표기 반영
-- `docs/android/styleframe-page2.md` §2.2-1: 키칩 → 아이콘 표기 반영
+- `docs/android/styleframe-page3.md` §2.2-1: 키칩 → 아이콘 표기 반영
 - `docs/android/component-design-guide-app.md` §2.3.2: ShortcutButton 시각/피드백에 아이콘 매핑 추가
-- `docs/development-plans/phase-4/phase-4-4-page2-keyboard-centric.md`: ShortcutDef 재사용 설명에 `icon` 필드 반영
+- `docs/development-plans/phase-4/phase-4-5-page3-keyboard-centric.md`: ShortcutDef 재사용 설명에 `icon` 필드 반영
 
 **검증**:
 - [x] 세 그룹(특수 키, 단축키, 매크로)이 스크롤 없이 화면에 표시
@@ -384,7 +387,8 @@ StandardModePage
 │   │       ├── Special Keys (8개, 2열 그리드)
 │   │       ├── Shortcuts (8개, ShortcutButton, 2열 그리드)
 │   │       └── Macros (3개, Disabled placeholder)
-│   ├── Page 2: Placeholder ← Phase 4.4에서 구현
-│   └── Page 3: Placeholder ← Phase 4.5에서 구현
-└── PageIndicator (닷 3개)
+│   ├── Page 2: Placeholder ← Phase 4.4에서 구현 (AbsolutePointingPad)
+│   ├── Page 3: Placeholder ← Phase 4.5에서 구현 (키보드)
+│   └── Page 4: Placeholder ← Phase 4.6에서 구현 (Minecraft)
+└── PageIndicator (닷 4개)
 ```

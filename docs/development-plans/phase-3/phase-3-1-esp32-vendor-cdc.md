@@ -101,6 +101,7 @@ typedef enum {
     VCDC_CMD_PING            = 0x10,  // Server→ESP: Keep-alive ping
     VCDC_CMD_PONG            = 0x11,  // ESP→Server: Keep-alive pong
     VCDC_CMD_MODE_NOTIFY     = 0x20,  // ESP→Server: 모드 변경 알림
+    VCDC_CMD_ZOOM_STATE      = 0x30,  // ESP→Server: AbsolutePointingPad 줌 상태
     VCDC_CMD_ERROR           = 0xFE,  // 양방향: 오류 응답
 } vendor_cdc_cmd_t;
 ```

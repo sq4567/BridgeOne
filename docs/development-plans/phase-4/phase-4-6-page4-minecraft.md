@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.5: Page 3 — Minecraft 특화 페이지"
-description: "BridgeOne 프로젝트 Phase 4.5 - Standard 모드 Page 3: Touchpad(시점) + DPad(이동) + 게임 액션 버튼"
+title: "BridgeOne Phase 4.6: Page 4 — Minecraft 특화 페이지"
+description: "BridgeOne 프로젝트 Phase 4.6 - Standard 모드 Page 4: Touchpad(시점) + DPad(이동) + 게임 액션 버튼"
 tags: ["android", "minecraft", "dpad", "game", "touchpad", "camera", "hotbar", "ui"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-03-26"
 ---
 
-# BridgeOne Phase 4.5: Page 3 — Minecraft 특화 페이지
+# BridgeOne Phase 4.6: Page 4 — Minecraft 특화 페이지
 
 **개발 기간**: 4-5일
 
@@ -21,7 +21,7 @@ updated: "2026-03-26"
 
 **선행 조건**: Phase 4.3 (터치패드 고급 기능) 완료
 
-**에뮬레이터 호환성**: Page 3 전체 레이아웃, DPad Sticky Hold 시각 피드백, 게임 액션 버튼 UI 에뮬레이터에서 개발 가능. WASD/마우스 실제 게임 내 반응 검증은 실기기에서 별도 수행.
+**에뮬레이터 호환성**: Page 4 전체 레이아웃, DPad Sticky Hold 시각 피드백, 게임 액션 버튼 UI 에뮬레이터에서 개발 가능. WASD/마우스 실제 게임 내 반응 검증은 실기기에서 별도 수행.
 
 ---
 
@@ -39,9 +39,9 @@ updated: "2026-03-26"
 - Sticky Hold 없음, 대각선 미지원, 드래그 방향 전환 미지원
 - **⚠️ DPad은 완전 새로 구현**: `EssentialBootCluster`의 DPad은 `KeyboardKeyButton` 조합이므로, Minecraft용 원형 DPad는 별도 컴포넌트(`DPad.kt`)로 신규 개발
 
-### 목표 구조 (styleframe-page3.md 기준)
+### 목표 구조 (styleframe-page4.md 기준)
 ```
-Page 3 — Minecraft
+Page 4 — Minecraft
 ├── 좌측 (50%)
 │   ├── Touchpad (카메라/시점) — 60% 높이
 │   │   └── ControlButtonContainer (Click/Move/Scroll + DPI)
@@ -55,14 +55,14 @@ Page 3 — Minecraft
 
 ---
 
-## Phase 4.5.1: Page 3 레이아웃 및 DPad 기본 구현
+## Phase 4.6.1: Page 4 레이아웃 및 DPad 기본 구현
 
 **목표**: 좌측 터치패드+DPad, 우측 액션 패널의 2열 레이아웃 구현
 
 **개발 기간**: 1.5일
 
 **세부 목표**:
-1. `Page3Minecraft` Composable:
+1. `Page4Minecraft` Composable:
    - 2열 Row: 좌측 50% / 우측 50% (한 손가락 조작 최적화)
    - 소형 화면: 좌 45% / 우 55% 허용
 2. 좌측 영역 (상하 배치):
@@ -87,17 +87,17 @@ Page 3 — Minecraft
    - `LazyColumn` 기반 세로 스크롤
    - 터치 타겟 ≥ 64dp (한 손가락 최적화)
    - 리플 비활성
-   > **⚠️ Phase 4.2.6 변경사항**: Page 1 Actions 패널 기준으로 LazyColumn 아이템 간격 4dp, 그리드 행 간격 4dp, 열 간격 6dp, 버튼 높이 36dp로 변경됨. Page 3 Actions 패널 구현 시 동일 패턴 적용 또는 별도 조정 필요.
+   > **⚠️ Phase 4.2.6 변경사항**: Page 1 Actions 패널 기준으로 LazyColumn 아이템 간격 4dp, 그리드 행 간격 4dp, 열 간격 6dp, 버튼 높이 36dp로 변경됨. Page 4 Actions 패널 구현 시 동일 패턴 적용 또는 별도 조정 필요.
 
 **신규 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/standard/Page3Minecraft.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/standard/Page4Minecraft.kt`
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/DPad.kt`
 
 **참조 문서**:
-- `docs/android/styleframe-page3.md` §2 (레이아웃 구조)
+- `docs/android/styleframe-page4.md` §2 (레이아웃 구조)
 - `docs/android/component-design-guide-app.md` §3 (DPad)
 
-> **⚠️ Phase 4.1.7 변경사항**: Page 3 레이아웃은 `AppState.Active` 박스 내 `padding(top=40dp, bottom=40dp)` 적용 영역 안에서 렌더링됨. DPad(하단 40%) 및 Hotbar 등 하단 요소 치수 계산 시 유효 화면 높이 = 전체 높이 − 80dp 기준 사용. DPad 터치 영역 등 새 레이아웃 상수 정의 시 `ui/common/LayoutConstants.kt`에 추가.
+> **⚠️ Phase 4.1.7 변경사항**: Page 4 레이아웃은 `AppState.Active` 박스 내 `padding(top=40dp, bottom=40dp)` 적용 영역 안에서 렌더링됨. DPad(하단 40%) 및 Hotbar 등 하단 요소 치수 계산 시 유효 화면 높이 = 전체 높이 − 80dp 기준 사용. DPad 터치 영역 등 새 레이아웃 상수 정의 시 `ui/common/LayoutConstants.kt`에 추가.
 
 > **⚠️ Phase 4.1.8 변경사항**: 커스텀 토스트 시스템 도입. `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)` 로 표시. 타입: `INFO`(파란색) · `SUCCESS`(초록색) · `WARNING`(주황색, 검은 텍스트) · `ERROR`(빨간색). 무제한 표시: `TOAST_DURATION_INFINITE`.
 
@@ -115,7 +115,7 @@ Page 3 — Minecraft
 
 ---
 
-## Phase 4.5.2: DPad 고급 기능 (Sticky Hold, 드래그 전환, 대각선)
+## Phase 4.6.2: DPad 고급 기능 (Sticky Hold, 드래그 전환, 대각선)
 
 **목표**: DPad Sticky Hold, 드래그 방향 전환, 대각선 입력 구현
 
@@ -162,7 +162,7 @@ Page 3 — Minecraft
 
 ---
 
-## Phase 4.5.3: Combat & Movement 버튼
+## Phase 4.6.3: Combat & Movement 버튼
 
 **목표**: 전투, 사용, 이동 보조 버튼 구현
 
@@ -190,11 +190,11 @@ Page 3 — Minecraft
    - 버튼 간 12dp 이상 간격 (오조작 방지)
 
 **수정 파일**:
-- `Page3Minecraft.kt`
+- `Page4Minecraft.kt`
 
 **참조 문서**:
-- `docs/android/styleframe-page3.md` §6.1 (Combat & Use)
-- `docs/android/styleframe-page3.md` §4 (Movement 보조 버튼)
+- `docs/android/styleframe-page4.md` §6.1 (Combat & Use)
+- `docs/android/styleframe-page4.md` §4 (Movement 보조 버튼)
 
 **검증**:
 - [ ] Attack 길게 누르기 → 지속 공격 동작
@@ -204,7 +204,7 @@ Page 3 — Minecraft
 
 ---
 
-## Phase 4.5.4: Inventory/Utility 및 Hotbar
+## Phase 4.6.4: Inventory/Utility 및 Hotbar
 
 **목표**: 인벤토리, 유틸리티, 핫바 버튼 구현
 
@@ -229,11 +229,11 @@ Page 3 — Minecraft
    - 높이 제약: Utility 그룹 우선 스크롤
 
 **수정 파일**:
-- `Page3Minecraft.kt`
+- `Page4Minecraft.kt`
 
 **참조 문서**:
-- `docs/android/styleframe-page3.md` §6.3 (Inventory/Utility)
-- `docs/android/styleframe-page3.md` §6.4 (Hotbar)
+- `docs/android/styleframe-page4.md` §6.3 (Inventory/Utility)
+- `docs/android/styleframe-page4.md` §6.4 (Hotbar)
 
 **검증**:
 - [ ] 인벤토리(E) 탭 → PC에서 인벤토리 열림
@@ -243,10 +243,10 @@ Page 3 — Minecraft
 
 ---
 
-## Phase 4.5 완료 후 Page 3 구조
+## Phase 4.6 완료 후 Page 4 구조
 
 ```
-Page 3 — Minecraft Specialized
+Page 4 — Minecraft Specialized
 ├── 좌측 (50%)
 │   ├── Touchpad (60% 높이)
 │   │   ├── ControlButtonContainer (Click/Move/Scroll/DPI)

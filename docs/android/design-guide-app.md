@@ -1081,9 +1081,11 @@ graph TD
   - `styleframe-connection-waiting.md`
 - Essential 페이지: BIOS/UEFI, BitLocker PIN, 로그인 화면, UAC Secure Desktop 등 Windows 서버 미연결 상태에서 표시되는 최소 입력 전용 페이지
   - `styleframe-essential.md`
-- 기본 홈/터치패드 페이지: 좌측 Touchpad, 우측 특수 키/키 조합/매크로 패널로 구성된 메인 조작 페이지
+- Page 1 — 기본 홈/터치패드 페이지: 좌측 Touchpad, 우측 특수 키/키 조합/매크로 패널로 구성된 메인 조작 페이지
   - `styleframe-page1.md`
-키보드/작업 페이지: 키보드 조작 중심 페이지로, 네비게이션/에디팅/펑션/모디파이어/단축키/미디어/락키 등 제공
+- Page 2 — 절대좌표 패드 페이지: AbsolutePointingPad 전용 페이지. 터치 위치가 곧 PC 커서 위치가 되는 절대좌표 포인팅 + 줌 기능 제공
   - `styleframe-page2.md`
-- Minecraft 특화 페이지: Minecraft 플레이에 최적화된 D패드와 게임 버튼을 제공하는 페이지
+- Page 3 — 키보드/작업 페이지: 키보드 조작 중심 페이지로, 네비게이션/에디팅/펑션/모디파이어/단축키/미디어/락키 등 제공
   - `styleframe-page3.md`
+- Page 4 — Minecraft 특화 페이지: Minecraft 플레이에 최적화된 D패드와 게임 버튼을 제공하는 페이지
+  - `styleframe-page4.md`
