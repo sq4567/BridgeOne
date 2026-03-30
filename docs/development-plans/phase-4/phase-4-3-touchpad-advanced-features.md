@@ -581,26 +581,29 @@ TouchpadWrapper
    ```
 
 4. **기존 코드 마이그레이션**:
-   - `ControlButtonContainer.kt`의 `Icon(Icons.xxx)` 호출 → `AppIcon(AppIcons.xxx)` 로 교체
-   - `DpiAdjustPopup.kt` 내 아이콘 → 동일하게 교체
-   - 이후 Phase에서 새로 추가되는 아이콘은 처음부터 `AppIcons`에 등록 후 사용
+   - `NormalScrollButtons.kt`의 `Icon(Icons.Default.KeyboardArrowUp/Down)` → `AppIcon(AppIcons.ScrollUp/Down)` 교체
+     - `ScrollHoldButton` 파라미터: `ImageVector` → `AppIconDef`
+   - `ControlButtonContainer.kt`: `Icons.*` 미사용 (커스텀 `R.drawable.*` 사용) — 마이그레이션 불해당
+   - `DpiAdjustPopup.kt`: 아이콘 없음 — 마이그레이션 불해당
+   - 이후 Phase에서 새로 추가되는 Material Icons는 처음부터 `AppIcons`에 등록 후 사용
 
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/common/AppIcons.kt`
 
 **수정 파일**:
-- `ControlButtonContainer.kt` (아이콘 참조 교체)
-- `DpiAdjustPopup.kt` (아이콘 참조 교체)
+- `NormalScrollButtons.kt` (Icons.Default → AppIcons 교체)
 
 **검증**:
-- [ ] `AppIcons.kt` 단일 파일에서 모든 아이콘 정의 확인
-- [ ] `AppIcon()` 래퍼로 기존 `Icon()` 직접 호출 대체 확인
-- [ ] 기존 화면에서 아이콘 표시 이상 없음 (시각적 회귀 없음)
-- [ ] 새 아이콘 추가 시 `AppIcons.kt`만 수정하면 되는 구조 확인
+- [x] `AppIcons.kt` 단일 파일에서 모든 아이콘 정의 확인
+- [x] `AppIcon()` 래퍼로 기존 `Icon()` 직접 호출 대체 확인 (NormalScrollButtons.kt)
+- [x] 기존 화면에서 아이콘 표시 이상 없음 (시각적 회귀 없음)
+- [x] 새 아이콘 추가 시 `AppIcons.kt`만 수정하면 되는 구조 확인
 
 ---
 
 ## Phase 4.3.8: 포인터 다이나믹스 (커서 가속 알고리즘)
+
+> **⚠️ Phase 4.3.7 변경사항**: `AppIcons.kt` 신규 (`ui/common/`). `AppIconDef` 데이터 모델, `AppIcons` 중앙 객체, `AppIcon()` 래퍼 Composable 모두 포함. 다이나믹스 프리셋 버튼 구현 시 `Icons.*` 직접 사용 금지 — `AppIcons.DynamicsOff / DynamicsPrecision / DynamicsStandard / DynamicsFast` 를 `AppIcon(def = ...)` 으로 렌더링할 것. `NormalScrollButtons.kt`는 이미 `AppIcons.ScrollUp / ScrollDown` 으로 마이그레이션 완료됨.
 
 > **⚠️ Phase 4.3.6 변경사항**: `TouchpadState`에 `customDpiMultiplier: Float?` 필드 및 `effectiveDpiMultiplier` 프로퍼티 추가됨. DPI 유효 배율은 `effectiveDpiMultiplier` (`customDpiMultiplier ?: dpiLevel.multiplier`)로 계산됨. DPI 곱수는 `TouchpadWrapper.kt`의 커서 이동 `else` 분기에서 `axisLockedDelta × effectiveDpiMultiplier` → `coerceIn(-127f, 127f)`로 적용됨 (MOVE 및 UP 이벤트 모두). 포인터 다이나믹스 배율은 DPI 배율 **이후** 순서로 적용할 것 — 최종 delta = `rawDelta × dpiMultiplier × dynamicsMultiplier` → `coerceIn(-127f, 127f)`.
 >

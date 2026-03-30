@@ -7,10 +7,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.Icon
+import com.bridgeone.app.ui.common.AppIconDef
+import com.bridgeone.app.ui.common.AppIcon
+import com.bridgeone.app.ui.common.AppIcons
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -21,7 +20,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -54,12 +52,12 @@ fun NormalScrollButtons(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         ScrollHoldButton(
-            icon = Icons.Default.KeyboardArrowUp,
+            icon = AppIcons.ScrollUp,
             contentDescription = "위로 스크롤",
             wheelDelta = 1.toByte()
         )
         ScrollHoldButton(
-            icon = Icons.Default.KeyboardArrowDown,
+            icon = AppIcons.ScrollDown,
             contentDescription = "아래로 스크롤",
             wheelDelta = (-1).toByte()
         )
@@ -68,7 +66,7 @@ fun NormalScrollButtons(
 
 @Composable
 private fun ScrollHoldButton(
-    icon: ImageVector,
+    icon: AppIconDef,
     contentDescription: String,
     wheelDelta: Byte
 ) {
@@ -117,8 +115,8 @@ private fun ScrollHoldButton(
             },
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = icon,
+        AppIcon(
+            def = icon,
             contentDescription = contentDescription,
             tint = ScrollButtonIconColor,
             modifier = Modifier.size(28.dp)
