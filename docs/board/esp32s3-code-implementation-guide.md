@@ -631,11 +631,24 @@ uint8_t const desc_hid_keyboard_report[] = {
     HID_COLLECTION_END
 };
 
-// HID Boot Mouse Report Descriptor (§1.3.2 준수 - 4바이트 고정)
+// HID Mouse Report Descriptor (상대좌표 + 절대좌표, Report ID로 구분)
+// §1.3.2 준수 - Report ID 0x01: 상대좌표 (4바이트), Report ID 0x02: 절대좌표 (6바이트)
+//
+// ⚠️ BIOS/UEFI 호환성 참고:
+// Report ID를 사용하면 Boot Protocol과 호환되지 않음.
+// 호스트가 Set_Protocol(Boot) 요청 시 상대좌표 4바이트 리포트로 폴백 필요.
+// tud_hid_set_protocol_cb() 콜백에서 프로토콜 모드를 추적하여 처리.
+
+#define REPORT_ID_REL_MOUSE  0x01  // 상대좌표 리포트 ID
+#define REPORT_ID_ABS_MOUSE  0x02  // 절대좌표 리포트 ID
+
 uint8_t const desc_hid_mouse_report[] = {
     HID_USAGE_PAGE(HID_USAGE_PAGE_DESKTOP),
     HID_USAGE(HID_USAGE_DESKTOP_MOUSE),
     HID_COLLECTION(HID_COLLECTION_APPLICATION),
+
+        // === Report ID 0x01: 상대좌표 (기존 Boot Mouse 호환) ===
+        HID_REPORT_ID(REPORT_ID_REL_MOUSE),
         HID_USAGE(HID_USAGE_DESKTOP_POINTER),
         HID_COLLECTION(HID_COLLECTION_PHYSICAL),
             // Buttons (3 bits: Left, Right, Middle)
@@ -644,24 +657,48 @@ uint8_t const desc_hid_mouse_report[] = {
             HID_LOGICAL_MIN(0), HID_LOGICAL_MAX(1),
             HID_REPORT_COUNT(3), HID_REPORT_SIZE(1),
             HID_INPUT(HID_DATA | HID_VARIABLE | HID_ABSOLUTE),
-            
             // Padding (5 bits)
             HID_REPORT_COUNT(1), HID_REPORT_SIZE(5),
             HID_INPUT(HID_CONSTANT),
-            
             // X, Y (relative)
             HID_USAGE_PAGE(HID_USAGE_PAGE_DESKTOP),
             HID_USAGE(HID_USAGE_DESKTOP_X), HID_USAGE(HID_USAGE_DESKTOP_Y),
             HID_LOGICAL_MIN(-127), HID_LOGICAL_MAX(127),
             HID_REPORT_COUNT(2), HID_REPORT_SIZE(8),
             HID_INPUT(HID_DATA | HID_VARIABLE | HID_RELATIVE),
-            
             // Wheel (relative)
             HID_USAGE(HID_USAGE_DESKTOP_WHEEL),
             HID_LOGICAL_MIN(-127), HID_LOGICAL_MAX(127),
             HID_REPORT_COUNT(1), HID_REPORT_SIZE(8),
             HID_INPUT(HID_DATA | HID_VARIABLE | HID_RELATIVE),
         HID_COLLECTION_END,
+
+        // === Report ID 0x02: 절대좌표 (Absolute Mouse) ===
+        HID_REPORT_ID(REPORT_ID_ABS_MOUSE),
+        HID_USAGE(HID_USAGE_DESKTOP_POINTER),
+        HID_COLLECTION(HID_COLLECTION_PHYSICAL),
+            // Buttons (3 bits: Left, Right, Middle)
+            HID_USAGE_PAGE(HID_USAGE_PAGE_BUTTON),
+            HID_USAGE_MIN(1), HID_USAGE_MAX(3),
+            HID_LOGICAL_MIN(0), HID_LOGICAL_MAX(1),
+            HID_REPORT_COUNT(3), HID_REPORT_SIZE(1),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_ABSOLUTE),
+            // Padding (5 bits)
+            HID_REPORT_COUNT(1), HID_REPORT_SIZE(5),
+            HID_INPUT(HID_CONSTANT),
+            // X, Y (absolute, 0~32767)
+            HID_USAGE_PAGE(HID_USAGE_PAGE_DESKTOP),
+            HID_USAGE(HID_USAGE_DESKTOP_X), HID_USAGE(HID_USAGE_DESKTOP_Y),
+            HID_LOGICAL_MIN(0), HID_LOGICAL_MAX_N(32767, 2),
+            HID_REPORT_COUNT(2), HID_REPORT_SIZE(16),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_ABSOLUTE),
+            // Wheel (relative)
+            HID_USAGE(HID_USAGE_DESKTOP_WHEEL),
+            HID_LOGICAL_MIN(-127), HID_LOGICAL_MAX(127),
+            HID_REPORT_COUNT(1), HID_REPORT_SIZE(8),
+            HID_INPUT(HID_DATA | HID_VARIABLE | HID_RELATIVE),
+        HID_COLLECTION_END,
+
     HID_COLLECTION_END
 };
 ```
@@ -1627,7 +1664,55 @@ void sendMouseReport(const bridge_frame_t* frame) {
         .wheel = frame->wheel
     };
     
-    tud_hid_n_report(ITF_NUM_HID_MOUSE, 0, &mouse_report, sizeof(mouse_report));
+    tud_hid_n_report(ITF_NUM_HID_MOUSE, REPORT_ID_REL_MOUSE, &mouse_report, sizeof(mouse_report));
+}
+
+// 절대좌표 HID Mouse 리포트 전송
+void sendAbsoluteMouseReport(const bridge_frame_t* frame) {
+    if (!tud_hid_n_ready(ITF_NUM_HID_MOUSE)) {
+        return;  // 이전 리포트 전송 중
+    }
+
+    // 절대좌표 프레임에서 X, Y 좌표 추출 (Big-Endian → uint16)
+    uint16_t absX = ((uint16_t)frame->deltaX << 8) | (uint8_t)frame->deltaY;
+    uint16_t absY = ((uint16_t)frame->modifiers << 8) | frame->keyCode1;
+
+    struct {
+        uint8_t buttons;
+        uint16_t x;
+        uint16_t y;
+        int8_t wheel;
+    } __attribute__((packed)) abs_report = {
+        .buttons = frame->buttons,
+        .x = absX,    // 0~32767
+        .y = absY,    // 0~32767
+        .wheel = frame->keyCode2  // 절대좌표 프레임의 wheel 위치
+    };
+
+    tud_hid_n_report(ITF_NUM_HID_MOUSE, REPORT_ID_ABS_MOUSE, &abs_report, sizeof(abs_report));
+}
+```
+
+**프레임 타입 판별 및 라우팅**:
+```c
+// §3.4 프레임 처리 로직에서 절대좌표/상대좌표 분기
+#define ABS_FRAME_TYPE_MARKER  0x80
+
+void processBridgeFrame(const bridge_frame_t* frame) {
+    // frame->buttons 필드(byte[1])를 프레임 타입 식별에 사용
+    // 절대좌표: byte[1] == 0x80, 상대좌표: byte[1] == 0x00~0x07
+    if (frame->buttons == ABS_FRAME_TYPE_MARKER) {
+        // 절대좌표 프레임 → 절대좌표 HID 리포트 전송
+        sendAbsoluteMouseReport(frame);
+    } else {
+        // 기존 상대좌표 프레임 → 마우스/키보드 분기
+        if (frame->buttons || frame->deltaX || frame->deltaY || frame->wheel) {
+            sendMouseReport(frame);
+        }
+        if (frame->modifiers || frame->keyCode1 || frame->keyCode2) {
+            sendKeyboardReport(frame);
+        }
+    }
 }
 ```
 

@@ -2015,7 +2015,7 @@ data class DPadState(
 
 ##### 2.3.2.7 Modifiers Bar 3단계 Sticky 구현 요구사항
 
-**목적:** Page 2의 Modifiers Bar(Ctrl/Shift/Alt/Win)에서 탭/더블탭/롱프레스 3단계 상호작용을 구현합니다.
+**목적:** Page 3의 Modifiers Bar(Ctrl/Shift/Alt/Win)에서 탭/더블탭/롱프레스 3단계 상호작용을 구현합니다.
 
 **3단계 상호작용 명세:**
 
@@ -2054,7 +2054,7 @@ enum class ModifierState {
 
 ##### 2.3.2.8 Media Controls 구현 요구사항
 
-**목적:** Page 2의 Media Controls(Play/Pause, Stop)에서 HID Consumer Control 키코드를 전송합니다.
+**목적:** Page 3의 Media Controls(Play/Pause, Stop)에서 HID Consumer Control 키코드를 전송합니다.
 
 **HID Consumer Usage 매핑:**
 | 버튼 | HID Consumer Usage | 코드 | 동작 |
@@ -2067,7 +2067,7 @@ enum class ModifierState {
 - Consumer Control 키코드는 별도 HID Report Type (Consumer Control) 사용
 - **구현 방안 A**: `BridgeFrame.keyCode1`에 특수 마커(0xFF 등) + `keyCode2`에 Consumer Usage 인코딩
 - **구현 방안 B**: 별도 Consumer Control 프레임 타입 정의
-- 구현 방안은 Phase 4.4.4 진행 시 확정
+- 구현 방안은 Phase 4.5.4 진행 시 확정
 
 **시각적 피드백:**
 - Play/Pause: 토글 상태에 따라 아이콘 전환 (`ic_play.xml` ↔ `ic_pause.xml`)
@@ -2075,7 +2075,7 @@ enum class ModifierState {
 
 ##### 2.3.2.9 Lock Keys HID LED 동기화 구현 요구사항
 
-**목적:** Page 2의 Lock Keys(CapsLock, NumLock, ScrollLock)를 PC의 실제 LED 상태와 동기화합니다.
+**목적:** Page 3의 Lock Keys(CapsLock, NumLock, ScrollLock)를 PC의 실제 LED 상태와 동기화합니다.
 
 **동기화 경로:**
 ```
@@ -2729,6 +2729,116 @@ object ExtendedFrameBuilder {
 
 ---
 
+### 2.10 절대좌표 패드 (AbsolutePointingPad) 기능 구현 요구사항
+
+> **컴포넌트 설계 명세**: UI 구조, 색상, 유저 플로우 등은 `component-design-guide-app.md` §4 참조
+
+#### 2.10.1 절대좌표 변환 알고리즘
+
+**개요:**
+AbsolutePointingPad의 PointingArea 내 터치 좌표를 PC 화면의 절대 위치(0~32767)로 변환하는 알고리즘입니다. 기존 터치패드의 상대좌표(델타) 방식과 달리, 목표 좌표 자체를 전송합니다.
+
+**터치 좌표 → 절대좌표 변환:**
+```kotlin
+// PointingArea 기준 좌표계에서 절대좌표 계산
+data class AbsoluteCoordinate(
+    val x: Int,  // 0~32767
+    val y: Int   // 0~32767
+)
+
+fun calculateAbsoluteCoordinate(
+    touchX: Float,        // 터치 X 좌표 (PointingArea 기준)
+    touchY: Float,        // 터치 Y 좌표 (PointingArea 기준)
+    areaWidth: Float,     // PointingArea 너비
+    areaHeight: Float     // PointingArea 높이
+): AbsoluteCoordinate {
+    // 1. 터치 좌표를 영역 내 비율로 변환 (0.0~1.0)
+    val ratioX = (touchX / areaWidth).coerceIn(0f, 1f)
+    val ratioY = (touchY / areaHeight).coerceIn(0f, 1f)
+
+    // 2. 비율을 HID 절대좌표 범위(0~32767)로 매핑
+    val absX = (ratioX * ABS_COORDINATE_MAX).toInt()
+    val absY = (ratioY * ABS_COORDINATE_MAX).toInt()
+
+    return AbsoluteCoordinate(absX, absY)
+}
+```
+
+**핵심 설계 원칙:**
+- PointingArea의 **테두리 안쪽 영역만** 좌표 계산에 사용
+- 영역 밖 터치는 가장 가까운 경계값(0 또는 32767)으로 클램핑
+- PointingArea의 가로/세로 비율과 PC 모니터 비율이 다를 수 있으나, 전체 범위를 1:1로 매핑 (스트레칭 방식)
+
+#### 2.10.2 절대좌표 프레임 생성
+
+**UART 프레임 구성:**
+```kotlin
+fun buildAbsoluteFrame(
+    seq: UByte,
+    buttons: UByte,
+    absCoord: AbsoluteCoordinate,
+    wheel: Byte
+): ByteArray {
+    val frame = ByteArray(PROTOCOL_FRAME_SIZE)  // 8바이트
+
+    frame[0] = seq.toByte()                              // 시퀀스 번호
+    frame[1] = ABS_FRAME_TYPE_MARKER.toByte()            // 0x80 (절대좌표 식별)
+    frame[2] = buttons.toByte()                           // 버튼 상태
+    frame[3] = ((absCoord.x shr 8) and 0xFF).toByte()   // X 상위 바이트
+    frame[4] = (absCoord.x and 0xFF).toByte()            // X 하위 바이트
+    frame[5] = ((absCoord.y shr 8) and 0xFF).toByte()   // Y 상위 바이트
+    frame[6] = (absCoord.y and 0xFF).toByte()            // Y 하위 바이트
+    frame[7] = wheel                                      // 휠 스크롤
+
+    return frame
+}
+```
+
+**프레임 식별 규칙:**
+- `frame[1] == 0x80`: 절대좌표 프레임 → ESP32-S3가 HID Absolute Report (Report ID 0x02)로 전송
+- `frame[1] != 0x80`: 기존 상대좌표 프레임 → ESP32-S3가 HID Relative Report (Report ID 0x01)로 전송
+- 기존 프레임의 `frame[1]`은 `buttons` 필드(0x00~0x07 범위)이므로 0x80과 충돌하지 않음
+
+#### 2.10.3 전송 최적화
+
+**동일 좌표 전송 방지:**
+```kotlin
+private var lastAbsX: Int = -1
+private var lastAbsY: Int = -1
+
+fun shouldTransmit(absCoord: AbsoluteCoordinate): Boolean {
+    if (absCoord.x == lastAbsX && absCoord.y == lastAbsY) {
+        return false  // 동일 좌표 → 전송 스킵
+    }
+    lastAbsX = absCoord.x
+    lastAbsY = absCoord.y
+    return true
+}
+```
+
+**터치 이벤트 처리:**
+- `ACTION_DOWN`: 최초 터치 → 즉시 절대좌표 전송 (커서가 해당 위치로 점프)
+- `ACTION_MOVE`: 드래그 → 실시간 절대좌표 전송 (커서가 손가락을 따라감)
+- `ACTION_UP`: 터치 종료 → 클릭 판정 후 전송 중단
+- 전송 주기: 기존 `TRANSMISSION_TARGET_FREQUENCY` (120Hz) 준수
+
+#### 2.10.4 클릭 감지
+
+절대좌표 패드에서의 클릭 감지는 기존 터치패드와 동일한 로직을 사용합니다:
+- 터치 지속시간 ≤ `CLICK_MAX_DURATION` (500ms)
+- 터치 이동량 ≤ `DEAD_ZONE_THRESHOLD` (5dp)
+- 조건 충족 시 버튼 프레임 전송 (좌클릭 또는 우클릭, 클릭 모드에 따라)
+
+#### 2.10.5 신규/수정 파일 목록
+
+| 파일 경로 | 변경 내용 |
+|-----------|----------|
+| `ui/components/AbsolutePointingPad.kt` | 신규: 절대좌표 패드 Composable |
+| `ui/utils/AbsoluteCoordinateCalculator.kt` | 신규: 터치→절대좌표 변환 유틸리티 |
+| `protocol/FrameBuilder.kt` | 수정: `buildAbsoluteFrame()` 추가 |
+
+---
+
 ## 3. 상수 및 임계값 정의
 
 ### 3.1 레이아웃 및 UI 상수
@@ -2821,6 +2931,11 @@ object ExtendedFrameBuilder {
 | `SCROLL_INERTIA_DECAY_RATE` | 0.95 | 계수 | 무한 스크롤 관성 감속 비율 | Infinite Scroll |
 | `GUIDELINE_LINE_SPACING` | 40 | dp | 스크롤 가이드라인 라인 간격 | Scroll Guideline |
 | `GUIDELINE_SYNC_MULTIPLIER` | 2.0 | 배수 | 가이드라인 속도 동기화 배율 | Scroll Guideline |
+| `ABS_COORDINATE_MAX` | 32767 | 정수 | 절대좌표 최대값 (HID 16비트) | Absolute Coordinate |
+| `ABS_COORDINATE_MIN` | 0 | 정수 | 절대좌표 최소값 | Absolute Coordinate |
+| `ABS_FRAME_TYPE_MARKER` | 0x80 | uint8 | 절대좌표 UART 프레임 식별자 | Absolute Frame Builder |
+| `REPORT_ID_REL_MOUSE` | 0x01 | ID | 상대좌표 마우스 리포트 ID | Protocol Frame |
+| `REPORT_ID_ABS_MOUSE` | 0x02 | ID | 절대좌표 마우스 리포트 ID | Protocol Frame |
 
 ### 3.4.1 버튼 컴포넌트 상수
 

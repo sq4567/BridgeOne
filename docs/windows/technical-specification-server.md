@@ -571,6 +571,112 @@ RenderOptions.SetCachingHint(VirtualCursorImage, CachingHint.Cache);
 - **커서 이미지 캐시**: 최대 10개 커서 이미지 동시 캐싱 (각 ~100KB)
 - **메모리 누수 방지**: Weak Reference 패턴으로 이미지 리소스 관리
 
+##### 3.6.1.4 줌 영역 오버레이 (AbsolutePointingPad 연동)
+
+**개요**: AbsolutePointingPad의 줌 기능이 활성화되면(>1x), PC 화면 위에 반투명 사각형 오버레이를 렌더링하여 현재 패드가 매핑하고 있는 PC 화면 영역을 시각적으로 표시합니다. 사용자는 PC 모니터를 보면서 조작하므로, 줌 영역 피드백은 PC 화면에 표시되어야 합니다.
+
+**XAML 요소 추가** (기존 `CursorCanvas` 내):
+```xml
+<!-- 줌 영역 표시 사각형 -->
+<Rectangle x:Name="ZoomRegionBox"
+           Visibility="Collapsed"
+           Stroke="#CCFF9800"
+           StrokeThickness="2"
+           Fill="#14FF9800"
+           RadiusX="2" RadiusY="2"/>
+
+<!-- 줌 레벨 라벨 -->
+<TextBlock x:Name="ZoomLevelLabel"
+           Visibility="Collapsed"
+           Foreground="#FF9800"
+           FontSize="14"
+           FontWeight="SemiBold"/>
+```
+
+**줌 영역 좌표 계산**:
+```csharp
+/// <summary>
+/// Vendor CDC를 통해 수신한 줌 상태를 화면 오버레이에 반영합니다.
+/// </summary>
+public void UpdateZoomOverlay(ZoomState zoomState)
+{
+    if (zoomState.ZoomLevel <= 1.0f)
+    {
+        // 1x = 전체 화면 → 오버레이 숨김
+        ZoomRegionBox.Visibility = Visibility.Collapsed;
+        ZoomLevelLabel.Visibility = Visibility.Collapsed;
+        return;
+    }
+
+    ZoomRegionBox.Visibility = Visibility.Visible;
+    ZoomLevelLabel.Visibility = Visibility.Visible;
+
+    // HID 절대좌표(0~32767) → 화면 픽셀 좌표 변환
+    var screenWidth = SystemParameters.VirtualScreenWidth;
+    var screenHeight = SystemParameters.VirtualScreenHeight;
+    var screenLeft = SystemParameters.VirtualScreenLeft;
+    var screenTop = SystemParameters.VirtualScreenTop;
+
+    double left = screenLeft + (zoomState.MinX / 32767.0) * screenWidth;
+    double top = screenTop + (zoomState.MinY / 32767.0) * screenHeight;
+    double right = screenLeft + (zoomState.MaxX / 32767.0) * screenWidth;
+    double bottom = screenTop + (zoomState.MaxY / 32767.0) * screenHeight;
+
+    Canvas.SetLeft(ZoomRegionBox, left);
+    Canvas.SetTop(ZoomRegionBox, top);
+    ZoomRegionBox.Width = right - left;
+    ZoomRegionBox.Height = bottom - top;
+
+    // 줌 레벨 라벨: 박스 우상단 외부
+    ZoomLevelLabel.Text = $"{zoomState.ZoomLevel:F1}x";
+    Canvas.SetLeft(ZoomLevelLabel, right + 4);
+    Canvas.SetTop(ZoomLevelLabel, top - 2);
+}
+```
+
+**ZoomState 데이터 모델**:
+```csharp
+public class ZoomState
+{
+    public float ZoomLevel { get; set; }  // 1.0 = 전체 화면, 2.0 = 2배 줌
+    public int MinX { get; set; }         // 매핑 범위 최솟값 (0~32767)
+    public int MinY { get; set; }
+    public int MaxX { get; set; }         // 매핑 범위 최댓값 (0~32767)
+    public int MaxY { get; set; }
+}
+```
+
+**시각 사양**:
+| 요소 | 값 | 비고 |
+|------|-----|------|
+| 박스 테두리 색상 | `#FF9800` (alpha 0.8) | 주황색 |
+| 박스 배경 색상 | `#FF9800` (alpha 0.08) | 매우 연한 주황 |
+| 박스 테두리 두께 | 2px | |
+| 라벨 색상 | `#FF9800` | 테두리와 동일 |
+| 라벨 크기 | 14pt, SemiBold | |
+| 라벨 위치 | 박스 우상단 외부 (4px 오프셋) | |
+
+**동작 규칙**:
+- **1x (줌 해제)**: 오버레이 숨김 (`Visibility.Collapsed`)
+- **>1x (줌 활성)**: 오버레이 표시, 줌 레벨/중심점에 따라 박스 위치·크기 실시간 갱신
+- **줌 진입 중 (드래그 단계)**: 드래그에 따라 박스가 실시간으로 축소되는 애니메이션
+- **줌 해제 시**: 박스가 전체 화면으로 확장 후 페이드 아웃 (300ms)
+
+**통신 경로**:
+```
+Android (줌 상태 변경)
+  → ESP32 UART (0xFF 커스텀 명령, VCDC_CMD_ZOOM_STATE)
+    → ESP32 Vendor CDC 전달
+      → Windows 서버 수신
+        → UpdateZoomOverlay() 호출
+          → WPF 투명 오버레이 윈도우에 렌더링
+```
+
+**성능 요구사항**:
+- 줌 상태 수신 → 오버레이 업데이트: < 16ms (60fps 유지)
+- 줌 드래그 중 업데이트 빈도: Android 전송 주기에 종속 (최대 30Hz 권장, 드래그 중이므로)
+- 기존 커서 오버레이와 동일한 `DispatcherPriority.Render` 사용
+
 #### 3.6.2 커서 팩 자동 감지 알고리즘 상세 명세
 
 ##### 3.6.2.1 레지스트리 스캔 단계

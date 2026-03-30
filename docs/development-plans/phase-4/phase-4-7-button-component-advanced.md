@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.6: 버튼 컴포넌트 고급 기능"
-description: "BridgeOne 프로젝트 Phase 4.6 - KeyboardKeyButton Sticky Hold, ContainerButton, Essential 모드 UI 재정비"
+title: "BridgeOne Phase 4.7: 버튼 컴포넌트 고급 기능"
+description: "BridgeOne 프로젝트 Phase 4.7 - KeyboardKeyButton Sticky Hold, ContainerButton, Essential 모드 UI 재정비"
 tags: ["android", "button", "sticky-hold", "container-button", "essential", "ui"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-03-26"
 ---
 
-# BridgeOne Phase 4.6: 버튼 컴포넌트 고급 기능
+# BridgeOne Phase 4.7: 버튼 컴포넌트 고급 기능
 
 **개발 기간**: 2-3일
 
@@ -18,13 +18,13 @@ updated: "2026-03-26"
 - ContainerButton (하위 버튼 그룹화, 팝업 오버레이, 일반/지속 모드)
 - Essential 모드 EssentialModePage 재정비 (스타일프레임 완전 준수)
 
-**선행 조건**: Phase 4.4 (Page 2) 완료
+**선행 조건**: Phase 4.5 (Page 3) 완료
 
 **에뮬레이터 호환성**: ContainerButton 팝업 오버레이, Essential 모드 UI 재정비 전체 에뮬레이터에서 개발 가능.
 
 ---
 
-## Phase 4.6.1: KeyboardKeyButton Sticky Hold
+## Phase 4.7.1: KeyboardKeyButton Sticky Hold
 
 **개발 기간**: 0.5-1일
 
@@ -51,7 +51,7 @@ updated: "2026-03-26"
 
 ---
 
-## Phase 4.6.2: ContainerButton 컴포넌트
+## Phase 4.7.2: ContainerButton 컴포넌트
 
 **목표**: 하위 버튼을 그룹화하여 팝업 오버레이로 표시하는 ContainerButton
 
@@ -101,7 +101,7 @@ updated: "2026-03-26"
 
 ---
 
-## Phase 4.6.3: Essential 모드 UI 재정비
+## Phase 4.7.3: Essential 모드 UI 재정비
 
 **목표**: Essential 모드 페이지를 스타일프레임에 완전히 준수하도록 재정비
 
@@ -120,7 +120,7 @@ updated: "2026-03-26"
    ```
    - 두 토스트 순차 표시, 사이 간격 300ms
 3. Boot Keyboard Cluster 재정비:
-   - `FKeyPopupDialog` → Phase 4.6.2의 `ContainerButton`으로 교체
+   - `FKeyPopupDialog` → Phase 4.7.2의 `ContainerButton`으로 교체
    - Del 키: 최상단 독립 배치 (BIOS 진입용 강조)
    - F1-F12: ContainerButton으로 그룹화 (3×4 그리드 팝업)
    - Esc/Enter: 한 줄 배치
@@ -183,10 +183,11 @@ updated: "2026-03-26"
 | **4.1** | 스플래시 & 연결 대기 | 3-4일 | 앱 진입 흐름 완성 |
 | **4.2** | Page 1 터치패드+Actions | 4-5일 | Standard 메인 페이지, ShortcutButton |
 | **4.3** | 터치패드 고급 기능 | 5-7일 | 스크롤, 직각 이동, DPI, 가이드라인 |
-| **4.4** | Page 2 키보드 중심 | 4.5-5.5일 | KeyDisplayRegistry, Modifiers Sticky, Key Repeat, Lock Keys LED 동기화 |
-| **4.5** | Page 3 Minecraft | 4-5일 | DPad Sticky Hold, 게임 최적화 |
-| **4.6** | 버튼 고급 기능 | 2-3일 | Sticky Hold 구현, ContainerButton, Essential 재정비 |
-| **합계** | | **22.5-29.5일** | |
+| **4.4** | Page 2 절대좌표 패드 | 3-4일 | AbsolutePointingPad, 줌 기능, Vendor CDC 줌 오버레이 |
+| **4.5** | Page 3 키보드 중심 | 4.5-5.5일 | KeyDisplayRegistry, Modifiers Sticky, Key Repeat, Lock Keys LED 동기화 |
+| **4.6** | Page 4 Minecraft | 4-5일 | DPad Sticky Hold, 게임 최적화 |
+| **4.7** | 버튼 고급 기능 | 2-3일 | Sticky Hold 구현, ContainerButton, Essential 재정비 |
+| **합계** | | **25.5-33.5일** | |
 
 ### Phase 4 완료 후 미구현 항목 (Phase 5+)
 - 멀티 커서 모드 (CursorModeButton → 현재 Disabled)

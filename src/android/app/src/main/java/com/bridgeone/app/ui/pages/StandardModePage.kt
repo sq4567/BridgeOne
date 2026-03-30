@@ -69,15 +69,16 @@ import com.bridgeone.app.ui.utils.ClickDetector
 /**
  * Standard 모드 메인 페이지 (완전 재작성)
  *
- * Phase 4.2.1: HorizontalPager 기반 3페이지 시스템
- * - Page 0: 터치패드 + Actions
- * - Page 1: 키보드 (Phase 4.4에서 구현)
- * - Page 2: 마인크래프트 (Phase 4.5에서 구현)
- * - 하단 페이지 인디케이터 (닷 3개)
+ * Phase 4.2.1: HorizontalPager 기반 4페이지 시스템
+ * - Page 0: 터치패드 + Actions (상대좌표)
+ * - Page 1: 절대좌표 패드 (Phase 4.4에서 구현)
+ * - Page 2: 키보드 (Phase 4.5에서 구현)
+ * - Page 3: 마인크래프트 (Phase 4.6에서 구현)
+ * - 하단 페이지 인디케이터 (닷 4개)
  */
 @Composable
 fun StandardModePage() {
-    val pagerState = rememberPagerState(pageCount = { 3 })
+    val pagerState = rememberPagerState(pageCount = { 4 })
 
     // Phase 4.3.3: 터치패드 상태를 페이지 레벨로 호이스팅
     // 스크롤 모드 활성화 시 HorizontalPager 스와이프 비활성화
@@ -121,8 +122,9 @@ fun StandardModePage() {
                         touchpadState = touchpadState,
                         onTouchpadStateChange = { touchpadState = it }
                     )
-                    1 -> Page2KeyboardPlaceholder()
-                    2 -> Page3MinecraftPlaceholder()
+                    1 -> Page2AbsolutePointingPlaceholder()
+                    2 -> Page3KeyboardPlaceholder()
+                    3 -> Page4MinecraftPlaceholder()
                 }
             }
         }
@@ -130,7 +132,7 @@ fun StandardModePage() {
         // ── 페이지 인디케이터 (닷 3개) ──
         PageIndicator(
             pagerState = pagerState,
-            pageCount = 3,
+            pageCount = 4,
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
                 .padding(bottom = 16.dp)
@@ -528,11 +530,11 @@ private fun MacrosPlaceholder() {
 }
 
 // ============================================================
-// Page 2: 키보드 (Placeholder - Phase 4.4에서 구현)
+// Page 2: 절대좌표 패드 (Placeholder - AbsolutePointingPad)
 // ============================================================
 
 @Composable
-private fun Page2KeyboardPlaceholder() {
+private fun Page2AbsolutePointingPlaceholder() {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -547,10 +549,10 @@ private fun Page2KeyboardPlaceholder() {
                 text = "Page 2",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF2196F3)
+                color = Color(0xFFE91E63)
             )
             Text(
-                text = "키보드 중심 레이아웃",
+                text = "절대좌표 패드",
                 fontSize = 14.sp,
                 color = Color(0xFFC2C2C2)
             )
@@ -565,11 +567,11 @@ private fun Page2KeyboardPlaceholder() {
 }
 
 // ============================================================
-// Page 3: 마인크래프트 (Placeholder - Phase 4.5에서 구현)
+// Page 3: 키보드 (Placeholder - Phase 4.5에서 구현)
 // ============================================================
 
 @Composable
-private fun Page3MinecraftPlaceholder() {
+private fun Page3KeyboardPlaceholder() {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -587,12 +589,49 @@ private fun Page3MinecraftPlaceholder() {
                 color = Color(0xFF2196F3)
             )
             Text(
-                text = "마인크래프트 특화",
+                text = "키보드 중심 레이아웃",
                 fontSize = 14.sp,
                 color = Color(0xFFC2C2C2)
             )
             Text(
                 text = "(Phase 4.5에서 구현 예정)",
+                fontSize = 12.sp,
+                color = Color(0xFF888888),
+                fontWeight = FontWeight.Light
+            )
+        }
+    }
+}
+
+// ============================================================
+// Page 4: 마인크래프트 (Placeholder - Phase 4.6에서 구현)
+// ============================================================
+
+@Composable
+private fun Page4MinecraftPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1E1E1E), RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Page 4",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF2196F3)
+            )
+            Text(
+                text = "마인크래프트 특화",
+                fontSize = 14.sp,
+                color = Color(0xFFC2C2C2)
+            )
+            Text(
+                text = "(Phase 4.6에서 구현 예정)",
                 fontSize = 12.sp,
                 color = Color(0xFF888888),
                 fontWeight = FontWeight.Light
