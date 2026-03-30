@@ -54,7 +54,7 @@ import kotlinx.coroutines.launch
 private const val EXIT_CONFIRMATION_TOAST_DURATION_MS = 2000L
 
 // [DEV] true → USB 연결 없이 UI 테스트 (Splash 후 바로 Active, 모드 전환 버튼 표시)
-private const val DEV_SKIP_CONNECTION = false
+private const val DEV_SKIP_CONNECTION = true
 
 // ============================================================
 // 최상위 Composable
@@ -132,7 +132,7 @@ fun BridgeOneApp() {
             delay(600L)
             connectionState = ConnectionState.SearchingServer
 
-            // 모드 확정 대기 (최대 5초, 100ms 간격)
+            // 모드 확정 대기 (최대 5초, 100ms 간격) — null = 타임아웃 (서버 미발견)
             val mode = waitForModeConfirmed()
 
             if (mode == BridgeMode.STANDARD) {
@@ -143,7 +143,7 @@ fun BridgeOneApp() {
                 appState = AppState.Active(BridgeMode.STANDARD)
             } else {
                 delay(600L)
-                connectionState = ConnectionState.EnteringEssential
+                connectionState = if (mode == null) ConnectionState.EnteringEssentialNoServer else ConnectionState.EnteringEssential
                 delay(1200L)
                 isAutoProgressing = false
                 appState = AppState.Active(BridgeMode.ESSENTIAL)
@@ -171,7 +171,7 @@ fun BridgeOneApp() {
                 isAutoProgressing = true
                 connectionState = ConnectionState.SearchingServer
 
-                // 모드 확정 대기 (최대 5초)
+                // 모드 확정 대기 (최대 5초) — null = 타임아웃 (서버 미발견)
                 val mode = waitForModeConfirmed()
 
                 if (mode == BridgeMode.STANDARD) {
@@ -182,7 +182,7 @@ fun BridgeOneApp() {
                     appState = AppState.Active(BridgeMode.STANDARD)
                 } else {
                     delay(600L)
-                    connectionState = ConnectionState.EnteringEssential
+                    connectionState = if (mode == null) ConnectionState.EnteringEssentialNoServer else ConnectionState.EnteringEssential
                     delay(1200L)
                     isAutoProgressing = false
                     appState = AppState.Active(BridgeMode.ESSENTIAL)
@@ -309,9 +309,10 @@ fun BridgeOneApp() {
 
 /**
  * ESP32로부터 모드 응답이 올 때까지 대기합니다.
- * 최대 5초 대기 후 타임아웃 시 현재 bridgeMode 값을 반환합니다.
+ * 모드가 확인되면 해당 [BridgeMode]를 반환하고,
+ * 최대 5초 대기 후 타임아웃 시 null을 반환합니다 (서버 미발견).
  */
-private suspend fun waitForModeConfirmed(): BridgeMode {
+private suspend fun waitForModeConfirmed(): BridgeMode? {
     val maxWaitMs = 5000L
     val intervalMs = 100L
     var elapsed = 0L
@@ -323,8 +324,8 @@ private suspend fun waitForModeConfirmed(): BridgeMode {
         delay(intervalMs)
         elapsed += intervalMs
     }
-    Log.w("BridgeOneApp", "Mode confirmation timed out (${maxWaitMs}ms), using current: ${UsbSerialManager.bridgeMode.value}")
-    return UsbSerialManager.bridgeMode.value
+    Log.w("BridgeOneApp", "Mode confirmation timed out (${maxWaitMs}ms)")
+    return null
 }
 
 // ============================================================

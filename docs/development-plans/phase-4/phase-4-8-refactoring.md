@@ -1,8 +1,8 @@
 ---
 title: "BridgeOne Phase 4.8: 리팩터링"
-description: "BridgeOne 프로젝트 Phase 4.8 - 조정 가능 상수 중앙화 + 터치패드 엣지 스와이프 제스처 탐색 + Windows 서버 연결 실패 알림"
-tags: ["android", "refactoring", "constants", "maintainability", "ux", "gesture", "connection"]
-version: "v1.1"
+description: "BridgeOne 프로젝트 Phase 4.8 - 조정 가능 상수 중앙화 + 터치패드 엣지 스와이프 제스처 탐색"
+tags: ["android", "refactoring", "constants", "maintainability", "ux", "gesture"]
+version: "v1.2"
 owner: "Chatterbones"
 updated: "2026-03-30"
 ---
@@ -17,7 +17,6 @@ updated: "2026-03-30"
 |-----------|------|------|
 | 4.8.1 | 조정 가능 상수 중앙화 | 미시작 |
 | 4.8.2 | 터치패드 엣지 스와이프 제스처 | 설계 검토 중 |
-| 4.8.3 | Windows 서버 연결 실패 알림 | 미시작 |
 | 4.8.4 | Deprecated API 교체 | 미시작 |
 
 **선행 조건**: Phase 4.7 완료
@@ -229,33 +228,6 @@ object EdgeSwipe {
 - [ ] 시각 피드백 방식 선택 (Q3)
 - [ ] 기존 버튼 공존 정책 확정 (Q4)
 - [ ] 위 결정 후 구현 절차 작성 및 이 섹션 업데이트
-
----
-
-## Phase 4.8.3: Windows 서버 연결 실패 알림
-
-**개발 기간**: 0.5일 미만
-
-**목표**: 연결 대기 화면에서 Windows 서버를 찾지 못하고 타임아웃이 발생했을 때, 사용자에게 명확한 피드백을 제공하고 Essential 모드로 자동 전환됨을 알립니다.
-
-**에뮬레이터 호환성**: 에뮬레이터에서 개발 가능 (서버 연결 없이 타임아웃 경로를 강제 진입하여 확인).
-
-### 동작 명세
-
-- **조건**: 연결 대기 화면에서 Windows 서버 탐색 타임아웃 발생
-- **표시 메시지**: `"Windows 서버와 연결에 실패하였습니다. Essential 모드로 연결됩니다."`
-- **표시 방식**: 기존 `StatusToast` 또는 유사한 일시적 알림 컴포넌트 재활용
-- **이후 동작**: 메시지 표시 후 Essential 모드로 자동 진입
-
-### 구현 절차
-
-1. **타임아웃 발생 지점 파악** — 연결 대기 화면에서 서버 탐색 실패 시 분기되는 코드 위치 확인
-2. **알림 표시 추가** — 해당 분기에서 위 메시지를 `StatusToast`(또는 동등한 수단)로 노출
-3. **Essential 모드 전환** — 기존 Essential 모드 진입 로직 연결 (이미 구현되어 있으면 호출만 추가)
-
-**검증**:
-- [ ] 서버 없이 앱 실행 시 타임아웃 후 메시지 정상 표시 확인
-- [ ] 메시지 소멸 후 Essential 모드로 정상 진입 확인
 
 ---
 

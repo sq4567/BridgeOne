@@ -44,6 +44,14 @@ sealed class ConnectionState(
         step = 2
     )
 
+    /** Essential 모드 진입 안내 — Windows 서버 미발견(타임아웃) 경우 */
+    object EnteringEssentialNoServer : ConnectionState(
+        primaryMessage = "Essential 모드로 진입합니다",
+        secondaryMessage = "Windows 서버를 찾지 못했습니다",
+        isProcessing = false,
+        step = 2
+    )
+
     /** Standard 모드 진입 안내 */
     object EnteringStandard : ConnectionState(
         primaryMessage = "Standard 모드로 진입합니다",
