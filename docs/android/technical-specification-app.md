@@ -2584,6 +2584,8 @@ class AdaptiveTransmissionRate {
 ### 2.9 Native Macro 기능 구현 요구사항
 
 > **개요**: Native Macro는 미리 정의된 HID 입력 시퀀스를 ESP32-S3에 저장하고, 단일 탭으로 실행하는 기능입니다. Android 앱은 매크로 편집/관리/업로드를 담당하고, 실제 실행은 ESP32-S3 내부에서 완결됩니다.
+>
+> **절대좌표 지원**: `AbsolutePointingPad`의 터치 비율(0.0~1.0) → HID 범위(0~32767) 변환을 그대로 매크로에 활용합니다. 녹화 시 `AbsolutePointingPad` 위에서 터치한 위치가 `MOUSE_MOVE_ABS` 액션으로 기록되며, 재생 시 항상 동일한 화면 좌표를 가리킵니다. 이로써 "특정 버튼의 현재 절대좌표"를 매크로에 담을 수 있고, 상대좌표만 사용할 때와 달리 재생 시작 커서 위치에 의존하지 않습니다.
 
 #### 2.9.1 매크로 데이터 모델
 
@@ -2596,7 +2598,26 @@ data class MacroAction(
     val param1: Int,
     val param2: Int,
     val param3: Int
-)
+) {
+    companion object {
+        const val MOUSE_MOVE_ABS = 0x15
+
+        /**
+         * AbsolutePointingPad 터치 비율(0.0~1.0) → MOUSE_MOVE_ABS 액션 생성.
+         * 12-bit 패킹: param1=X[11:4], param2=X[3:0]<<4|Y[11:8], param3=Y[7:0]
+         */
+        fun fromAbsoluteRatio(ratioX: Float, ratioY: Float): MacroAction {
+            val x12 = (ratioX.coerceIn(0f, 1f) * 4095).toInt()
+            val y12 = (ratioY.coerceIn(0f, 1f) * 4095).toInt()
+            return MacroAction(
+                type   = MOUSE_MOVE_ABS,
+                param1 = (x12 shr 4) and 0xFF,
+                param2 = ((x12 and 0x0F) shl 4) or ((y12 shr 8) and 0x0F),
+                param3 = y12 and 0xFF
+            )
+        }
+    }
+}
 
 // data/MacroEntity.kt (Room DB 엔티티)
 @Entity(tableName = "macros")
@@ -2649,13 +2670,65 @@ data class MacroEntity(
 
 #### 2.9.4 매크로 녹화 모드
 
-**녹화 흐름**:
+녹화는 **AbsolutePointingPad 기반(권장)**과 **일반 TouchPad 기반** 두 가지 모드로 동작합니다.
+
+**AbsolutePointingPad 기반 녹화 (권장)**:
+
+AbsolutePointingPad에서 녹화하면 터치 위치가 곧 화면상의 절대 좌표이므로, 재생 시 항상 동일한 버튼·UI 요소를 정확히 가리킵니다.
+
+```
 1. 편집 화면에서 "녹화 시작" 버튼 탭
-2. 터치패드/키보드 페이지로 전환 (녹화 중 배너 표시)
-3. 터치패드 움직임 → `MOUSE_MOVE` 액션으로 기록 (타이밍 포함)
-4. 키보드 입력 → `KEY_TAP`/`KEY_DOWN`/`KEY_UP` 액션으로 기록
+2. Page 2(AbsolutePointingPad) / 키보드 페이지로 전환 (녹화 중 배너 표시)
+3. AbsolutePointingPad 터치 → MacroRecorder가 터치 비율(ratioX, ratioY) 캡처
+   → MacroAction.fromAbsoluteRatio(ratioX, ratioY) 호출 → MOUSE_MOVE_ABS 액션으로 기록
+4. 클릭(탭) → MOUSE_CLICK 액션으로 기록 (AbsolutePointingPad의 싱글탭 감지 활용)
+5. 키보드 입력 → KEY_TAP / KEY_DOWN / KEY_UP 액션으로 기록
+6. "녹화 중지" 버튼 탭 → 편집 화면으로 복귀
+7. 기록된 액션 리스트 편집 가능 (불필요한 액션 삭제, 딜레이 조정)
+```
+
+> **핵심 장점**: 커서가 어디에 있든 재생 시 항상 지정한 화면 위치로 커서가 이동함.
+> 특정 버튼을 클릭하는 매크로를 만들 때 시작 커서 위치를 신경 쓸 필요 없음.
+
+**일반 TouchPad 기반 녹화 (보조)**:
+
+기존 상대좌표 터치패드에서 녹화하면 이동량(delta)이 `MOUSE_MOVE` 액션으로 기록됩니다. 재생 시작 커서 위치가 달라지면 최종 도달 위치도 달라지므로, 클릭 위치가 중요한 매크로에는 부적합합니다.
+
+```
+1. 편집 화면에서 "녹화 시작" 버튼 탭
+2. Page 1(TouchPad) 페이지로 전환 (녹화 중 배너 표시)
+3. 터치패드 드래그 → MOUSE_MOVE(deltaX, deltaY) 액션으로 기록 (타이밍 포함)
+4. 키보드 입력 → KEY_TAP / KEY_DOWN / KEY_UP 액션으로 기록
 5. "녹화 중지" 버튼 탭 → 편집 화면으로 복귀
-6. 기록된 액션 리스트 편집 가능 (불필요한 액션 삭제, 딜레이 조정)
+6. 기록된 액션 리스트 편집 가능
+```
+
+**MacroRecorder.kt 동작 분기**:
+
+```kotlin
+// macro/MacroRecorder.kt
+class MacroRecorder {
+    fun onAbsolutePadTouch(ratioX: Float, ratioY: Float) {
+        // AbsolutePointingPad 터치 → MOUSE_MOVE_ABS 액션
+        record(MacroAction.fromAbsoluteRatio(ratioX, ratioY))
+    }
+
+    fun onRelativePadMove(deltaX: Int, deltaY: Int) {
+        // 일반 터치패드 이동 → MOUSE_MOVE 액션
+        record(MacroAction(type = 0x13, param1 = deltaX, param2 = deltaY, param3 = 0))
+    }
+
+    fun onTap(buttonMask: Int) {
+        record(MacroAction(type = 0x12, param1 = buttonMask, param2 = 0, param3 = 0))
+    }
+
+    fun onKeyInput(modifier: Int, keycode: Int) {
+        record(MacroAction(type = 0x03, param1 = modifier, param2 = keycode, param3 = 0))
+    }
+
+    private fun record(action: MacroAction) { /* 내부 버퍼에 추가 */ }
+    fun stopAndGetActions(): List<MacroAction> { /* 버퍼 반환 */ }
+}
 
 #### 2.9.5 UART 프로토콜 확장 (Android 측)
 

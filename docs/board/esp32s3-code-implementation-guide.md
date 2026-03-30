@@ -2112,14 +2112,15 @@ typedef enum {
     MACRO_ACTION_KEY_DOWN    = 0x01,  // 키 누름: param1=modifier, param2=keycode
     MACRO_ACTION_KEY_UP      = 0x02,  // 키 뗌: param1=modifier, param2=keycode
     MACRO_ACTION_KEY_TAP     = 0x03,  // 키 탭(누름+뗌): param1=modifier, param2=keycode
-    MACRO_ACTION_MOUSE_DOWN  = 0x10,  // 마우스 버튼 누름: param1=button_mask
-    MACRO_ACTION_MOUSE_UP    = 0x11,  // 마우스 버튼 뗌: param1=button_mask
-    MACRO_ACTION_MOUSE_CLICK = 0x12,  // 마우스 클릭: param1=button_mask
-    MACRO_ACTION_MOUSE_MOVE  = 0x13,  // 마우스 이동: param1=deltaX(int8), param2=deltaY(int8)
-    MACRO_ACTION_MOUSE_WHEEL = 0x14,  // 휠 스크롤: param1=wheel(int8)
-    MACRO_ACTION_DELAY_MS    = 0x20,  // 딜레이: param1=delay_high, param2=delay_low (최대 65535ms)
-    MACRO_ACTION_DELAY_SHORT = 0x21,  // 짧은 딜레이: param1=delay_10ms 단위 (최대 2550ms)
-    MACRO_ACTION_END         = 0xFF,  // 시퀀스 종료 마커
+    MACRO_ACTION_MOUSE_DOWN     = 0x10,  // 마우스 버튼 누름: param1=button_mask
+    MACRO_ACTION_MOUSE_UP       = 0x11,  // 마우스 버튼 뗌: param1=button_mask
+    MACRO_ACTION_MOUSE_CLICK    = 0x12,  // 마우스 클릭: param1=button_mask
+    MACRO_ACTION_MOUSE_MOVE     = 0x13,  // 상대 이동: param1=deltaX(int8), param2=deltaY(int8)
+    MACRO_ACTION_MOUSE_WHEEL    = 0x14,  // 휠 스크롤: param1=wheel(int8)
+    MACRO_ACTION_MOUSE_MOVE_ABS = 0x15,  // 절대 이동: 12-bit X/Y 패킹 (§4.6.1 인코딩 참조)
+    MACRO_ACTION_DELAY_MS       = 0x20,  // 딜레이: param1=delay_high, param2=delay_low (최대 65535ms)
+    MACRO_ACTION_DELAY_SHORT    = 0x21,  // 짧은 딜레이: param1=delay_10ms 단위 (최대 2550ms)
+    MACRO_ACTION_END            = 0xFF,  // 시퀀스 종료 마커
 } macro_action_type_t;
 
 typedef struct __attribute__((packed)) {
@@ -2142,9 +2143,32 @@ typedef struct __attribute__((packed)) {
 | 0x12 | MOUSE_CLICK | button_mask | 0 | 0 |
 | 0x13 | MOUSE_MOVE | deltaX (int8, -128~127) | deltaY (int8, -128~127) | 0 |
 | 0x14 | MOUSE_WHEEL | wheel (int8, 양수=위, 음수=아래) | 0 | 0 |
+| 0x15 | MOUSE_MOVE_ABS | X[11:4] (상위 8비트) | X[3:0]<<4 \| Y[11:8] (중간 4+4비트) | Y[7:0] (하위 8비트) |
 | 0x20 | DELAY_MS | delay_high (상위 8비트) | delay_low (하위 8비트) | 0 |
 | 0x21 | DELAY_SHORT | 딜레이값 × 10ms | 0 | 0 |
 | 0xFF | END | 0 | 0 | 0 |
+
+**MOUSE_MOVE_ABS (0x15) 인코딩 상세**:
+
+`macro_action_t`의 3 param 바이트에 X/Y 각각 12비트(0~4095)를 패킹합니다. 실행 시 0~32767 HID 절대좌표로 스케일합니다.
+
+```
+param1 = X[11:4]           (X의 상위 8비트)
+param2 = (X[3:0] << 4) | Y[11:8]  (X 하위 4비트 + Y 상위 4비트)
+param3 = Y[7:0]            (Y의 하위 8비트)
+
+→ 복원:
+  x12 = (param1 << 4) | (param2 >> 4)        // 0~4095
+  y12 = ((param2 & 0x0F) << 8) | param3       // 0~4095
+
+→ HID 절대좌표 스케일:
+  absX = x12 * 32767 / 4095    // 0~32767
+  absY = y12 * 32767 / 4095    // 0~32767
+```
+
+> **정밀도**: 4096 단계 = 화면 폭/높이를 각각 4096등분. 1920px 기준으로 1단계 ≈ 0.47px. 매크로 클릭 용도로 충분한 서브픽셀 정밀도.
+>
+> **기록 방법**: Android 앱에서 `AbsolutePointingPad` 위에서 녹화할 때 터치 비율(0.0~1.0)을 `(ratio * 4095).toInt()`으로 변환하여 저장. 기존 상대좌표 터치패드 녹화와 달리 "현재 커서 위치"에 무관하게 항상 같은 결과 보장.
 
 **매크로 헤더 (38바이트 고정 크기)**:
 
@@ -2314,6 +2338,18 @@ static void execute_action(const macro_action_t* action) {
             hid_mouse_report_t mouse = {.x = (int8_t)action->param1,
                                         .y = (int8_t)action->param2};
             sendMouseReport(&mouse);
+            break;
+        }
+        case MACRO_ACTION_MOUSE_MOVE_ABS: {
+            // 12-bit 패킹 복원 → 0~32767 HID 절대좌표
+            uint16_t x12 = ((uint16_t)action->param1 << 4) | (action->param2 >> 4);
+            uint16_t y12 = (((uint16_t)(action->param2 & 0x0F)) << 8) | action->param3;
+            abs_mouse_report_t abs_mouse = {
+                .x = (uint16_t)((uint32_t)x12 * 32767 / 4095),
+                .y = (uint16_t)((uint32_t)y12 * 32767 / 4095)
+            };
+            tud_hid_n_abs_mouse_report(ITF_NUM_HID_MOUSE, REPORT_ID_ABS_MOUSE,
+                                       0, abs_mouse.x, abs_mouse.y, 0, 0);
             break;
         }
         case MACRO_ACTION_DELAY_MS: {
