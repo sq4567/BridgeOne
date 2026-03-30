@@ -930,11 +930,71 @@ TouchpadWrapper
 - [x] 프리셋 버튼 — 스크롤 모드 진입 시 버튼 페이드아웃 확인
 - [x] 프리셋 버튼 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 확인)
 
-> 하드웨어 의존 검증 (커서 가속 동작, DPI 중첩, 배율 상한 등)은 **Phase 4.3.10 E2E 하드웨어 테스트**에서 수행
+> 하드웨어 의존 검증 (커서 가속 동작, DPI 중첩, 배율 상한 등)은 **Phase 4.3.12 E2E 하드웨어 테스트**에서 수행
 
 ---
 
-## Phase 4.3.9: 터치패드 테두리 모드 색상 표시
+## Phase 4.3.9: 프리셋 팝업 애니메이션
+
+**목표**: Phase 4.3.8에서 구현한 포인터 다이나믹스 프리셋 팝업에 전반적인 애니메이션을 추가하여 전환이 매끄럽고 직관적으로 느껴지게 합니다.
+
+**개발 기간**: 1일
+
+**쉬운 설명**: 프리셋 선택 팝업을 열고 닫을 때, 그리고 확인 화면으로 넘어갈 때 애니메이션이 없어서 화면이 갑자기 바뀌는 느낌이 납니다. 이 Phase에서는 팝업이 열릴 때 아이콘들이 화면 바깥에서 중앙으로 모여드는 효과, 닫힐 때 아이콘들이 화면 밖으로 흩어지는 효과, 프리셋을 고를 때 선택된 아이콘이 커지면서 확인 화면으로 자연스럽게 전환되는 효과 등을 추가합니다.
+
+**세부 목표**:
+
+1. **팝업 등장 애니메이션** (GRID 단계 enter):
+   - 배경 dimming: `alpha 0 → 0.6` fade-in (200ms)
+   - 프리셋 아이콘 각각: 화면 아래쪽 밖에서 위로 올라오며 등장 (offset slide-up + fade-in)
+   - 각 아이콘에 stagger 딜레이(30ms) 적용 → 첫 번째 아이콘부터 순서대로 등장
+   - 안내 텍스트/카드: 아이콘들 등장 직후 fade-in
+
+2. **팝업 닫힘 애니메이션** (취소 시):
+   - 배경 dimming: `alpha 0.6 → 0` fade-out (200ms)
+   - 프리셋 아이콘 각각: 화면 아래 밖으로 내려가며 퇴장 (offset slide-down + fade-out)
+   - stagger 딜레이 적용
+   - 애니메이션 완료 후 실제 팝업 제거
+
+3. **GRID → CONFIRM 전환** (다른 프리셋 탭 시):
+   - 선택된 프리셋 아이콘: 그리드 크기(56dp)에서 확인 화면 크기(80dp)로 scale-up되며 중앙 이동
+   - 비선택 아이콘들 + 안내 텍스트: fade-out
+   - CONFIRM 텍스트(이름, 설명, 예/아니요): fade-in + slide-up
+   - `AnimatedContent(targetState = phase)` 활용
+
+4. **CONFIRM → GRID 복귀** (아니요 선택 시):
+   - CONFIRM 내용: fade-out
+   - 아이콘들: 그리드 크기로 축소되며 원래 위치로 복귀 (fade-in)
+
+5. **DynamicsPresetButton 롱프레스 트리거 애니메이션**:
+   - 롱프레스 발동 시 버튼 아이콘이 잠깐 scale-up(1.0 → 1.3 → 1.0)되며 팝업이 열림을 시각적으로 표시
+
+**구현 방법**:
+- `DynamicsPresetPopup`에 `visible: Boolean` 파라미터 추가
+- `LaunchedEffect(visible)` + `Animatable` 조합으로 배경 dimming alpha 제어
+- 각 아이콘의 stagger offset: `List<Animatable<Float>>` (아이콘 수만큼) + `LaunchedEffect` 내 순차 launch
+- GRID ↔ CONFIRM 전환: `AnimatedContent(targetState = phase, transitionSpec = { ... })`
+- 닫힘 시 exit 애니메이션 완료 후 `onDismiss` 콜백 호출 (직접 호출 대신 `coroutineScope.launch { animate(); onDismiss() }`)
+- `StandardModePage.kt`: 기존 `if (showPopup) DynamicsPresetPopup(...)` 방식을 `visible` 파라미터 전달 방식으로 변경
+
+**수정 파일**:
+- `DynamicsPresetPopup.kt` — visible 파라미터 추가, 등장/닫힘/단계 전환 애니메이션 전반
+- `StandardModePage.kt` — visible 파라미터 전달 방식으로 호출부 변경
+- `DynamicsPresetButton.kt` — 롱프레스 시 scale-up 트리거 애니메이션 추가
+
+**검증**:
+- [ ] 팝업 열릴 때 배경 dimming fade-in 확인
+- [ ] 팝업 열릴 때 아이콘들이 아래에서 위로 stagger 슬라이드 확인
+- [ ] 팝업 닫힐 때 아이콘들이 아래로 내려가며 사라짐 확인
+- [ ] 팝업 닫힘 후 배경 완전히 사라짐 (alpha 0) 확인
+- [ ] GRID → CONFIRM: 선택 아이콘 scale-up 전환 확인
+- [ ] CONFIRM → GRID: 아이콘들 축소 복귀 확인
+- [ ] DynamicsPresetButton 롱프레스 시 scale-up 효과 확인
+- [ ] 빠른 연속 조작 시 애니메이션 꼬임 없음 확인
+
+---
+
+## Phase 4.3.10: 터치패드 테두리 모드 색상 표시
 
 > **⚠️ Phase 4.3.8 변경사항**: `TouchpadMode.kt`에 `DynamicsAlgorithm` enum + `PointerDynamicsPreset` data class 추가됨. `TouchpadState`에 `dynamicsPresetIndex: Int` 필드 추가됨. 테두리 색상 결정 함수(`touchpadBorderBrush()`)는 `TouchpadState`를 입력으로 받지만 `dynamicsPresetIndex` 필드는 테두리 색상 로직에 영향을 주지 않음 — 별도 처리 불필요. `TouchpadWrapper.kt`에 `DynamicsPresetButton` 오버레이가 추가됨 (커서 이동 모드 시 `Alignment.BottomStart`, `NormalScrollButtons`와 동일 위치에 교대 표시). **`TouchpadWrapper.kt` Box 구조가 외부 Box(unclipped) + 내부 Box(clipped) 2중 구조로 변경됨** — 테두리 Modifier는 내부 Box에 적용해야 함. `DynamicsPresetButton`의 `Popup` 라벨은 clip 독립 렌더링이므로 테두리와 충돌 없음. `AppIcons.kt`에 `DynamicsOff/Precision/Standard/Fast` 아이콘 추가됨. `PointerDynamicsConstants.kt` 신규 (상수/프리셋 정의). `DynamicsPresetPopup.kt` 신규 (프리셋 선택 팝업 — `StandardModePage.kt`에서 터치패드 Box 위에 배치).
 
@@ -1005,7 +1065,7 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.10: 터치패드 엣지 스와이프 제스처
+## Phase 4.3.11: 터치패드 엣지 스와이프 제스처
 
 > **상태**: 설계 검토 중. 구현 방향이 결정되면 세부 절차를 추가합니다.
 
@@ -1102,7 +1162,7 @@ object EdgeSwipe {
 
 ---
 
-## Phase 4.3.11: 터치패드 E2E 하드웨어 테스트
+## Phase 4.3.12: 터치패드 E2E 하드웨어 테스트
 
 **목표**: Phase 4.3에서 구현한 터치패드 기능 전체를 실기기 + 실제 PC 연결 환경에서 하나씩 검증하여 하드웨어 수준의 이상 없음을 확인
 
