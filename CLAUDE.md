@@ -184,6 +184,27 @@ src/board/BridgeOne/main/
 - **투명한 진행**: 수행할 작업과 커밋 메시지를 명확히 제시한 후 진행합니다
 - **결과 확인**: 커밋 완료 후 결과를 보고합니다
 
+## Claude의 Android 빌드 정책
+
+**핵심 원칙: Android 코드를 수정한 후에는 반드시 빌드를 직접 수행합니다.**
+
+Android 개발 작업 시, Claude는:
+- **빌드 필수 수행**: Android 코드 수정이 완료되면 `./gradlew assembleDebug` (또는 필요시 `assembleRelease`)를 직접 실행합니다
+- **에러 즉시 수정**: 빌드 에러가 발생하면 에러 로그를 분석하고 반드시 수정합니다. 에러가 모두 해결될 때까지 빌드-수정 사이클을 반복합니다
+- **경고 보고**: 빌드 경고(Warning)는 수정하지 않더라도 유저에게 보고합니다
+- **빌드 경로**: Android 프로젝트 루트 `src/android/`에서 Gradle 명령을 실행합니다
+
+### 빌드 명령어
+```
+# Android 프로젝트 디렉토리로 이동 후 실행
+cd src/android
+./gradlew assembleDebug        # 디버그 빌드 (일반적)
+./gradlew assembleRelease      # 릴리즈 빌드 (필요시)
+./gradlew build                # 전체 빌드 (테스트 포함)
+```
+
+> **⚠️ Windows 환경 주의**: PowerShell에서는 `./gradlew` 대신 `.\gradlew` 또는 `gradlew.bat` 사용
+
 ## Claude의 펌웨어 빌드 정책
 
 **핵심 원칙: 보드 펌웨어 빌드는 LLM이 직접 수행하지 않고 유저에게 위임합니다.**
