@@ -81,6 +81,7 @@ fun BridgeOneApp() {
     var exitToastShowing by remember { mutableStateOf(false) }
     BackHandler(enabled = appState !is AppState.Splash) {
         if (exitToastShowing) {
+            ToastController.dismiss()
             (context as? Activity)?.finish()
         } else {
             exitToastShowing = true

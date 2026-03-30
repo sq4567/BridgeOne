@@ -13,6 +13,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.bridgeone.app.ui.BridgeOneApp
+import com.bridgeone.app.ui.common.ToastController
 import com.bridgeone.app.ui.theme.BridgeOneTheme
 import com.bridgeone.app.usb.UsbDeviceDetectionReceiver
 import com.bridgeone.app.usb.UsbPermissionReceiver
@@ -41,6 +42,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 이전 실행에서 남아있을 수 있는 토스트 상태 초기화
+        ToastController.dismiss()
 
         // Android 12+: 시스템 스플래시를 즉시 닫아 커스텀 스플래시로 전환
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
