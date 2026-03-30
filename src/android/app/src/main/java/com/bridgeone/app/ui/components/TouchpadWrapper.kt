@@ -41,6 +41,8 @@ import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_HAPTIC_MAX_VE
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_MIN_VELOCITY_DP_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_TIME_CONSTANT_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_VELOCITY_WINDOW_MS
+import com.bridgeone.app.ui.common.ScrollConstants.RIGHT_ANGLE_AXIS_LOCK_DISTANCE_DP
+import com.bridgeone.app.ui.common.ScrollConstants.RIGHT_ANGLE_DEADBAND_DEG
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_AXIS_DIAGONAL_DEAD_ZONE_DEG
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_AXIS_LOCK_DISTANCE_DP
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_HIDE_DELAY_MS
@@ -48,12 +50,15 @@ import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_STEP_DP
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_STOP_THRESHOLD_MS
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_UNIT_DISTANCE_DP
 import com.bridgeone.app.ui.components.touchpad.NormalScrollButtons
+import com.bridgeone.app.ui.components.touchpad.RightAngleGuideline
 import com.bridgeone.app.ui.components.touchpad.ScrollAxis
 import com.bridgeone.app.ui.components.touchpad.ScrollGuideline
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
+import com.bridgeone.app.ui.components.touchpad.MoveMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.ui.utils.DeltaCalculator
+import com.bridgeone.app.ui.utils.RightAngleAxis
 import com.bridgeone.app.ui.utils.getDistance
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -142,6 +147,10 @@ fun TouchpadWrapper(
     // 가이드라인 자동 숨김 Job
     var guidelineHideJob by remember { mutableStateOf<Job?>(null) }
 
+    // 직각 이동 가이드라인 상태 (Phase 4.3.5)
+    var rightAngleGuidelineVisible by remember { mutableStateOf(false) }
+    var rightAngleGuidelineAxis by remember { mutableStateOf(RightAngleAxis.UNDECIDED) }
+
     // 무한 스크롤 관성 Job (Phase 4.3.4)
     var inertiaJob by remember { mutableStateOf<Job?>(null) }
 
@@ -165,6 +174,7 @@ fun TouchpadWrapper(
                 val axisLockDistPx = density.run { SCROLL_AXIS_LOCK_DISTANCE_DP.dp.toPx() }
                 val scrollUnitPx = density.run { SCROLL_UNIT_DISTANCE_DP.dp.toPx() }
                 val deadZoneThresholdPx = DeltaCalculator.getDeadZoneThresholdPx(density)
+                val rightAngleLockDistPx = density.run { RIGHT_ANGLE_AXIS_LOCK_DISTANCE_DP.dp.toPx() }
 
                 awaitEachGesture {
                     // ── DOWN ──
@@ -197,6 +207,13 @@ fun TouchpadWrapper(
                     // 무한 스크롤 속도 샘플 (Phase 4.3.4)
                     // 각 샘플: Pair(이동량 dp, 타임스탬프 ms)
                     val velocitySamples = ArrayDeque<Pair<Float, Long>>()
+
+                    // 직각 이동 모드 전용 로컬 상태 (Phase 4.3.5)
+                    var rightAngleAxis = RightAngleAxis.UNDECIDED
+                    var rightAngleAccumX = 0f
+                    var rightAngleAccumY = 0f
+                    // 새 제스처 시작 시 가이드라인 초기화
+                    rightAngleGuidelineVisible = false
 
                     onTouchEvent(PointerEventType.Press, currentTouchPosition.value, previousTouchPosition.value)
 
@@ -337,14 +354,45 @@ fun TouchpadWrapper(
                                     Offset.Zero
                                 }
 
-                                compensatedDeltaX.value = finalDelta.x
-                                compensatedDeltaY.value = finalDelta.y
+                                // ── 직각 이동 모드 축 잠금 (Phase 4.3.5) ──
+                                val axisLockedDelta = if (latestState.moveMode == MoveMode.RIGHT_ANGLE &&
+                                    deadZoneEscaped.value
+                                ) {
+                                    if (rightAngleAxis == RightAngleAxis.UNDECIDED) {
+                                        // 축 판정용 누적 (rawDelta: px 단위)
+                                        rightAngleAccumX += rawDelta.x
+                                        rightAngleAccumY += rawDelta.y
+                                        val determined = DeltaCalculator.determineRightAngleAxis(
+                                            accumX = rightAngleAccumX,
+                                            accumY = rightAngleAccumY,
+                                            lockDistPx = rightAngleLockDistPx,
+                                            deadbandDeg = RIGHT_ANGLE_DEADBAND_DEG
+                                        )
+                                        if (determined != RightAngleAxis.UNDECIDED) {
+                                            rightAngleAxis = determined
+                                            rightAngleGuidelineAxis = determined
+                                            rightAngleGuidelineVisible = true
+                                            // 축 결정 순간 Light 햅틱 1회
+                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                        }
+                                        // 아직 미결정: 주축 확정 전까지 커서 이동 차단
+                                        Offset.Zero
+                                    } else {
+                                        // 주축 확정 후: 반대 축 이동량 = 0
+                                        DeltaCalculator.applyRightAngleLock(finalDelta, rightAngleAxis)
+                                    }
+                                } else {
+                                    finalDelta
+                                }
 
-                                if (finalDelta.x != 0f || finalDelta.y != 0f) {
+                                compensatedDeltaX.value = axisLockedDelta.x
+                                compensatedDeltaY.value = axisLockedDelta.y
+
+                                if (axisLockedDelta.x != 0f || axisLockedDelta.y != 0f) {
                                     val dragFrame = ClickDetector.createFrame(
                                         buttonState = 0x00u,
-                                        deltaX = finalDelta.x,
-                                        deltaY = finalDelta.y
+                                        deltaX = axisLockedDelta.x,
+                                        deltaY = axisLockedDelta.y
                                     )
                                     ClickDetector.sendFrame(dragFrame)
                                 }
@@ -486,8 +534,17 @@ fun TouchpadWrapper(
                                 Offset.Zero
                             }
 
-                            compensatedDeltaX.value = releaseFinalDelta.x
-                            compensatedDeltaY.value = releaseFinalDelta.y
+                            // 직각 이동 모드 축 잠금 적용 (Phase 4.3.5)
+                            val releaseAxisLockedDelta = if (latestState.moveMode == MoveMode.RIGHT_ANGLE &&
+                                rightAngleAxis != RightAngleAxis.UNDECIDED
+                            ) {
+                                DeltaCalculator.applyRightAngleLock(releaseFinalDelta, rightAngleAxis)
+                            } else {
+                                releaseFinalDelta
+                            }
+
+                            compensatedDeltaX.value = releaseAxisLockedDelta.x
+                            compensatedDeltaY.value = releaseAxisLockedDelta.y
 
                             val buttonState = if (deadZoneEscaped.value) {
                                 0x00u.toUByte()
@@ -519,6 +576,9 @@ fun TouchpadWrapper(
                             }
                         }
 
+                        // 직각 이동 가이드라인 숨김 (Phase 4.3.5)
+                        rightAngleGuidelineVisible = false
+
                         // 공통 상태 초기화
                         touchDownTime.value = 0L
                         touchDownPosition.value = Offset.Zero
@@ -531,6 +591,13 @@ fun TouchpadWrapper(
                 }
             }
     ) {
+        // 직각 이동 가이드라인 오버레이 (Phase 4.3.5)
+        RightAngleGuideline(
+            isVisible = rightAngleGuidelineVisible,
+            axis = rightAngleGuidelineAxis,
+            modifier = Modifier.fillMaxSize()
+        )
+
         // ScrollGuideline 오버레이 (스크롤 모드에서만 유의미)
         ScrollGuideline(
             isVisible = guidelineVisible,

@@ -4,6 +4,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
+import kotlin.math.atan2
+
+/**
+ * 직각 이동 모드의 축 잠금 상태
+ *
+ * [DeltaCalculator.determineRightAngleAxis]로 판정하고,
+ * [DeltaCalculator.applyRightAngleLock]으로 델타에 적용합니다.
+ * 상태는 TouchpadWrapper의 제스처 루프에서 로컬 변수로 관리됩니다.
+ */
+enum class RightAngleAxis {
+    UNDECIDED,   // 아직 주축 미결정
+    HORIZONTAL,  // X축으로 잠금 (Y 이동량 = 0)
+    VERTICAL     // Y축으로 잠금 (X 이동량 = 0)
+}
 
 /**
  * 터치 좌표 델타 계산 및 데드존 보상을 담당하는 유틸리티 클래스
@@ -195,6 +209,58 @@ object DeltaCalculator {
             .toFloat()
 
         return Offset(normalizedX, normalizedY)
+    }
+
+    /**
+     * 직각 이동 모드의 주축을 판정합니다.
+     *
+     * 누적 이동 벡터의 크기가 [lockDistPx]를 초과하면 atan2 각도를 분석하여
+     * 주축을 결정합니다. 대각선 데드밴드([deadbandDeg]) 내이면 UNDECIDED를 유지합니다.
+     *
+     * 각도 기준: 0° = 완전 수평(X축), 90° = 완전 수직(Y축)
+     *
+     * @param accumX 축 판정용 누적 X 이동량 (px)
+     * @param accumY 축 판정용 누적 Y 이동량 (px)
+     * @param lockDistPx 주축 확정을 시도할 누적 이동 임계값 (px)
+     * @param deadbandDeg 대각선 데드밴드 각도 (°). 45° ± 이 범위 = UNDECIDED 유지
+     * @return 판정된 축 (임계값 미달이면 항상 UNDECIDED)
+     */
+    fun determineRightAngleAxis(
+        accumX: Float,
+        accumY: Float,
+        lockDistPx: Float,
+        deadbandDeg: Float
+    ): RightAngleAxis {
+        val accumDist = Offset(accumX, accumY).getDistance()
+        if (accumDist < lockDistPx) return RightAngleAxis.UNDECIDED
+
+        // atan2(|ΔY|, |ΔX|): 0°=완전가로, 90°=완전세로
+        val angleRad = atan2(abs(accumY), abs(accumX))
+        val angleDeg = Math.toDegrees(angleRad.toDouble()).toFloat()
+
+        return when {
+            angleDeg < 45f - deadbandDeg -> RightAngleAxis.HORIZONTAL
+            angleDeg > 45f + deadbandDeg -> RightAngleAxis.VERTICAL
+            else -> RightAngleAxis.UNDECIDED  // 대각선 구간: 계속 누적
+        }
+    }
+
+    /**
+     * 직각 이동 모드의 축 잠금을 델타에 적용합니다.
+     *
+     * 잠긴 축과 반대 방향의 이동량을 0으로 만들어 커서가
+     * 수평 또는 수직으로만 이동하도록 합니다.
+     *
+     * @param delta 원본 델타 (px)
+     * @param axis 현재 잠긴 축
+     * @return 축 잠금이 적용된 델타 (잠금 축 외의 성분 = 0)
+     */
+    fun applyRightAngleLock(delta: Offset, axis: RightAngleAxis): Offset {
+        return when (axis) {
+            RightAngleAxis.HORIZONTAL -> Offset(delta.x, 0f)
+            RightAngleAxis.VERTICAL -> Offset(0f, delta.y)
+            RightAngleAxis.UNDECIDED -> delta
+        }
     }
 
     /**

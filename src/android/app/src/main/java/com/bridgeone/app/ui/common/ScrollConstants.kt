@@ -64,4 +64,12 @@ object ScrollConstants {
 
     /** 일반 스크롤 버튼을 홀드할 때 스크롤 프레임 전송 간격 (ms). 값이 작을수록 빠름 */
     const val NORMAL_SCROLL_BUTTON_INTERVAL_MS = 100L
+
+    // ── 직각 이동 모드 (Phase 4.3.5) ──
+
+    /** 직각 이동 모드에서 주축 확정을 위한 누적 이동 임계값 (dp). 이 거리 이전에는 UNDECIDED 유지 */
+    const val RIGHT_ANGLE_AXIS_LOCK_DISTANCE_DP = 12f
+
+    /** 직각 이동 모드에서 주축 전환 방지 데드밴드 각도 (°). 45° ± 이 값 범위 내이면 대각선 판정 */
+    const val RIGHT_ANGLE_DEADBAND_DEG = 22.5f
 }

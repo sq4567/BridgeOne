@@ -368,31 +368,40 @@ TouchpadWrapper
 
 **세부 목표**:
 1. 직각 이동 알고리즘:
-   - 터치 시작 후 30dp 이동 시 주축(X/Y) 결정
+   - 터치 시작 후 12dp 이동 시 주축(X/Y) 결정 (하드웨어 테스트 후 30dp→12dp 조정)
    - 22.5도 데드밴드 (주축 전환 방지)
+   - **주축 확정 전(UNDECIDED)**: 커서 이동 완전 차단 (`Offset.Zero` 반환) — 직각 모드 진입 시 커서가 의도치 않게 틀어지는 것을 방지
    - 주축이 결정되면 반대 축 이동량 = 0
    - 손가락 떼면 축 잠금 해제
 2. MoveModeButton과 연동:
    - 자유 이동 ↔ 직각 이동 전환
    - 직각 이동 시 MoveModeButton에 "커서 자유 이동 모드" 텍스트 표시
 3. 시각적 피드백:
-   - 축 결정 시 터치패드 테두리 색상 힌트 (선택적)
+   - `RightAngleGuideline.kt` — 십자 양방향 화살표 오버레이 (잠긴 축 밝게 / 차단 축 흐리게)
+   - 색상: `Color(0xFFFF8A00)` (직각 이동 버튼 배경색과 동일)
+   - 상단 여백: `topEdgePad = 80.dp` (컨테이너 버튼 영역 회피)
+   - 페이드인/아웃: `animateFloatAsState(tween 250ms)`
    - 햅틱: 축 결정 순간 Light 1회
 
+**신규 파일**:
+- `RightAngleGuideline.kt` (`src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/`)
+
 **수정 파일**:
-- `DeltaCalculator.kt` (축 잠금 로직 추가)
-- `TouchpadWrapper.kt`
+- `DeltaCalculator.kt` (`RightAngleAxis` enum, `determineRightAngleAxis()`, `applyRightAngleLock()` 추가)
+- `TouchpadWrapper.kt` (직각 이동 제스처 로직 + 가이드라인 상태 연결)
+- `ScrollConstants.kt` (`RIGHT_ANGLE_AXIS_LOCK_DISTANCE_DP`, `RIGHT_ANGLE_DEADBAND_DEG` 추가)
 
 **참조 문서**:
 - `docs/android/technical-specification-app.md` §2.2.3 (직각 이동 알고리즘)
 - `docs/android/component-touchpad.md` §1.3.1.2 (MoveModeButton)
 
 **검증**:
-- [ ] 30dp 이동 후 축 결정 정상 동작
-- [ ] 직각 이동 중 반대 축 이동 차단
-- [ ] 손가락 떼면 축 잠금 해제
-- [ ] MoveModeButton 토글 동작
-- [ ] PC에서 수평/수직 직선 커서 이동 확인
+- [x] 12dp 이동 후 축 결정 정상 동작
+- [x] 주축 확정 전 커서 이동 완전 차단
+- [x] 직각 이동 중 반대 축 이동 차단
+- [x] 손가락 떼면 축 잠금 해제
+- [x] MoveModeButton 토글 동작
+- [x] PC에서 수평/수직 직선 커서 이동 확인
 
 ---
 
@@ -412,6 +421,8 @@ TouchpadWrapper
 > **⚠️ Phase 4.3.4.5 변경사항**: `TouchpadWrapper.kt` DOWN 이벤트에 이벤트 소비 체크 패턴 추가됨:
 > `if (down.changes.any { it.isConsumed }) return@awaitEachGesture`
 > `DpiAdjustPopup`을 TouchpadWrapper Box 내에 오버레이로 배치 시, 팝업 내 `pointerInput`에서 `event.changes.forEach { it.consume() }` 호출하면 TouchpadWrapper 제스처 처리가 자동 차단됨 — 별도 분기 로직 불필요.
+
+> **⚠️ Phase 4.3.5 변경사항**: 커서 이동 `else` 분기에서 `finalDelta` 이후 `axisLockedDelta`가 산출됨 (직각 이동 모드 축 잠금). DPI 곱수는 `finalDelta`가 아닌 **`axisLockedDelta`에 적용** 후 `coerceIn(-127f, 127f)` 처리해야 함 (직각 잠금 → DPI 순서). `ScrollConstants.RIGHT_ANGLE_AXIS_LOCK_DISTANCE_DP`(12f), `RIGHT_ANGLE_DEADBAND_DEG`(22.5f) 상수 추가됨. `DeltaCalculator`에 `RightAngleAxis` enum, `determineRightAngleAxis()`, `applyRightAngleLock()` 함수 추가됨. **주축 확정 전(UNDECIDED) `axisLockedDelta = Offset.Zero`** — 커서가 이동하지 않으므로 DPI 곱수 적용도 자동으로 0이 됨 (별도 처리 불필요).
 
 **목표**: 터치패드 커서 감도를 3단계 + 커스텀 값으로 조절하는 DPI 시스템
 
