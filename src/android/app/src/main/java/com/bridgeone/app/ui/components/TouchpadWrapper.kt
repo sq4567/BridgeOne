@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -24,6 +26,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -49,6 +53,8 @@ import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_HIDE_DELAY_M
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_STEP_DP
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_STOP_THRESHOLD_MS
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_UNIT_DISTANCE_DP
+import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
+import com.bridgeone.app.ui.components.touchpad.DynamicsPresetButton
 import com.bridgeone.app.ui.components.touchpad.NormalScrollButtons
 import com.bridgeone.app.ui.components.touchpad.RightAngleGuideline
 import com.bridgeone.app.ui.components.touchpad.ScrollAxis
@@ -109,6 +115,7 @@ fun TouchpadWrapper(
     bridgeMode: BridgeMode = BridgeMode.ESSENTIAL,
     touchpadState: TouchpadState = TouchpadState(),
     onTouchpadStateChange: (TouchpadState) -> Unit = {},
+    onDynamicsLongPress: () -> Unit = {},
     onTouchEvent: (
         eventType: PointerEventType,
         currentPosition: Offset,
@@ -163,13 +170,25 @@ fun TouchpadWrapper(
         }
     }
 
+    // 프리셋 탭 라벨 표시 상태 (Phase 4.3.8)
+    var showPresetLabel by remember { mutableStateOf(false) }
+    var isFirstPresetRender by remember { mutableStateOf(true) }
+    LaunchedEffect(touchpadState.dynamicsPresetIndex) {
+        if (isFirstPresetRender) { isFirstPresetRender = false; return@LaunchedEffect }
+        showPresetLabel = true
+        delay(1500L)
+        showPresetLabel = false
+    }
+
     val CORNER_RADIUS = 5.dp
 
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(CORNER_RADIUS))
-            .background(Color(0xFF1A1A1A))
-            .pointerInput(Unit) {
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(CORNER_RADIUS))
+                .background(Color(0xFF1A1A1A))
+                .pointerInput(Unit) {
                 // dp → px 변환 상수 (제스처 루프 시작 전 1회 계산)
                 val axisLockDistPx = density.run { SCROLL_AXIS_LOCK_DISTANCE_DP.dp.toPx() }
                 val scrollUnitPx = density.run { SCROLL_UNIT_DISTANCE_DP.dp.toPx() }
@@ -214,6 +233,10 @@ fun TouchpadWrapper(
                     var rightAngleAccumY = 0f
                     // 새 제스처 시작 시 가이드라인 초기화
                     rightAngleGuidelineVisible = false
+
+                    // 커서 이동 속도 샘플 (Phase 4.3.8 다이나믹스용)
+                    // 각 샘플: Pair(이동량 dp, 타임스탬프 ms)
+                    val cursorVelocitySamples = ArrayDeque<Pair<Float, Long>>()
 
                     onTouchEvent(PointerEventType.Press, currentTouchPosition.value, previousTouchPosition.value)
 
@@ -385,12 +408,46 @@ fun TouchpadWrapper(
                                     finalDelta
                                 }
 
+                                // ── 커서 속도 샘플 수집 (Phase 4.3.8 다이나믹스용) ──
+                                val now = System.currentTimeMillis()
+                                val distDp = rawDelta.getDistance() / density.density
+                                cursorVelocitySamples.addLast(Pair(distDp, now))
+                                val cutoff = now - INFINITE_SCROLL_VELOCITY_WINDOW_MS
+                                while (cursorVelocitySamples.isNotEmpty() &&
+                                    cursorVelocitySamples.first().second < cutoff
+                                ) {
+                                    cursorVelocitySamples.removeFirst()
+                                }
+                                val velocityDpMs = if (cursorVelocitySamples.size >= 2) {
+                                    val oldest = cursorVelocitySamples.first()
+                                    val newest = cursorVelocitySamples.last()
+                                    val totalDp = cursorVelocitySamples.sumOf { it.first.toDouble() }.toFloat()
+                                    val timeSpanMs = (newest.second - oldest.second).toFloat()
+                                    if (timeSpanMs > 0f) totalDp / timeSpanMs else 0f
+                                } else 0f
+
                                 // ── DPI 곱수 적용 (Phase 4.3.6) ──
                                 val dpiMultiplierMove = latestState.effectiveDpiMultiplier
-                                val dpiDelta = Offset(
-                                    (axisLockedDelta.x * dpiMultiplierMove).coerceIn(-127f, 127f),
-                                    (axisLockedDelta.y * dpiMultiplierMove).coerceIn(-127f, 127f)
+                                val dpiDeltaRaw = Offset(
+                                    axisLockedDelta.x * dpiMultiplierMove,
+                                    axisLockedDelta.y * dpiMultiplierMove
                                 )
+
+                                // ── 포인터 다이나믹스 배율 적용 (Phase 4.3.8) ──
+                                val dynamicsPreset = DYNAMICS_PRESETS.getOrNull(latestState.dynamicsPresetIndex)
+                                    ?: DYNAMICS_PRESETS.first()
+                                val dpiDelta = if (dynamicsPreset.algorithm != com.bridgeone.app.ui.components.touchpad.DynamicsAlgorithm.NONE) {
+                                    Offset(
+                                        DeltaCalculator.applyPointerDynamics(dpiDeltaRaw.x, velocityDpMs, dynamicsPreset).coerceIn(-127f, 127f),
+                                        DeltaCalculator.applyPointerDynamics(dpiDeltaRaw.y, velocityDpMs, dynamicsPreset).coerceIn(-127f, 127f)
+                                    )
+                                } else {
+                                    Offset(
+                                        dpiDeltaRaw.x.coerceIn(-127f, 127f),
+                                        dpiDeltaRaw.y.coerceIn(-127f, 127f)
+                                    )
+                                }
+
                                 compensatedDeltaX.value = dpiDelta.x
                                 compensatedDeltaY.value = dpiDelta.y
 
@@ -551,10 +608,32 @@ fun TouchpadWrapper(
 
                             // ── DPI 곱수 적용 (Phase 4.3.6) ──
                             val dpiMultiplierRelease = latestState.effectiveDpiMultiplier
-                            val releaseDpiDelta = Offset(
-                                (releaseAxisLockedDelta.x * dpiMultiplierRelease).coerceIn(-127f, 127f),
-                                (releaseAxisLockedDelta.y * dpiMultiplierRelease).coerceIn(-127f, 127f)
+                            val releaseDpiDeltaRaw = Offset(
+                                releaseAxisLockedDelta.x * dpiMultiplierRelease,
+                                releaseAxisLockedDelta.y * dpiMultiplierRelease
                             )
+
+                            // ── 포인터 다이나믹스 배율 적용 (Phase 4.3.8) ──
+                            val releaseVelocityDpMs = if (cursorVelocitySamples.size >= 2) {
+                                val oldest = cursorVelocitySamples.first()
+                                val newest = cursorVelocitySamples.last()
+                                val totalDp = cursorVelocitySamples.sumOf { it.first.toDouble() }.toFloat()
+                                val timeSpanMs = (newest.second - oldest.second).toFloat()
+                                if (timeSpanMs > 0f) totalDp / timeSpanMs else 0f
+                            } else 0f
+                            val releaseDynamicsPreset = DYNAMICS_PRESETS.getOrNull(latestState.dynamicsPresetIndex)
+                                ?: DYNAMICS_PRESETS.first()
+                            val releaseDpiDelta = if (releaseDynamicsPreset.algorithm != com.bridgeone.app.ui.components.touchpad.DynamicsAlgorithm.NONE) {
+                                Offset(
+                                    DeltaCalculator.applyPointerDynamics(releaseDpiDeltaRaw.x, releaseVelocityDpMs, releaseDynamicsPreset).coerceIn(-127f, 127f),
+                                    DeltaCalculator.applyPointerDynamics(releaseDpiDeltaRaw.y, releaseVelocityDpMs, releaseDynamicsPreset).coerceIn(-127f, 127f)
+                                )
+                            } else {
+                                Offset(
+                                    releaseDpiDeltaRaw.x.coerceIn(-127f, 127f),
+                                    releaseDpiDeltaRaw.y.coerceIn(-127f, 127f)
+                                )
+                            }
                             compensatedDeltaX.value = releaseDpiDelta.x
                             compensatedDeltaY.value = releaseDpiDelta.y
 
@@ -630,7 +709,27 @@ fun TouchpadWrapper(
         ) {
             NormalScrollButtons()
         }
-    }
+
+        // 다이나믹스 프리셋 버튼 (커서 이동 모드 + Standard 모드에서만 표시, Phase 4.3.8)
+        AnimatedVisibility(
+            visible = touchpadState.scrollMode == ScrollMode.OFF &&
+                bridgeMode != BridgeMode.ESSENTIAL,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(200)),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 8.dp, bottom = 8.dp)
+        ) {
+            DynamicsPresetButton(
+                touchpadState = touchpadState,
+                onTouchpadStateChange = onTouchpadStateChange,
+                onLongPress = onDynamicsLongPress,
+                showLabel = showPresetLabel
+            )
+        }
+        }  // inner Box 끝
+
+    }  // outer Box 끝
 }
 
 /**

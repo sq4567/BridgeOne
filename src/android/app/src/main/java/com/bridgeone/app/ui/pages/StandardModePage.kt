@@ -66,6 +66,7 @@ import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
 import com.bridgeone.app.ui.components.touchpad.DpiAdjustPopup
 import com.bridgeone.app.ui.components.touchpad.DpiLevel
+import com.bridgeone.app.ui.components.touchpad.DynamicsPresetPopup
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.utils.ClickDetector
@@ -102,9 +103,18 @@ fun StandardModePage() {
     // Phase 4.3.6: DPI 세밀 조절 팝업 상태
     var dpiAdjustPopupVisible by remember { mutableStateOf(false) }
 
+    // Phase 4.3.8: 다이나믹스 프리셋 팝업 상태
+    var dynamicsPresetPopupVisible by remember { mutableStateOf(false) }
+
     // 페이지 전환 시 팝업 취소 (커스텀 값 미적용)
     LaunchedEffect(pagerState.currentPage) {
         if (dpiAdjustPopupVisible) dpiAdjustPopupVisible = false
+        if (dynamicsPresetPopupVisible) dynamicsPresetPopupVisible = false
+    }
+
+    // 스크롤 모드 전환 시 다이나믹스 팝업 취소 (Phase 4.3.8)
+    LaunchedEffect(touchpadState.scrollMode) {
+        if (dynamicsPresetPopupVisible) dynamicsPresetPopupVisible = false
     }
 
     Column(
@@ -145,7 +155,9 @@ fun StandardModePage() {
                         touchpadState = touchpadState,
                         onTouchpadStateChange = { touchpadState = it },
                         dpiAdjustPopupVisible = dpiAdjustPopupVisible,
+                        dynamicsPresetPopupVisible = dynamicsPresetPopupVisible,
                         onDpiLongPress = { dpiAdjustPopupVisible = true },
+                        onDynamicsLongPress = { dynamicsPresetPopupVisible = true },
                         onDpiAdjustConfirm = { value ->
                             dpiAdjustPopupVisible = false
                             // 사전 정의 값과 일치 시 해당 레벨로 매핑, 아니면 커스텀
@@ -161,7 +173,12 @@ fun StandardModePage() {
                                 touchpadState.copy(customDpiMultiplier = value)
                             }
                         },
-                        onDpiAdjustDismiss = { dpiAdjustPopupVisible = false }
+                        onDpiAdjustDismiss = { dpiAdjustPopupVisible = false },
+                        onDynamicsPresetConfirmed = { index ->
+                            dynamicsPresetPopupVisible = false
+                            touchpadState = touchpadState.copy(dynamicsPresetIndex = index)
+                        },
+                        onDynamicsPresetDismiss = { dynamicsPresetPopupVisible = false }
                     )
                     1 -> Page2AbsolutePointingPlaceholder()
                     2 -> Page3KeyboardPlaceholder()
@@ -274,9 +291,13 @@ private fun Page1TouchpadActions(
     touchpadState: TouchpadState,
     onTouchpadStateChange: (TouchpadState) -> Unit,
     dpiAdjustPopupVisible: Boolean = false,
+    dynamicsPresetPopupVisible: Boolean = false,
     onDpiLongPress: () -> Unit = {},
+    onDynamicsLongPress: () -> Unit = {},
     onDpiAdjustConfirm: (Float) -> Unit = {},
-    onDpiAdjustDismiss: () -> Unit = {}
+    onDpiAdjustDismiss: () -> Unit = {},
+    onDynamicsPresetConfirmed: (Int) -> Unit = {},
+    onDynamicsPresetDismiss: () -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
@@ -302,11 +323,11 @@ private fun Page1TouchpadActions(
         ) {
             // ── 좌측: 터치패드 (64% / 60%) ──
             // Phase 4.3.1: Box 내부에 ControlButtonContainer 오버레이 추가
-            // Phase 4.3.6: DpiAdjustPopup 표시 시 배경 블러 적용
+            // Phase 4.3.6 / 4.3.8: DPI 팝업 또는 다이나믹스 팝업 표시 시 배경 블러 적용
             val blurRadius by animateDpAsState(
-                targetValue = if (dpiAdjustPopupVisible) 8.dp else 0.dp,
+                targetValue = if (dpiAdjustPopupVisible || dynamicsPresetPopupVisible) 8.dp else 0.dp,
                 animationSpec = tween(200),
-                label = "dpiBlur"
+                label = "popupBlur"
             )
             Box(
                 modifier = Modifier
@@ -325,6 +346,7 @@ private fun Page1TouchpadActions(
                         bridgeMode = BridgeMode.STANDARD,
                         touchpadState = touchpadState,
                         onTouchpadStateChange = onTouchpadStateChange,
+                        onDynamicsLongPress = onDynamicsLongPress,
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
@@ -351,6 +373,18 @@ private fun Page1TouchpadActions(
                         initialMultiplier = touchpadState.effectiveDpiMultiplier,
                         onConfirm = onDpiAdjustConfirm,
                         onDismiss = onDpiAdjustDismiss,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                }
+
+                // Phase 4.3.8: 다이나믹스 프리셋 팝업 오버레이
+                if (dynamicsPresetPopupVisible) {
+                    DynamicsPresetPopup(
+                        currentIndex = touchpadState.dynamicsPresetIndex,
+                        onPresetConfirmed = onDynamicsPresetConfirmed,
+                        onDismiss = onDynamicsPresetDismiss,
                         modifier = Modifier
                             .fillMaxSize()
                             .clip(RoundedCornerShape(12.dp))

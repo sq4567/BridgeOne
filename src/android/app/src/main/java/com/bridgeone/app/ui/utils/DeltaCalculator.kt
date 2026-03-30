@@ -3,8 +3,11 @@ package com.bridgeone.app.ui.utils
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import com.bridgeone.app.ui.components.touchpad.DynamicsAlgorithm
+import com.bridgeone.app.ui.components.touchpad.PointerDynamicsPreset
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.exp
 
 /**
  * 직각 이동 모드의 축 잠금 상태
@@ -261,6 +264,47 @@ object DeltaCalculator {
             RightAngleAxis.VERTICAL -> Offset(0f, delta.y)
             RightAngleAxis.UNDECIDED -> delta
         }
+    }
+
+    /**
+     * 포인터 다이나믹스(커서 가속) 배율을 단일 축 델타에 적용합니다. (Phase 4.3.8)
+     *
+     * DPI 배율 적용 이후에 호출합니다.
+     * 최종 파이프라인: rawDelta × dpiMultiplier → applyPointerDynamics → coerceIn(-127f, 127f)
+     *
+     * @param rawDelta      DPI 배율이 이미 적용된 단일 축 델타 (px)
+     * @param velocityDpMs  현재 손가락 이동 속도 (dp/ms, 절댓값 0 이상)
+     * @param preset        적용할 다이나믹스 프리셋
+     * @return 다이나믹스 배율이 추가로 적용된 델타 (px, coerceIn 미포함)
+     */
+    fun applyPointerDynamics(
+        rawDelta: Float,
+        velocityDpMs: Float,
+        preset: PointerDynamicsPreset
+    ): Float {
+        val multiplier = when (preset.algorithm) {
+            DynamicsAlgorithm.NONE -> 1.0f
+
+            DynamicsAlgorithm.WINDOWS_EPP -> {
+                if (velocityDpMs < preset.velocityThresholdDpMs) {
+                    1.0f
+                } else {
+                    // S커브 근사: sigmoid((v/threshold - 1) × 2)
+                    val x = (velocityDpMs / preset.velocityThresholdDpMs - 1f) * 2f
+                    val sigmoid = 1f / (1f + exp(-x))
+                    1.0f + preset.intensityFactor * sigmoid
+                }
+            }
+
+            DynamicsAlgorithm.LINEAR -> {
+                val excess = maxOf(
+                    0f,
+                    (velocityDpMs - preset.velocityThresholdDpMs) / preset.velocityThresholdDpMs
+                )
+                1.0f + preset.intensityFactor * excess
+            }
+        }
+        return rawDelta * multiplier.coerceIn(1.0f, preset.maxMultiplier)
     }
 
     /**

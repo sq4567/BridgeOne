@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.outlined.Mouse
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -46,7 +47,7 @@ data class AppIconDef(
  */
 object AppIcons {
     // 포인터 다이나믹스 프리셋 (Phase 4.3.8)
-    val DynamicsOff       = AppIconDef(Icons.Outlined.Speed)
+    val DynamicsOff       = AppIconDef(Icons.Outlined.Remove)
     val DynamicsPrecision = AppIconDef(Icons.Filled.Adjust)
     val DynamicsStandard  = AppIconDef(Icons.Filled.Speed)
     val DynamicsFast      = AppIconDef(Icons.Filled.FlashOn)

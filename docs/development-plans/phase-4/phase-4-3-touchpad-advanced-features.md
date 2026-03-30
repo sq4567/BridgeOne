@@ -613,8 +613,6 @@ TouchpadWrapper
 
 **개발 기간**: 1.5-2일
 
-**쉬운 설명**: 실제 마우스처럼, 손가락을 느리게 움직이면 커서도 조금만 이동하고(정밀 작업에 유리), 손가락을 빠르게 움직이면 커서가 훨씬 더 멀리 이동합니다(화면 전체를 빠르게 횡단). 스크롤 모드에서 위/아래 버튼이 뜨듯이, 커서 이동 모드에서는 왼쪽 하단에 프리셋 선택 버튼이 나타납니다. 탭하면 다음 프리셋으로 전환되고, 꾹 누르면 전체 목록 팝업에서 원하는 걸 골라 선택할 수 있습니다.
-
 **알고리즘 종류**:
 
 | 알고리즘 | 설명 |
@@ -914,39 +912,31 @@ TouchpadWrapper
 
 > **⚠️ Phase 4.3.9 참고**: `TouchpadWrapper.kt`에서 delta 적용 순서(`dpiMultiplier` → `dynamicsMultiplier`)가 테두리 색상 Modifier와 독립적으로 구현됨. 두 기능의 코드 위치 충돌 없음. `DynamicsPresetButton`은 `NormalScrollButtons`와 동일 위치에 `AnimatedVisibility`로 교대 표시되므로 오버레이 충돌 없음.
 
-**검증**:
-- [ ] None 프리셋: 속도와 무관하게 일정한 커서 이동 (기존과 동일)
-- [ ] Precision 프리셋 (Windows EPP): 느린 드래그 시 정밀 이동, 빠른 드래그 시 커서 가속 확인
-- [ ] Standard 프리셋 (Windows EPP): Precision보다 강한 가속 적용 확인
-- [ ] Fast 프리셋 (Linear): 속도 증가에 비례하여 커서 이동량 선형 증가 확인
-- [ ] DPI 배율과 다이나믹스 배율 중첩 적용 정상 동작 (Low DPI + 가속 프리셋 조합)
-- [ ] 최대 배율 상한 초과 방지 (`coerceIn` 확인)
-- [ ] 스크롤 모드 중 다이나믹스 배율 미적용 확인 (커서 이동 모드 전용)
-- [ ] **프리셋 버튼 — 커서 이동 모드에서 왼쪽 하단에 표시** 확인
-- [ ] **프리셋 버튼 — 원탭으로 프리셋 사이클 전환** (Off → Precision → Standard → Fast → Off)
-- [ ] **프리셋 버튼 — 롱프레스 시 터치패드 전체 영역 팝업 오버레이** 표시 확인
-- [ ] **팝업 — ControlButtonContainer + 터치패드 전체 블러 배경** 적용 확인
-- [ ] **팝업 — 블러 진입/해제 시 부드러운 애니메이션 전환** 확인
-- [ ] **팝업 — 최상단 가운데 "원하는 알고리즘 프리셋을 선택하세요." 텍스트** 표시 확인
-- [ ] **팝업 — 프리셋 그리드 (네모 아이콘 + 이름) 표시** 확인
-- [ ] **팝업 — 하단 가운데 "상하 좌우 스와이프로 원하는 프리셋 선택 | 탭으로 결정" 작은 텍스트** 표시 확인
-- [ ] **팝업 — 좌우 스와이프 시 테두리가 해당 프리셋 셀로 이동** 확인 (30dp당 1단계)
-- [ ] **팝업 — 범위 초과 시 붉은색 테두리 + 햅틱 피드백** 확인
-- [ ] **팝업 — 탭 시 그리드 테두리 사라지고 선택 프리셋 확대 + 설명 표시** 확인
-- [ ] **팝업 — 확인 단계: 좌우 스와이프로 예/아니요 전환** 확인
-- [ ] **팝업 — 확인 단계: 탭(예) → 프리셋 확정 + 팝업 닫힘 + 햅틱 피드백** 확인
-- [ ] **팝업 — 확인 단계: 탭(아니요) → 그리드 선택 화면으로 복귀** 확인
-- [ ] **팝업 — 페이지 전환 시 변경 없이 취소** 확인
-- [ ] **프리셋 버튼 — 스크롤 모드 진입 시 버튼 페이드아웃** 확인
-- [ ] **프리셋 버튼 — Essential 모드에서 숨김** 확인
-- [ ] 프리셋 버튼 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 확인)
-- [ ] PC에서 실제 커서 가속 동작 확인 (하드웨어 E2E — Phase 4.3.10에서 추가 검증)
+**검증 (UX — 에뮬레이터/실기기 UI 확인)**:
+- [x] 프리셋 버튼 — 커서 이동 모드에서 왼쪽 하단에 표시 확인
+- [x] 프리셋 버튼 — 원탭으로 프리셋 사이클 전환 (Off → Precision → Standard → Fast → Off)
+- [x] 프리셋 버튼 — 탭 시 프리셋 이름 라벨 표시 후 자동 소멸 확인
+- [x] 프리셋 버튼 — 롱프레스 시 터치패드 전체 영역 팝업 오버레이 표시 확인
+- [x] 팝업 — 반투명 배경 + 프리셋 그리드 (FlowRow 아이콘 + 이름) 표시 확인
+- [x] 팝업 — 현재 활성 프리셋 강조 (파란 배경 + 볼드) 확인
+- [x] 팝업 — 반투명 카드 안내 텍스트 표시 확인
+- [x] 팝업 — 좌우 스와이프 시 테두리가 해당 프리셋 셀로 이동 확인 (30dp당 1단계)
+- [x] 팝업 — 범위 초과 시 붉은색 테두리 + 햅틱 피드백 확인
+- [x] 팝업 — 현재 프리셋 탭 → 팝업 닫힘 (취소) 확인
+- [x] 팝업 — 다른 프리셋 탭 → 확인 단계 진입 (아이콘 확대 + 이름 + 설명) 확인
+- [x] 팝업 — 확인 단계: 좌우 스와이프로 예/아니요 전환 확인
+- [x] 팝업 — 확인 단계: 탭(예) → 프리셋 확정 + 팝업 닫힘 + 햅틱 피드백 확인
+- [x] 팝업 — 확인 단계: 탭(아니요) → 그리드 선택 화면으로 복귀 확인
+- [x] 프리셋 버튼 — 스크롤 모드 진입 시 버튼 페이드아웃 확인
+- [x] 프리셋 버튼 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 확인)
+
+> 하드웨어 의존 검증 (커서 가속 동작, DPI 중첩, 배율 상한 등)은 **Phase 4.3.10 E2E 하드웨어 테스트**에서 수행
 
 ---
 
 ## Phase 4.3.9: 터치패드 테두리 모드 색상 표시
 
-> **⚠️ Phase 4.3.8 변경사항**: `TouchpadMode.kt`에 `DynamicsAlgorithm` enum + `PointerDynamicsPreset` data class 추가됨. `TouchpadState`에 `dynamicsPresetIndex: Int` 필드 추가됨. 테두리 색상 결정 함수(`touchpadBorderBrush()`)는 `TouchpadState`를 입력으로 받지만 `dynamicsPresetIndex` 필드는 테두리 색상 로직에 영향을 주지 않음 — 별도 처리 불필요. `TouchpadWrapper.kt`에 `DynamicsPresetButton` 오버레이가 추가됨 (커서 이동 모드 시 `Alignment.BottomStart`, `NormalScrollButtons`와 동일 위치에 교대 표시). 테두리 Modifier는 Box 외곽에 적용되므로 내부 오버레이와 충돌 없음.
+> **⚠️ Phase 4.3.8 변경사항**: `TouchpadMode.kt`에 `DynamicsAlgorithm` enum + `PointerDynamicsPreset` data class 추가됨. `TouchpadState`에 `dynamicsPresetIndex: Int` 필드 추가됨. 테두리 색상 결정 함수(`touchpadBorderBrush()`)는 `TouchpadState`를 입력으로 받지만 `dynamicsPresetIndex` 필드는 테두리 색상 로직에 영향을 주지 않음 — 별도 처리 불필요. `TouchpadWrapper.kt`에 `DynamicsPresetButton` 오버레이가 추가됨 (커서 이동 모드 시 `Alignment.BottomStart`, `NormalScrollButtons`와 동일 위치에 교대 표시). **`TouchpadWrapper.kt` Box 구조가 외부 Box(unclipped) + 내부 Box(clipped) 2중 구조로 변경됨** — 테두리 Modifier는 내부 Box에 적용해야 함. `DynamicsPresetButton`의 `Popup` 라벨은 clip 독립 렌더링이므로 테두리와 충돌 없음. `AppIcons.kt`에 `DynamicsOff/Precision/Standard/Fast` 아이콘 추가됨. `PointerDynamicsConstants.kt` 신규 (상수/프리셋 정의). `DynamicsPresetPopup.kt` 신규 (프리셋 선택 팝업 — `StandardModePage.kt`에서 터치패드 Box 위에 배치).
 
 > **⚠️ Phase 4.3.2 변경사항**: `ControlButtonContainer.kt`의 색상 상수는 여전히 private. 아이콘 헬퍼 함수(`dpiButtonIcon`, `scrollModeButtonIcon`, `scrollSensitivityButtonIcon`)도 private으로 추가됨. 색상을 `TouchpadColors.kt`로 추출 시 아이콘 헬퍼는 ControlButtonContainer에 유지하면 됨.
 
@@ -1127,7 +1117,16 @@ object EdgeSwipe {
 
 ### 검증 항목 체크리스트
 
-> (추후 생성 예정)
+#### 포인터 다이나믹스 (Phase 4.3.8에서 이관)
+- [ ] None 프리셋: 속도와 무관하게 일정한 커서 이동 (기존과 동일)
+- [ ] Precision 프리셋 (Windows EPP): 느린 드래그 시 정밀 이동, 빠른 드래그 시 커서 가속 확인
+- [ ] Standard 프리셋 (Windows EPP): Precision보다 강한 가속 적용 확인
+- [ ] Fast 프리셋 (Linear): 속도 증가에 비례하여 커서 이동량 선형 증가 확인
+- [ ] DPI 배율과 다이나믹스 배율 중첩 적용 정상 동작 (Low DPI + 가속 프리셋 조합)
+- [ ] 최대 배율 상한 초과 방지 (`coerceIn` 확인)
+- [ ] 스크롤 모드 중 다이나믹스 배율 미적용 확인 (커서 이동 모드 전용)
+
+> (이후 Phase 완료 시 추가 항목 계속 추가)
 
 ---
 
