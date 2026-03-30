@@ -100,7 +100,7 @@ fun BridgeOneApp() {
     var isAutoProgressing by remember { mutableStateOf(false) }
 
     // [DEV] 임시 모드 전환 상태 (USB 연결 없이 UI 테스트용)
-    var devMode by remember { mutableStateOf<BridgeMode>(BridgeMode.ESSENTIAL) }
+    var devMode by remember { mutableStateOf<BridgeMode>(BridgeMode.STANDARD) }
 
     // Splash 완료 콜백
     val onSplashFinished = remember {
