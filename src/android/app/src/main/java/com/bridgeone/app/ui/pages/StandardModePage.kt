@@ -379,17 +379,17 @@ private fun Page1TouchpadActions(
                     )
                 }
 
-                // Phase 4.3.8: 다이나믹스 프리셋 팝업 오버레이
-                if (dynamicsPresetPopupVisible) {
-                    DynamicsPresetPopup(
-                        currentIndex = touchpadState.dynamicsPresetIndex,
-                        onPresetConfirmed = onDynamicsPresetConfirmed,
-                        onDismiss = onDynamicsPresetDismiss,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(12.dp))
-                    )
-                }
+                // Phase 4.3.8 / 4.3.9: 다이나믹스 프리셋 팝업 오버레이
+                // 항상 렌더링하고 visible 파라미터로 제어 (exit 애니메이션 보장)
+                DynamicsPresetPopup(
+                    visible = dynamicsPresetPopupVisible,
+                    currentIndex = touchpadState.dynamicsPresetIndex,
+                    onPresetConfirmed = onDynamicsPresetConfirmed,
+                    onDismiss = onDynamicsPresetDismiss,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(12.dp))
+                )
             }
 
             // ── 우측: Actions 패널 (36% / 40%) ──

@@ -1,5 +1,7 @@
 package com.bridgeone.app.ui.components.touchpad
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -18,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +66,7 @@ fun DynamicsPresetButton(
     val coroutineScope = rememberCoroutineScope()
     var isPressed by remember { mutableStateOf(false) }
     var longPressJob by remember { mutableStateOf<Job?>(null) }
+    val scaleAnim = remember { Animatable(1f) }
 
     val currentPreset = DYNAMICS_PRESETS.getOrNull(touchpadState.dynamicsPresetIndex)
         ?: DYNAMICS_PRESETS.first()
@@ -70,6 +74,10 @@ fun DynamicsPresetButton(
     Box(
         modifier = modifier
             .size(40.dp)
+            .graphicsLayer {
+                scaleX = scaleAnim.value
+                scaleY = scaleAnim.value
+            }
             .clip(RoundedCornerShape(8.dp))
             .background(if (isPressed) ButtonColorPressed else ButtonColor)
             .pointerInput(touchpadState.dynamicsPresetIndex) {
@@ -87,6 +95,11 @@ fun DynamicsPresetButton(
                     longPressJob = coroutineScope.launch {
                         delay(LONG_PRESS_DELAY_MS)
                         longPressTriggered = true
+                        // 롱프레스 트리거 피드백: 버튼 scale-up → scale-down
+                        launch {
+                            scaleAnim.animateTo(1.3f, tween(100))
+                            scaleAnim.animateTo(1f, tween(150))
+                        }
                         onLongPress()
                     }
 

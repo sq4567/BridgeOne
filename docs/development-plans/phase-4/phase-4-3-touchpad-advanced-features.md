@@ -983,14 +983,14 @@ TouchpadWrapper
 - `DynamicsPresetButton.kt` — 롱프레스 시 scale-up 트리거 애니메이션 추가
 
 **검증**:
-- [ ] 팝업 열릴 때 배경 dimming fade-in 확인
-- [ ] 팝업 열릴 때 아이콘들이 아래에서 위로 stagger 슬라이드 확인
-- [ ] 팝업 닫힐 때 아이콘들이 아래로 내려가며 사라짐 확인
-- [ ] 팝업 닫힘 후 배경 완전히 사라짐 (alpha 0) 확인
-- [ ] GRID → CONFIRM: 선택 아이콘 scale-up 전환 확인
-- [ ] CONFIRM → GRID: 아이콘들 축소 복귀 확인
-- [ ] DynamicsPresetButton 롱프레스 시 scale-up 효과 확인
-- [ ] 빠른 연속 조작 시 애니메이션 꼬임 없음 확인
+- [x] 팝업 열릴 때 배경 dimming fade-in 확인
+- [x] 팝업 열릴 때 아이콘들이 아래에서 위로 stagger 슬라이드 확인
+- [x] 팝업 닫힐 때 아이콘들이 아래로 내려가며 사라짐 확인
+- [x] 팝업 닫힘 후 배경 완전히 사라짐 (alpha 0) 확인
+- [x] GRID → CONFIRM: AnimatedContent fade+slide 전환 확인 (slide-up 방향, icon scale-up은 AnimatedContent 전환으로 대체)
+- [x] CONFIRM → GRID: AnimatedContent fade+slide 복귀 확인
+- [x] DynamicsPresetButton 롱프레스 시 scale-up 효과 확인
+- [ ] 빠른 연속 조작 시 애니메이션 꼬임 없음 확인 (기기 테스트 필요)
 
 ---
 
