@@ -499,26 +499,28 @@ TouchpadWrapper
 - `docs/android/component-touchpad.md` §3.2.5 (DPI 유저 플로우)
 
 **검증**:
-- [ ] DPI 3단계 탭 순환 동작 (높음 → 낮음 → 보통 → 높음)
-- [ ] 낮음에서 정밀한 커서 이동
-- [ ] 높음에서 빠른 커서 이동
-- [ ] 롱 프레스 시 터치패드 영역 내 팝업 표시
-- [ ] 팝업 표시 시 ControlButtonContainer + 터치패드 전체 블러 배경 적용 확인
-- [ ] 블러 진입/해제 시 부드러운 애니메이션 전환 확인
-- [ ] 팝업 내 스와이프로 DPI 값 실시간 변경
-- [ ] 터치패드 영역 내 탭으로 값 확정 및 팝업 닫힘
-- [ ] 확정 후 버튼 텍스트 "1.3x" 형식 표시
-- [ ] 커스텀 상태에서 탭 순환 시 커스텀 소멸 후 사전 정의 순환 진입
-- [ ] 페이지 전환 시 팝업 취소 (커스텀 미적용)
-- [ ] 앱 재시작 후 커스텀 값 초기화 (레벨만 유지)
-- [ ] USB 끊김 시 커스텀 값 초기화
-- [ ] 스크롤 모드 진입 시 커스텀 값 초기화
+- [x] DPI 3단계 탭 순환 동작 (높음 → 낮음 → 보통 → 높음)
+- [x] 낮음에서 정밀한 커서 이동
+- [x] 높음에서 빠른 커서 이동
+- [x] 롱 프레스 시 터치패드 영역 내 팝업 표시
+- [x] 팝업 표시 시 ControlButtonContainer + 터치패드 전체 블러 배경 적용 확인
+- [x] 블러 진입/해제 시 부드러운 애니메이션 전환 확인
+- [x] 팝업 내 스와이프로 DPI 값 실시간 변경
+- [x] 터치패드 영역 내 탭으로 값 확정 및 팝업 닫힘
+- [x] 확정 후 버튼 텍스트 "1.3x" 형식 표시
+- [x] 커스텀 상태에서 탭 순환 시 커스텀 소멸 후 사전 정의 순환 진입
+- [x] 페이지 전환 시 팝업 취소 (커스텀 미적용)
+- [x] 앱 재시작 후 커스텀 값 초기화 (레벨만 유지)
+- [x] USB 끊김 시 커스텀 값 초기화
+- [x] 스크롤 모드 진입 시 커스텀 값 초기화
 
 ---
 
 ## Phase 4.3.7: 포인터 다이나믹스 (커서 가속 알고리즘)
 
-> **⚠️ Phase 4.3.6 변경사항**: `TouchpadState`에 `customDpiMultiplier: Float?` 필드 추가됨. DPI 유효 배율은 `customDpiMultiplier ?: dpiLevel.multiplier`로 계산됨. `DeltaCalculator.kt`에 DPI 곱수 적용 완료 (`coerceIn(-127f, 127f)` 포함). 포인터 다이나믹스 배율은 DPI 배율 **이후** 순서로 적용할 것 — 최종 delta = `rawDelta × dpiMultiplier × dynamicsMultiplier` → `coerceIn(-127f, 127f)`.
+> **⚠️ Phase 4.3.6 변경사항**: `TouchpadState`에 `customDpiMultiplier: Float?` 필드 및 `effectiveDpiMultiplier` 프로퍼티 추가됨. DPI 유효 배율은 `effectiveDpiMultiplier` (`customDpiMultiplier ?: dpiLevel.multiplier`)로 계산됨. DPI 곱수는 `TouchpadWrapper.kt`의 커서 이동 `else` 분기에서 `axisLockedDelta × effectiveDpiMultiplier` → `coerceIn(-127f, 127f)`로 적용됨 (MOVE 및 UP 이벤트 모두). 포인터 다이나믹스 배율은 DPI 배율 **이후** 순서로 적용할 것 — 최종 delta = `rawDelta × dpiMultiplier × dynamicsMultiplier` → `coerceIn(-127f, 127f)`.
+>
+> **⚠️ Phase 4.3.6 추가 변경사항**: `DpiAdjustPopup.kt` 신규 생성됨 — `DynamicsPresetPopup` 구현 시 동일 패턴(반투명 오버레이 + 스와이프 조절 + 탭 확정 + 경계 피드백) 참조. `StandardModePage.kt`의 `Page1TouchpadActions`에 블러 + 팝업 오버레이 구조 추가됨 (`dpiAdjustPopupVisible` 상태 → `animateDpAsState`로 blur 0↔8dp 전환 → 외부 Box 안에 블러 Box + DpiAdjustPopup 형제 배치). 프리셋 팝업도 이 구조에 통합하여 `blurRadius = if (dpiPopup || presetPopup) 8.dp else 0.dp`로 관리. `ControlButtonContainer`에 `onDpiLongPress` 파라미터 추가됨 — 프리셋 롱프레스도 동일 패턴으로 `onDynamicsLongPress` 추가하면 됨.
 
 **목표**: 손가락 이동 속도에 따라 커서 이동량이 동적으로 변하는 포인터 가속 알고리즘 구현. 알고리즘 파라미터는 `PointerDynamicsConstants.kt`에 프리셋으로 정의하고, 커서 이동 모드에서 터치패드 왼쪽 하단 버튼으로 프리셋을 전환합니다. 향후 Windows 서버 연동 시 런타임 변경도 지원합니다.
 

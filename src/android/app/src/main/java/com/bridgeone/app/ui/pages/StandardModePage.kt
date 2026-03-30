@@ -1,5 +1,8 @@
 package com.bridgeone.app.ui.pages
 
+import android.content.Context
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,16 +27,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,9 +64,12 @@ import com.bridgeone.app.ui.components.KeyboardKeyButton
 import com.bridgeone.app.ui.components.ShortcutButton
 import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
+import com.bridgeone.app.ui.components.touchpad.DpiAdjustPopup
+import com.bridgeone.app.ui.components.touchpad.DpiLevel
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.utils.ClickDetector
+import kotlin.math.abs
 
 // ============================================================
 // Standard 모드 페이지 (Phase 4.2.1: 3페이지 네비게이션)
@@ -79,10 +88,24 @@ import com.bridgeone.app.ui.utils.ClickDetector
 @Composable
 fun StandardModePage() {
     val pagerState = rememberPagerState(pageCount = { 4 })
+    val context = LocalContext.current
 
     // Phase 4.3.3: 터치패드 상태를 페이지 레벨로 호이스팅
-    // 스크롤 모드 활성화 시 HorizontalPager 스와이프 비활성화
-    var touchpadState by remember { mutableStateOf(TouchpadState()) }
+    // DpiLevel은 SharedPreferences에서 복원 (Phase 4.3.6)
+    var touchpadState by remember { mutableStateOf(TouchpadState(dpiLevel = loadDpiLevel(context))) }
+
+    // DPI 레벨(사전 정의 값)이 변경될 때 SharedPreferences에 저장
+    LaunchedEffect(touchpadState.dpiLevel) {
+        saveDpiLevel(context, touchpadState.dpiLevel)
+    }
+
+    // Phase 4.3.6: DPI 세밀 조절 팝업 상태
+    var dpiAdjustPopupVisible by remember { mutableStateOf(false) }
+
+    // 페이지 전환 시 팝업 취소 (커스텀 값 미적용)
+    LaunchedEffect(pagerState.currentPage) {
+        if (dpiAdjustPopupVisible) dpiAdjustPopupVisible = false
+    }
 
     Column(
         modifier = Modifier
@@ -120,7 +143,25 @@ fun StandardModePage() {
                 when (page) {
                     0 -> Page1TouchpadActions(
                         touchpadState = touchpadState,
-                        onTouchpadStateChange = { touchpadState = it }
+                        onTouchpadStateChange = { touchpadState = it },
+                        dpiAdjustPopupVisible = dpiAdjustPopupVisible,
+                        onDpiLongPress = { dpiAdjustPopupVisible = true },
+                        onDpiAdjustConfirm = { value ->
+                            dpiAdjustPopupVisible = false
+                            // 사전 정의 값과 일치 시 해당 레벨로 매핑, 아니면 커스텀
+                            val matchedLevel = DpiLevel.entries.firstOrNull {
+                                abs(it.multiplier - value) < 0.001f
+                            }
+                            touchpadState = if (matchedLevel != null) {
+                                touchpadState.copy(
+                                    dpiLevel = matchedLevel,
+                                    customDpiMultiplier = null
+                                )
+                            } else {
+                                touchpadState.copy(customDpiMultiplier = value)
+                            }
+                        },
+                        onDpiAdjustDismiss = { dpiAdjustPopupVisible = false }
                     )
                     1 -> Page2AbsolutePointingPlaceholder()
                     2 -> Page3KeyboardPlaceholder()
@@ -231,7 +272,11 @@ private fun PageIndicator(
 @Composable
 private fun Page1TouchpadActions(
     touchpadState: TouchpadState,
-    onTouchpadStateChange: (TouchpadState) -> Unit
+    onTouchpadStateChange: (TouchpadState) -> Unit,
+    dpiAdjustPopupVisible: Boolean = false,
+    onDpiLongPress: () -> Unit = {},
+    onDpiAdjustConfirm: (Float) -> Unit = {},
+    onDpiAdjustDismiss: () -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
@@ -257,32 +302,60 @@ private fun Page1TouchpadActions(
         ) {
             // ── 좌측: 터치패드 (64% / 60%) ──
             // Phase 4.3.1: Box 내부에 ControlButtonContainer 오버레이 추가
+            // Phase 4.3.6: DpiAdjustPopup 표시 시 배경 블러 적용
+            val blurRadius by animateDpAsState(
+                targetValue = if (dpiAdjustPopupVisible) 8.dp else 0.dp,
+                animationSpec = tween(200),
+                label = "dpiBlur"
+            )
             Box(
                 modifier = Modifier
                     .weight(touchpadWeight)
                     .fillMaxHeight()
                     .align(Alignment.CenterVertically)
             ) {
-                TouchpadWrapper(
-                    bridgeMode = BridgeMode.STANDARD,
-                    touchpadState = touchpadState,
-                    onTouchpadStateChange = onTouchpadStateChange,
+                // 팝업 표시 시 블러 처리되는 배경 영역
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            color = Color(0xFF1A1A1A),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                )
+                        .clip(RoundedCornerShape(12.dp))
+                        .blur(blurRadius)
+                ) {
+                    TouchpadWrapper(
+                        bridgeMode = BridgeMode.STANDARD,
+                        touchpadState = touchpadState,
+                        onTouchpadStateChange = onTouchpadStateChange,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                color = Color(0xFF1A1A1A),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                    )
 
-                // Phase 4.3.1: ControlButtonContainer 오버레이 (상단 15%)
-                ControlButtonContainer(
-                    touchpadState = touchpadState,
-                    onStateChange = onTouchpadStateChange,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .align(Alignment.TopCenter)
-                )
+                    // Phase 4.3.1: ControlButtonContainer 오버레이 (상단 15%)
+                    ControlButtonContainer(
+                        touchpadState = touchpadState,
+                        onStateChange = onTouchpadStateChange,
+                        onDpiLongPress = onDpiLongPress,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .align(Alignment.TopCenter)
+                    )
+                }
+
+                // Phase 4.3.6: DPI 세밀 조절 팝업 오버레이
+                // 팝업 내 pointerInput이 이벤트를 소비 → TouchpadWrapper 제스처 자동 차단
+                if (dpiAdjustPopupVisible) {
+                    DpiAdjustPopup(
+                        initialMultiplier = touchpadState.effectiveDpiMultiplier,
+                        onConfirm = onDpiAdjustConfirm,
+                        onDismiss = onDpiAdjustDismiss,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                }
             }
 
             // ── 우측: Actions 패널 (36% / 40%) ──
@@ -640,3 +713,22 @@ private fun Page4MinecraftPlaceholder() {
     }
 }
 
+// ============================================================
+// DPI 레벨 SharedPreferences 저장/복원 (Phase 4.3.6)
+// ============================================================
+
+private const val PREF_NAME = "touchpad_prefs"
+private const val KEY_DPI_LEVEL = "dpi_level"
+
+private fun loadDpiLevel(context: Context): DpiLevel {
+    val name = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        .getString(KEY_DPI_LEVEL, DpiLevel.NORMAL.name) ?: DpiLevel.NORMAL.name
+    return DpiLevel.entries.firstOrNull { it.name == name } ?: DpiLevel.NORMAL
+}
+
+private fun saveDpiLevel(context: Context, level: DpiLevel) {
+    context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_DPI_LEVEL, level.name)
+        .apply()
+}

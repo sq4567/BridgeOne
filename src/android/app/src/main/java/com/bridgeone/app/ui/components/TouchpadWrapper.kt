@@ -385,14 +385,20 @@ fun TouchpadWrapper(
                                     finalDelta
                                 }
 
-                                compensatedDeltaX.value = axisLockedDelta.x
-                                compensatedDeltaY.value = axisLockedDelta.y
+                                // ── DPI 곱수 적용 (Phase 4.3.6) ──
+                                val dpiMultiplierMove = latestState.effectiveDpiMultiplier
+                                val dpiDelta = Offset(
+                                    (axisLockedDelta.x * dpiMultiplierMove).coerceIn(-127f, 127f),
+                                    (axisLockedDelta.y * dpiMultiplierMove).coerceIn(-127f, 127f)
+                                )
+                                compensatedDeltaX.value = dpiDelta.x
+                                compensatedDeltaY.value = dpiDelta.y
 
-                                if (axisLockedDelta.x != 0f || axisLockedDelta.y != 0f) {
+                                if (dpiDelta.x != 0f || dpiDelta.y != 0f) {
                                     val dragFrame = ClickDetector.createFrame(
                                         buttonState = 0x00u,
-                                        deltaX = axisLockedDelta.x,
-                                        deltaY = axisLockedDelta.y
+                                        deltaX = dpiDelta.x,
+                                        deltaY = dpiDelta.y
                                     )
                                     ClickDetector.sendFrame(dragFrame)
                                 }
@@ -543,8 +549,14 @@ fun TouchpadWrapper(
                                 releaseFinalDelta
                             }
 
-                            compensatedDeltaX.value = releaseAxisLockedDelta.x
-                            compensatedDeltaY.value = releaseAxisLockedDelta.y
+                            // ── DPI 곱수 적용 (Phase 4.3.6) ──
+                            val dpiMultiplierRelease = latestState.effectiveDpiMultiplier
+                            val releaseDpiDelta = Offset(
+                                (releaseAxisLockedDelta.x * dpiMultiplierRelease).coerceIn(-127f, 127f),
+                                (releaseAxisLockedDelta.y * dpiMultiplierRelease).coerceIn(-127f, 127f)
+                            )
+                            compensatedDeltaX.value = releaseDpiDelta.x
+                            compensatedDeltaY.value = releaseDpiDelta.y
 
                             val buttonState = if (deadZoneEscaped.value) {
                                 0x00u.toUByte()

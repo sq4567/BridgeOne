@@ -106,8 +106,14 @@ data class TouchpadState(
     val cursorMode: CursorMode = CursorMode.SINGLE,
     val dpiLevel: DpiLevel = DpiLevel.NORMAL,
     val scrollSensitivity: ScrollSensitivity = ScrollSensitivity.NORMAL,
-    val lastScrollMode: ScrollMode = ScrollMode.NORMAL_SCROLL
+    val lastScrollMode: ScrollMode = ScrollMode.NORMAL_SCROLL,
+    /** 임시 커스텀 DPI 배율 (null = 사전 정의 레벨 사용). 앱 재시작 및 USB 끊김 시 소멸. */
+    val customDpiMultiplier: Float? = null
 ) {
+    /** 실제 적용되는 DPI 배율 (커스텀 우선, 없으면 레벨 배율) */
+    val effectiveDpiMultiplier: Float
+        get() = customDpiMultiplier ?: dpiLevel.multiplier
+
     /** 스크롤 모드가 활성화되어 있는지 */
     val isScrollActive: Boolean
         get() = scrollMode != ScrollMode.OFF

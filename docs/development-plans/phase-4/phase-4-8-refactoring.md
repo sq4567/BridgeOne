@@ -19,6 +19,7 @@ updated: "2026-03-30"
 | 4.8.2 | 터치패드 엣지 스와이프 제스처 | 설계 검토 중 |
 | 4.8.3 | Windows 서버 연결 실패 알림 | 미시작 |
 | 4.8.4 | 앱 재실행 시 종료 안내 토스트 잔상 제거 | 미시작 |
+| 4.8.5 | Deprecated API 교체 | 미시작 |
 
 **선행 조건**: Phase 4.7 완료
 
@@ -124,6 +125,8 @@ object AppConstants {
 2. **`AppConstants.kt` 생성** — 위 섹션 구조를 뼈대로 삼아 `ui/common/AppConstants.kt` 작성
 3. **기존 상수 파일에서 조정 가능 상수 이전** — 각 파일에서 상수 선언을 제거하고 `AppConstants.XXX` 참조로 교체; 상수 선언만 담던 파일은 삭제
 4. **인라인·로컬 상수 이전** — 각 컴포넌트 내부에 박혀 있는 조정 가능한 리터럴·로컬 상수를 `AppConstants`로 옮기고 참조로 교체
+
+> **⚠️ Phase 4.3.6 변경사항**: `DpiAdjustPopup.kt`에 조정 가능 상수 추가됨 (`DPI_ADJUST_STEP_DP`, `DPI_MIN`, `DPI_MAX`, `DPI_STEP`, `TAP_THRESHOLD_DP`). `StandardModePage.kt`에 SharedPreferences 키 상수 추가됨 (`PREF_NAME`, `KEY_DPI_LEVEL`). 전수 조사 시 이 파일들도 포함해야 함.
 
 > **이전하지 않는 상수**: `HidConstants.kt`(USB HID 규격 고정값), `UsbConstants.kt`(VID/PID·UART 설정 등 하드웨어·프로토콜 고정값)는 조정 대상이 아니므로 건드리지 않습니다.
 
@@ -278,3 +281,33 @@ object EdgeSwipe {
 **검증**:
 - [ ] 뒤로가기 두 번 종료 → 즉시 재실행 시 토스트 미표시 확인
 - [ ] 뒤로가기 첫 번째 이후 정상적으로 토스트가 표시되는 동작은 그대로인지 확인
+
+---
+
+## Phase 4.8.5: Deprecated API 교체
+
+**개발 기간**: 0.5일 미만
+
+**목표**: 빌드 시 발생하는 deprecated API 경고를 제거합니다. 기능 변경 없이 내부 구현만 최신 API로 교체하는 순수 리팩토링입니다.
+
+**에뮬레이터 호환성**: 에뮬레이터에서 빌드 및 검증 가능.
+
+### 대상 경고 목록
+
+| 파일 | 라인 | 현재 사용 | 교체 대상 | 비고 |
+|------|------|----------|----------|------|
+| `HidConstants.kt` | 143 | `Context.VIBRATOR_SERVICE` | `Context.getSystemService(Vibrator::class.java)` 또는 `VibratorManager` (API 31+) | API 31 미만은 기존 방식 폴백 필요 |
+| `UsbPermissionReceiver.kt` | 75 | `Intent.getExtra(String)` | `Intent.getParcelableExtra(String, Class)` (API 33+) | API 33 미만은 기존 방식 폴백 필요 |
+
+> **참고**: 최소 SDK 24를 지원하므로 두 경우 모두 `Build.VERSION.SDK_INT` 분기로 신/구 API를 분기해야 합니다.
+
+### 구현 절차
+
+1. **`HidConstants.kt`** — `VIBRATOR_SERVICE` 사용부를 API 31+ 분기로 교체
+2. **`UsbPermissionReceiver.kt`** — `getExtra(String)` 사용부를 API 33+ 분기로 교체
+3. **빌드 후 경고 0건 확인**
+
+**검증**:
+- [ ] 빌드 경고 0건
+- [ ] 실기기에서 햅틱 피드백 정상 동작
+- [ ] USB 권한 요청 및 연결 정상 동작
