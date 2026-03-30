@@ -2,6 +2,8 @@ package com.bridgeone.app.ui.components.touchpad
 
 import com.bridgeone.app.R
 import android.os.Build
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import android.view.HapticFeedbackConstants
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
@@ -442,6 +444,32 @@ private fun ControlButton(
                 tint = ColorButtonText.copy(alpha = alpha)
             )
             Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        // 비활성 오버레이: 반투명 어두운 레이어 + X 아이콘
+        if (!enabled) {
+            Box(
+                modifier = Modifier
+                    .width(buttonWidth)
+                    .height(buttonHeight)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 0.dp,
+                            topEnd = 0.dp,
+                            bottomStart = 8.dp,
+                            bottomEnd = 8.dp
+                        )
+                    )
+                    .background(Color(0xCC000000)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(buttonHeight * 0.45f)
+                )
+            }
         }
     }
 }
