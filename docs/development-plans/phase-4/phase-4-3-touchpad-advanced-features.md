@@ -516,7 +516,91 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.7: 포인터 다이나믹스 (커서 가속 알고리즘)
+## Phase 4.3.7: 앱 아이콘 시스템 (`AppIcons`)
+
+**목표**: 앱 전역에서 사용하는 아이콘을 단일 파일에서 중앙 관리하는 시스템 구축. 향후 애니메이션 아이콘(Lottie 등) 도입 시 폴백 구조를 유지한 채 교체 가능하도록 확장성을 고려합니다.
+
+**개발 기간**: 0.5일
+
+**쉬운 설명**: 앱에서 쓰는 모든 아이콘을 한 곳에서 관리하는 "아이콘 목록표"를 만드는 작업입니다. 지금은 정적 아이콘만 쓰지만, 나중에 움직이는 아이콘으로 교체할 때도 이 목록표만 수정하면 앱 전체에 반영되도록 구조를 잡아둡니다.
+
+**세부 목표**:
+
+1. **`AppIconDef` 데이터 모델** (`AppIcons.kt`에 정의):
+   ```kotlin
+   data class AppIconDef(
+       val staticIcon: ImageVector,   // 항상 존재 — Material Symbols 정적 아이콘
+       // val animation: AppIconAnimation? = null  // 향후 Lottie/AVD 확장용 (현재 미구현)
+   )
+   ```
+
+2. **`AppIcons` 중앙 관리 객체** (`AppIcons.kt` 신규):
+   ```kotlin
+   object AppIcons {
+       // 포인터 다이나믹스 프리셋
+       val DynamicsOff       = AppIconDef(Icons.Outlined.Speed)
+       val DynamicsPrecision = AppIconDef(Icons.Filled.Adjust)
+       val DynamicsStandard  = AppIconDef(Icons.Filled.Speed)
+       val DynamicsFast      = AppIconDef(Icons.Filled.FlashOn)
+
+       // DPI
+       val DpiLow    = AppIconDef(Icons.Outlined.Mouse)
+       val DpiNormal = AppIconDef(Icons.Filled.Mouse)
+       val DpiHigh   = AppIconDef(Icons.Filled.KeyboardDoubleArrowRight)
+
+       // 스크롤
+       val ScrollUp   = AppIconDef(Icons.Filled.KeyboardArrowUp)
+       val ScrollDown = AppIconDef(Icons.Filled.KeyboardArrowDown)
+
+       // 모드
+       val ScrollMode  = AppIconDef(Icons.Filled.SwapVert)
+       val CursorMode  = AppIconDef(Icons.Filled.OpenWith)
+   }
+   ```
+   - 아이콘 추가/교체는 이 파일만 수정하면 전체 반영
+   - 아이콘 이름은 기능 기준으로 작명 (컴포넌트명·위치 기준 아님)
+
+3. **`AppIcon` 래퍼 Composable** (`AppIcons.kt`에 함께 정의):
+   ```kotlin
+   @Composable
+   fun AppIcon(
+       def: AppIconDef,
+       contentDescription: String?,
+       modifier: Modifier = Modifier,
+       tint: Color = LocalContentColor.current
+   ) {
+       // 현재: 정적 아이콘만
+       // 향후: def.animation != null && animatedIconsEnabled → LottieAnimation 분기
+       Icon(
+           imageVector = def.staticIcon,
+           contentDescription = contentDescription,
+           modifier = modifier,
+           tint = tint
+       )
+   }
+   ```
+
+4. **기존 코드 마이그레이션**:
+   - `ControlButtonContainer.kt`의 `Icon(Icons.xxx)` 호출 → `AppIcon(AppIcons.xxx)` 로 교체
+   - `DpiAdjustPopup.kt` 내 아이콘 → 동일하게 교체
+   - 이후 Phase에서 새로 추가되는 아이콘은 처음부터 `AppIcons`에 등록 후 사용
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/AppIcons.kt`
+
+**수정 파일**:
+- `ControlButtonContainer.kt` (아이콘 참조 교체)
+- `DpiAdjustPopup.kt` (아이콘 참조 교체)
+
+**검증**:
+- [ ] `AppIcons.kt` 단일 파일에서 모든 아이콘 정의 확인
+- [ ] `AppIcon()` 래퍼로 기존 `Icon()` 직접 호출 대체 확인
+- [ ] 기존 화면에서 아이콘 표시 이상 없음 (시각적 회귀 없음)
+- [ ] 새 아이콘 추가 시 `AppIcons.kt`만 수정하면 되는 구조 확인
+
+---
+
+## Phase 4.3.8: 포인터 다이나믹스 (커서 가속 알고리즘)
 
 > **⚠️ Phase 4.3.6 변경사항**: `TouchpadState`에 `customDpiMultiplier: Float?` 필드 및 `effectiveDpiMultiplier` 프로퍼티 추가됨. DPI 유효 배율은 `effectiveDpiMultiplier` (`customDpiMultiplier ?: dpiLevel.multiplier`)로 계산됨. DPI 곱수는 `TouchpadWrapper.kt`의 커서 이동 `else` 분기에서 `axisLockedDelta × effectiveDpiMultiplier` → `coerceIn(-127f, 127f)`로 적용됨 (MOVE 및 UP 이벤트 모두). 포인터 다이나믹스 배율은 DPI 배율 **이후** 순서로 적용할 것 — 최종 delta = `rawDelta × dpiMultiplier × dynamicsMultiplier` → `coerceIn(-127f, 127f)`.
 >
@@ -606,37 +690,65 @@ TouchpadWrapper
      - 블러 + 반투명 오버레이 `Color.Black.copy(alpha = 0.4f)` 중첩
      - 블러 진입/해제: `animateDpAsState`로 0.dp ↔ 8.dp 부드럽게 전환
      - **구현 공유**: DPI 팝업과 프리셋 팝업이 동일한 블러 로직을 사용하므로, 블러 상태 관리를 `showDpiPopup || showPresetPopup`으로 통합
-   - **레이아웃**:
+   - **레이아웃** (선택 단계):
      ```
-     ┌─────────────────────────────────────┐
-     │       (블러 + 반투명 오버레이)         │
-     │                                     │
-     │          ▲ 위로 스와이프              │
-     │                                     │
-     │        ┌─────────────┐              │
-     │        │  Precision  │              │
-     │        │     EPP     │              │
-     │        └─────────────┘              │
-     │                                     │
-     │          ▼ 아래로 스와이프            │
-     │                                     │
-     │   (탭하면 확정)                       │
-     └─────────────────────────────────────┘
+     ┌──────────────────────────────────────────────────────┐
+     │       원하는 알고리즘 프리셋을 선택하세요.               │  ← 최상단 가운데
+     │                                                      │
+     │  ┌──────┐   ┌──────┐  ┌ ──────┐   ┌──────┐         │
+     │  │ [🖱] │   │ [🖱] │  │  [🖱] │   │ [🖱] │         │
+     │  └──────┘   └──────┘  └──────-┘   └──────┘         │
+     │    Off        Pre    ┌──────────┐    Fst             │
+     │                      │  [🖱]   │                    │
+     │                      └──────────┘                   │
+     │                        Standard                      │
+     │                      ↑ 테두리가 현재 항목으로 이동      │
+     │                                                      │
+     │  상하 좌우 스와이프로 원하는 프리셋 선택 | 탭으로 결정   │  ← 하단 가운데, 작게
+     └──────────────────────────────────────────────────────┘
      ```
-   - **중앙 표시**:
-     - 1행: 현재 프리셋 이름 (큰 텍스트, 24sp, `Color.White`, `FontWeight.Bold`)
-     - 2행: 알고리즘 타입 (작은 텍스트, 14sp, `Color.Gray`) — "NONE" / "Windows EPP" / "Linear"
-     - 프리셋 전환 시 텍스트 전환 애니메이션 (`AnimatedContent` 또는 `Crossfade`)
-   - **스와이프 조작** (상하 드래그로 프리셋 전환):
-     - 위로 스와이프: 다음 프리셋으로 전환 (`index + 1`)
-     - 아래로 스와이프: 이전 프리셋으로 전환 (`index - 1`)
-     - 전환 임계값: 30dp 드래그 시 1단계 전환 (DPI 팝업의 0.1 단위 전환과 유사한 감도)
-     - 범위 초과 시 피드백 (DPI 팝업과 동일):
-       - 프리셋 이름 텍스트 잠시 붉은색으로 변경 후 원래 색으로 복귀
-       - 텍스트 좌우 shake 애니메이션
+   - **레이아웃** (탭 후 확인 단계):
+     ```
+     ┌──────────────────────────────────────────────────────┐
+     │                                                      │
+     │        ┌──────────────────────────────────┐          │
+     │        │          Standard                │  ← 커진 항목
+     │        │  [아이콘]                          │
+     │        │  알고리즘: Windows EPP             │
+     │        │  느리면 정밀, 빠르면 자동 가속       │  ← 설명
+     │        └──────────────────────────────────┘          │
+     │                                                      │
+     │              ◄ 아니요      예 ►                      │  ← 좌우 스와이프로 선택
+     │                  (탭으로 확정)                        │
+     │                                                      │
+     └──────────────────────────────────────────────────────┘
+     ```
+   - **그리드 구성**:
+     - 프리셋 목록을 가로 한 줄 또는 2×N 그리드로 배치 (프리셋 수에 따라 결정)
+     - 각 셀 구조: **네모 배경(Box, 64dp×64dp) 위에 아이콘** + 그 **아래에 프리셋 이름 텍스트** (12sp, `Color.White`)
+       - 네모 배경: 둥근 모서리(`RoundedCornerShape(8.dp)`), 반투명 흰색(`Color.White.copy(alpha = 0.15f)`)
+       - 아이콘: 배경 Box 중앙에 배치 (32dp)
+       - 프리셋 이름: 배경 Box 바깥 아래쪽에 텍스트 배치
+     - 현재 선택 항목은 흰색 테두리(`Border 2dp`)로 강조 — 스와이프 시 테두리가 해당 셀로 이동
+     - 비선택 항목은 테두리 없음 + 약간 어둡게 처리 (`alpha = 0.6f`)
+   - **스와이프 조작** (그리드 탐색):
+     - 좌우 스와이프: 같은 행 내에서 프리셋 이동 (좌 = 이전, 우 = 다음)
+     - 상하 스와이프: 위/아래 행으로 이동 (그리드 2행 이상일 때)
+     - 전환 임계값: 30dp 드래그 시 1단계 이동
+     - 범위 초과 시 피드백:
+       - 테두리 셀 잠시 붉은색으로 변경 후 원래 색으로 복귀
        - 진동 피드백 (햅틱)
-     - 순환하지 않음: 첫 프리셋에서 아래로 / 마지막 프리셋에서 위로 스와이프 시 경계 피드백
-   - **확정**: 터치패드 내 **탭** → 현재 프리셋 확정, 팝업 닫힘, 햅틱 피드백
+     - 순환하지 않음: 첫/마지막 셀 도달 시 경계 피드백
+   - **탭 — 1단계 (확인 화면 진입)**:
+     - 그리드 테두리 사라짐
+     - 선택한 프리셋 셀이 확대되며 화면 중앙에 단독 표시
+     - 셀 내부에 프리셋 이름(큰 텍스트, 20sp, Bold) + 한 줄 설명(14sp, `Color.Gray`) 표시
+     - `예` / `아니요` 텍스트가 중앙 셀 아래에 나란히 표시 — 기본값 `아니요` 선택 상태
+   - **확인 단계 조작**:
+     - 좌우 스와이프로 `예` ↔ `아니요` 토글 (30dp 임계값, 선택된 항목 흰색으로 강조)
+     - 탭 시:
+       - `예` 선택 상태 → 해당 프리셋 확정, 팝업 닫힘, 햅틱 피드백
+       - `아니요` 선택 상태 → 그리드 선택 화면으로 복귀 (프리셋 변경 없음)
    - **취소 조건**:
      - 페이지 전환 발생 시 → 프리셋 변경 없이 팝업 취소 (원래 프리셋 유지)
      - 스크롤 모드 전환 시 → 팝업 취소
@@ -650,54 +762,131 @@ TouchpadWrapper
          onPresetConfirmed: (Int) -> Unit,
          onDismiss: () -> Unit
      ) {
-         // 드래그 중 임시 인덱스 (확정 전까지 원본 유지)
+         // 선택 단계 vs 확인 단계
+         var phase by remember { mutableStateOf(PopupPhase.GRID) }  // GRID | CONFIRM
          var tempIndex by remember { mutableIntStateOf(currentIndex) }
+         var confirmChoice by remember { mutableStateOf(false) }  // false = 아니요, true = 예
          var accumulatedDragDp by remember { mutableFloatStateOf(0f) }
 
          Box(
              modifier = Modifier
                  .fillMaxSize()
                  .background(Color.Black.copy(alpha = 0.6f))
-                 .pointerInput(Unit) {
+                 .pointerInput(phase) {
                      awaitEachGesture {
                          val down = awaitFirstDown()
                          down.consume()
-
-                         // 탭 vs 드래그 판별
                          var dragged = false
                          while (true) {
                              val event = awaitPointerEvent()
                              val change = event.changes.first()
                              if (change.pressed) {
-                                 val dragDelta = change.positionChange().y.toDp()
-                                 accumulatedDragDp += dragDelta
-                                 // 30dp마다 1단계 전환
+                                 val delta = change.positionChange()
+                                 accumulatedDragDp += when (phase) {
+                                     PopupPhase.GRID -> delta.x.toDp()   // 좌우 = 프리셋 이동
+                                     PopupPhase.CONFIRM -> delta.x.toDp() // 좌우 = 예/아니요 토글
+                                 }
                                  val steps = (accumulatedDragDp / 30f).toInt()
                                  if (steps != 0) {
-                                     tempIndex = (tempIndex - steps)
-                                         .coerceIn(0, presets.lastIndex)
+                                     when (phase) {
+                                         PopupPhase.GRID -> {
+                                             tempIndex = (tempIndex + steps)
+                                                 .coerceIn(0, presets.lastIndex)
+                                         }
+                                         PopupPhase.CONFIRM -> {
+                                             confirmChoice = steps > 0  // 오른쪽 = 예
+                                         }
+                                     }
                                      accumulatedDragDp -= steps * 30f
                                      dragged = true
                                  }
                                  change.consume()
                              } else {
-                                 // 터치 업
                                  if (!dragged) {
-                                     // 탭 → 확정
-                                     onPresetConfirmed(tempIndex)
+                                     // 탭 처리
+                                     when (phase) {
+                                         PopupPhase.GRID -> {
+                                             // 그리드에서 탭 → 확인 단계 진입
+                                             confirmChoice = false
+                                             phase = PopupPhase.CONFIRM
+                                         }
+                                         PopupPhase.CONFIRM -> {
+                                             if (confirmChoice) {
+                                                 onPresetConfirmed(tempIndex)  // 예 → 확정
+                                             } else {
+                                                 phase = PopupPhase.GRID  // 아니요 → 그리드 복귀
+                                             }
+                                         }
+                                     }
                                  }
                                  break
                              }
                          }
                      }
-                 },
-             contentAlignment = Alignment.Center
-         ) {
-             Column(horizontalAlignment = CenterHorizontally) {
-                 AnimatedContent(targetState = tempIndex) { idx ->
-                     Text(presets[idx].name, fontSize = 24.sp, ...)
                  }
-                 Text(presets[tempIndex].algorithm.name, fontSize = 14.sp, ...)
+         ) {
+             Column(
+                 modifier = Modifier.fillMaxSize(),
+                 horizontalAlignment = Alignment.CenterHorizontally
+             ) {
+                 when (phase) {
+                     PopupPhase.GRID -> {
+                         Text("원하는 알고리즘 프리셋을 선택하세요.", fontSize = 16.sp, ...)
+                         Spacer(Modifier.weight(1f))
+                         // 프리셋 그리드 (LazyHorizontalGrid 또는 Row)
+                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                             presets.forEachIndexed { idx, preset ->
+                                 val isSelected = idx == tempIndex
+                                 Column(
+                                     horizontalAlignment = Alignment.CenterHorizontally,
+                                     modifier = Modifier.alpha(if (isSelected) 1f else 0.6f)
+                                 ) {
+                                     // 네모 배경 위에 아이콘
+                                     Box(
+                                         modifier = Modifier
+                                             .size(64.dp)
+                                             .clip(RoundedCornerShape(8.dp))
+                                             .background(Color.White.copy(alpha = 0.15f))
+                                             .then(
+                                                 if (isSelected) Modifier.border(2.dp, Color.White, RoundedCornerShape(8.dp))
+                                                 else Modifier
+                                             ),
+                                         contentAlignment = Alignment.Center
+                                     ) {
+                                         Icon(preset.icon, contentDescription = preset.name, modifier = Modifier.size(32.dp), ...)
+                                     }
+                                     // 프리셋 이름 (배경 Box 아래)
+                                     Text(preset.name, fontSize = 12.sp, ...)
+                                 }
+                             }
+                         }
+                         Spacer(Modifier.weight(1f))
+                         Text(
+                             "상하 좌우 스와이프로 원하는 프리셋 선택 | 탭으로 결정",
+                             fontSize = 11.sp,
+                             color = Color.White.copy(alpha = 0.6f),
+                             textAlign = TextAlign.Center
+                         )
+                     }
+                     PopupPhase.CONFIRM -> {
+                         Spacer(Modifier.weight(1f))
+                         // 선택 프리셋 확대 표시
+                         Box(modifier = Modifier.border(2.dp, Color.White).padding(24.dp)) {
+                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                 Icon(presets[tempIndex].icon, ...)
+                                 Text(presets[tempIndex].name, fontSize = 20.sp, fontWeight = Bold, ...)
+                                 Text(presets[tempIndex].description, fontSize = 14.sp, color = Color.Gray, ...)
+                             }
+                         }
+                         Spacer(modifier = Modifier.height(24.dp))
+                         // 예 / 아니요 선택
+                         Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                             Text("아니요", color = if (!confirmChoice) Color.White else Color.Gray, ...)
+                             Text("예", color = if (confirmChoice) Color.White else Color.Gray, ...)
+                         }
+                         Spacer(Modifier.weight(1f))
+                     }
+                 }
              }
          }
      }
@@ -720,7 +909,7 @@ TouchpadWrapper
 - `docs/android/technical-specification-app.md` §2.2 (터치패드 알고리즘)
 - `NormalScrollButtons.kt` (동일 위치·패턴 참조)
 
-> **⚠️ Phase 4.3.8 참고**: `TouchpadWrapper.kt`에서 delta 적용 순서(`dpiMultiplier` → `dynamicsMultiplier`)가 테두리 색상 Modifier와 독립적으로 구현됨. 두 기능의 코드 위치 충돌 없음. `DynamicsPresetButton`은 `NormalScrollButtons`와 동일 위치에 `AnimatedVisibility`로 교대 표시되므로 오버레이 충돌 없음.
+> **⚠️ Phase 4.3.9 참고**: `TouchpadWrapper.kt`에서 delta 적용 순서(`dpiMultiplier` → `dynamicsMultiplier`)가 테두리 색상 Modifier와 독립적으로 구현됨. 두 기능의 코드 위치 충돌 없음. `DynamicsPresetButton`은 `NormalScrollButtons`와 동일 위치에 `AnimatedVisibility`로 교대 표시되므로 오버레이 충돌 없음.
 
 **검증**:
 - [ ] None 프리셋: 속도와 무관하게 일정한 커서 이동 (기존과 동일)
@@ -735,21 +924,26 @@ TouchpadWrapper
 - [ ] **프리셋 버튼 — 롱프레스 시 터치패드 전체 영역 팝업 오버레이** 표시 확인
 - [ ] **팝업 — ControlButtonContainer + 터치패드 전체 블러 배경** 적용 확인
 - [ ] **팝업 — 블러 진입/해제 시 부드러운 애니메이션 전환** 확인
-- [ ] **팝업 — 중앙에 현재 프리셋 이름 + 알고리즘 타입 큰 텍스트** 표시 확인
-- [ ] **팝업 — 상하 스와이프로 프리셋 전환** (30dp당 1단계)
-- [ ] **팝업 — 범위 초과 시 붉은색 + shake + 햅틱 피드백** 확인
-- [ ] **팝업 — 탭으로 현재 프리셋 확정 + 팝업 닫힘** 확인
+- [ ] **팝업 — 최상단 가운데 "원하는 알고리즘 프리셋을 선택하세요." 텍스트** 표시 확인
+- [ ] **팝업 — 프리셋 그리드 (네모 아이콘 + 이름) 표시** 확인
+- [ ] **팝업 — 하단 가운데 "상하 좌우 스와이프로 원하는 프리셋 선택 | 탭으로 결정" 작은 텍스트** 표시 확인
+- [ ] **팝업 — 좌우 스와이프 시 테두리가 해당 프리셋 셀로 이동** 확인 (30dp당 1단계)
+- [ ] **팝업 — 범위 초과 시 붉은색 테두리 + 햅틱 피드백** 확인
+- [ ] **팝업 — 탭 시 그리드 테두리 사라지고 선택 프리셋 확대 + 설명 표시** 확인
+- [ ] **팝업 — 확인 단계: 좌우 스와이프로 예/아니요 전환** 확인
+- [ ] **팝업 — 확인 단계: 탭(예) → 프리셋 확정 + 팝업 닫힘 + 햅틱 피드백** 확인
+- [ ] **팝업 — 확인 단계: 탭(아니요) → 그리드 선택 화면으로 복귀** 확인
 - [ ] **팝업 — 페이지 전환 시 변경 없이 취소** 확인
 - [ ] **프리셋 버튼 — 스크롤 모드 진입 시 버튼 페이드아웃** 확인
 - [ ] **프리셋 버튼 — Essential 모드에서 숨김** 확인
 - [ ] 프리셋 버튼 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 확인)
-- [ ] PC에서 실제 커서 가속 동작 확인 (하드웨어 E2E — Phase 4.3.9에서 추가 검증)
+- [ ] PC에서 실제 커서 가속 동작 확인 (하드웨어 E2E — Phase 4.3.10에서 추가 검증)
 
 ---
 
-## Phase 4.3.8: 터치패드 테두리 모드 색상 표시
+## Phase 4.3.9: 터치패드 테두리 모드 색상 표시
 
-> **⚠️ Phase 4.3.7 변경사항**: `TouchpadMode.kt`에 `DynamicsAlgorithm` enum + `PointerDynamicsPreset` data class 추가됨. `TouchpadState`에 `dynamicsPresetIndex: Int` 필드 추가됨. 테두리 색상 결정 함수(`touchpadBorderBrush()`)는 `TouchpadState`를 입력으로 받지만 `dynamicsPresetIndex` 필드는 테두리 색상 로직에 영향을 주지 않음 — 별도 처리 불필요. `TouchpadWrapper.kt`에 `DynamicsPresetButton` 오버레이가 추가됨 (커서 이동 모드 시 `Alignment.BottomStart`, `NormalScrollButtons`와 동일 위치에 교대 표시). 테두리 Modifier는 Box 외곽에 적용되므로 내부 오버레이와 충돌 없음.
+> **⚠️ Phase 4.3.8 변경사항**: `TouchpadMode.kt`에 `DynamicsAlgorithm` enum + `PointerDynamicsPreset` data class 추가됨. `TouchpadState`에 `dynamicsPresetIndex: Int` 필드 추가됨. 테두리 색상 결정 함수(`touchpadBorderBrush()`)는 `TouchpadState`를 입력으로 받지만 `dynamicsPresetIndex` 필드는 테두리 색상 로직에 영향을 주지 않음 — 별도 처리 불필요. `TouchpadWrapper.kt`에 `DynamicsPresetButton` 오버레이가 추가됨 (커서 이동 모드 시 `Alignment.BottomStart`, `NormalScrollButtons`와 동일 위치에 교대 표시). 테두리 Modifier는 Box 외곽에 적용되므로 내부 오버레이와 충돌 없음.
 
 > **⚠️ Phase 4.3.2 변경사항**: `ControlButtonContainer.kt`의 색상 상수는 여전히 private. 아이콘 헬퍼 함수(`dpiButtonIcon`, `scrollModeButtonIcon`, `scrollSensitivityButtonIcon`)도 private으로 추가됨. 색상을 `TouchpadColors.kt`로 추출 시 아이콘 헬퍼는 ControlButtonContainer에 유지하면 됨.
 
@@ -818,7 +1012,7 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.9: 터치패드 엣지 스와이프 제스처
+## Phase 4.3.10: 터치패드 엣지 스와이프 제스처
 
 > **상태**: 설계 검토 중. 구현 방향이 결정되면 세부 절차를 추가합니다.
 
@@ -915,7 +1109,7 @@ object EdgeSwipe {
 
 ---
 
-## Phase 4.3.10: 터치패드 E2E 하드웨어 테스트
+## Phase 4.3.11: 터치패드 E2E 하드웨어 테스트
 
 **목표**: Phase 4.3에서 구현한 터치패드 기능 전체를 실기기 + 실제 PC 연결 환경에서 하나씩 검증하여 하드웨어 수준의 이상 없음을 확인
 
@@ -951,4 +1145,4 @@ object EdgeSwipe {
 | ControlButtonContainer | ❌ 숨김 | ✅ 표시 |
 | 스크롤 가이드라인 | ❌ | ✅ (스크롤 모드 시) |
 | 모드별 테두리 색상 | ❌ | ✅ (모드 조합에 따른 단색/그라데이션) |
-| 엣지 스와이프 | ❌ | ⏳ Phase 4.3.10 |
+| 엣지 스와이프 | ❌ | ⏳ Phase 4.3.11 |
