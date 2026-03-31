@@ -1,114 +1,294 @@
 ---
-title: "Styleframe - Page 3 (Keyboard-centric)"
-description: "키보드 조작 중심 페이지 스타일프레임: 네비게이션/에디팅/펑션/모디파이어/단축키/미디어/락키"
-tags: ["styleframe", "keyboard", "shortcuts", "media", "lock-keys", "ui"]
+title: "Styleframe - Page 3 (AbsolutePointingPad)"
+description: "절대좌표 패드 전용 페이지. 터치 위치가 곧 PC 커서 위치가 되는 절대좌표 포인팅 + 줌 기능"
+tags: ["styleframe", "absolute-pointing", "pointing-pad", "zoom", "ui"]
 version: "v0.2"
 owner: "Chatterbones"
-updated: "2025-09-22"
+updated: "2026-03-30"
 note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값으로, 확정된 고정값이 아님"
 ---
 
-> **핵심**: 키보드 버튼, 단축키, 매크로 버튼을 통해 다양한 키보드 입력을 지원하는 페이지입니다. ESP32-S3는 복합 USB 장치로서 HID 인터페이스(키보드 입력)와 Vendor CDC 인터페이스(Windows 서버 통신)를 동시에 제공합니다.
+# Page 3 스타일프레임 문서
 
 ## 1. 개요
 
-이 문서는 Page 3를 키보드 중심 인터페이스로 설계한 스타일프레임입니다.
-터치패드는 본 페이지에서 기본적으로 노출하지 않으며, 키 입력과 단축키 트리거를 빠르게 수행하는 것이 목적입니다.
+이 문서는 AbsolutePointingPad 전용 페이지(Page 3)의 스타일프레임을 정의합니다. 터치한 위치가 곧 PC 커서의 절대 위치가 되는 "펜 태블릿" 방식의 포인팅 페이지입니다.
 
 > **상세 아키텍처**: 전체 시스템 아키텍처는 [`technical-specification.md` §3]를 참조하세요.
 > **용어 정의**: 용어 정의는 [`technical-specification.md` §6.2 Android 플랫폼 용어집]을 참조하세요.
 
-**참조**: `docs/design-guide-app.md` §5(토스트/인디케이터/햅틱), §9(컴포넌트 시각/토큰), `docs/component-design-guide.md` §2(KeyboardKeyButton/ShortcutButton), `docs/touchpad.md` §3(모드/옵션 용어 규칙).
+**참조**: `docs/android/component-design-guide-app.md` §4(AbsolutePointingPad 컴포넌트 설계), `docs/android/design-guide-app.md` §5(토스트/인디케이터/햅틱), `docs/android/technical-specification-app.md` §2.10(구현 요구사항).
+
+**페이지 순서 내 위치**:
+- Page 1: 터치패드 + Actions (상대좌표)
+- Page 2: 풀 와이드 터치패드 (멀티 커서)
+- **Page 3: 절대좌표 패드** ← 이 문서
+- Page 4: 키보드 중심
+- Page 5: Minecraft 특화
 
 ## 2. 레이아웃 구조
 
-- 2-열 구조(좌: Key Cluster, 우: Actions). 세로 스크롤은 우측 패널에서만 허용.
-- 권장 비율(가로 기준): 좌측 64% / 우측 36%. 최소 좌 60%/우 40%까지 허용.
-- 화면 여백: 바깥 16dp, 컬럼 간격 12dp, 그룹 간 세로 간격 12~16dp.
-- 본 페이지에서는 Touchpad를 기본 숨김. 필요 시 별도 페이지 혹은 상단 탭으로 제공.
+- PointingArea가 페이지의 대부분을 차지하고, 하단에 QuickKeyStrip과 ControlBar가 배치됩니다.
+- Page 1과 달리 좌/우 분할 구조가 아닌, 전체 화면 단일 영역 구조입니다.
+- 여백: 바깥 16dp.
+- 방향: Portrait 최적화. Landscape에서는 PointingArea가 자동으로 가로 확장.
 
-### 2.1 좌측 Key Cluster
+### 2.1 PointingArea (메인 터치 영역)
 
-- 구성: Modifiers Bar → Navigation/Editing Grid → Function Row 순으로 상단에서 하단 배치.
+- **배치**: 페이지 중앙, 가용 공간 최대 활용
+- **종횡비**: 16:9 권장 (PC 모니터 비율에 근사). 16:10도 허용
+- **최소 크기**: 280dp × 158dp (16:9 기준)
+- **최대 크기**: 가용 화면에서 QuickKeyStrip과 ControlBar 영역을 제외한 전체
+- **모서리**: 8dp 라운드 코너
+- **테두리**: 2dp 두께, 상태에 따른 색상 변화 (`component-design-guide-app.md` §4.3, §4.5.7 참조)
 
-1) Modifiers Bar(상단 고정)
-- 키: `Ctrl`, `Shift`, `Alt`, `Win`(4개).
-- Sticky 규칙: 탭=일시 고정(다음 입력까지, 최대 800ms), 더블탭=토글 고정(해제 시까지 지속), 길게 누르기(≥400ms)=누르는 동안만 유지.
-- 시각: `Selected`는 강조색(`'#2196F3'`), `Disabled`는 컴포넌트 자체적으로 톤다운(`'#C2C2C2'`, alpha 0.6) 적용.
+**비율 유지 규칙**:
+- PointingArea는 항상 16:9 (또는 16:10) 비율을 유지
+- 가용 공간이 이 비율보다 세로로 길면 → 상하 여백 추가 (letterbox)
+- 가용 공간이 이 비율보다 가로로 길면 → 좌우 여백 추가 (pillarbox)
 
-2) Navigation/Editing Grid(중앙)
-- 화살표: Inverted-T(`↑` 중앙 상단, `←`/`→` 좌우, `↓` 중앙 하단). 길게 누르면 Key Repeat.
-- 에디팅: `Backspace`, `Delete`, `Enter`, `Tab`, `Home`, `End`, `PageUp`, `PageDown`(2~3열 그리드).
-- Key Repeat: OS 설정을 따르되, 앱 레벨에서 25~30Hz 상한(최대 40ms 주기)으로 스로틀링.
+시각 토큰:
+- 배경: `#1E1E1E` (진한 회색, 터치패드와 동일)
+- 기본 테두리: `#E91E63` (핑크색)
+- 우클릭 모드 테두리: `#F3D021` (노란색)
+- 스크롤 모드 테두리: `#84E268` (초록색)
+- 줌 활성 테두리: `#FF9800` (주황색)
 
-3) Function Row(하단)
-- F1~F12를 수평 스크롤(Chips 또는 Compact 버튼). 길게 누르기 반복 지원.
-- 그룹 간 경계는 얇은 디바이더(알파 0.2) 사용.
+### 2.2 ControlBar (제어 버튼 영역)
 
-### 2.2 우측 Actions 패널
+- **배치**: PointingArea 하단 외부에 배치 (PointingArea와 겹치지 않음)
+- **높이**: 48dp
+- **정렬**: 수평 중앙 정렬, 버튼 간 간격 16dp
+- **배경**: 투명 (페이지 배경과 동일)
 
-- 스크롤 컨테이너. 상단에서 하단 순으로 Shortcuts → Media Controls → Lock Keys.
-- 각 버튼은 `ShortcutButton`/`KeyboardKeyButton`을 사용. 터치 타겟 ≥ 56dp, 간격 8~12dp, 리플 비활성.
+**버튼 구성**:
 
-1) Shortcuts(2열 그리드, 권장 12개)
-- 기본: `Ctrl+C`, `Ctrl+V`, `Ctrl+S`, `Ctrl+Z`, `Ctrl+Shift+Z`, `Ctrl+X`, `Ctrl+N`, `Ctrl+O`, `Ctrl+P`, `Ctrl+W`, `Ctrl+T`, `Alt+F4`.
-- `Alt+Tab`은 누름 유지형이므로 본 그룹 대신 Modifiers+`Tab` 조합을 이용(UX 혼동 방지).
-- 조합 표기: 각 단축키 기능을 나타내는 Material Icon(20dp)으로 시각화. 누름 순서/해제 순서는 `docs/component-design-guide.md` §2.2를 따른다.
-
-2) Media Controls(행 배치)
-- 항목: `Play/Pause`(토글), `Stop`.
-- 아이콘: VectorDrawable 사용(`ic_play.xml`, `ic_pause.xml`, `ic_stop.xml`). Next/Prev/Volume은 본 페이지 기본 제외(아이콘 자산/공간 고려).
-
-3) Lock Keys(행 배치)
-- 항목: `CapsLock`, `NumLock`, `ScrollLock`.
-- 표시: `Selected`=켜짐(라쳇), `Unselected`=꺼짐. 상태는 HID LED Report 기반으로 동기화.
-- 충돌: 상태 미동기화 감지 시 토스트 `Error`(2초) 표출 후 재동기화 시도.
-
-### 2.3 ASCII 레이아웃(개략)
-
-```text
-┌──────────────────────────────────────────────────────────────┐  ┌──────────────────────────────┐
-│  Modifiers: [Ctrl] [Shift] [Alt] [Win]                       │  │        Shortcuts (2열)       │
-├──────────────────────────────────────────────────────────────┤  │  Ctrl+C  Ctrl+V  Ctrl+S  ... │
-│  Navigation / Editing Grid                                   │  ├──────────────────────────────┤
-│      [↑]                                                     │  │        Media Controls        │
-│   [←]   [→]    Backspace Delete Enter Home End PgUp PgDn     │  │   [Play/Pause]   [Stop]      │
-│      [↓]                                                     │  ├──────────────────────────────┤
-├──────────────────────────────────────────────────────────────┤  │           Lock Keys          │
-│  F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 (수평 스크롤)       │  │   [CapsLock] [NumLock] [Scr] │
-└──────────────────────────────────────────────────────────────┘  └──────────────────────────────┘
-  «권장 비율: 좌 64% / 우 36%, Portrait 기준»
+```
+ControlBar
+├── ClickModeButton (좌클릭 ↔ 우클릭 전환)
+├── ScrollToggleButton (스크롤 모드 전환)
+└── ZoomButton (줌 모드 진입/해제)
 ```
 
-## 3. 상호작용 및 상태
+- **ClickModeButton**: 터치패드의 동일 컨트롤과 같은 디자인. 좌클릭(기본)/우클릭 토글
+- **ScrollToggleButton**: 스크롤 모드 진입/해제. 활성 시 테두리 초록색
+- **ZoomButton**: 줌 모드 진입/해제. 활성(>1x) 시 배율 배지 표시 (예: "2x")
 
-- 상태 용어: [`technical-specification.md` §6.2 Android 플랫폼 용어집]을 참조하세요.
-- Sticky Modifiers: 상기 규칙(탭/더블탭/롱프레스). UI에 토글 배지 노출. 더블탭 토글 상태에서는 페이지 전환 시 자동 해제.
-- Key Repeat: 화살표/Backspace/Space/Enter 기본 지원. 프레임 상한을 두어 60fps 성능을 저해하지 않도록 한다.
-- 단축키 충돌: 동일 키조합 중복 트리거 방지(디바운스 500ms). Danger 조합은 `Disabled` 기본(예: 시스템 전역 영향이 큰 조합).
-- 피드백: 성공 `Success`(초록), 오류 `Error`(빨강). 토스트는 §5.2 정책을 따른다. 중복(토스트+햅틱) 방지.
-- 접근성: 보이스 라벨은 "키", "단축키" 접두사로 구분. Lock Keys는 상태를 함께 읽어준다.
+각 버튼: 터치 타겟 ≥ 48dp, 아이콘 24dp, 리플 비활성.
 
-## 4. 아이콘/이미지 가이드
+### 2.3 QuickKeyStrip (퀵 특수키 스트립)
 
-- 내부 자산 우선: `res/drawable/`의 VectorDrawable(@drawable, xml) 사용. 예: `ic_keyboard.xml`, `ic_play.xml`, `ic_pause.xml`, `ic_stop.xml`.
-- 키 버튼은 텍스트 라벨 기본. 복잡 아이콘은 VectorDrawable 사용.
-- 대체 텍스트: 라벨과 동일. Disabled 시 "비활성" 포함 가능.
+- **배치**: PointingArea와 ControlBar 사이
+- **높이**: 40dp
+- **구성**: 한 줄 6개 키, 가용 폭에 균등 분배
+- **간격**: 키 간 8dp
+- **배경**: 투명 (페이지 배경과 동일)
+
+**키 구성**:
+
+| 키 | 라벨 | 비고 |
+|----|------|------|
+| `Esc` | Esc | 단발성 |
+| `Tab` | Tab | 단발성 |
+| `Backspace` | ⌫ | 길게 누르기: 반복 입력 지원 |
+| `Delete` | Del | 단발성 |
+| `Enter` | ↵ | 길게 누르기: 반복 입력 지원 |
+| `Space` | ␣ | 단발성 |
+
+- **컴포넌트**: Page 1의 Special Keys와 동일한 `KeyboardKeyButton` 재사용
+- **시각 토큰**: Page 1 Special Keys 버튼 스타일과 동일 (`design-guide-app.md` §9 참조)
+- **리플 피드백**: 비활성 (터치패드 영역 근처이므로 시각 노이즈 최소화)
+- **햅틱**: 키 입력 시 Light (30ms)
+
+### 2.4 SwapButton (패드/키 영역 교체 버튼)
+
+- **배치**: PointingArea 내부 우하단 모서리 오버레이. 모서리에서 8dp 안쪽
+- **크기**: 터치 타겟 48dp × 48dp, 아이콘 20dp
+- **아이콘**: 위아래 화살표 (swap / swap_vert)
+- **배경**: 반투명 원형, `#000000` alpha 0.35
+- **리플**: 비활성
+
+**동작**:
+- 탭 → PointingArea와 QuickKeyStrip의 **수직 위치를 즉시 교체**
+  - **Pad-Top 상태** (기본): PointingArea 위 / QuickKeyStrip 아래
+  - **KB-Top 상태**: QuickKeyStrip 위 / PointingArea 아래
+- ControlBar는 항상 최하단 고정, 교체 대상이 아님
+- 상태는 페이지 전환 시 유지 (SharedPreferences)
+
+**햅틱**: 탭 시 Medium (50ms)
+
+### 2.5 CoordinateIndicator (터치 위치 표시)
+
+- **위치**: PointingArea 내부, 현재 터치 좌표 위
+- **형태**: 십자선 (가로 + 세로 1dp 선, 길이 20dp) + 중앙 점 (4dp 원)
+- **색상**: `#FFFFFF` (alpha 0.6)
+- **동작**: 터치 중일 때만 표시, 터치 종료 후 300ms 페이드 아웃
+- **목적**: 손가락에 가려진 정확한 터치 위치를 시각적으로 확인
+
+### 2.6 줌 시각 피드백
+
+#### Android 앱 내 (PointingArea)
+
+- **줌 레벨 텍스트**: PointingArea 우상단 모서리, 14sp, `#FF9800`
+- **줌 진입 중 (드래그 단계)**: 드래그에 따라 줌 레벨이 실시간 변화
+
+#### PC 화면 (Windows 서버 오버레이, Standard 모드 전용)
+
+줌이 활성화된 상태(>1x)에서 **PC 모니터 위**에 줌 영역 박스가 표시됩니다:
+
+- **줌 영역 박스**: PC 전체 화면 위에 반투명 사각형 오버레이로, 현재 패드가 매핑하는 영역을 표시
+  - 테두리: `#FF9800` (alpha 0.8), 2px
+  - 배경: `#FF9800` (alpha 0.08)
+- **줌 레벨 라벨**: 박스 우상단 외부에 배율 표시 (예: "2.0x"), 14pt, `#FF9800`
+- **실시간 업데이트**: 줌 레벨/중심점 변경 시 박스 위치·크기 즉시 갱신
+- **1x 시**: 박스 비표시 (전체 화면이므로 별도 표시 불필요)
+- **Essential 모드**: Windows 서버 미연결 → PC 오버레이 불가, 앱 내 줌 레벨 텍스트만 표시
+- **통신 경로**: Android → ESP32 (UART) → Windows 서버 (Vendor CDC) → WPF 투명 오버레이 윈도우
+- **상세 구현**: `technical-specification-server.md` 줌 영역 오버레이 섹션 참조
+
+### 2.7 ASCII 레이아웃 (개략)
+
+**Pad-Top 상태** (기본):
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│   ┌──────────────────────────────────────────────────────────────────────┐   │
+│   │                                                                      │   │
+│   │                       PointingArea (16:9)                            │   │
+│   │                                                                      │   │
+│   │                           ＋  ← CoordinateIndicator                 │   │
+│   │                                                                      │   │
+│   │                          [2.0x] ← 줌          [⇅] ← SwapButton     │   │
+│   └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│     [Esc]  [Tab]  [⌫ ]  [Del]  [ ↵ ]  [  ␣  ]  ← QuickKeyStrip            │
+│                                                                              │
+│              [ClickMode]    [Scroll]    [Zoom]  ← ControlBar                │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+**KB-Top 상태** (교체 후):
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│     [Esc]  [Tab]  [⌫ ]  [Del]  [ ↵ ]  [  ␣  ]  ← QuickKeyStrip            │
+│                                                                              │
+│   ┌──────────────────────────────────────────────────────────────────────┐   │
+│   │                                                                      │   │
+│   │                       PointingArea (16:9)                            │   │
+│   │                                                                      │   │
+│   │                           ＋  ← CoordinateIndicator                 │   │
+│   │                                                                      │   │
+│   │                          [2.0x] ← 줌          [⇅] ← SwapButton     │   │
+│   └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│              [ClickMode]    [Scroll]    [Zoom]  ← ControlBar                │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+«Portrait 기준. ControlBar는 항상 최하단 고정»
+
+## 3. 유저 플로우
+
+### 3.1 기본 포인팅
+
+1. PointingArea 위 아무 곳이나 터치
+2. 터치 좌표가 PC 화면 절대 위치로 즉시 매핑 → 커서 이동
+3. 드래그하면 커서가 손가락을 따라 이동
+4. 터치 종료
+
+### 3.2 클릭
+
+1. PointingArea를 짧게 탭 (≤500ms, 이동량 ≤5dp)
+2. 터치 위치로 커서 이동 + 클릭 이벤트 전송
+3. 현재 ClickMode에 따라 좌클릭 또는 우클릭
+
+### 3.3 줌 사용
+
+1. ZoomButton 탭 → 줌 모드 진입
+2. 확대할 중심 위치를 PointingArea에서 터치
+3. 터치를 유지한 채 바깥 방향으로 드래그 → 드래그 거리에 비례해 줌 레벨 증가
+4. 손 떼기 → 해당 줌 레벨 확정, 일반 포인팅으로 복귀
+5. 줌 상태에서 포인팅/클릭 수행 (매핑 범위가 축소된 상태)
+6. ZoomButton 재탭 → 1x 복귀
+
+### 3.4 스크롤 모드
+
+1. ScrollToggleButton 탭 → 스크롤 모드 진입
+2. 터치 드래그가 커서 이동 대신 스크롤 신호로 변환
+3. ScrollToggleButton 재탭 또는 PointingArea 원탭 → 스크롤 모드 종료
+
+### 3.5 패드/키 영역 교체
+
+1. PointingArea 우하단의 SwapButton 탭
+2. PointingArea와 QuickKeyStrip의 수직 위치 즉시 교체
+3. 재탭 시 원래 위치로 복귀
+
+## 4. 상호작용 및 상태
+
+### 4.1 테두리 색상 상태 규칙
+
+테두리 색상으로 현재 패드 상태를 직관적으로 전달:
+
+| 우선순위 | 상태 | 테두리 색상 | 비고 |
+|---------|------|------------|------|
+| 1 (최고) | 스크롤 모드 | `#84E268` (초록) | |
+| 2 | 우클릭 모드 | `#F3D021` (노란) | |
+| 3 | 줌 활성 (>1x) | `#FF9800` (주황) | 줌 레벨 배지는 항상 표시 |
+| 4 (기본) | 좌클릭 + 포인팅 | `#E91E63` (핑크) | |
+
+### 4.2 ControlBar 버튼 상태
+
+| 버튼 | Unselected | Selected | 전환 방법 |
+|------|-----------|----------|----------|
+| ClickModeButton | 좌클릭 (기본) | 우클릭 | 탭 토글 |
+| ScrollToggleButton | 포인팅 (기본) | 스크롤 | 탭 토글 |
+| ZoomButton | 1x (기본) | >1x (배율 배지) | 탭으로 진입/해제 |
+
+### 4.3 햅틱 피드백
+
+- ClickMode 전환: Medium (50ms)
+- 스크롤 모드 진입/해제: Light (30ms)
+- 줌 모드 진입: Light (30ms)
+- 줌 확정 (손 떼기): Medium (50ms)
+- 줌 해제 (1x 복귀): Light (30ms)
 
 ## 5. 반응형/적응 규칙
 
-- 폭 < 360dp: Function Row를 드롭다운/수평 스크롤로 축소. Shortcuts는 탭 전환으로 그룹 분할 가능.
-- 폭 ≥ 600dp(Landscape/Tablet): 좌측 Key Grid 열 수 확장(3열→최대 4열), 우측 Shortcuts 3열까지 확장.
-- 높이 제약 시: Media/Lock을 우선 스크롤로 이동하여 Shortcuts 가시성을 확보.
+- **소형 화면 (폭 < 360dp)**:
+  - PointingArea 최소 크기 적용 (280dp × 158dp)
+  - QuickKeyStrip 키 간격 4dp로 축소
+  - ControlBar 버튼 간격 12dp로 축소
+- **중형 화면 (360dp ≤ 폭 < 600dp)**:
+  - 기본 레이아웃 유지
+  - PointingArea가 가용 공간 최대 활용 (16:9 비율 유지)
+- **대형 화면 (폭 ≥ 600dp, Landscape)**:
+  - PointingArea 가로 확장, 16:9 비율 유지
+  - ControlBar를 PointingArea 우측에 세로 배치 가능 (공간 활용 최적화)
+- **높이 제약**: QuickKeyStrip(40dp)과 ControlBar(48dp)는 항상 고정 표시, PointingArea 크기를 줄여서 대응
 
-## 6. 구현 메모(개발자용)
+## 6. 접근성
 
-- Compose: `KeyboardKeyButton`/`ShortcutButton` 사용. 모디파이어는 Selection 상태와 토글 배지를 명확히 표현.
-- 상태 저장: 모디파이어 토글/락키/최근 사용 단축키를 즉시 저장. 세션 복구 시 불일치 방지.
-- HID 전송: 단일 키는 KeyDown→KeyUp. 조합 키는 모디파이어(KeyDown)→주키(KeyDown)→주키(KeyUp)→모디파이어(KeyUp). Alt+Tab은 Alt 유지 중 Tab 반복.
-- Lock Key 동기화: Host LED Report 수신 시 반영. 미수신 시 폴링 간격 2s, 최대 3회 재시도.
-- 성능: 입력 지연 < 50ms 목표. Repeat 스로틀과 애니메이션은 60fps 유지.
+- **ClickModeButton**: `contentDescription` = "클릭 모드: 좌클릭" / "클릭 모드: 우클릭"
+- **ScrollToggleButton**: `contentDescription` = "스크롤 모드: 해제" / "스크롤 모드: 활성"
+- **ZoomButton**: `contentDescription` = "줌: 1배" / "줌: 2배" 등 현재 배율 포함
+- **PointingArea**: `contentDescription` = "절대좌표 터치 영역. 터치한 위치가 PC 커서 위치가 됩니다"
+- **QuickKeyStrip 각 키**: `contentDescription` = 키 이름 (예: "Escape 키", "백스페이스 키")
+- **SwapButton**: `contentDescription` = "패드/키 영역 교체. 현재: 패드 위" / "패드/키 영역 교체. 현재: 키 위"
+- 고대비 모드: 테두리 두께 3dp로 증가, 줌 오버레이 alpha 값 상향
+
+## 7. 구현 메모 (개발자용)
+
+- **Composable**: `AbsolutePointingPad` + `QuickKeyStrip` + `ControlBar`로 페이지 구성
+- **QuickKeyStrip**: Page 1의 Special Keys와 동일한 `KeyboardKeyButton` 재사용. 별도 Composable 분리 권장
+- **SwapButton**: PointingArea 위에 `Box`로 오버레이. `swapState: Boolean` (Pad-Top / KB-Top) → `AnimatedContent` 또는 단순 순서 변경으로 구현. 상태는 SharedPreferences에 저장
+- **좌표 변환**: `AbsoluteCoordinateCalculator`에서 줌 상태를 반영한 매핑 범위 계산
+- **프레임 전송**: `FrameBuilder.buildAbsoluteFrame()` 사용, `frame[1] == 0x80`으로 절대좌표 식별
+- **전송 최적화**: 동일 좌표 연속 전송 방지, 120Hz 주기 준수
+- **상태 저장**: 줌 레벨/중심점, 클릭 모드를 페이지 전환 시 유지 (SharedPreferences)
+- **성능**: 좌표 변환 < 1ms, 전송 지연 < 50ms 목표
 
 ---
 
-문서 간 역할 분리: 앱 전반 정책은 `docs/design-guide-app.md`, 컴포넌트 동작은 `docs/component-design-guide.md`를, HID 경로/LED 동기화는 `docs/usb-hid-bridge-architecture.md`를 우선 참조하세요.
+문서 간 역할 분리: 컴포넌트 설계는 `docs/android/component-design-guide-app.md` §4, 구현 요구사항은 `docs/android/technical-specification-app.md` §2.10, 전체 UI 정책은 `docs/android/design-guide-app.md`를 우선 참조하세요.

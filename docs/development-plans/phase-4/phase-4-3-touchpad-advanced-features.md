@@ -82,7 +82,7 @@ TouchpadWrapper
    - **ClickModeButton**: 좌클릭 ↔ 우클릭 전환
    - **MoveModeButton**: 자유 이동 ↔ 직각 이동 전환 (커서 이동 모드에서만 표시)
    - **ScrollModeButton**: 커서 이동 → 일반 스크롤 → 무한 스크롤 순환
-   - **CursorModeButton**: 싱글 ↔ 멀티 커서 전환 (Phase 4+ 멀티 커서 미구현, Disabled)
+   - **CursorModeButton**: Page 1에서는 비표시, Page 2에서는 표시 (Phase 4+에서 Page 2 신설 시 구현)
 4. 우측 옵션 버튼 (2개):
    - **DPIControlButton**: DPI 순환 (낮음 → 보통 → 높음)
    - **ScrollSensitivityButton**: 스크롤 감도 순환 (스크롤 모드에서만 표시)
@@ -990,7 +990,6 @@ TouchpadWrapper
 - [x] GRID → CONFIRM: AnimatedContent fade+slide 전환 확인 (slide-up 방향, icon scale-up은 AnimatedContent 전환으로 대체)
 - [x] CONFIRM → GRID: AnimatedContent fade+slide 복귀 확인
 - [x] DynamicsPresetButton 롱프레스 시 scale-up 효과 확인
-- [ ] 빠른 연속 조작 시 애니메이션 꼬임 없음 확인 (기기 테스트 필요)
 
 ---
 
@@ -1162,7 +1161,111 @@ object EdgeSwipe {
 
 ---
 
-## Phase 4.3.12: 터치패드 E2E 하드웨어 테스트
+## Phase 4.3.12: 모드 프리셋 버튼
+
+**목표**: 여러 개의 모드 구성 스냅샷(프리셋)을 저장해두고 버튼 하나로 즉시 전환하는 `ModePresetButton`을 구현합니다. 탭으로 순환, 롱프레스로 팝업 선택 방식이며, `DynamicsPresetButton` (Phase 4.3.8)과 동일한 패턴을 재사용합니다.
+
+**쉬운 설명**: 포토샵 같은 작업에서 "정밀하게 움직이는 마우스 모드"와 "빠르게 이동하는 마우스 모드"를 반복적으로 오갈 때, 지금은 DPI 버튼, 이동 모드 버튼 등을 하나씩 탭해야 합니다. 이 Phase에서는 여러 설정을 묶은 "프리셋"을 미리 만들어두고, 터치패드 오른쪽 아래 버튼 한 번으로 전부 한꺼번에 바꿀 수 있게 합니다.
+
+**개발 기간**: 1-1.5일
+
+**세부 목표**:
+1. **`ModePreset` 데이터 모델 추가** (`TouchpadMode.kt`):
+   ```kotlin
+   data class ModePreset(
+       val name: String,
+       val icon: AppIconDef,
+       val description: String,
+       val padModeState: PadModeState,
+       val dynamicsPresetIndex: Int = DEFAULT_PRESET_INDEX
+   )
+   ```
+2. **`ModePresetConstants.kt` 신규 파일** (기본 프리셋 정의):
+   ```kotlin
+   val MODE_PRESETS: List<ModePreset> = listOf(
+       ModePreset(
+           name = "Standard",
+           icon = AppIcons.ModePresetStandard,
+           description = "기본 설정",
+           padModeState = PadModeState(),
+           dynamicsPresetIndex = 0  // Off
+       ),
+       ModePreset(
+           name = "Precise",
+           icon = AppIcons.ModePresetPrecise,
+           description = "저DPI + 직각 이동 — 정밀 작업용",
+           padModeState = PadModeState(
+               dpi = DpiLevel.LOW,
+               moveMode = MoveMode.ORTHOGONAL,
+               clickMode = ClickMode.LEFT_CLICK,
+               scrollMode = ScrollMode.NONE
+           ),
+           dynamicsPresetIndex = 1  // Precision
+       ),
+       ModePreset(
+           name = "Fast",
+           icon = AppIcons.ModePresetFast,
+           description = "고DPI + 자유 이동 — 빠른 탐색용",
+           padModeState = PadModeState(
+               dpi = DpiLevel.HIGH,
+               moveMode = MoveMode.FREE,
+               clickMode = ClickMode.LEFT_CLICK,
+               scrollMode = ScrollMode.NONE
+           ),
+           dynamicsPresetIndex = 3  // Fast
+       ),
+   )
+   val DEFAULT_MODE_PRESET_INDEX = 0
+   ```
+3. **`TouchpadState`에 `modePresetIndex: Int` 필드 추가** (기본값: `DEFAULT_MODE_PRESET_INDEX`)
+4. **`AppIcons`에 모드 프리셋 아이콘 추가** (`AppIcons.kt`):
+   - `ModePresetStandard`, `ModePresetPrecise`, `ModePresetFast`
+   - 대응 VectorDrawable: `ic_mode_standard.xml`, `ic_mode_precise.xml`, `ic_mode_fast.xml`
+5. **`ModePresetButton.kt` 신규** — `DynamicsPresetButton.kt`와 동일 구조:
+   - **위치**: `Alignment.BottomEnd`, `padding(end = 8.dp, bottom = 8.dp)`
+   - **크기**: 40dp × 40dp
+   - **표시 조건**: Standard 모드에서 **항상 표시** (스크롤 모드에서도 숨기지 않음)
+     - `DynamicsPresetButton`은 스크롤 모드에서 숨겨지지만, `ModePresetButton`은 `AnimatedVisibility` 조건 없이 항상 표시
+   - **탭**: `modePresetIndex = (modePresetIndex + 1) % MODE_PRESETS.size` 순환
+   - **롱프레스**: `showModePresetPopup = true`
+   - **이벤트 소비**: `down.changes.forEach { it.consume() }`
+6. **`ModePresetPopup.kt` 신규** — `DynamicsPresetPopup.kt`와 동일한 2단계 구조(그리드 선택 → 확인 단계):
+   - 블러 상태 통합: `blurRadius = if (dpiPopup || dynamicsPopup || modePresetPopup) 8.dp else 0.dp`
+   - 프리셋 확정 시 적용 순서:
+     1. 현재 활성 패드의 `PadModeState` 교체 (클릭/이동/스크롤/DPI 모두)
+     2. `TouchpadState.dynamicsPresetIndex` 전역 업데이트
+     3. `ControlButtonContainer` 버튼 상태 즉시 갱신
+7. **`TouchpadWrapper.kt` 수정**: `ModePresetButton` 오버레이 추가 (`DynamicsPresetButton`과 동일한 방식으로 `Box` 내부에 배치)
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/ModePresetConstants.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/ModePresetButton.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/ModePresetPopup.kt`
+
+**수정 파일**:
+- `TouchpadMode.kt` (`ModePreset` data class 추가, `TouchpadState`에 `modePresetIndex` 추가)
+- `AppIcons.kt` (모드 프리셋 아이콘 3종 추가)
+- `TouchpadWrapper.kt` (`ModePresetButton` 오버레이 추가, 블러 상태 통합)
+
+**참조 문서**:
+- `docs/android/component-touchpad.md` §1.7
+- `docs/android/technical-specification-app.md` §2.2.7
+- `DynamicsPresetButton.kt`, `DynamicsPresetPopup.kt` (Phase 4.3.8에서 구현한 동일 패턴)
+
+**검증 (UX — 에뮬레이터/실기기 UI 확인)**:
+- [ ] `ModePresetButton` — 터치패드 우측 하단에 항상 표시 확인 (스크롤 모드에서도)
+- [ ] `ModePresetButton` — 원탭으로 프리셋 순환 전환 확인
+- [ ] `ModePresetButton` — 탭 시 프리셋 이름 라벨 표시 후 자동 소멸 확인
+- [ ] `ModePresetButton` — 롱프레스 시 팝업 오버레이 표시 확인
+- [ ] 팝업 — 그리드 선택 + 확인 단계 동작 확인 (`DynamicsPresetPopup`과 동일)
+- [ ] 프리셋 적용 시 `ControlButtonContainer` 버튼 상태 즉시 반영 확인 (DPI, 클릭, 이동, 스크롤)
+- [ ] 프리셋 적용 시 다이나믹스 전역 업데이트 확인
+- [ ] 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 확인)
+- [ ] 멀티 커서 모드: 프리셋 적용이 활성 패드에만 적용되고 다른 패드는 유지 확인
+
+---
+
+## Phase 4.3.13: 터치패드 E2E 하드웨어 테스트
 
 **목표**: Phase 4.3에서 구현한 터치패드 기능 전체를 실기기 + 실제 PC 연결 환경에서 하나씩 검증하여 하드웨어 수준의 이상 없음을 확인
 
@@ -1202,8 +1305,9 @@ object EdgeSwipe {
 | 무한 스크롤 | ❌ | ✅ (ScrollModeButton) |
 | DPI 조절 | ❌ | ✅ (DPIControlButton) |
 | 포인터 다이나믹스 | ❌ | ✅ (프리셋 버튼: 원탭 사이클 / 롱프레스 팝업 선택) |
+| 모드 프리셋 | ❌ | ✅ (ModePresetButton: 원탭 사이클 / 롱프레스 팝업 선택) |
 | 스크롤 감도 | ❌ | ✅ (ScrollSensitivityButton) |
-| 멀티 커서 | ❌ | ⏳ Phase 4+ |
+| 멀티 커서 | ❌ | ⏳ Phase 4.4 (Page 2 풀 와이드 터치패드, CursorModeButton 활성화) |
 | ControlButtonContainer | ❌ 숨김 | ✅ 표시 |
 | 스크롤 가이드라인 | ❌ | ✅ (스크롤 모드 시) |
 | 모드별 테두리 색상 | ❌ | ✅ (모드 조합에 따른 단색/그라데이션) |

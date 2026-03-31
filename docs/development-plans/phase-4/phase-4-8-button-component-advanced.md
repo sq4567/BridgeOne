@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.7: 버튼 컴포넌트 고급 기능"
-description: "BridgeOne 프로젝트 Phase 4.7 - KeyboardKeyButton Sticky Hold, ContainerButton, Essential 모드 UI 재정비"
+title: "BridgeOne Phase 4.8: 버튼 컴포넌트 고급 기능"
+description: "BridgeOne 프로젝트 Phase 4.8 - KeyboardKeyButton Sticky Hold, ContainerButton, Essential 모드 UI 재정비"
 tags: ["android", "button", "sticky-hold", "container-button", "essential", "ui"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-03-26"
 ---
 
-# BridgeOne Phase 4.7: 버튼 컴포넌트 고급 기능
+# BridgeOne Phase 4.8: 버튼 컴포넌트 고급 기능
 
 **개발 기간**: 2-3일
 
@@ -18,13 +18,13 @@ updated: "2026-03-26"
 - ContainerButton (하위 버튼 그룹화, 팝업 오버레이, 일반/지속 모드)
 - Essential 모드 EssentialModePage 재정비 (스타일프레임 완전 준수)
 
-**선행 조건**: Phase 4.5 (Page 3) 완료
+**선행 조건**: Phase 4.6 (Page 4 키보드) 완료
 
 **에뮬레이터 호환성**: ContainerButton 팝업 오버레이, Essential 모드 UI 재정비 전체 에뮬레이터에서 개발 가능.
 
 ---
 
-## Phase 4.7.1: KeyboardKeyButton Sticky Hold
+## Phase 4.8.1: KeyboardKeyButton Sticky Hold
 
 **개발 기간**: 0.5-1일
 
@@ -40,7 +40,7 @@ updated: "2026-03-26"
 5. `stickyActivatedDuringPress` 플래그로 손 뗌 시 해제 방지
 6. 재탭 시 `onKeyReleased` → `isStickyLatched = false`
 
-**별도 처리 항목** (Phase 4.4.3에서 함께 추가):
+**별도 처리 항목** (Phase 4.5.3에서 함께 추가):
 - `stickyHoldEnabled` 파라미터 (현재는 항상 활성)
 - 햅틱 피드백 (Hold 진입/해제 시)
 
@@ -51,7 +51,7 @@ updated: "2026-03-26"
 
 ---
 
-## Phase 4.7.2: ContainerButton 컴포넌트
+## Phase 4.8.2: ContainerButton 컴포넌트
 
 **목표**: 하위 버튼을 그룹화하여 팝업 오버레이로 표시하는 ContainerButton
 
@@ -101,7 +101,7 @@ updated: "2026-03-26"
 
 ---
 
-## Phase 4.7.3: Essential 모드 UI 재정비
+## Phase 4.8.3: Essential 모드 UI 재정비
 
 **목표**: Essential 모드 페이지를 스타일프레임에 완전히 준수하도록 재정비
 
@@ -120,7 +120,7 @@ updated: "2026-03-26"
    ```
    - 두 토스트 순차 표시, 사이 간격 300ms
 3. Boot Keyboard Cluster 재정비:
-   - `FKeyPopupDialog` → Phase 4.7.2의 `ContainerButton`으로 교체
+   - `FKeyPopupDialog` → Phase 4.8.2의 `ContainerButton`으로 교체
    - Del 키: 최상단 독립 배치 (BIOS 진입용 강조)
    - F1-F12: ContainerButton으로 그룹화 (3×4 그리드 팝업)
    - Esc/Enter: 한 줄 배치
@@ -161,7 +161,7 @@ updated: "2026-03-26"
 
 ---
 
-## Phase 4.6 완료 후 컴포넌트 기능 매트릭스
+## Phase 4.8 완료 후 컴포넌트 기능 매트릭스
 
 | 컴포넌트 | 기본 기능 | 고급 기능 | 구현 Phase |
 |----------|----------|----------|-----------|

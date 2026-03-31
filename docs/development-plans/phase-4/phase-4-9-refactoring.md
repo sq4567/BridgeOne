@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.8: 리팩터링"
-description: "BridgeOne 프로젝트 Phase 4.8 - 조정 가능 상수 중앙화 및 Deprecated API 교체"
+title: "BridgeOne Phase 4.9: 리팩터링"
+description: "BridgeOne 프로젝트 Phase 4.9 - 조정 가능 상수 중앙화 및 Deprecated API 교체"
 tags: ["android", "refactoring", "constants", "maintainability"]
 version: "v1.2"
 owner: "Chatterbones"
-updated: "2026-03-30"
+updated: "2026-04-01"
 ---
 
-# BridgeOne Phase 4.8: 리팩터링
+# BridgeOne Phase 4.9: 리팩터링
 
 **개발 기간**: 미정
 
@@ -15,14 +15,14 @@ updated: "2026-03-30"
 
 | 하위 Phase | 내용 | 상태 |
 |-----------|------|------|
-| 4.8.1 | 조정 가능 상수 중앙화 | 미시작 |
-| 4.8.4 | Deprecated API 교체 | 미시작 |
+| 4.9.1 | 조정 가능 상수 중앙화 | 미시작 |
+| 4.9.2 | Deprecated API 교체 | 미시작 |
 
-**선행 조건**: Phase 4.7 완료
+**선행 조건**: Phase 4.8 완료
 
 ---
 
-## Phase 4.8.1: AppConstants.kt 신규 생성 및 상수 통합
+## Phase 4.9.1: AppConstants.kt 신규 생성 및 상수 통합
 
 **개발 기간**: 0.5일
 
@@ -133,11 +133,11 @@ object AppConstants {
 
 ---
 
-## Phase 4.8.2: Deprecated API 교체
+## Phase 4.9.2: Deprecated API 교체
 
 **개발 기간**: 0.5일 미만
 
-**목표**: 빌드 시 발생하는 deprecated API 경고를 제거합니다. 기능 변경 없이 내부 구현만 최신 API로 교체하는 순수 리팩토링입니다.
+**목표**: 빌드 시 발생하는 deprecated API 경고를 제거합니다. 기능 변경 없이 내부 구현만 최신 API로 교체하는 순수 리팩터링입니다.
 
 **에뮬레이터 호환성**: 에뮬레이터에서 빌드 및 검증 가능.
 

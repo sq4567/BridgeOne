@@ -728,7 +728,32 @@ velocity *= pow(0.95, deltaTime * 60.0)
 - ESP32-S3 동글로 `multi_cursor_switch` 명령 전송
 - 0xFF 헤더 + JSON 구조의 커스텀 명령으로 처리
 - Vendor HID/CDC 인터페이스를 통한 Windows 서비스와의 양방향 통신
-- 멀티 커서 모드 Enabled 시 `show_virtual_cursor` 요청 전송
+- 멀티 커서 모드 Enabled 시 `show_virtual_cursor` 요청 전송 (커서 수 포함)
+- **커서 수**: 멀티 커서 활성화 시점에 팝업에서 2~4개 중 선택. 매번 명시적으로 선택하므로 기본값 없음.
+
+**레이아웃 모드** (설정에서 선택):
+- **그리드 분할** (기본): 터치패드를 N개 영역으로 분할. 비활성 영역 탭으로 즉시 전환.
+  - N=2: 좌/우 50% 분할 (1×2), N=3: 좌/중/우 33% 분할 (1×3), N=4: 2×2 그리드
+- **직접 전환 버튼**: 하단에 N개 전환 버튼 배치. 탭 1번으로 어느 패드든 바로 점프. 터치패드 전체 면적 유지.
+
+**패드 전환 트리거:**
+- **탭 전환** (기본): 비활성 패드 영역 터치 또는 전환 버튼 탭 시 즉시 전환. 오버헤드 없이 가장 빠름.
+- **소리 감지 전환** (옵션, 설정 활성화 필요):
+  - Android `AudioRecord` API로 마이크 입력 실시간 분석
+  - 볼륨 임계값 + 음 높이 범위(솔, G4 ≈ 392Hz 근방) 조합으로 감지
+  - 기본값: 비활성화. 설정 화면에서 활성화 및 감도 조정 가능.
+  - 적용 대상: Page 2 멀티 커서 활성 상태에서만 동작
+
+**⚠️ 패드 경계 홀드 리셋과 외부 보조 버튼 활용:**
+
+BridgeOne 터치패드는 손가락이 패드 경계를 넘는 순간 터치업 이벤트가 발생하여 앱 측의 홀드 상태가 리셋됩니다. 따라서 클릭 홀드를 유지한 채 패드 간을 이동하는 드래그는 BridgeOne 단독으로 수행할 수 없습니다.
+
+실제 사용 환경에서는 사용자가 **외부 좌클릭/우클릭 보조 버튼**을 함께 활용하여 이 제약을 해소합니다:
+- 외부 보조 버튼이 클릭 홀드 상태를 독립적으로 유지하므로, BridgeOne 측에서 홀드가 리셋되더라도 OS 입장에서는 드래그가 끊기지 않습니다.
+- BridgeOne은 순수하게 커서 위치 제어(텔레포트 포함)만 담당하고, 클릭 상태 유지는 외부 버튼이 담당하는 역할 분담 구조입니다.
+- 예: 외부 버튼 누름 → 한쪽 패드에서 드래그 시작 → 버튼 유지한 채 다른 패드 터치(패드 전환+텔레포트) → 커서 이동 → 버튼 해제(드롭)
+
+이 아키텍처는 의도된 설계이며, BridgeOne 앱에서 별도의 패드 간 홀드 유지 로직을 구현할 필요가 없습니다.
 
 ##### 2.2.6.1 터치패드 영역 분할 알고리즘 상세 명세
 
@@ -736,41 +761,60 @@ velocity *= pow(0.95, deltaTime * 60.0)
 ```kotlin
 // TouchpadAreaWrapper 기준 좌표계
 data class TouchpadArea(
-    val id: String,          // "pad1" or "pad2"
-    val bounds: RectF,       // 영역 경계
+    val id: String,          // "pad1" ~ "pad4"
+    val bounds: RectF,       // 영역 경계 (그리드 분할 모드에서 사용)
     val isActive: Boolean    // 현재 활성 상태
 )
 
-fun divideTouchpadAreas(touchpadWidth: Float, touchpadHeight: Float): Pair<TouchpadArea, TouchpadArea> {
-    val pad1 = TouchpadArea(
-        id = "pad1",
-        bounds = RectF(0f, 0f, touchpadWidth / 2f, touchpadHeight),
-        isActive = false
-    )
-    
-    val pad2 = TouchpadArea(
-        id = "pad2",
-        bounds = RectF(touchpadWidth / 2f, 0f, touchpadWidth, touchpadHeight),
-        isActive = false
-    )
-    
-    return Pair(pad1, pad2)
+enum class MultiCursorLayoutMode {
+    GRID,           // 터치패드를 N개 영역으로 분할
+    DIRECT_BUTTON   // 전체 터치패드 + 하단 전환 버튼
+}
+
+/**
+ * N개 패드 영역 계산 (그리드 분할 모드)
+ * - N=2: 1×2 (좌/우 50% 분할)
+ * - N=3: 1×3 (33% 균등 분할)
+ * - N=4: 2×2 그리드
+ */
+fun divideTouchpadAreas(
+    touchpadWidth: Float,
+    touchpadHeight: Float,
+    cursorCount: Int  // 2~4
+): List<TouchpadArea> {
+    require(cursorCount in 2..4) { "커서 수는 2~4 사이여야 합니다" }
+
+    return when (cursorCount) {
+        2 -> listOf(
+            TouchpadArea("pad1", RectF(0f, 0f, touchpadWidth / 2f, touchpadHeight), false),
+            TouchpadArea("pad2", RectF(touchpadWidth / 2f, 0f, touchpadWidth, touchpadHeight), false)
+        )
+        3 -> listOf(
+            TouchpadArea("pad1", RectF(0f, 0f, touchpadWidth / 3f, touchpadHeight), false),
+            TouchpadArea("pad2", RectF(touchpadWidth / 3f, 0f, touchpadWidth * 2f / 3f, touchpadHeight), false),
+            TouchpadArea("pad3", RectF(touchpadWidth * 2f / 3f, 0f, touchpadWidth, touchpadHeight), false)
+        )
+        4 -> listOf(
+            TouchpadArea("pad1", RectF(0f, 0f, touchpadWidth / 2f, touchpadHeight / 2f), false),
+            TouchpadArea("pad2", RectF(touchpadWidth / 2f, 0f, touchpadWidth, touchpadHeight / 2f), false),
+            TouchpadArea("pad3", RectF(0f, touchpadHeight / 2f, touchpadWidth / 2f, touchpadHeight), false),
+            TouchpadArea("pad4", RectF(touchpadWidth / 2f, touchpadHeight / 2f, touchpadWidth, touchpadHeight), false)
+        )
+        else -> emptyList()
+    }
 }
 ```
 
-**터치 영역 판정 알고리즘**:
+**터치 영역 판정 알고리즘** (그리드 분할 모드):
 ```kotlin
-fun determineTouchpadArea(touchX: Float, touchpadWidth: Float): String {
-    val midpoint = touchpadWidth / 2f
-    
-    return when {
-        touchX < midpoint -> "pad1"
-        touchX > midpoint -> "pad2"
-        else -> {
-            // 정확히 50% 경계선 → 마지막 활성 영역 유지
-            _lastActivePad ?: "pad1" // 기본값: pad1
+fun determineTouchpadArea(touchX: Float, touchY: Float, touchpadWidth: Float, touchpadHeight: Float): String {
+    for (area in _padAreas) {
+        if (area.bounds.contains(touchX, touchY)) {
+            return area.id
         }
     }
+    // 경계선 위 → 마지막 활성 영역 유지
+    return _lastActivePad ?: "pad1"
 }
 ```
 
@@ -805,13 +849,16 @@ fun handleTouchEvent(event: MotionEvent): Boolean {
 ```kotlin
 data class MultiCursorState(
     var isEnabled: Boolean = false,
-    var currentSelectedPad: String? = null,  // "pad1" or "pad2"
-    var pad1CursorPosition: Point? = null,   // PC 화면 좌표
-    var pad2CursorPosition: Point? = null,
+    var cursorCount: Int = 0,                          // 2~4, 활성화 시 팝업에서 선택 (0=미선택)
+    var layoutMode: MultiCursorLayoutMode = MultiCursorLayoutMode.GRID,
+    var currentSelectedPad: String? = null,            // "pad1" ~ "pad4"
+    var padCursorPositions: MutableMap<String, Point?> = mutableMapOf(), // PC 화면 좌표
     var lastSwitchTimestamp: Long = 0,
-    var isPendingAck: Boolean = false        // 응답 대기 중
+    var isPendingAck: Boolean = false                  // 응답 대기 중
 )
 ```
+
+> **⚠️ 멀티 커서 상태는 앱 전역 싱글톤으로 관리해야 합니다.** Windows 서버가 가상 커서를 전역 1세트로 유지하므로, `MultiCursorState` 인스턴스는 앱 수준 ViewModel에서 하나만 존재해야 합니다. 현재는 멀티 커서가 단일 페이지(Page 2)에만 있어 충돌이 없지만, 두 번째 페이지에 멀티 커서 터치패드를 추가할 때는 반드시 공유 ViewModel로 리팩토링해야 합니다. 그렇지 않으면 페이지 전환 시 각 터치패드가 독립된 `MultiCursorState`를 보유하게 되어 pad 위치 정보가 Windows 서버의 실제 커서 위치와 어긋나는 버그가 발생합니다.
 
 ##### 2.2.6.2 영역 전환 감지 및 신호 생성 로직
 
@@ -868,12 +915,8 @@ private fun handlePadSwitch(newSelectedPad: String) {
     updateTouchpadBorderColors(newSelectedPad)
     
     // 커서 전환 JSON 메시지 생성 및 전송
-    val targetPosition = if (newSelectedPad == "pad1") {
-        _multiCursorState.pad1CursorPosition
-    } else {
-        _multiCursorState.pad2CursorPosition
-    }
-    
+    val targetPosition = _multiCursorState.padCursorPositions[newSelectedPad]
+
     if (targetPosition != null) {
         sendMultiCursorSwitchMessage(newSelectedPad, targetPosition)
     } else {
@@ -889,15 +932,13 @@ private fun handlePadSwitch(newSelectedPad: String) {
 private fun updateTouchpadBorderColors(selectedPad: String) {
     // Selected 영역: 보라색 (#B552F6) 테두리
     // Unselected 영역: 테두리 없음
-    
-    if (selectedPad == "pad1") {
-        _pad1BorderView.visibility = View.VISIBLE
-        _pad1BorderView.setBackgroundColor(Color.parseColor("#B552F6"))
-        _pad2BorderView.visibility = View.GONE
-    } else {
-        _pad1BorderView.visibility = View.GONE
-        _pad2BorderView.visibility = View.VISIBLE
-        _pad2BorderView.setBackgroundColor(Color.parseColor("#B552F6"))
+    _padBorderViews.forEach { (padId, borderView) ->
+        if (padId == selectedPad) {
+            borderView.visibility = View.VISIBLE
+            borderView.setBackgroundColor(Color.parseColor("#B552F6"))
+        } else {
+            borderView.visibility = View.GONE
+        }
     }
 }
 ```
@@ -1338,34 +1379,67 @@ private const val MAX_RETRY_COUNT = 1
 
 ##### 2.2.6.5 멀티 커서 모드 활성화/비활성화 로직
 
+**커서 수 선택 팝업 표시** (CursorModeButton 탭 → 싱글에서 멀티로 전환 시):
+```kotlin
+/**
+ * CursorModeButton 탭 시 호출.
+ * 현재 싱글 커서 상태이면 커서 수 선택 팝업을 표시하고,
+ * 사용자가 2/3/4 중 하나를 선택하면 enableMultiCursorMode(n)을 호출.
+ * 팝업 외부 터치 또는 취소 시 아무 동작 없이 싱글 커서 유지.
+ */
+fun onCursorModeButtonTapped() {
+    if (_multiCursorState.isEnabled) {
+        // 멀티 → 싱글: 즉시 비활성화 (팝업 없음)
+        disableMultiCursorMode()
+        return
+    }
+    // 싱글 → 멀티: 커서 수 선택 팝업 표시
+    showCursorCountSelectionPopup { selectedCount ->
+        enableMultiCursorMode(selectedCount)
+    }
+}
+```
+
 **멀티 커서 모드 활성화**:
 ```kotlin
-fun enableMultiCursorMode() {
+fun enableMultiCursorMode(cursorCount: Int) {
+    require(cursorCount in 2..4) { "Cursor count must be 2~4, got $cursorCount" }
+
     if (_multiCursorState.isEnabled) {
         Logger.warn("Multi-cursor mode already enabled")
         return
     }
-    
+
     try {
-        // 1. 터치패드 영역 분할
-        val (pad1, pad2) = divideTouchpadAreas(width.toFloat(), height.toFloat())
-        _pad1Area = pad1
-        _pad2Area = pad2
-        
-        // 2. 초기 커서 위치 저장
-        val currentPos = getCurrentCursorPosition()
-        _multiCursorState.pad1CursorPosition = currentPos
-        _multiCursorState.pad2CursorPosition = currentPos.copy() // 동일 위치로 초기화
-        
+        val n = cursorCount  // 팝업에서 선택한 값
+        _multiCursorState.cursorCount = n
+        val layoutMode = _multiCursorState.layoutMode
+
+        // 1. 터치패드 영역 분할 (레이아웃 모드에 따라 다르게 처리)
+        if (layoutMode == MultiCursorLayoutMode.GRID) {
+            _padAreas = divideTouchpadAreas(width.toFloat(), height.toFloat(), n)
+        } else {
+            // DIRECT_BUTTON 모드: 터치패드 전체 면적 유지, 하단 전환 버튼 표시
+            _padAreas = listOf(TouchpadArea("pad1", RectF(0f, 0f, width.toFloat(), height.toFloat()), true))
+            showDirectSwitchButtons(n)
+        }
+
+        // 2. 초기 커서 위치 설정
+        //    pad1 = 현재 실제 커서 위치 (Windows 서버에서 GetCursorPos로 획득)
+        //    pad2~padN = 현재 실제 커서 위치 (pad1과 동일 - 재활성화 시 위치 복원 없음)
+        //    → Android는 PC 화면 크기를 모르므로 초기 위치를 직접 설정하지 않음
+        //    → show_virtual_cursor ACK에서 pad1~padN 초기 위치를 수신하여 저장
+        _multiCursorState.padCursorPositions = (1..n).associate { "pad$it" to null }.toMutableMap()
+
         // 3. 기본 활성 영역 설정 (pad1)
         _multiCursorState.currentSelectedPad = "pad1"
-        
+
         // 4. UI 업데이트
-        showPadDivider() // 중앙 분할선 표시
+        if (layoutMode == MultiCursorLayoutMode.GRID) showPadDividers()
         updateTouchpadBorderColors("pad1")
         
-        // 5. Windows 서비스에 가상 커서 표시 요청
-        sendShowVirtualCursorMessage()
+        // 5. Windows 서비스에 가상 커서 표시 요청 (커서 수 포함)
+        sendShowVirtualCursorMessage(n)
         
         // 6. 상태 플래그 활성화
         _multiCursorState.isEnabled = true
@@ -1385,19 +1459,32 @@ fun enableMultiCursorMode() {
     }
 }
 
-private fun sendShowVirtualCursorMessage() {
+private fun sendShowVirtualCursorMessage(cursorCount: Int) {
+    // Android는 PC 화면 크기를 모르므로 초기 위치를 지정하지 않음
+    // Windows 서버가 모든 pad를 현재 실제 커서 위치로 초기화 (재활성화 시에도 동일)
     val message = mapOf(
         "command" to "show_virtual_cursor",
-        "initial_position" to mapOf(
-            "x" to _multiCursorState.pad2CursorPosition?.x,
-            "y" to _multiCursorState.pad2CursorPosition?.y
-        ),
+        "cursor_count" to cursorCount,
         "timestamp" to Instant.now().toString()
     )
-    
+
     val jsonString = Gson().toJson(message)
     val jsonBytes = jsonString.toByteArray(Charsets.UTF_8)
     _usbSerialPort?.write(jsonBytes, USB_WRITE_TIMEOUT_MS)
+}
+
+/**
+ * show_virtual_cursor ACK 수신 처리
+ * Windows 서버가 결정한 pad1~padN 초기 위치를 저장
+ */
+private fun onShowVirtualCursorAckReceived(ack: JsonObject) {
+    // ACK 형식: { "pad_positions": { "pad1": {"x":..,"y":..}, "pad2": {"x":..,"y":..}, ... } }
+    val padPositions = ack.getAsJsonObject("pad_positions")
+    padPositions.entrySet().forEach { (padId, posObj) ->
+        val pos = posObj.asJsonObject
+        _multiCursorState.padCursorPositions[padId] = Point(pos.get("x").asInt, pos.get("y").asInt)
+    }
+    Logger.info("Virtual cursor positions initialized: ${_multiCursorState.padCursorPositions}")
 }
 ```
 
@@ -1414,18 +1501,16 @@ fun disableMultiCursorMode() {
         sendHideVirtualCursorMessage()
         
         // 2. 터치패드 통합 (분할 해제)
-        hidePadDivider()
-        _pad1Area = null
-        _pad2Area = null
-        
+        hidePadDividers()
+        hideDirectSwitchButtons()
+        _padAreas = emptyList()
+
         // 3. UI 초기화
-        _pad1BorderView.visibility = View.GONE
-        _pad2BorderView.visibility = View.GONE
-        
+        _padBorderViews.values.forEach { it.visibility = View.GONE }
+
         // 4. 상태 데이터 정리
         _multiCursorState.currentSelectedPad = null
-        _multiCursorState.pad1CursorPosition = null
-        _multiCursorState.pad2CursorPosition = null
+        _multiCursorState.padCursorPositions.clear()
         _multiCursorState.isPendingAck = false
         
         // 5. 상태 플래그 비활성화
@@ -1486,32 +1571,196 @@ private fun saveMultiCursorSettingsForRestore() {
     val prefs = context.getSharedPreferences("multi_cursor_prefs", Context.MODE_PRIVATE)
     prefs.edit {
         putBoolean("was_enabled", _multiCursorState.isEnabled)
-        putInt("pad1_x", _multiCursorState.pad1CursorPosition?.x ?: 0)
-        putInt("pad1_y", _multiCursorState.pad1CursorPosition?.y ?: 0)
-        putInt("pad2_x", _multiCursorState.pad2CursorPosition?.x ?: 0)
-        putInt("pad2_y", _multiCursorState.pad2CursorPosition?.y ?: 0)
+        putInt("cursor_count", _multiCursorState.cursorCount)
+        putString("layout_mode", _multiCursorState.layoutMode.name)
+        // pad1~padN 위치 저장
+        _multiCursorState.padCursorPositions.forEach { (padId, pos) ->
+            putInt("${padId}_x", pos?.x ?: 0)
+            putInt("${padId}_y", pos?.y ?: 0)
+        }
     }
 }
 
 fun restoreMultiCursorSettingsAfterReconnect() {
     val prefs = context.getSharedPreferences("multi_cursor_prefs", Context.MODE_PRIVATE)
     val wasEnabled = prefs.getBoolean("was_enabled", false)
-    
+
     if (wasEnabled) {
-        // 멀티 커서 설정 복원
-        enableMultiCursorMode()
-        
-        _multiCursorState.pad1CursorPosition = Point(
-            prefs.getInt("pad1_x", 0),
-            prefs.getInt("pad1_y", 0)
-        )
-        _multiCursorState.pad2CursorPosition = Point(
-            prefs.getInt("pad2_x", 0),
-            prefs.getInt("pad2_y", 0)
-        )
-        
-        Logger.info("Multi-cursor settings restored after reconnect")
+        val n = prefs.getInt("cursor_count", 2)
+        val layoutModeName = prefs.getString("layout_mode", MultiCursorLayoutMode.GRID.name)
+        _multiCursorState.layoutMode = MultiCursorLayoutMode.valueOf(layoutModeName ?: "GRID")
+
+        // 멀티 커서 설정 복원 (저장된 커서 수로 직접 활성화, 팝업 없음)
+        enableMultiCursorMode(n)
+
+        // 저장된 pad 위치 복원
+        (1..n).forEach { i ->
+            val padId = "pad$i"
+            _multiCursorState.padCursorPositions[padId] = Point(
+                prefs.getInt("${padId}_x", 0),
+                prefs.getInt("${padId}_y", 0)
+            )
+        }
+        Logger.info("Multi-cursor settings restored after reconnect: $n cursors, ${_multiCursorState.layoutMode}")
     }
+}
+```
+
+##### 2.2.6.6 멀티 커서와 기존 HID 프레임의 관계
+
+멀티 커서 모드에서도 **마우스 이동/클릭/스크롤의 데이터 경로는 싱글 커서와 완전히 동일**합니다.
+
+```
+[싱글 커서 모드]
+  터치 드래그 → DeltaCalculator → 8B HID 프레임 → UART → ESP32 → USB HID Mouse → PC OS 커서 이동
+
+[멀티 커서 모드 - 활성 패드에서 조작]
+  터치 드래그 → DeltaCalculator → 8B HID 프레임 → UART → ESP32 → USB HID Mouse → PC OS 커서 이동
+  (싱글 커서와 완전히 동일. PC OS는 멀티 커서의 존재를 모름)
+
+[멀티 커서 모드 - 패드 전환 시에만 추가]
+  비활성 패드 터치 → multi_cursor_switch JSON → UART → ESP32 → Vendor CDC → Windows 서버
+                                                                              ↓
+  Android ← UART ← ESP32 ← Vendor CDC ← ACK 응답 ← 텔레포트 + 가상 커서 업데이트
+```
+
+**설계 근거**: 8바이트 HID 프레임 경로를 변경하지 않으므로:
+- Essential 모드 폴백 시 자연스럽게 싱글 커서로 복귀 (HID 프레임만 남음)
+- 기존 DeltaCalculator, ClickDetector, 스크롤 로직을 재사용
+- ESP32-S3 펌웨어 수정 불필요 (Vendor CDC 중계는 기존 구현 재사용)
+
+##### 2.2.6.7 패드 전환 시 DeltaCalculator 리셋 규칙
+
+패드 전환이 발생하면 `DeltaCalculator`의 이전 터치 좌표를 초기화해야 합니다. 그렇지 않으면 pad1의 마지막 터치 위치에서 pad2의 첫 터치 위치까지의 거대한 델타가 발생하여 커서가 순간적으로 크게 튀는 현상이 발생합니다.
+
+```kotlin
+private fun handlePadSwitch(newSelectedPad: String) {
+    // ... 기존 디바운스 확인, 상태 업데이트 ...
+
+    // ★ 핵심: DeltaCalculator 리셋
+    // 패드 전환 시 previousX/Y를 초기화하여
+    // 다음 터치 이벤트가 "새로운 터치 시작"으로 처리되도록 함
+    _deltaCalculator.reset()
+
+    // ... JSON 메시지 전송 ...
+}
+```
+
+**DeltaCalculator.reset() 동작**:
+```kotlin
+fun reset() {
+    previousX = null
+    previousY = null
+    // previousX/Y가 null이면 다음 ACTION_MOVE에서
+    // 델타를 계산하지 않고 현재 위치를 저장만 함
+    // → 첫 프레임은 이동 없음 (점프 방지)
+}
+```
+
+**리셋이 필요한 시점**:
+| 이벤트 | DeltaCalculator 리셋 | 이유 |
+|--------|---------------------|------|
+| 패드 전환 (pad1 ↔ pad2) | ✅ 필수 | 이전 패드의 마지막 좌표와 새 패드의 첫 좌표 사이 거대한 델타 방지 |
+| 멀티 커서 활성화 | ✅ 필수 | 싱글 모드의 마지막 좌표와 pad1 첫 터치 사이 불일치 방지 |
+| 멀티 커서 비활성화 | ✅ 필수 | 분할 패드의 마지막 좌표와 통합 패드의 첫 터치 사이 불일치 방지 |
+| 같은 패드 내 터치 해제 후 재터치 | ❌ 불필요 | ACTION_UP에서 이미 리셋됨 (기존 로직) |
+
+##### 2.2.6.8 멀티 커서 모드에서의 기능 모드 동작 규칙
+
+**기능 모드는 패드별(per-pad) 독립입니다.** 각 패드는 자신만의 `PadModeState` 인스턴스를 가지며, 패드 전환 시 `ControlButtonContainer`의 버튼들이 새로 활성화된 패드의 상태를 즉시 반영합니다.
+
+**`PadModeState` 데이터 구조:**
+
+```kotlin
+data class PadModeState(
+    val clickMode: ClickMode = ClickMode.LEFT_CLICK,
+    val moveMode: MoveMode = MoveMode.FREE,
+    val scrollMode: ScrollMode = ScrollMode.NONE,
+    val dpi: DpiLevel = DpiLevel.NORMAL,
+    val dpiCustomValue: Float? = null   // DpiLevel.CUSTOM일 때만 유효
+)
+```
+
+`MultiCursorState`는 `List<PadModeState>`를 보유하며, 각 인덱스가 pad1~padN에 대응합니다. 패드 전환 시 활성 패드의 `PadModeState`가 컨트롤 버튼 상태에 반영됩니다.
+
+```kotlin
+// 멀티 커서 모드에서의 터치 이벤트 처리 의사 코드
+fun onTouchEvent(event: MotionEvent) {
+    if (!_multiCursorState.isEnabled) {
+        // 싱글 커서: 기존 로직 그대로
+        return handleSingleCursorTouch(event)
+    }
+
+    val touchX = event.x
+    val detectedPad = determineTouchpadArea(touchX, width.toFloat())
+
+    // 1. 패드 전환 감지
+    if (detectedPad != _multiCursorState.currentSelectedPad) {
+        handlePadSwitch(detectedPad)
+        return  // 패드 전환 터치는 커서 이동으로 처리하지 않음
+    }
+
+    // 2. 활성 패드에서의 입력 → 활성 패드의 PadModeState 참조
+    //    클릭 모드, 이동 모드, 스크롤 모드, DPI 등이 패드별 독립
+    //    → HID 프레임 생성 → UART 전송 (싱글 커서와 동일)
+    val activePadState = _multiCursorState.padModeStates[_multiCursorState.currentSelectedPad]
+    when (activePadState.scrollMode) {
+        ScrollMode.NONE -> handleCursorMove(event)   // 활성 패드의 moveMode, dpi 참조
+        ScrollMode.NORMAL -> handleNormalScroll(event)
+        ScrollMode.INFINITE -> handleInfiniteScroll(event)
+    }
+}
+```
+
+**모드별 동작 상세:**
+
+| 기능 모드 | 멀티 커서에서의 동작 | 기술적 구현 |
+|----------|-------------------|-----------|
+| 클릭 모드 (좌/우) | 패드별 독립 | HID 프레임의 버튼 비트가 활성 패드의 `PadModeState.clickMode` 참조 |
+| 이동 모드 (자유/직각) | 패드별 독립 | `DeltaCalculator`의 직각 이동 보정이 활성 패드의 `PadModeState.moveMode` 참조 |
+| 스크롤 모드 (일반/무한) | 패드별 독립, 활성 커서 위치에서 스크롤 | 활성 패드의 `PadModeState.scrollMode` 참조. HID 스크롤 리포트는 OS 커서 위치 기준 |
+| DPI 감도 | 패드별 독립 | `DeltaCalculator`의 감도 배율이 활성 패드의 `PadModeState.dpi` 참조 |
+| 포인터 다이나믹스 (가속) | 전역 (모드 프리셋 전환 시 함께 교체 가능) | 가속 알고리즘 프리셋은 전역 설정 참조. 모드 프리셋에 포함되어 프리셋 전환 시 같이 변경됨 |
+
+**`ControlButtonContainer` 위치 고정 원칙**: 버튼 컨테이너는 멀티 커서 활성화 여부나 활성 패드 전환과 무관하게, 항상 **원본 전체 터치패드(`TouchpadWrapper`) 기준 좌표에 고정**됩니다. 그리드 분할로 터치패드가 N개 셀로 나뉘어도, 활성 패드가 변경되어도 버튼 위치는 달라지지 않습니다.
+
+##### 2.2.6.9 멀티 커서 초기 위치 결정
+
+**Android 앱은 PC 화면 크기를 알 수 없으므로**, 초기 커서 위치는 Windows 서버가 결정합니다.
+
+**위치 결정 원칙**: 활성화 시점(첫 활성화 및 재활성화 모두)에 **모든 pad가 현재 실제 커서 위치에서 시작**합니다. 이전 사용 위치는 복원하지 않습니다.
+
+- 멀티 커서를 다시 켤 때는 이전과 다른 목적으로 사용하는 경우가 많으므로, 이전 가상 커서 위치는 의미가 없음
+- 활성화 직후 가상 커서와 실제 커서는 같은 자리에서 시작 → 유저가 실제 커서를 이동하면 가상 커서는 그 자리에 남아 자연스럽게 분리됨
+
+```
+[멀티 커서 활성화 시 위치 결정 플로우]
+
+Android                        Windows 서버
+  │                               │
+  │  show_virtual_cursor          │
+  │──────────────────────────────→│
+  │                               │ currentPos = GetCursorPos()
+  │                               │ pad1_position = currentPos  ← 현재 실제 커서
+  │                               │ pad2_position = currentPos  ← pad1과 동일 (겹침)
+  │                               │ 가상 커서 = pad2_position에 표시
+  │                               │
+  │  show_virtual_cursor_ack      │
+  │←──────────────────────────────│
+  │  { pad1_position, pad2_position }
+  │                               │
+  │  pad1/pad2 위치 저장            │
+  │  UI 활성화 확정                 │
+```
+
+**ACK 메시지 구조**:
+```json
+{
+    "command": "show_virtual_cursor_ack",
+    "success": true,
+    "pad1_position": { "x": 960, "y": 540 },
+    "pad2_position": { "x": 960, "y": 540 },
+    "timestamp": "2025-01-01T00:00:00Z"
 }
 ```
 
@@ -1529,6 +1778,50 @@ fun restoreMultiCursorSettingsAfterReconnect() {
 - **제어 버튼**: 터치패드 너비의 8% × 16%, 최소 24dp×48dp
 - **테두리 두께**: 터치패드 너비의 0.8% (최소 2dp, 최대 4dp)
 - **분할선 두께**: 2dp, 색상 #C2C2C2 (alpha 0.3)
+
+#### 2.2.7 모드 프리셋 (ModePreset) 명세
+
+**개요**: 클릭 모드, 이동 모드, 스크롤 모드, DPI, 포인터 다이나믹스를 하나로 묶은 구성 스냅샷입니다. 반복 작업에서 여러 설정을 한 번에 전환할 수 있도록 설계되었습니다.
+
+**`ModePreset` 데이터 구조:**
+
+```kotlin
+data class ModePreset(
+    val name: String,
+    val icon: AppIconDef,
+    val description: String,
+    val padModeState: PadModeState,            // DPI + clickMode + moveMode + scrollMode
+    val dynamicsPresetIndex: Int = DEFAULT_PRESET_INDEX   // 포인터 다이나믹스 포함
+)
+```
+
+**프리셋 목록 (`ModePresetConstants.kt`에 정의):**
+
+```kotlin
+val MODE_PRESETS: List<ModePreset> = listOf(/* 코드에서 추가/수정/삭제 가능 */)
+val DEFAULT_MODE_PRESET_INDEX = 0
+```
+
+**`TouchpadState` 확장** (`dynamicsPresetIndex`와 동일한 방식):
+
+```kotlin
+data class TouchpadState(
+    // ... 기존 필드 ...
+    val modePresetIndex: Int = DEFAULT_MODE_PRESET_INDEX   // 신규 추가
+)
+```
+
+**프리셋 적용 동작:**
+- `PadModeState` 교체: 싱글 커서 모드에서는 현재 패드, 멀티 커서 모드에서는 활성 패드의 모드 상태 전체 갱신
+- 전역 다이나믹스 업데이트: `TouchpadState.dynamicsPresetIndex`를 `ModePreset.dynamicsPresetIndex`로 함께 갱신
+- `ControlButtonContainer` 버튼 상태 즉시 반영 (DPI, 클릭 모드, 이동 모드, 스크롤 모드 버튼)
+- `DeltaCalculator` 즉시 새 배율 적용
+
+**멀티 커서 모드에서의 동작:**
+- 프리셋 적용 대상: 현재 활성 패드의 `PadModeState`만 교체 (다른 패드는 유지)
+- 다이나믹스는 전역이므로, 패드별로 다른 다이나믹스 프리셋이 지정된 경우 패드 전환 시 해당 패드의 다이나믹스로 전역 업데이트
+
+**컴포넌트 명세**: `docs/android/component-touchpad.md` §1.7
 
 ### 2.3 컴포넌트 설계 요구사항
 
@@ -2015,7 +2308,7 @@ data class DPadState(
 
 ##### 2.3.2.7 Modifiers Bar 3단계 Sticky 구현 요구사항
 
-**목적:** Page 3의 Modifiers Bar(Ctrl/Shift/Alt/Win)에서 탭/더블탭/롱프레스 3단계 상호작용을 구현합니다.
+**목적:** Page 4의 Modifiers Bar(Ctrl/Shift/Alt/Win)에서 탭/더블탭/롱프레스 3단계 상호작용을 구현합니다.
 
 **3단계 상호작용 명세:**
 
@@ -2054,7 +2347,7 @@ enum class ModifierState {
 
 ##### 2.3.2.8 Media Controls 구현 요구사항
 
-**목적:** Page 3의 Media Controls(Play/Pause, Stop)에서 HID Consumer Control 키코드를 전송합니다.
+**목적:** Page 4의 Media Controls(Play/Pause, Stop)에서 HID Consumer Control 키코드를 전송합니다.
 
 **HID Consumer Usage 매핑:**
 | 버튼 | HID Consumer Usage | 코드 | 동작 |
@@ -2075,7 +2368,7 @@ enum class ModifierState {
 
 ##### 2.3.2.9 Lock Keys HID LED 동기화 구현 요구사항
 
-**목적:** Page 3의 Lock Keys(CapsLock, NumLock, ScrollLock)를 PC의 실제 LED 상태와 동기화합니다.
+**목적:** Page 4의 Lock Keys(CapsLock, NumLock, ScrollLock)를 PC의 실제 LED 상태와 동기화합니다.
 
 **동기화 경로:**
 ```
@@ -2678,7 +2971,7 @@ AbsolutePointingPad에서 녹화하면 터치 위치가 곧 화면상의 절대 
 
 ```
 1. 편집 화면에서 "녹화 시작" 버튼 탭
-2. Page 2(AbsolutePointingPad) / 키보드 페이지로 전환 (녹화 중 배너 표시)
+2. Page 3(AbsolutePointingPad) / 키보드 페이지로 전환 (녹화 중 배너 표시)
 3. AbsolutePointingPad 터치 → MacroRecorder가 터치 비율(ratioX, ratioY) 캡처
    → MacroAction.fromAbsoluteRatio(ratioX, ratioY) 호출 → MOUSE_MOVE_ABS 액션으로 기록
 4. 클릭(탭) → MOUSE_CLICK 액션으로 기록 (AbsolutePointingPad의 싱글탭 감지 활용)

@@ -379,14 +379,14 @@ public async Task ProcessNamedPipeMessageAsync(string messageText)
 ### 3.6 멀티 커서 기술 구현
 
 **멀티 커서 시스템 설계 원리**:
-- **듀얼 커서 패러다임**: 실제 커서 1개 + 가상 커서 1개의 혁신적 인터페이스
+- **멀티 커서 패러다임 (최대 4개)**: 실제 커서 1개 + 가상 커서 N-1개의 인터페이스. 커서 수(2~4)는 Android 앱에서 활성화 시점에 선택하여 `show_virtual_cursor { cursor_count: N }`으로 전달.
 - **텔레포트 메커니즘**: 커서 전환 요청 시 실제 커서의 순간 위치 이동
-- **가상 커서 이미지**: 텔레포트 대상 위치를 시각적으로 표시하는 워프 포인트
+- **가상 커서 이미지**: 비활성 패드의 저장된 위치를 시각적으로 표시하는 워프 포인트 (N-1개)
 
 **알고리즘 설계 요구사항**:
-- **위치 상태 관리**: 각 커서별 좌표 정보의 독립적 유지
-- **활성 커서 추적**: 현재 실제 커서와 연결된 가상 커서 ID 관리
-- **동기화 메커니즘**: 실제 커서와 가상 커서 간의 상태 일관성 보장
+- **위치 상태 관리**: 각 커서별(pad1~padN) 좌표 정보의 독립적 유지
+- **활성 커서 추적**: 현재 실제 커서와 연결된 패드 ID 관리
+- **동기화 메커니즘**: 실제 커서와 N-1개 가상 커서 간의 상태 일관성 보장
 - **성능 최적화**: 커서 전환 지연시간 50ms 이내 달성
 
 #### 3.6.1 가상 커서 렌더링 시스템 구현 명세
@@ -455,26 +455,47 @@ this.Height = SystemParameters.VirtualScreenHeight;
 ##### 3.6.1.2 커서 이미지 렌더링 구현
 
 **XAML Canvas 구조**:
+
+가상 커서는 N-1개(최대 3개)이므로 코드비하인드에서 동적으로 생성합니다. XAML은 컨테이너만 정의합니다.
+
 ```xml
 <Canvas x:Name="CursorCanvas">
-    <Image x:Name="VirtualCursorImage"
-           Width="32" Height="32"
-           RenderTransformOrigin="0,0">
-        <Image.RenderTransform>
-            <TransformGroup>
-                <ScaleTransform x:Name="CursorScaleTransform" ScaleX="1.0" ScaleY="1.0"/>
-                <TranslateTransform x:Name="CursorTranslateTransform" X="0" Y="0"/>
-            </TransformGroup>
-        </Image.RenderTransform>
-        <Image.Effect>
-            <DropShadowEffect x:Name="CursorGlowEffect" 
-                              ShadowDepth="0" 
-                              BlurRadius="0" 
-                              Color="White" 
-                              Opacity="0"/>
-        </Image.Effect>
-    </Image>
+    <!-- 가상 커서 이미지는 코드비하인드에서 동적 생성 (N-1개, 최대 3개) -->
+    <!-- 각 Image 요소: x:Name="VirtualCursor_{padId}" (예: VirtualCursor_pad2) -->
 </Canvas>
+```
+
+**가상 커서 동적 생성 (코드비하인드)**:
+```csharp
+private readonly Dictionary<string, Image> _virtualCursorImages = new();
+
+public void InitializeVirtualCursors(int cursorCount)
+{
+    // 기존 가상 커서 제거
+    CursorCanvas.Children.Clear();
+    _virtualCursorImages.Clear();
+
+    // N-1개의 가상 커서 이미지 생성 (pad2~padN)
+    for (int i = 2; i <= cursorCount; i++)
+    {
+        var padId = $"pad{i}";
+        var image = new Image
+        {
+            Width = 32, Height = 32,
+            RenderTransformOrigin = new Point(0, 0),
+            RenderTransform = new TransformGroup
+            {
+                Children = {
+                    new ScaleTransform(1.0, 1.0),
+                    new TranslateTransform(0, 0)
+                }
+            },
+            Effect = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 0, Color = Colors.White, Opacity = 0 }
+        };
+        CursorCanvas.Children.Add(image);
+        _virtualCursorImages[padId] = image;
+    }
+}
 ```
 
 **.cur/.ani 파일 로딩 및 표시**:
@@ -1389,16 +1410,16 @@ public class MultiCursorState
 {
     // 모드 상태
     public bool IsMultiCursorEnabled { get; set; }
-    
-    // 커서 A (실제 커서가 있는 위치)
-    public CursorInfo CursorA { get; set; }
-    
-    // 커서 B (가상 커서 이미지 위치)
-    public CursorInfo CursorB { get; set; }
-    
-    // 현재 활성 커서 (A 또는 B)
-    public string ActiveCursorId { get; set; } // "pad1" or "pad2"
-    
+
+    // 커서 수 (2~4)
+    public int CursorCount { get; set; } = 2;
+
+    // 각 패드의 커서 정보 (pad1~padN)
+    public Dictionary<string, CursorInfo> Cursors { get; set; } = new();
+
+    // 현재 활성 패드 ("pad1" ~ "pad4")
+    public string ActiveCursorId { get; set; }
+
     // 마지막 업데이트 시간
     public DateTime LastUpdated { get; set; }
 }
@@ -1421,81 +1442,231 @@ public void UpdateMultiCursorState(string touchpadId, Point newPosition)
 {
     lock (_stateLock)
     {
-        if (touchpadId == "pad1")
-        {
-            // Pad1 활성화 → 실제 커서가 CursorA 위치, 가상 커서가 CursorB 위치
-            _multiCursorState.ActiveCursorId = "pad1";
-            _multiCursorState.CursorA.Position = newPosition;
-            
-            // 실제 커서 텔레포트
-            SetCursorPos((int)newPosition.X, (int)newPosition.Y);
-            
-            // 가상 커서는 CursorB 위치 유지
-        }
-        else if (touchpadId == "pad2")
-        {
-            // Pad2 활성화 → 실제 커서가 CursorB 위치, 가상 커서가 CursorA 위치
-            _multiCursorState.ActiveCursorId = "pad2";
-            _multiCursorState.CursorB.Position = newPosition;
-            
-            // 실제 커서 텔레포트
-            SetCursorPos((int)newPosition.X, (int)newPosition.Y);
-            
-            // 가상 커서는 CursorA 위치 유지
-        }
-        
+        // 대상 패드 활성화 → 실제 커서 텔레포트, 나머지는 가상 커서로 표시
+        _multiCursorState.ActiveCursorId = touchpadId;
+        _multiCursorState.Cursors[touchpadId].Position = newPosition;
+
+        // 실제 커서 텔레포트
+        SetCursorPos((int)newPosition.X, (int)newPosition.Y);
+
         _multiCursorState.LastUpdated = DateTime.UtcNow;
     }
 }
 ```
 
-##### 3.6.6.2 멀티 커서 전환 메시지 처리
+##### 3.6.6.2 멀티 커서 활성화 처리 (show_virtual_cursor)
+
+Android로부터 `show_virtual_cursor` 명령을 수신하면 Windows 서버가 초기 위치를 결정하고 가상 커서 오버레이를 생성합니다.
+
+**초기 위치 결정 로직**:
+
+활성화 시점(첫 활성화 및 재활성화 모두)에 **모든 pad를 현재 실제 커서 위치로 초기화**합니다. 이전 사용 위치는 복원하지 않습니다.
+
+```csharp
+public async Task HandleShowVirtualCursorAsync(ShowVirtualCursorMessage message)
+{
+    int n = message.CursorCount; // 2~4
+
+    // 1. 현재 실제 커서 위치 획득 - 모든 pad의 초기 위치로 사용
+    GetCursorPos(out POINT currentPos);
+    var initialPosition = new Point(currentPos.X, currentPos.Y);
+
+    // 2. 모든 pad 초기 위치 = 현재 실제 커서 위치 (동일 위치에서 시작)
+    //    활성화 직후 유저가 실제 커서를 이동하면 가상 커서와 자연스럽게 분리됨
+    var padPositions = new Dictionary<string, Point>();
+    for (int i = 1; i <= n; i++)
+    {
+        padPositions[$"pad{i}"] = initialPosition;
+    }
+
+    // 3. 상태 초기화
+    lock (_stateLock)
+    {
+        _multiCursorState.IsMultiCursorEnabled = true;
+        _multiCursorState.CursorCount = n;
+        _multiCursorState.ActiveCursorId = "pad1";
+        _multiCursorState.Cursors = padPositions.ToDictionary(
+            kv => kv.Key,
+            kv => new CursorInfo { Position = kv.Value });
+        _multiCursorState.LastUpdated = DateTime.UtcNow;
+    }
+
+    // 4. 가상 커서 오버레이 생성 및 표시 (N-1개)
+    _overlayWindow.InitializeVirtualCursors(n);
+    for (int i = 2; i <= n; i++)
+    {
+        var padId = $"pad{i}";
+        await _overlayWindow.ShowVirtualCursorAtAsync(padId, padPositions[padId]);
+    }
+    await _overlayWindow.PlayFadeInAnimationAsync(200);
+
+    // 5. ACK 응답 (pad1~padN 실제 위치 포함)
+    var ack = new
+    {
+        command = "show_virtual_cursor_ack",
+        success = true,
+        pad_positions = padPositions.ToDictionary(
+            kv => kv.Key,
+            kv => new { x = (int)kv.Value.X, y = (int)kv.Value.Y }),
+        timestamp = DateTime.UtcNow.ToString("o")
+    };
+    await SendVendorCdcResponseAsync(JsonSerializer.Serialize(ack));
+}
+```
+
+##### 3.6.6.3 패드 전환 시 위치 저장/복원 메커니즘
+
+패드 전환(텔레포트)의 핵심은 **이전 패드의 현재 커서 위치를 저장하고, 대상 패드의 저장된 위치로 실제 커서를 이동**하는 것입니다.
+
+```
+[패드 전환 상태 변화 예시 (N=3, pad1→pad3 전환)]
+
+── 상태 1: pad1 활성 ──
+  실제 커서 (OS) = pad1 위치 (사용자가 이동 중)
+  가상 커서 2개 (오버레이) = pad2 저장 위치, pad3 저장 위치 (고정)
+
+── pad3으로 전환 요청 ──
+  1. pad1 위치 저장 = GetCursorPos()  ← 사용자가 마지막으로 이동시킨 실제 위치
+  2. 실제 커서 텔레포트 = pad3 저장 위치로 SetCursorPos
+  3. 가상 커서 재배치 = pad1 방금 저장 위치, pad2 기존 위치 (유지)
+
+── 상태 2: pad3 활성 ──
+  실제 커서 (OS) = pad3 위치 (사용자가 이동 중)
+  가상 커서 2개 (오버레이) = pad1 저장 위치, pad2 저장 위치 (고정)
+```
+
+**위치 저장이 중요한 이유**: 사용자가 pad1에서 커서를 움직이면 실제 OS 커서가 이동합니다. 이 이동은 HID Mouse Report로 직접 이루어지므로 Windows 서버가 실시간으로 추적하지 않습니다. 따라서 패드 전환 시점에 `GetCursorPos()`로 현재 위치를 캡처해야 합니다.
 
 **멀티 커서 전환 요청 수신 및 처리**:
 ```csharp
 public async Task HandleMultiCursorSwitchMessageAsync(MultiCursorSwitchMessage message)
 {
+    var stopwatch = Stopwatch.StartNew();
+
     try
     {
-        // 1. 가상 커서 위치 업데이트
-        Point virtualCursorPos;
-        
-        if (message.TouchpadId == "pad1")
+        lock (_stateLock)
         {
-            // Pad1 활성화 → CursorB를 가상 커서로 표시
-            virtualCursorPos = _multiCursorState.CursorB.Position;
+            // 1. 현재 실제 커서 위치 캡처 (이전 패드의 최종 위치)
+            GetCursorPos(out POINT currentRealPos);
+            var previousPadFinalPosition = new Point(currentRealPos.X, currentRealPos.Y);
+
+            // 2. 이전 활성 패드의 위치 저장
+            var previousPadId = _multiCursorState.ActiveCursorId;
+            _multiCursorState.Cursors[previousPadId].Position = previousPadFinalPosition;
+
+            // 3. 대상 패드의 저장된 위치 조회
+            var targetPosition = _multiCursorState.Cursors[message.TouchpadId].Position;
+
+            // 4. 위치 검증 및 클램핑
+            targetPosition = ValidateAndClampCursorPosition(targetPosition);
+
+            // 5. 실제 커서 텔레포트
+            SetCursorPos((int)targetPosition.X, (int)targetPosition.Y);
+
+            // 6. 모든 비활성 패드의 가상 커서 오버레이 위치 업데이트
+            foreach (var (padId, cursorInfo) in _multiCursorState.Cursors)
+            {
+                if (padId != message.TouchpadId && _virtualCursorImages.ContainsKey(padId))
+                {
+                    _overlayWindow.UpdateVirtualCursorPosition(padId, cursorInfo.Position);
+                }
+            }
+
+            // 7. 활성 패드 업데이트
+            _multiCursorState.ActiveCursorId = message.TouchpadId;
+            _multiCursorState.LastUpdated = DateTime.UtcNow;
         }
-        else
+
+        // 8. 텔레포트 애니메이션 (비동기, 응답 차단하지 않음)
+        _ = _overlayWindow.PlayTeleportAnimationAsync();
+
+        stopwatch.Stop();
+
+        // 9. ACK 응답 전송
+        var activePadPosition = ValidateAndClampCursorPosition(
+            _multiCursorState.Cursors[message.TouchpadId].Position);
+        await SendTeleportResponseAsync(new TeleportResult
         {
-            // Pad2 활성화 → CursorA를 가상 커서로 표시
-            virtualCursorPos = _multiCursorState.CursorA.Position;
-        }
-        
-        UpdateVirtualCursorPosition(virtualCursorPos);
-        
-        // 2. 전환 애니메이션 재생
-        await PlayTeleportAnimationAsync();
-        
-        // 3. 실제 커서 텔레포트
-        var teleportResult = await ExecuteTeleportAsync(message.Position);
-        
-        // 4. 상태 업데이트
-        UpdateMultiCursorState(message.TouchpadId, new Point(message.Position.X, message.Position.Y));
-        
-        // 5. 응답 전송
-        await SendTeleportResponseAsync(teleportResult);
+            Success = true,
+            ActualPosition = activePadPosition,
+            Latency = stopwatch.ElapsedMilliseconds
+        });
+
+        _performanceMonitor.RecordTeleportLatency(stopwatch.ElapsedMilliseconds);
     }
     catch (Exception ex)
     {
         Logger.Error($"Failed to handle multi-cursor switch: {ex.Message}");
-        await SendTeleportResponseAsync(new TeleportResult 
-        { 
-            Success = false, 
-            ErrorCode = "EXCEPTION", 
-            ErrorMessage = ex.Message 
+        await SendTeleportResponseAsync(new TeleportResult
+        {
+            Success = false,
+            ErrorCode = "EXCEPTION",
+            ErrorMessage = ex.Message
         });
     }
 }
+```
+
+##### 3.6.6.4 가상 커서 위치 추적 방식
+
+**비활성 패드의 가상 커서는 고정입니다.** 사용자가 활성 패드에서 커서를 움직여도 가상 커서 위치는 변하지 않습니다.
+
+| 상태 | 실제 커서 (OS) | 가상 커서 (오버레이, N-1개) | 업데이트 시점 |
+|------|--------------|--------------------------|-------------|
+| padX 활성 중 | padX의 HID 델타로 실시간 이동 | 나머지 모든 패드 저장 위치에 고정 | 다음 패드 전환 시에만 변경 |
+| 패드 전환 순간 | GetCursorPos()로 캡처 → 이전 패드에 저장 | 각 비활성 패드의 저장 위치로 재배치 | 즉시 |
+
+**가상 커서 상태 반영**: 16ms 주기(60fps)로 가상 커서의 시각적 상태(커서 아이콘 타입)를 실제 시스템 커서 상태와 동기화합니다. 위치는 고정이지만 커서 모양(화살표, I-빔, 크기 조절 등)은 OS 상태를 반영합니다.
+
+```csharp
+// 16ms 타이머로 가상 커서 이미지 동기화 (위치 아님, 모양만)
+private void OnCursorStateTimerTick(object sender, EventArgs e)
+{
+    if (!_multiCursorState.IsMultiCursorEnabled) return;
+
+    var currentCursorType = GetCurrentSystemCursorType();
+
+    // 모든 비활성 패드의 가상 커서 모양 동기화
+    foreach (var (padId, cursorInfo) in _multiCursorState.Cursors)
+    {
+        if (padId == _multiCursorState.ActiveCursorId) continue;
+        if (cursorInfo.CursorType != currentCursorType)
+        {
+            cursorInfo.CursorType = currentCursorType;
+            _overlayWindow.UpdateCursorImage(padId, currentCursorType);
+        }
+    }
+}
+```
+
+##### 3.6.6.5 멀티 커서 비활성화 처리 (hide_virtual_cursor)
+
+```csharp
+public async Task HandleHideVirtualCursorAsync()
+{
+    lock (_stateLock)
+    {
+        // 상태 비활성화 (위치 보존 불필요 - 재활성화 시 현재 커서 위치로 새로 초기화)
+        _multiCursorState.IsMultiCursorEnabled = false;
+        _multiCursorState.Cursors.Clear();
+    }
+
+    // 3. 가상 커서 오버레이 전체 제거 (150ms fade-out)
+    await _overlayWindow.PlayFadeOutAnimationAsync(150);
+    _overlayWindow.Hide();
+
+    // 4. 실제 커서는 현재 위치 유지 (이동하지 않음)
+
+    // 5. ACK 응답
+    await SendVendorCdcResponseAsync(new HideVirtualCursorAck
+    {
+        Command = "hide_virtual_cursor_ack",
+        Success = true,
+        Timestamp = DateTime.UtcNow.ToString("o")
+    });
+}
+```
 ```
 
 #### 3.6.7 성능 지표 및 품질 보증
@@ -1583,6 +1754,201 @@ public class PerformanceMetrics
     public double CurrentMemoryUsageMB { get; set; }
 }
 ```
+
+#### 3.6.8 기술적 제약사항 및 대응 전략
+
+멀티 커서 시스템은 OS 레벨 API에 깊이 의존하며, Windows 환경의 다양한 제약과 마주칩니다. 이 섹션에서는 구현 시 예상되는 기술적 제약사항과 각각에 대한 대응 전략을 정의합니다.
+
+##### 3.6.8.1 투명 오버레이 윈도우 호환성
+
+**문제 개요**: 가상 커서를 표시하는 WPF 투명 오버레이 윈도우(§3.6.1.1)는 모든 환경에서 동일하게 동작하지 않습니다.
+
+**제약 1: 전체화면 Exclusive 모드 앱과의 충돌**
+
+DirectX/Vulkan의 Exclusive Fullscreen 모드를 사용하는 게임이나 앱은 디스플레이 출력을 독점하므로, WPF 오버레이 윈도우가 렌더링되지 않거나 강제로 가려집니다.
+
+- **영향 범위**: Exclusive Fullscreen 모드를 사용하는 게임 (Borderless Windowed 모드에서는 문제 없음)
+- **BridgeOne 사용자 관점 영향도**: **낮음** — BridgeOne의 주요 사용 시나리오(데스크톱 앱, 웹 브라우징, 문서 편집)에서는 해당하지 않음
+- **대응 전략**:
+  - 이 제약은 구조적 한계이므로 **소프트웨어적으로 완전히 해결할 수 없음**
+  - 서버 앱 UI에 안내 메시지 표시: "전체화면 게임에서는 가상 커서가 보이지 않을 수 있습니다. Borderless Windowed 모드를 권장합니다."
+  - 텔레포트 기능 자체(SetCursorPos)는 오버레이와 무관하게 동작하므로, **가상 커서가 안 보여도 패드 전환(텔레포트)은 정상 작동**함
+  - 즉 가시성만 손실되고 핵심 기능은 유지됨 → **기능 저하 허용 (Graceful Degradation)**
+
+**제약 2: 화면 캡처/녹화 시 가상 커서 노출 불일치**
+
+화면 녹화 소프트웨어(OBS, Discord 화면 공유 등)에 따라 오버레이가 캡처에 포함되거나 제외될 수 있어 일관성이 없습니다.
+
+- **영향 범위**: 화면 녹화, 원격 데스크톱, 화면 공유 사용 시
+- **BridgeOne 사용자 관점 영향도**: **낮음** — 가상 커서가 녹화에 포함되든 안 되든 실제 사용에는 영향 없음
+- **대응 전략**:
+  - WS_EX_TOOLWINDOW 스타일이 이미 적용되어 있으므로, 대부분의 화면 캡처 도구에서 **캡처에 포함됨** (클릭 관통은 WS_EX_TRANSPARENT이며, 이는 캡처 제외와 무관)
+  - 캡처 포함/제외를 사용자가 선택할 수 있도록 `SetWindowDisplayAffinity` API 활용 가능:
+    - `WDA_NONE`: 캡처에 포함 (기본값)
+    - `WDA_EXCLUDEFROMCAPTURE` (Windows 10 2004+): 캡처에서 제외
+  - **구현 우선순위**: 낮음 — 핵심 기능이 아니며, 필요 시 서버 설정에 토글 옵션으로 추가
+
+**제약 3: 고DPI 멀티 모니터 환경에서의 좌표/크기 불일치**
+
+모니터마다 DPI 배율이 다른 환경(예: 모니터 A = 100%, 모니터 B = 150%)에서는 WPF 좌표계와 Win32 물리적 픽셀 좌표 사이에 불일치가 발생할 수 있습니다.
+
+- **영향 범위**: 서로 다른 DPI 배율을 가진 멀티 모니터 구성
+- **BridgeOne 사용자 관점 영향도**: **중간** — 멀티 모니터 사용자에게 가상 커서 위치/크기가 어긋나 보일 수 있음
+- **대응 전략**:
+  - 앱 매니페스트에 Per-Monitor DPI Awareness v2 선언:
+    ```xml
+    <!-- app.manifest -->
+    <application xmlns="urn:schemas-microsoft-com:asm.v3">
+      <windowsSettings>
+        <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">
+          PerMonitorV2
+        </dpiAwareness>
+      </windowsSettings>
+    </application>
+    ```
+  - WPF의 논리적 좌표(DIP)와 Win32의 물리적 좌표(픽셀) 간 변환 시 각 모니터의 DPI 배율을 반영:
+    ```csharp
+    // 모니터별 DPI 배율 조회
+    [DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(IntPtr hMonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    private double GetScaleFactorForMonitor(IntPtr hMonitor)
+    {
+        GetDpiForMonitor(hMonitor, 0 /* MDT_EFFECTIVE_DPI */, out uint dpiX, out uint _);
+        return dpiX / 96.0;  // 96 DPI = 100% 배율
+    }
+    ```
+  - 가상 커서 이미지 크기도 해당 모니터의 DPI 배율에 맞게 동적 조정
+  - **구현 우선순위**: 높음 — Phase 2(통신 안정화) 이후 멀티 모니터 지원 시 반드시 처리
+
+**제약 4: 다른 Always-on-Top 윈도우와의 Z-order 충돌**
+
+다른 앱이 Topmost 속성을 사용하면, BridgeOne 오버레이와 Z-order 경쟁이 발생합니다.
+
+- **영향 범위**: 항상 위 설정을 사용하는 앱 (작업 관리자, 일부 유틸리티 등)
+- **BridgeOne 사용자 관점 영향도**: **낮음** — 가상 커서가 일시적으로 가려질 수 있지만 텔레포트 기능은 유지
+- **대응 전략**:
+  - 주기적(1초 간격) Z-order 확인 및 복원:
+    ```csharp
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+        int X, int Y, int cx, int cy, uint uFlags);
+
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOACTIVATE = 0x0010;
+
+    private void EnsureTopmostPosition()
+    {
+        var hwnd = new WindowInteropHelper(_overlayWindow).Handle;
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+    ```
+  - 1초 간격이면 사용자가 순간적으로 가상 커서가 안 보이는 경우가 있을 수 있으나, 실제로 동시에 Topmost를 사용하는 앱이 지속적으로 Z-order를 갱신하는 경우는 드묾
+  - **구현 우선순위**: 낮음 — 문제가 보고될 경우 대응
+
+##### 3.6.8.2 커서 이미지 동기화 한계
+
+**문제 개요**: 가상 커서의 모양을 실제 OS 커서와 일치시키기 위해 레지스트리 기반 커서 팩 감지(§3.6.2)와 100ms 폴링 기반 상태 동기화(§3.6.3)를 사용하지만, 이 방식에는 구조적 한계가 있습니다.
+
+**제약 1: 앱별 커스텀 커서 비감지**
+
+일부 앱(Adobe 제품군, 게임, CAD 소프트웨어 등)은 Windows 시스템 커서를 사용하지 않고 자체 커서를 렌더링합니다. 이 경우 `GetCursorInfo`가 반환하는 커서 핸들이 실제 화면에 표시되는 커서와 다릅니다.
+
+- **영향 범위**: 자체 커서를 사용하는 앱 (Photoshop 브러시 커서, 게임 내 커서 등)
+- **BridgeOne 사용자 관점 영향도**: **낮음** — 이런 앱에서 가상 커서 모양이 정확하지 않지만, 텔레포트와 위치 표시 기능은 정상 동작
+- **대응 전략**:
+  - `GetCursorInfo`로 감지할 수 없는 커스텀 커서는 **기본 화살표 커서로 폴백** (현재 구현과 동일, §3.6.3.1의 `LoadDefaultCursorImage()`)
+  - 이 폴백은 이미 설계에 반영되어 있으므로 추가 작업 불필요
+  - 가상 커서의 핵심 목적은 "위치 표시"이므로 모양이 정확하지 않아도 기능적 손실은 없음
+
+**제약 2: 레지스트리 기반 커서 팩 감지의 비표준 구조**
+
+커서 팩마다 레지스트리 등록 방식이 다르고, 일부는 레지스트리에 등록하지 않고 커서 폴더에 파일만 배치하는 경우가 있습니다.
+
+- **영향 범위**: 비표준 방식으로 설치된 커서 팩
+- **BridgeOne 사용자 관점 영향도**: **낮음** — 커서 팩 감지 실패 시 Windows 기본 커서로 폴백
+- **대응 전략**:
+  - §3.6.2의 3단계 감지 알고리즘이 이미 이 문제를 포괄:
+    1. 레지스트리 `HKCU\Control Panel\Cursors` 스캔 (현재 활성 커서)
+    2. 레지스트리 경로에서 공통 폴더 추론 (커서 팩 디렉토리)
+    3. 감지 실패 시 Windows 기본 시스템 커서 사용
+  - 품질 등급 산정(§3.6.2.3)에서 감지된 커서 수에 따라 등급을 매기고, 낮은 등급일 때 사용자에게 알림
+  - **추가 개선안**: 사용자가 커서 팩 폴더를 수동으로 지정할 수 있는 설정 옵션 제공 (MultiCursorPage에 "커서 팩 경로 직접 지정" 버튼)
+
+**제약 3: 100ms 폴링의 정확도와 성능 트레이드오프**
+
+100ms 간격 폴링은 커서 상태 변화를 최대 100ms 지연으로 감지합니다. 폴링 간격을 줄이면 정확도는 높아지지만 CPU 부하가 증가합니다.
+
+- **영향 범위**: 빠르게 커서 상태가 바뀌는 상황 (텍스트 편집 영역 위를 빠르게 지나갈 때 등)
+- **BridgeOne 사용자 관점 영향도**: **매우 낮음** — 가상 커서는 비활성 패드에 고정되어 있으므로, 100ms 지연은 시각적으로 거의 인지되지 않음. 활성 패드의 실제 커서는 OS가 즉시 반영하므로 지연 없음.
+- **대응 전략**:
+  - 현재 100ms 간격을 유지 (성능과 정확도의 적절한 균형점)
+  - 가상 커서는 위치가 고정된 상태에서 모양만 바뀌므로, 100ms 지연이 사용 경험에 미치는 영향은 무시할 수 있음
+  - **변경 불필요** — 현재 설계가 적절
+
+##### 3.6.8.3 SetCursorPos 텔레포트 제약
+
+**문제 개요**: 멀티 커서 패드 전환의 핵심인 `SetCursorPos()` API(§3.6.4.2)는 일부 환경에서 차단되거나 무시될 수 있습니다.
+
+**제약 1: UIPI(User Interface Privilege Isolation)에 의한 차단**
+
+Windows의 UIPI 보안 모델에서 낮은 무결성 레벨의 프로세스는 높은 무결성 레벨의 윈도우에 입력을 보낼 수 없습니다. BridgeOne 서버가 일반 사용자 권한으로 실행되면, 관리자 권한으로 실행된 앱 위에서 SetCursorPos가 무시될 수 있습니다.
+
+- **영향 범위**: 관리자 권한으로 실행된 앱(작업 관리자, 일부 설치 프로그램, UAC 대화상자)
+- **BridgeOne 사용자 관점 영향도**: **낮음** — 일반적인 사용 시나리오에서는 관리자 권한 앱과 상호작용하는 경우가 드묾
+- **대응 전략**:
+  - `SetCursorPos`는 커서 위치를 전역적으로 변경하는 API이므로 대부분의 경우 UIPI 영향 없이 동작함 (UIPI는 주로 `SendInput`, `PostMessage` 등 메시지 기반 입력에 적용)
+  - `SetCursorPos` 호출 후 `GetCursorPos`로 실제 위치를 검증하는 로직이 이미 구현되어 있음 (§3.6.4.2):
+    - 검증 실패 시 → ACK에 실패 상태와 실제 위치를 포함하여 Android에 통보
+    - Android는 롤백 처리 수행
+  - UAC 보안 데스크톱(Secure Desktop)에서는 모든 일반 앱이 차단되므로 이는 BridgeOne만의 문제가 아님 → 대응 불필요
+
+**제약 2: Raw Input 모드를 사용하는 앱**
+
+일부 게임이나 특수 앱은 Raw Input API를 통해 마우스 입력을 직접 수신합니다. Raw Input 모드에서는 `SetCursorPos`로 변경된 커서 위치를 무시하고 실제 하드웨어 입력만 반영할 수 있습니다.
+
+- **영향 범위**: Raw Input 모드를 사용하는 FPS 게임, 3D 모델링 앱 등
+- **BridgeOne 사용자 관점 영향도**: **매우 낮음** — BridgeOne의 주요 사용 시나리오(데스크톱 앱, 웹, 문서)에서 Raw Input을 사용하는 앱은 거의 없음
+- **대응 전략**:
+  - 이 제약은 OS 레벨 구조적 한계이므로 소프트웨어적으로 해결할 수 없음
+  - SetCursorPos 호출 후 GetCursorPos 검증에서 위치 불일치가 감지되면:
+    - ACK에 `"partial_success": true` 플래그와 함께 실제 위치를 포함
+    - Android 앱에서 사용자에게 "현재 앱에서 커서 전환이 제한될 수 있습니다" 토스트 알림 표시
+  - **구현 우선순위**: 낮음 — BridgeOne 대상 사용자 환경에서 발생 가능성 극히 낮음
+
+**제약 3: 보안 소프트웨어에 의한 API 차단**
+
+일부 안티바이러스나 보안 소프트웨어가 `SetCursorPos`, `SetWindowPos` 등의 Win32 API 호출을 의심스러운 동작으로 감지하여 차단할 수 있습니다.
+
+- **영향 범위**: 행동 기반 탐지(Behavioral Detection)를 사용하는 보안 소프트웨어 환경
+- **BridgeOne 사용자 관점 영향도**: **낮음~중간** — 보안 소프트웨어 종류에 따라 다르지만, 대부분의 일반 보안 소프트웨어에서는 문제 없음
+- **대응 전략**:
+  - SetCursorPos는 Windows의 정상적인 공개 API이며, 접근성 소프트웨어에서 널리 사용됨 → 대부분의 보안 소프트웨어에서 차단하지 않음
+  - 코드 서명(Code Signing) 인증서를 적용하면 보안 소프트웨어의 신뢰도 향상
+  - 차단이 감지되면 (SetCursorPos 반환값 false 또는 GetCursorPos 검증 실패):
+    - 서버 앱 로그에 경고 기록
+    - 사용자에게 "보안 소프트웨어가 커서 이동을 차단하고 있을 수 있습니다. BridgeOne을 예외 목록에 추가해 주세요." 안내 대화상자 표시 (최초 1회)
+  - **구현 우선순위**: 중간 — 코드 서명은 배포 단계에서 처리, 사용자 안내는 초기 버전에 포함
+
+##### 3.6.8.4 제약사항 종합 평가
+
+| 제약사항 | 영향도 | 구현 우선순위 | 대응 방식 |
+|---|---|---|---|
+| Exclusive Fullscreen 충돌 | 낮음 | 낮음 | 사용자 안내 + Graceful Degradation |
+| 화면 캡처 노출 불일치 | 낮음 | 낮음 | 선택적 `SetWindowDisplayAffinity` 토글 |
+| 고DPI 멀티 모니터 좌표 불일치 | 중간 | **높음** | Per-Monitor DPI Awareness v2 + 동적 배율 변환 |
+| Z-order 충돌 | 낮음 | 낮음 | 주기적 Topmost 복원 |
+| 앱별 커스텀 커서 비감지 | 낮음 | 낮음 | 기본 커서 폴백 (이미 구현) |
+| 비표준 커서 팩 | 낮음 | 낮음 | 3단계 감지 + 수동 경로 지정 옵션 |
+| 100ms 폴링 지연 | 매우 낮음 | 없음 | 현재 설계 유지 |
+| UIPI 차단 | 낮음 | 낮음 | GetCursorPos 검증 + ACK 실패 통보 |
+| Raw Input 무시 | 매우 낮음 | 낮음 | 검증 후 사용자 알림 |
+| 보안 소프트웨어 차단 | 낮음~중간 | 중간 | 코드 서명 + 사용자 안내 |
+
+**핵심 결론**: 대부분의 제약사항은 BridgeOne의 주요 사용 시나리오(데스크톱 앱, 웹 브라우징, 문서 편집)에서 발생 확률이 매우 낮으며, 발생하더라도 핵심 기능(텔레포트)은 유지됩니다. 유일하게 **높은 우선순위**로 처리해야 할 항목은 **고DPI 멀티 모니터 좌표 변환**이며, 이는 멀티 모니터 지원 구현 시 반드시 함께 처리해야 합니다.
 
 ### 3.7 성능 모니터링 기술 구현
 

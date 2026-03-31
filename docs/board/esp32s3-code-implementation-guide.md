@@ -1574,20 +1574,29 @@ void uart_init(void) {
 void uart_task(void* pvParameters) {
     static uint8_t rx_buffer[UART_BUF_SIZE];
     static bridge_frame_t frame;
-    
+
     while (1) {
         // UART 수신 (블로킹, 타임아웃 100ms)
-        int len = uart_read_bytes(UART_PORT_NUM, rx_buffer, 
-                                  sizeof(bridge_frame_t), 
+        int len = uart_read_bytes(UART_PORT_NUM, rx_buffer,
+                                  sizeof(bridge_frame_t),
                                   pdMS_TO_TICKS(100));
-        
-        if (len == sizeof(bridge_frame_t)) {
-            // 프레임 복사
+
+        if (len > 0 && rx_buffer[0] == 0xFF && len > sizeof(bridge_frame_t)) {
+            // ★ 커스텀 JSON 명령 (0xFF 헤더 + JSON 페이로드)
+            // 멀티 커서 전환, 가상 커서 표시/숨김 등 고급 기능 명령
+            // → ESP32는 내용을 해석하지 않고 Vendor CDC로 Windows 서버에 중계
+            // 상세: §4.3.1 멀티 커서 명령 중계 참조
+            handleCustomCommand(rx_buffer, len);
+        }
+        else if (len == sizeof(bridge_frame_t)) {
+            // 8바이트 HID 프레임 (기본 마우스/키보드 입력)
             memcpy(&frame, rx_buffer, sizeof(bridge_frame_t));
-            
-            // 순번 검증 (§1.5.3 프로토콜 준수)
-            if (validateSequenceNumber(frame.seq)) {
-                // HID 태스크로 전송
+
+            if (frame.seq == 0xFF) {
+                // seq=0xFF인 8바이트 프레임 = 확장 프레임 (Native Macro 등)
+                handleExtendedFrame(&frame);
+            } else if (validateSequenceNumber(frame.seq)) {
+                // 일반 HID 프레임 → HID 태스크로 전송
                 xQueueSend(frame_queue, &frame, 0);
             } else {
                 ctx.sequence_errors++;
@@ -1595,7 +1604,7 @@ void uart_task(void* pvParameters) {
                          ctx.last_seq_number + 1, frame.seq);
             }
         }
-        
+
         // 태스크 워치독 리셋
         esp_task_wdt_reset();
     }
@@ -1610,6 +1619,66 @@ bool validateSequenceNumber(uint8_t seq) {
     expected_seq = (seq + 1) & 0xFF;  // 0~255 순환
     return valid;
 }
+```
+
+#### 4.1.1 멀티 커서 명령 중계 (Android ↔ Windows)
+
+ESP32-S3는 멀티 커서 관련 JSON 명령의 **내용을 해석하지 않고** 양방향으로 중계만 수행합니다. 멀티 커서의 모든 로직은 Android 앱과 Windows 서버가 처리합니다.
+
+**ESP32-S3의 역할**: 투명한 JSON 메시지 브릿지
+
+```
+[Android → Windows 방향]
+Android 앱
+  ↓ UART TX: 0xFF + JSON (multi_cursor_switch, show_virtual_cursor, hide_virtual_cursor)
+ESP32-S3 uart_task
+  ↓ handleCustomCommand(): JSON 페이로드 추출 → Vendor CDC 프레임으로 래핑
+  ↓ sendJsonToWindows(): CRC16 부착 후 CDC 전송
+Windows 서버
+
+[Windows → Android 방향]
+Windows 서버
+  ↓ Vendor CDC TX: multi_cursor_switch_ack, show_virtual_cursor_ack, hide_virtual_cursor_ack
+ESP32-S3 cdc_task
+  ↓ handleVendorCommand(): 명령 타입 확인 → *_ack 이면 relayToAndroid()
+  ↓ sendJsonToAndroid(): 0xFF 헤더 부착 후 UART 전송
+Android 앱
+```
+
+**중계 대상 명령 목록**:
+
+| 방향 | 명령 | 설명 |
+|------|------|------|
+| Android → Windows | `multi_cursor_switch` | 패드 전환 (텔레포트) 요청 |
+| Android → Windows | `show_virtual_cursor` | 멀티 커서 활성화 요청 |
+| Android → Windows | `hide_virtual_cursor` | 멀티 커서 비활성화 요청 |
+| Windows → Android | `multi_cursor_switch_ack` | 텔레포트 결과 응답 |
+| Windows → Android | `show_virtual_cursor_ack` | 활성화 결과 + pad1/pad2 초기 위치 |
+| Windows → Android | `hide_virtual_cursor_ack` | 비활성화 결과 응답 |
+
+**Android → Windows 중계 구현**:
+```c
+void handleCustomCommand(const uint8_t* buffer, int len) {
+    // buffer[0] = 0xFF (헤더)
+    // buffer[1..len-1] = JSON 페이로드
+
+    const char* jsonPayload = (const char*)&buffer[1];
+    size_t jsonLen = len - 1;
+
+    // JSON 유효성 최소 검증 (시작/끝 문자만 확인)
+    if (jsonPayload[0] != '{' || jsonPayload[jsonLen - 1] != '}') {
+        ESP_LOGW(TAG, "Invalid JSON custom command (not {...})");
+        return;
+    }
+
+    // Windows 서버로 Vendor CDC 중계 (내용 해석 없이 그대로)
+    sendJsonToWindows(jsonPayload);
+
+    ESP_LOGD(TAG, "Custom command relayed to Windows (%u bytes)", jsonLen);
+}
+```
+
+**HID 프레임과의 독립성**: 멀티 커서 JSON 명령은 Vendor CDC 경로로만 전달됩니다. 8바이트 HID 프레임 경로(UART → frame_queue → hid_task → USB HID Report)는 멀티 커서 여부와 관계없이 항상 동일하게 동작합니다. 따라서 ESP32-S3 펌웨어에서 멀티 커서를 위해 HID 관련 코드를 수정할 필요가 없습니다.
 ```
 
 ### 4.2 USB HID 모듈 구현 (ESP-IDF TinyUSB)
@@ -1788,8 +1857,12 @@ void handleVendorCommand(const VendorCDCFrame* msg) {
             handleHandshake(json);
         } else if (strcmp(cmd, "KEEP_ALIVE") == 0) {
             handleKeepAlive(json);
-        } else if (strcmp(cmd, "MULTI_CURSOR_SWITCH") == 0) {
-            relayToAndroid(msg);  // Android로 중계
+        } else if (strcmp(cmd, "multi_cursor_switch_ack") == 0 ||
+                   strcmp(cmd, "show_virtual_cursor_ack") == 0 ||
+                   strcmp(cmd, "hide_virtual_cursor_ack") == 0) {
+            // 멀티 커서 ACK: Windows → ESP32 → Android 중계
+            // ESP32는 내용을 해석하지 않고 그대로 전달
+            relayToAndroid(msg);
         } else {
             ESP_LOGW(TAG, "Unknown command: %s", cmd);
             sendJsonParseErrorResponse("Unknown command type");

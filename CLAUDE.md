@@ -118,6 +118,13 @@ src/board/BridgeOne/main/
 - **Android 구현 명세**: `docs/android/technical-specification-app.md` §2.9
 - **Windows 서버 관계**: `docs/windows/technical-specification-server.md` §3.10.10
 
+### 멀티 커서 관련 문서 (각 플랫폼 문서에 분산)
+- **시스템 전체 플로우**: `docs/technical-specification.md` §4.4.3
+- **Android 알고리즘 명세**: `docs/android/technical-specification-app.md` §2.2.6
+- **Windows 서버 구현**: `docs/windows/technical-specification-server.md` §3.6
+- **ESP32-S3 CDC 중계**: `docs/board/esp32s3-code-implementation-guide.md` §4.1.1
+- **컴포넌트 UI**: `docs/android/component-touchpad.md` §1.2, §3.2.4
+
 ## Claude의 Phase 개발 작업 가이드라인
 
 **핵심 원칙: `docs/development-plans/` 내 Phase 문서에 따라 개발 작업을 진행할 때 아래 규칙을 반드시 따릅니다.**
