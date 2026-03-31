@@ -995,26 +995,36 @@ TouchpadWrapper
 
 ## Phase 4.3.10: 터치패드 테두리 모드 색상 표시
 
-> **⚠️ Phase 4.3.8 변경사항**: `TouchpadMode.kt`에 `DynamicsAlgorithm` enum + `PointerDynamicsPreset` data class 추가됨. `TouchpadState`에 `dynamicsPresetIndex: Int` 필드 추가됨. 테두리 색상 결정 함수(`touchpadBorderBrush()`)는 `TouchpadState`를 입력으로 받지만 `dynamicsPresetIndex` 필드는 테두리 색상 로직에 영향을 주지 않음 — 별도 처리 불필요. `TouchpadWrapper.kt`에 `DynamicsPresetButton` 오버레이가 추가됨 (커서 이동 모드 시 `Alignment.BottomStart`, `NormalScrollButtons`와 동일 위치에 교대 표시). **`TouchpadWrapper.kt` Box 구조가 외부 Box(unclipped) + 내부 Box(clipped) 2중 구조로 변경됨** — 테두리 Modifier는 내부 Box에 적용해야 함. `DynamicsPresetButton`의 `Popup` 라벨은 clip 독립 렌더링이므로 테두리와 충돌 없음. `AppIcons.kt`에 `DynamicsOff/Precision/Standard/Fast` 아이콘 추가됨. `PointerDynamicsConstants.kt` 신규 (상수/프리셋 정의). `DynamicsPresetPopup.kt` 신규 (프리셋 선택 팝업 — `StandardModePage.kt`에서 터치패드 Box 위에 배치).
-
-> **⚠️ Phase 4.3.2 변경사항**: `ControlButtonContainer.kt`의 색상 상수는 여전히 private. 아이콘 헬퍼 함수(`dpiButtonIcon`, `scrollModeButtonIcon`, `scrollSensitivityButtonIcon`)도 private으로 추가됨. 색상을 `TouchpadColors.kt`로 추출 시 아이콘 헬퍼는 ControlButtonContainer에 유지하면 됨.
-
-> **⚠️ Phase 4.3.3 변경사항**: `ScrollGuideline.kt` 신규 생성됨. `ScrollGuidelineColor = Color(0xFF84E268)` (초록) 상수가 `ScrollGuideline.kt` 내부에 private로 정의됨. `TouchpadColors.kt` 추출 시 이 색상도 함께 이동하여 단일 소스로 관리. Phase 4.3.4에서 무한 스크롤 빨간색 추가 시 `ScrollGuideline`에 `scrollMode` 파라미터를 추가해 내부에서 색상 분기 구현.
-
-> **⚠️ Phase 4.3.4 변경사항**: `ScrollGuideline.kt`에 `scrollMode: ScrollMode` 파라미터 추가됨 (색상 결정). 색상 상수가 두 개로 분리: `ScrollGuidelineColorNormal = Color(0xFF84E268)` (초록), `ScrollGuidelineColorInfinite = Color(0xFFF32121)` (빨강). `TouchpadColors.kt`로 추출 시 이 두 상수 모두 이동 + `ScrollGuideline.kt`에서 참조 변경 필요. `TouchpadWrapper.kt`에 `Vibrator` 인스턴스 추가됨 (무한 스크롤 속도 비례 연속 진동용). `ScrollConstants.kt`에 `INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS = 2.0f` 추가됨.
-
-> **⚠️ Phase 4.3.3 추가 변경사항**:
-> - `ScrollGuideline.kt`는 등간격 다중 선 패턴으로 구현됨 (단일 선이 아님). `DrawScope.rotate()` 기반 축 전환 회전 애니메이션 포함.
-> - `TouchpadWrapper.kt`의 테두리 Modifier 적용 시 기존 `.clip(RoundedCornerShape(5.dp))` 위치에 주의. 현재 `CORNER_RADIUS = 5.dp`.
-> - `StandardModePage.kt`에서 스크롤 모드 활성 시 부모 Box에 `PointerEventPass.Initial` Move 이벤트 선제 소비가 적용됨. 테두리 관련 Modifier는 `TouchpadWrapper` 내부에 적용하므로 충돌 없음.
-
-> **⚠️ Phase 4.3.4.5 변경사항**: `TouchpadWrapper.kt` Box 내부에 `NormalScrollButtons` 오버레이가 추가됨 (NORMAL_SCROLL 모드 시 `Alignment.BottomStart`, `padding(start=8.dp, bottom=8.dp)`, 40dp×84dp 영역 점유). 테두리 Modifier는 Box 외곽에 적용되므로 내부 오버레이와 충돌 없음.
+> **⚠️ 이전 Phase 변경사항 요약**
+>
+> **신규 파일**
+> - `ScrollGuideline.kt` — 등간격 다중 선 패턴 (단일 선 아님), `DrawScope.rotate()` 기반 축 전환 회전 애니메이션. `scrollMode: ScrollMode` 파라미터로 색상 분기
+> - `PointerDynamicsConstants.kt` — 포인터 다이나믹스 상수/프리셋 정의
+> - `DynamicsPresetPopup.kt` — 프리셋 선택 팝업 (`StandardModePage.kt`에서 터치패드 Box 위에 배치)
+>
+> **TouchpadWrapper.kt — Box 구조 변경 (⚠️ 핵심)**
+> - 외부 Box(unclipped) + 내부 Box(clipped) **2중 구조**로 변경됨
+> - 테두리 Modifier는 **내부 Box에 적용**해야 함. 현재 `CORNER_RADIUS = 5.dp`
+> - `DynamicsPresetButton` 오버레이 추가 (커서 이동 모드 시 `Alignment.BottomStart`, `NormalScrollButtons`와 교대 표시)
+> - `NormalScrollButtons` 오버레이 추가 (NORMAL_SCROLL 모드 시 `Alignment.BottomStart`, `padding(start=8.dp, bottom=8.dp)`, 40dp×84dp 영역 점유)
+> - `Vibrator` 인스턴스 추가 (무한 스크롤 속도 비례 연속 진동용)
+>
+> **TouchpadMode.kt**
+> - `DynamicsAlgorithm` enum, `PointerDynamicsPreset` data class 추가
+> - `TouchpadState`에 `dynamicsPresetIndex: Int` 필드 추가 — 테두리 색상 로직에는 영향 없음
+>
+> **색상 상수 현황 (`TouchpadColors.kt` 추출 시 참고)**
+> - `ControlButtonContainer.kt`: 색상 상수 및 아이콘 헬퍼(`dpiButtonIcon`, `scrollModeButtonIcon`, `scrollSensitivityButtonIcon`) 모두 private — 추출 시 아이콘 헬퍼는 ControlButtonContainer에 유지
+> - `ScrollGuideline.kt`: `ScrollGuidelineColorNormal = Color(0xFF84E268)` (초록), `ScrollGuidelineColorInfinite = Color(0xFFF32121)` (빨강) — 추출 시 두 상수 모두 이동 후 참조 변경 필요
+>
+> **기타**
+> - `AppIcons.kt`: `DynamicsOff/Precision/Standard/Fast` 아이콘 추가
+> - `ScrollConstants.kt`: `INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS = 2.0f` 추가
+> - `StandardModePage.kt`: 스크롤 모드 활성 시 부모 Box에 `PointerEventPass.Initial` Move 이벤트 선제 소비 적용 — 테두리 Modifier와 충돌 없음
 
 **목표**: 현재 활성 모드 조합에 따라 터치패드 테두리를 단색 또는 좌→우 그라데이션으로 표시
 
 **개발 기간**: 0.5-1일
-
-**쉬운 설명**: 지금 터치패드가 어떤 모드인지(좌클릭/우클릭, 자유이동/직각이동, 스크롤 등) 테두리 색상만 보고 바로 알 수 있게 하는 기능입니다. 모드가 하나면 단색, 두 가지 모드가 섞이면 왼쪽에서 오른쪽으로 색이 변하는 그라데이션으로 표시됩니다.
 
 **세부 목표**:
 1. 테두리 사양:
