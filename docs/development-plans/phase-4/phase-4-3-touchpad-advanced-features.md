@@ -1064,7 +1064,63 @@ TouchpadWrapper
 
 ---
 
-## Phase 4.3.11: 터치패드 엣지 스와이프 제스처
+## Phase 4.3.11: ControlButtonContainer 버튼 구성 설정
+
+**목표**: `component-touchpad.md` §1.3 버튼 구성 독립성 원칙에 따라, 터치패드 인스턴스별로 특정 제어 버튼을 완전히 제외할 수 있도록 `ControlButtonContainer`에 버튼 구성 파라미터를 추가합니다. 비표시로 설정된 버튼은 UI에서 완전히 제거되고, 나머지 버튼들의 간격이 자연스럽게 재배치됩니다.
+
+**개발 기간**: 0.5일
+
+**쉬운 설명**: 터치패드 상단 제어 버튼 중 특정 인스턴스(예: Page 1 터치패드)에서 필요 없는 버튼을 처음부터 없는 것처럼 구성할 수 있습니다. 예를 들어 직각 이동 버튼을 비표시로 설정하면 그 자리가 비어 보이지 않고, 나머지 버튼들이 균등한 너비로 자연스럽게 채웁니다. 이것은 스크롤 모드에서 버튼이 일시적으로 사라지는 것과는 달리, 처음부터 해당 버튼 자체가 존재하지 않는 구성 차원의 설정입니다.
+
+**배경**: 현재 `CursorModeButton`은 Page 1에서 이미 비표시로 구성되어 있습니다(§1.3 현재 배치 구성 참조). 이 Phase에서는 이 구성 방식을 나머지 버튼들에도 동일하게 확장합니다.
+
+**세부 목표**:
+1. **`ControlButtonConfig` 데이터 클래스** 신규 정의 (`ControlButtonContainer.kt` 또는 `TouchpadMode.kt`):
+   ```kotlin
+   data class ControlButtonConfig(
+       val showClickMode: Boolean = true,
+       val showMoveMode: Boolean = true,
+       val showScrollMode: Boolean = true,
+       val showCursorMode: Boolean = false,  // Page 1 기본값: 비표시
+       val showDpi: Boolean = true,
+       val showScrollSensitivity: Boolean = true  // 슬롯 공유이므로 DPI와 함께 관리
+   )
+   ```
+   - 기본값은 현재 Page 1 구성과 동일하게 설정
+2. **`ControlButtonContainer` 파라미터 추가**:
+   - `config: ControlButtonConfig = ControlButtonConfig()` 파라미터 추가
+   - 기존 `CursorModeButton` 조건부 렌더링 로직을 `config.showCursorMode`로 교체
+3. **레이아웃 동적 재배치**:
+   - 비표시 버튼은 고정 크기 Box 슬롯 포함 완전히 제외 (기존 `AnimatedVisibility`와 구분)
+   - `Modifier.weight(1f)` 기반으로 활성 버튼 수에 따라 너비 자동 균등 분배
+   - Phase 4.3.2에서 도입된 ClickMode/MoveMode 고정 Box는 `config.showClickMode/showMoveMode = true`인 경우에만 렌더링
+4. **모드 상태 정합성**:
+   - `showClickMode = false`: `PadModeState.clickMode = ClickMode.LEFT_CLICK`으로 강제
+   - `showMoveMode = false`: `PadModeState.moveMode = MoveMode.FREE`로 강제
+   - `showScrollMode = false`: `PadModeState.scrollMode = ScrollMode.NONE`으로 강제
+5. **애니메이션 미적용**:
+   - 구성(config) 기반 비표시는 애니메이션 없이 즉시 반영
+   - Phase 4.3.2의 모드 전환 애니메이션(스크롤 ON/OFF 시 버튼 교체)은 `config.showScrollMode = true`인 경우에만 동작
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/ControlButtonContainer.kt`
+  — `ControlButtonConfig` data class 추가, `config` 파라미터 추가, 레이아웃 동적 재배치 적용
+
+**참조 문서**:
+- `docs/android/component-touchpad.md` §1.3 (버튼 구성 독립성)
+
+**검증**:
+- [ ] `ControlButtonConfig` 기본값으로 호출 시 현재 Page 1 구성과 동일하게 렌더링
+- [ ] `showMoveMode = false`: MoveModeButton 슬롯 완전 제거, 나머지 버튼 균등 너비 재배치 확인
+- [ ] `showClickMode = false`: ClickModeButton 슬롯 완전 제거, 나머지 버튼 균등 너비 재배치 확인
+- [ ] `showScrollMode = false`: ScrollModeButton 슬롯 완전 제거, 스크롤 모드 전환 애니메이션 미발생 확인
+- [ ] `showScrollMode = false` 시 `DPIControlButton ↔ ScrollSensitivityButton` 교체 애니메이션 미발생 확인
+- [ ] 비표시 버튼에 해당하는 모드 상태 강제값 적용 확인 (FREE 이동, 좌클릭 고정 등)
+- [ ] 모드 기반 일시 숨김(스크롤 ON/OFF 시 ClickMode 교체)은 `showClickMode = true`인 경우 기존대로 정상 동작 확인
+
+---
+
+## Phase 4.3.12: 터치패드 엣지 스와이프 제스처
 
 > **상태**: 설계 검토 중. 구현 방향이 결정되면 세부 절차를 추가합니다.
 
@@ -1161,7 +1217,7 @@ object EdgeSwipe {
 
 ---
 
-## Phase 4.3.12: 모드 프리셋 버튼
+## Phase 4.3.13: 모드 프리셋 버튼
 
 **목표**: 여러 개의 모드 구성 스냅샷(프리셋)을 저장해두고 버튼 하나로 즉시 전환하는 `ModePresetButton`을 구현합니다. 탭으로 순환, 롱프레스로 팝업 선택 방식이며, `DynamicsPresetButton` (Phase 4.3.8)과 동일한 패턴을 재사용합니다.
 
@@ -1265,7 +1321,7 @@ object EdgeSwipe {
 
 ---
 
-## Phase 4.3.13: 터치패드 E2E 하드웨어 테스트
+## Phase 4.3.14: 터치패드 E2E 하드웨어 테스트
 
 **목표**: Phase 4.3에서 구현한 터치패드 기능 전체를 실기기 + 실제 PC 연결 환경에서 하나씩 검증하여 하드웨어 수준의 이상 없음을 확인
 
@@ -1311,4 +1367,5 @@ object EdgeSwipe {
 | ControlButtonContainer | ❌ 숨김 | ✅ 표시 |
 | 스크롤 가이드라인 | ❌ | ✅ (스크롤 모드 시) |
 | 모드별 테두리 색상 | ❌ | ✅ (모드 조합에 따른 단색/그라데이션) |
-| 엣지 스와이프 | ❌ | ⏳ Phase 4.3.11 |
+| 버튼 구성 설정 (인스턴스별 비표시) | N/A | ⏳ Phase 4.3.11 |
+| 엣지 스와이프 | ❌ | ⏳ Phase 4.3.12 |
