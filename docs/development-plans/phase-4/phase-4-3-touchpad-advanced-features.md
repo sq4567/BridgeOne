@@ -930,7 +930,7 @@ TouchpadWrapper
 - [x] 프리셋 버튼 — 스크롤 모드 진입 시 버튼 페이드아웃 확인
 - [x] 프리셋 버튼 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 확인)
 
-> 하드웨어 의존 검증 (커서 가속 동작, DPI 중첩, 배율 상한 등)은 **Phase 4.3.12 E2E 하드웨어 테스트**에서 수행
+> 하드웨어 의존 검증 (커서 가속 동작, DPI 중첩, 배율 상한 등)은 **Phase 4.3.15 E2E 하드웨어 테스트**에서 수행
 
 ---
 
@@ -1157,102 +1157,193 @@ TouchpadWrapper
 
 ## Phase 4.3.12: 터치패드 엣지 스와이프 제스처
 
-> **상태**: 설계 검토 중. 구현 방향이 결정되면 세부 절차를 추가합니다.
+**목표**: 터치패드 상단에 고정된 `ControlButtonContainer`에 손이 닿기 어렵다는 접근성 문제를 해결합니다. **어느 가장자리에서든** 동일한 제스처로 모드 선택 팝업을 열 수 있어, 상단 버튼에 손이 닿지 않아도 불편함 없이 모드를 전환할 수 있습니다.
 
-**목표**: 터치패드 상단에 고정된 `ControlButtonContainer`에 손이 닿기 어렵다는 접근성 문제를 해결합니다. 버튼을 대체하는 것이 아닌, **엣지 스와이프**라는 보조 입력 방식을 추가해 손을 크게 움직이지 않고도 모드를 전환할 수 있도록 합니다.
-
-**배경 아이디어**: Android 제스처 내비게이션처럼, 화면 가장자리에서 안쪽으로 스와이프하는 동작으로 특정 기능을 트리거. 어느 가장자리에서 스와이프하느냐에 따라 서로 다른 모드를 전환합니다.
+**개발 기간**: 0.5-1일
 
 **에뮬레이터 호환성**: 에뮬레이터에서 기능 확인 가능. 실기기에서 느낌 검증 필요.
 
-### 현재 버튼 목록 (변경 대상)
+**세부 목표**:
+1. **`EdgeSwipeConstants` 상수 추가** (`ui/common/ScrollConstants.kt` 내 또는 별도 파일):
+   ```kotlin
+   object EdgeSwipeConstants {
+       const val EDGE_HIT_WIDTH_DP           = 24f  // 가장자리에서 이 폭 이내 시작해야 엣지 스와이프 후보
+       const val TRIGGER_DISTANCE_DP         = 28f  // 이 이상 안쪽으로 이동 시 팝업 등장
+       const val CANCEL_THRESHOLD_DP         = 12f  // 팝업 등장 후, 진입 엣지에서 이 폭 이내로 되돌아오면 취소 (EDGE_HIT_WIDTH_DP보다 엄격)
+       const val DROPLET_APPEAR_THRESHOLD_DP =  4f  // 이 이상 안쪽으로 이동 시 물방울 애니메이션 등장 (4.3.13)
+   }
+   ```
+2. **`EdgeSwipeOverlay.kt` 신규** — 모드 선택 팝업 오버레이 (애니메이션 없는 기본 구현):
+   - **팝업**: `DynamicsPresetPopup`과 동일한 스타일, 애니메이션 없이 즉시 표시
+     - 터치패드 전체 영역에 어두운 반투명 배경 (alpha 0.6, 즉시 표시 — fade-in 애니메이션은 Phase 4.3.13)
+     - 중앙에 모드 아이콘 그리드 — `ControlButtonConfig` 기준으로 `showXxx = true`인 모드만 렌더링 (최대 4개, 최소 1개)
+     - 아이콘 그리드 즉시 표시 (stagger slide-up 등장 애니메이션은 Phase 4.3.13)
+     - 손가락 현재 위치에서 가장 가까운 아이콘에 흰 테두리 강조
+     - 하단 안내 카드: "원하는 모드로 이동 후 손 떼기 / 들어온 가장자리로 되돌리면 취소"
+   - **파라미터**:
+     ```kotlin
+     @Composable
+     fun EdgeSwipeOverlay(
+         touchpadWidthPx: Float,
+         touchpadHeightPx: Float,
+         touchpadState: TouchpadState,
+         config: ControlButtonConfig,
+         onModeToggle: (EdgeSwipeMode) -> Unit,
+         // 물방울 애니메이션용 (Phase 4.3.13)
+         isEdgeCandidate: Boolean = false,
+         entryEdge: EntryEdge? = null,
+         fingerAlongEdgePx: Float = 0f,
+         inwardDistancePx: Float = 0f,
+         modifier: Modifier = Modifier
+     )
+     ```
+3. **`EdgeSwipeMode` sealed class 또는 enum** (파일 위치: `EdgeSwipeOverlay.kt` 내):
+   ```kotlin
+   enum class EdgeSwipeMode {
+       SCROLL,   // ScrollMode: OFF ↔ lastScrollMode 토글
+       CLICK,    // ClickMode: LEFT_CLICK ↔ RIGHT_CLICK
+       MOVE,     // MoveMode: FREE ↔ RIGHT_ANGLE
+       CURSOR    // CursorMode: SINGLE ↔ MULTI
+   }
+   ```
+4. **모드 토글 동작**:
+   | EdgeSwipeMode | 토글 동작 |
+   |--------------|----------|
+   | `SCROLL` | `scrollMode == OFF` → `lastScrollMode` 복원 / `scrollMode != OFF` → OFF |
+   | `CLICK` | `LEFT_CLICK` ↔ `RIGHT_CLICK` |
+   | `MOVE` | `FREE` ↔ `RIGHT_ANGLE` |
+   | `CURSOR` | `SINGLE` ↔ `MULTI` (상태만 변경, Phase 4.4 이전 UI 미반응) |
+5. **`ControlButtonConfig` 연동**: 팝업에 표시되는 모드 항목은 `config`의 `showXxx` 필드로 필터링
+   - `showScrollMode = false` → 스크롤 아이콘 팝업 미표시
+   - `showClickMode = false` → 클릭 아이콘 팝업 미표시
+   - `showMoveMode = false` → 이동 아이콘 팝업 미표시
+   - `showCursorMode = false` → 커서 아이콘 팝업 미표시 (Page 1 기본값)
+   - 표시되는 모드 수에 따라 그리드 `FlowRow` 자동 재배치
+6. **제스처 인식 — `TouchpadWrapper.kt` 수정**:
+   - 기존 `pointerInput` 파이프라인 **앞**에서 엣지 진입 여부를 먼저 판별
+   - 엣지 후보 상태(`isEdgeCandidate`), 진입 엣지(`entryEdge: EntryEdge?`), 손가락의 엣지 축 위치(`fingerAlongEdgePx`), 안쪽 이동량(`inwardDistancePx`) 로컬 상태 관리
+   ```kotlin
+   // DOWN: 시작점이 엣지 영역(24dp 이내) → isEdgeCandidate = true, entryEdge 저장, fingerAlongEdgePx 초기화
+   // MOVE (isEdgeCandidate == true, showEdgePopup == false):
+   //   ① 안쪽 이동량 >= TRIGGER_DISTANCE_PX → showEdgePopup = true (팝업 등장)
+   //   ② 안쪽 이동량 < 0 (엣지 방향으로 되돌아감) → isEdgeCandidate = false (팝업 등장 전 취소)
+   //   ③ 진입 방향과 수직 이동이 먼저 TRIGGER_DISTANCE_PX 초과 → isEdgeCandidate = false, 일반 커서 처리
+   //   → 위 조건 해당 없으면: fingerAlongEdgePx, inwardDistancePx 업데이트 (물방울 추적용)
+   // MOVE (showEdgePopup == true):
+   //   ① 손가락이 진입 엣지(entryEdge) 방향으로 되돌아가 CANCEL_THRESHOLD_DP 이내 진입 → showEdgePopup = false, isEdgeCandidate = false (팝업 등장 후 취소)
+   //      ※ 다른 엣지로 이동해도 팝업 유지 (맞은편 모드 아이콘 선택 중 실수 취소 방지)
+   // UP (showEdgePopup == true): 선택된 모드 있으면 onModeToggle 호출, 팝업 닫기
+   // UP (showEdgePopup == false): 일반 커서 이동 처리
+   ```
+   - `showEdgePopup`, `isEdgeCandidate`, `entryEdge`, `fingerAlongEdgePx`, `inwardDistancePx` 상태를 `EdgeSwipeOverlay`에 파라미터로 전달
+7. **시각 피드백**:
+   - 모드 확정 시: `HapticFeedbackConstants.CONFIRM` + `ToastController.show("스크롤 ON", ToastType.INFO, 1500)`
+   - 멀티 커서 확정 시: `ToastController.show("멀티 커서 ON", ToastType.INFO, 1500)` (Phase 4.4 이전 유일한 피드백)
+   - 취소 시: 팝업 즉시 닫기, 햅틱/토스트 없음 (fade-out 애니메이션은 Phase 4.3.13에서 추가)
+8. **`TouchpadWrapper.kt`에 `EdgeSwipeOverlay` 배치**:
+   - `DynamicsPresetPopup`, `DpiAdjustPopup`과 동일하게 `Box` 내 최상단 레이어로 추가
+   - `StandardModePage`에서 `config`를 `TouchpadWrapper`에 전달 (현재 `ControlButtonContainer`에 전달하는 것과 동일 방식)
 
-| 버튼 | 기능 | 현재 위치 |
-|------|------|----------|
-| 클릭 모드 버튼 | 좌클릭 ↔ 우클릭 전환 | 상단 좌측 1번 (커서 이동 시만 표시) |
-| 이동 모드 버튼 | 자유이동 ↔ 직각이동 전환 | 상단 좌측 2번 (커서 이동 시만 표시) |
-| 스크롤 버튼 | 스크롤 ON/OFF, 롱프레스=일반↔무한 전환 | 상단 좌측 3번 (항상 표시) |
-| 커서 버튼 | 싱글 ↔ 멀티 커서 | 상단 좌측 4번 |
-| DPI / 스크롤 감도 버튼 | 수치 3단계 순환 | 상단 우측 (슬롯 공유) |
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/EdgeSwipeOverlay.kt`
 
-### 핵심 설계 질문 (결정 필요)
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
+  — 엣지 후보 판별 로직 추가, `EdgeSwipeOverlay` 배치, `config` 파라미터 추가
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/ScrollConstants.kt`
+  — `EdgeSwipeConstants` 추가 (또는 신규 `EdgeSwipeConstants.kt` 파일)
 
-아래 질문들에 대한 답이 나와야 구체적인 구현 절차를 작성할 수 있습니다.
+**참조 코드**:
+- `DynamicsPresetPopup.kt` — 팝업 레이아웃·애니메이션 구조 그대로 재사용
+- `ControlButtonContainer.kt` — `ControlButtonConfig` 구조 참조
 
-#### Q1. 어떤 엣지에 어떤 모드를 배정할까?
+**실제 구현과 계획의 차이**:
+- `EdgeSwipeOverlay` 파라미터에 `visible: Boolean`과 `hoveredMode: EdgeSwipeMode?` 추가 (스펙의 `onModeToggle` 대신 TouchpadWrapper에서 직접 처리)
+- 모드 아이콘 가장 가까운 것 계산(`calculateHoveredEdgeMode`)은 TouchpadWrapper 내부에서 수행 후 `hoveredMode`로 전달
+- `touchpadWidthPx` / `touchpadHeightPx` 파라미터 제거 (overlay 내부에서 `fillMaxSize` 사용으로 불필요)
+- **팝업 모드 선택 UX 추가**: `EdgePopupMode { SWIPE, DIRECT_TOUCH }` enum 신규. 팝업 열기 전 중간 단계(isModeSelecting)에서 엣지 축 방향 스와이프로 두 모드 중 선택. `EDGE_POPUP_DIRECT_TOUCH` 상수 삭제 → 런타임 제스처로 대체
+- **모드 선택 제스처**: `navStepPx` (30dp) step 기반 즉시 토글 — dead zone 없이 delta ≥ 0 → SWIPE, delta < 0 → DIRECT_TOUCH. `EDGE_MODE_SELECT_PERP_THRESHOLD_DP` 미사용
+- **모드 선택 카드 UI**: `ModeSelectCard(title, iconResId, isHighlighted)` — 직접 터치 아이콘(`ic_l_click`), 스와이프 아이콘(`ic_scroll`). 설명(subtitle) 없음
+- **모드 선택 레이아웃**: `entryEdge` 기준이 아닌 터치패드 폭 기준 (`BoxWithConstraints`의 `maxWidth >= 400.dp` → Row, 미만 → Column)
 
-현재 후보 배정안 (확정 아님):
-
-| 엣지 | 스와이프 방향 | 제안 동작 | 이유 |
-|------|------------|---------|------|
-| **왼쪽** | 오른쪽으로 스와이프 | 스크롤 모드 ON/OFF 토글 | 가장 자주 쓰는 전환, 엄지손가락 접근 용이 |
-| **오른쪽** | 왼쪽으로 스와이프 | 클릭 모드 토글 (좌↔우) | 검지/중지 자연스러운 위치 |
-| **하단** | 위로 스와이프 | 이동 모드 토글 (자유↔직각) | 상단보다 접근 쉬움 |
-| **상단** | 아래로 스와이프 | 스크롤 일반↔무한 전환 | 기존 버튼 롱프레스 대체 |
-
-> **DPI / 스크롤 감도**는 엣지 1회 스와이프로 3단계 중 1단계씩 이동하기에는 부자연스러울 수 있습니다. 엣지 배정 보류 후 별도 검토 가능.
-
-#### Q2. 스와이프 인식 범위와 진입 임계값
-
-- **진입 영역 너비**: 엣지에서 얼마나 안쪽까지를 "엣지 영역"으로 볼 것인가? (예: 가장자리에서 24dp 이내 시작한 터치만 엣지 스와이프로 인식)
-- **트리거 거리**: 얼마나 스와이프해야 동작이 발동되는가? (예: 48dp 이상 스와이프 시 즉시 발동, 손가락 떼기 전)
-- **일반 터치패드 입력과 충돌 방지**: 커서 이동 중 실수로 엣지에 닿았을 때 오발동 방지 기준이 필요
-
-#### Q3. 시각 피드백
-
-- 스와이프 진행 중: 반투명 인디케이터 스트립 + 목표 모드 레이블 표시 (Android 백 제스처 호와 유사)
-- 발동 완료: StatusToast 재활용 ("스크롤 ON" 등), 햅틱 피드백
-- 엣지 영역 힌트: 터치패드 가장자리에 희미한 그라디언트나 점선을 항상 표시할지, 아예 숨길지
-
-#### Q4. 기존 버튼과의 공존 방식
-
-- 버튼과 엣지 스와이프 모두 같은 `TouchpadState`를 변경 → 한쪽에서 바꾸면 다른 쪽도 동기화
-- 버튼은 제거하지 않음 — 엣지 스와이프에 익숙하지 않은 경우 버튼으로 폴백
-- 장기적으로 버튼 영역을 줄이거나 숨기는 옵션을 추가할 수도 있음 (이 Phase 범위 밖)
-
-### 구현 스케치 (설계 확정 후 구체화)
-
-설계 질문이 결정되면 아래 구조로 구현할 예정입니다.
-
-#### 새로운 파일
-
-```
-ui/components/touchpad/EdgeSwipeDetector.kt   — 엣지 스와이프 인식 로직
-```
-
-#### `TouchpadWrapper.kt` 수정
-
-현재 `TouchpadWrapper`가 전체 터치패드 영역의 `Modifier.pointerInput`을 관리합니다. 엣지 스와이프는 이 레이어 위에 별도 `pointerInput`을 추가하거나, 기존 gesture 파이프라인 안에서 엣지 진입 조건을 먼저 판별하는 방식으로 처리합니다.
-
-```kotlin
-// 대략적인 엣지 인식 흐름 (구현 확정 전 의사 코드)
-// 1. 터치 DOWN 이벤트: x < EDGE_WIDTH_PX → 왼쪽 엣지 후보 플래그 세우기
-// 2. 터치 MOVE 이벤트: 후보 플래그 ON + deltaX > TRIGGER_DISTANCE_PX → 스와이프 발동
-//    → 해당 모드 토글, 이후 이 터치 포인터는 일반 커서 이동 이벤트로 넘기지 않음
-// 3. 후보 플래그 ON + deltaY 또는 다른 방향으로 이탈 → 후보 플래그 취소, 일반 커서 이동 처리
-```
-
-#### `AppConstants.kt` 추가 상수 (Phase 4.8.1과 연동)
-
-```kotlin
-// ── 엣지 스와이프 ────────────────────────────────────────────
-object EdgeSwipe {
-    const val EDGE_HIT_WIDTH_DP   = 24f   // dp: 가장자리에서 이 폭 이내 시작해야 엣지 스와이프
-    const val TRIGGER_DISTANCE_DP = 48f   // dp: 이 이상 스와이프해야 발동
-}
-```
-
-### 남은 설계 결정 체크리스트
-
-- [ ] 엣지-모드 배정 확정 (Q1)
-- [ ] 진입 영역 너비 및 트리거 거리 수치 확정 (Q2)
-- [ ] 시각 피드백 방식 선택 (Q3)
-- [ ] 기존 버튼 공존 정책 확정 (Q4)
-- [ ] 위 결정 후 구현 절차 작성 및 이 섹션 업데이트
+**검증 (UX — 에뮬레이터/실기기 UI 확인)**:
+- [ ] 팝업 내 손가락 이동에 따라 가장 가까운 아이콘 선택 강조 확인
+- [ ] 원하는 아이콘 위에서 손 떼기 → 해당 모드 토글 + 햅틱 + 토스트 확인
+- [ ] 아무 엣지(24dp 이내)로 스와이프 → 팝업 취소, 모드 변경 없음 확인
+- [ ] 멀티 커서 토글 시 `CursorMode.MULTI` 상태 변경 + 토스트 확인 (UI 변화 없음)
+- [ ] 엣지 영역(24dp) 밖에서 시작한 터치는 엣지 스와이프 미발동 확인
+- [ ] 엣지 영역 안 시작이어도 수직 이동이 먼저 28dp 초과 시 일반 커서 이동 처리 확인
+- [ ] `ControlButtonConfig`에서 비표시 설정된 모드는 팝업 미표시 확인 (Page 1: 커서 모드 미표시)
+- [ ] 팝업 표시 모드 수 변화 시 그리드 재배치 확인 (3개, 2개 등)
+- [ ] 기존 `ControlButtonContainer` 버튼으로 모드 변경 시 팝업 상태와 동기화 확인
 
 ---
 
-## Phase 4.3.13: 모드 프리셋 버튼
+## Phase 4.3.13: 터치패드 엣지 스와이프 애니메이션
+
+> **⚠️ Phase 4.3.12 변경사항**:
+> - `EdgeSwipeOverlay` 실제 시그니처: `visible`, `pendingState`, `config`, `selectedIndex`, `popupAnchorPx`, `isModeSelecting`, `selectedPopupMode`, `isEdgeCandidate`, `entryEdge`, `fingerAlongEdgePx`, `inwardDistancePx`, `modifier`
+> - `EdgePopupMode { SWIPE, DIRECT_TOUCH }` enum 추가 — 팝업 모드 선택 중간 단계 존재
+> - 모드 선택 UI: `BoxWithConstraints`로 터치패드 폭 기준 Row/Column 자동 전환 (`maxWidth >= 400.dp`)
+> - 물방울 Canvas 그리기 시 터치패드 크기는 `BoxWithConstraints` 또는 `onGloballyPositioned`로 직접 측정해서 사용
+> - `TouchpadWrapper`에 `config: ControlButtonConfig = ControlButtonConfig()` 파라미터 추가됨
+> - `ScrollConstants.kt`에 `EdgeSwipeConstants` object 추가됨 (`EDGE_HIT_WIDTH_DP=24`, `TRIGGER_DISTANCE_DP=28`, `CANCEL_THRESHOLD_DP=12`, `DROPLET_APPEAR_THRESHOLD_DP=4`)
+
+**목표**: Phase 4.3.12에서 기본 동작만 구현된 엣지 스와이프 제스처에 시각적 풍부함을 더합니다. 손가락이 엣지에서 안쪽으로 이동할 때 물방울이 늘어나는 Canvas 애니메이션과, 팝업 등장/소멸 시 부드러운 전환 효과를 추가합니다.
+
+**개발 기간**: 0.5-1일
+
+**에뮬레이터 호환성**: 에뮬레이터에서 애니메이션 확인 가능. 실기기에서 자연스러움 검증 필요.
+
+**전제 조건**: Phase 4.3.12 완료 (기본 제스처 인식 및 팝업 기능 동작 중)
+
+**세부 목표**:
+1. **물방울 Canvas 애니메이션 추가** (`EdgeSwipeOverlay.kt` 수정):
+   - **등장 조건**: `isEdgeCandidate == true` AND `inwardDistancePx >= DROPLET_APPEAR_THRESHOLD_PX` (4dp 변환값)
+   - **모양**: `Canvas`에 `Path.cubicTo()`로 teardrop/산봉우리 형태 그리기
+     ```
+     엣지 기저부 상단 (fingerAlongEdgePx - baseHalfSize)
+           ↓ cubicTo (제어점: 엣지에 붙어 있음)
+     피크 포인트 (inwardDistancePx 만큼 안쪽으로 튀어나온 지점)
+           ↓ cubicTo (제어점: 엣지에 붙어 있음)
+     엣지 기저부 하단 (fingerAlongEdgePx + baseHalfSize)
+     ```
+   - **Spring 애니메이션 2개**:
+     - `fingerAlongEdgeSpring`: `spring(dampingRatio = 0.5f, stiffness = 400f)` — 기저부 중심이 손가락 위치를 약간 느리게 따라가며 찰랑이는 느낌
+     - `inwardDistanceSpring`: `spring(dampingRatio = 0.4f, stiffness = 300f)` — 피크가 손가락 이동에 탄성 있게 늘어나고 줄어드는 느낌
+   - **물방울 색상**: 테두리와 동일한 `Brush`를 공유하여 완전 동기화
+     - 테두리와 물방울 모두 터치패드 전체 크기 기준 좌표계의 `Brush.linearGradient(colors, start=Offset(0,0), end=Offset(width,height))`로 채움
+     - 물방울이 엣지 어느 위치에 있든 별도 계산 없이 해당 위치의 그라데이션 색상이 자동 적용됨
+     - 단색 모드일 때는 `listOf(color, color)`로 동일하게 처리 (분기 불필요)
+   - **팝업 전환 snapping**: `inwardDistancePx >= TRIGGER_DISTANCE_PX` 도달 시, `inwardDistanceSpring`을 0으로 되돌리는 snapping 애니메이션 직후 팝업 표시
+   - **참조**: [JellyFab](https://github.com/iprashantpanwar/JellyFab) (spring + Canvas Path 기반 탄성 blob 구조), [Morphing Blobs with Compose](https://proandroiddev.com/morphing-blobs-with-jetpack-compose-from-circle-to-organic-waves-901759190d3b) (anchor 기반 bezier 곡선 유기적 변형)
+2. **팝업 등장 애니메이션 추가** (`EdgeSwipeOverlay.kt` 수정):
+   - 배경 fade-in: alpha 0 → 0.6, 200ms
+   - 아이콘 그리드 stagger slide-up 등장: 아이콘마다 30ms 간격
+3. **팝업 소멸 애니메이션 추가** (`EdgeSwipeOverlay.kt` 수정):
+   - 취소/확정 시: 팝업 전체 fade-out (즉시 닫기 → 부드러운 소멸로 교체)
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/EdgeSwipeOverlay.kt`
+  — 물방울 Canvas 렌더링, 팝업 fade-in/out, 아이콘 stagger 애니메이션 추가
+
+**참조 코드**:
+- `DynamicsPresetPopup.kt` — 팝업 fade-in/out 애니메이션 구조 참조
+- [JellyFab](https://github.com/iprashantpanwar/JellyFab) — spring + Canvas Path 기반 탄성 blob 구조
+- [Morphing Blobs with Compose](https://proandroiddev.com/morphing-blobs-with-jetpack-compose-from-circle-to-organic-waves-901759190d3b) — anchor 기반 bezier 곡선 유기적 변형
+
+**검증 (UX — 에뮬레이터/실기기 UI 확인)**:
+- [ ] 왼쪽/오른쪽/하단 엣지에서 4dp 이상 안쪽으로 이동 시 물방울 등장 확인 (4dp 미만에서는 미등장)
+- [ ] 손가락이 엣지를 따라 이동 시 물방울 기저부가 spring으로 따라오는 찰랑이는 느낌 확인
+- [ ] 안쪽 이동에 비례해 피크가 탄성 있게 늘어나는 유기적 bezier 곡선 확인 (타원 아닌 산봉우리/teardrop 형태)
+- [ ] 48dp 트리거 거리에서 물방울 snapping(엣지로 수축) 후 팝업으로 전환되는 애니메이션 확인
+- [ ] 팝업 배경 fade-in (200ms) 확인
+- [ ] 아이콘 stagger slide-up 등장 (30ms 간격) 확인
+- [ ] 취소/확정 시 팝업 fade-out 확인
+
+---
+
+## Phase 4.3.14: 모드 프리셋 버튼
 
 **목표**: 여러 개의 모드 구성 스냅샷(프리셋)을 저장해두고 버튼 하나로 즉시 전환하는 `ModePresetButton`을 구현합니다. 탭으로 순환, 롱프레스로 팝업 선택 방식이며, `DynamicsPresetButton` (Phase 4.3.8)과 동일한 패턴을 재사용합니다.
 
@@ -1356,7 +1447,7 @@ object EdgeSwipe {
 
 ---
 
-## Phase 4.3.14: 터치패드 E2E 하드웨어 테스트
+## Phase 4.3.15: 터치패드 E2E 하드웨어 테스트
 
 **목표**: Phase 4.3에서 구현한 터치패드 기능 전체를 실기기 + 실제 PC 연결 환경에서 하나씩 검증하여 하드웨어 수준의 이상 없음을 확인
 

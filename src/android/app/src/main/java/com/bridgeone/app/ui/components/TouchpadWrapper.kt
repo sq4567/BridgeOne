@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -47,6 +48,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.bridgeone.app.protocol.BridgeMode
+import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_MIN_VELOCITY_DP_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_TIME_CONSTANT_MS
@@ -60,7 +62,14 @@ import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_STEP_DP
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_STOP_THRESHOLD_MS
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_UNIT_DISTANCE_DP
 import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
+import com.bridgeone.app.ui.components.touchpad.ClickMode
+import com.bridgeone.app.ui.components.touchpad.ControlButtonConfig
+import com.bridgeone.app.ui.components.touchpad.CursorMode
 import com.bridgeone.app.ui.components.touchpad.DynamicsPresetButton
+import com.bridgeone.app.ui.components.touchpad.EdgePopupMode
+import com.bridgeone.app.ui.components.touchpad.EdgeSwipeMode
+import com.bridgeone.app.ui.components.touchpad.EdgeSwipeOverlay
+import com.bridgeone.app.ui.components.touchpad.EntryEdge
 import com.bridgeone.app.ui.components.touchpad.NormalScrollButtons
 import com.bridgeone.app.ui.components.touchpad.RightAngleGuideline
 import com.bridgeone.app.ui.components.touchpad.ScrollAxis
@@ -79,6 +88,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.exp
+import kotlin.math.roundToInt
+
 
 /**
  * TouchpadWrapper Composable
@@ -123,6 +134,7 @@ fun TouchpadWrapper(
     touchpadState: TouchpadState = TouchpadState(),
     onTouchpadStateChange: (TouchpadState) -> Unit = {},
     onDynamicsLongPress: () -> Unit = {},
+    config: ControlButtonConfig = ControlButtonConfig(),
     onTouchEvent: (
         eventType: PointerEventType,
         currentPosition: Offset,
@@ -138,6 +150,7 @@ fun TouchpadWrapper(
     // rememberUpdatedState: pointerInput(Unit) 제스처 루프 재시작 없이 최신 상태 참조
     val latestState by rememberUpdatedState(touchpadState)
     val latestOnStateChange by rememberUpdatedState(onTouchpadStateChange)
+    val latestConfig by rememberUpdatedState(config)
 
     // ── 커서 모드 상태 (기존) ──
     val currentTouchPosition = remember { mutableStateOf(Offset.Zero) }
@@ -176,6 +189,23 @@ fun TouchpadWrapper(
             guidelineVisible = false
         }
     }
+
+    // ── 엣지 스와이프 상태 (Phase 4.3.12) ──
+    var isEdgeCandidate by remember { mutableStateOf(false) }
+    var showEdgePopup by remember { mutableStateOf(false) }
+    var entryEdge by remember { mutableStateOf<EntryEdge?>(null) }
+    var fingerAlongEdgePx by remember { mutableFloatStateOf(0f) }
+    var inwardDistancePx by remember { mutableFloatStateOf(0f) }
+    // 대기 상태: 팝업 열릴 때 현재 상태로 초기화, 탭 토글로 변경, 확인 탭 시 적용
+    var pendingEdgeState by remember { mutableStateOf<TouchpadState?>(null) }
+    // 현재 선택(하이라이트)된 항목 인덱스 (null = 없음)
+    var selectedItemIndex by remember { mutableStateOf<Int?>(null) }
+    // 직접 터치 모드: 손가락을 놓은 위치 (버튼 그리드 앵커)
+    var popupAnchorPx by remember { mutableStateOf(Offset.Zero) }
+    // 모드 선택 단계: 팝업 모드(스와이프/직접 터치)를 선택 중
+    var isModeSelecting by remember { mutableStateOf(false) }
+    // 선택된(또는 선택 중인) 팝업 모드 (null = 미선택)
+    var selectedPopupMode by remember { mutableStateOf<EdgePopupMode?>(null) }
 
     // 프리셋 탭 라벨 표시 상태 (Phase 4.3.8)
     var showPresetLabel by remember { mutableStateOf(false) }
@@ -247,6 +277,16 @@ fun TouchpadWrapper(
                 val deadZoneThresholdPx = DeltaCalculator.getDeadZoneThresholdPx(density)
                 val rightAngleLockDistPx = density.run { RIGHT_ANGLE_AXIS_LOCK_DISTANCE_DP.dp.toPx() }
 
+                // 엣지 스와이프 상수 (Phase 4.3.12)
+                val edgeHitWidthPx = density.run { EdgeSwipeConstants.EDGE_HIT_WIDTH_DP.dp.toPx() }
+                val triggerDistancePx = density.run { EdgeSwipeConstants.TRIGGER_DISTANCE_DP.dp.toPx() }
+                val cancelThresholdPx = density.run { EdgeSwipeConstants.CANCEL_THRESHOLD_DP.dp.toPx() }
+                val tapThresholdPx = density.run { EdgeSwipeConstants.EDGE_POPUP_TAP_THRESHOLD_DP.dp.toPx() }
+                val navStepPx = density.run { EdgeSwipeConstants.EDGE_POPUP_NAV_STEP_DP.dp.toPx() }
+                val directButtonSizePx = density.run { EdgeSwipeConstants.EDGE_POPUP_DIRECT_BUTTON_SIZE_DP.dp.toPx() }
+                val directButtonGapPx = density.run { EdgeSwipeConstants.EDGE_POPUP_DIRECT_BUTTON_GAP_DP.dp.toPx() }
+                // 모드 선택 step: navStepPx 재사용
+
                 awaitEachGesture {
                     // ── DOWN ──
                     val down = awaitPointerEvent()
@@ -268,6 +308,180 @@ fun TouchpadWrapper(
                     compensatedDeltaX.value = 0f
                     compensatedDeltaY.value = 0f
                     deadZoneEscaped.value = false
+
+                    // ── 팝업 열린 상태: 상대 이동으로 버튼 선택, 탭으로 토글/확정 ──
+                    // DOWN 지점이 기준(0,0). 손가락이 navStepPx 이동할 때마다 선택이 1칸 이동.
+                    // 절대 위치 무관 — 어디서 시작하든 상대 이동량으로만 선택 갱신.
+                    if (showEdgePopup) {
+                        val bgDownPos = down.changes.first().position
+
+                        // visibleModes: overlay와 동일한 로직
+                        val visibleModes = buildList<EdgeSwipeMode> {
+                            if (latestConfig.showScrollMode) add(EdgeSwipeMode.SCROLL)
+                            if (latestConfig.showClickMode) add(EdgeSwipeMode.CLICK)
+                            if (latestConfig.showMoveMode) add(EdgeSwipeMode.MOVE)
+                            if (latestConfig.showCursorMode) add(EdgeSwipeMode.CURSOR)
+                        }
+                        val modeCount = visibleModes.size
+
+                        // ── 공통 엣지 취소 판정 람다 ──
+                        val isNearEdge: (Offset) -> Boolean = { pos ->
+                            pos.x < edgeHitWidthPx ||
+                                    pos.x > size.width - edgeHitWidthPx ||
+                                    pos.y < edgeHitWidthPx ||
+                                    pos.y > size.height - edgeHitWidthPx
+                        }
+                        // ── 공통 팝업 리셋 ──
+                        fun resetPopup() {
+                            showEdgePopup = false
+                            isModeSelecting = false
+                            isEdgeCandidate = false
+                            pendingEdgeState = null
+                            selectedItemIndex = null
+                            popupAnchorPx = Offset.Zero
+                            selectedPopupMode = null
+                        }
+
+                        if (selectedPopupMode == EdgePopupMode.DIRECT_TOUCH && popupAnchorPx != Offset.Zero) {
+                            // ═══ 직접 터치 모드 ═══
+                            // 버튼 영역 히트 테스트 → 손가락 따라 하이라이트 → UP 위치의 버튼 동작
+                            val buttonRects = computeDirectTouchButtonRects(
+                                popupAnchorPx, size.width.toFloat(), size.height.toFloat(),
+                                modeCount, directButtonSizePx, directButtonGapPx, density
+                            )
+
+                            // DOWN 시점 hover 표시
+                            selectedItemIndex = buttonRects.indexOfFirst { it.contains(bgDownPos) }
+                                .takeIf { it >= 0 }
+
+                            var bgEv = awaitPointerEvent()
+                            while (bgEv.type == PointerEventType.Move) {
+                                bgEv.changes.forEach { it.consume() }
+                                val pos = bgEv.changes.first().position
+
+                                if (isNearEdge(pos)) { resetPopup(); return@awaitEachGesture }
+
+                                // hover 업데이트
+                                selectedItemIndex = buttonRects.indexOfFirst { it.contains(pos) }
+                                    .takeIf { it >= 0 }
+                                bgEv = awaitPointerEvent()
+                            }
+
+                            if (bgEv.type == PointerEventType.Release) {
+                                val upPos = bgEv.changes.first().position
+                                val hitIndex = buttonRects.indexOfFirst { it.contains(upPos) }
+                                    .takeIf { it >= 0 }
+
+                                selectedItemIndex = null  // 하이라이트 제거
+
+                                if (hitIndex != null && modeCount > 0) {
+                                    if (hitIndex < modeCount) {
+                                        // 모드 버튼 탭
+                                        val mode = visibleModes[hitIndex]
+                                        pendingEdgeState = applyEdgeModeToggle(
+                                            pendingEdgeState ?: latestState, mode
+                                        )
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        } else {
+                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                        }
+                                    } else {
+                                        // 확인 버튼 탭
+                                        val finalState = pendingEdgeState ?: latestState
+                                        latestOnStateChange(finalState)
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        } else {
+                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                        }
+                                        resetPopup()
+                                    }
+                                }
+                            }
+
+                        } else if (selectedPopupMode == EdgePopupMode.DIRECT_TOUCH && popupAnchorPx == Offset.Zero) {
+                            // ═══ 직접 터치 앵커 지정 ═══
+                            // 탭한 위치를 버튼 그리드 중심(앵커)으로 저장
+                            var bgEv = awaitPointerEvent()
+                            while (bgEv.type == PointerEventType.Move) {
+                                bgEv.changes.forEach { it.consume() }
+                                val pos = bgEv.changes.first().position
+                                if (isNearEdge(pos)) { resetPopup(); return@awaitEachGesture }
+                                bgEv = awaitPointerEvent()
+                            }
+                            if (bgEv.type == PointerEventType.Release) {
+                                popupAnchorPx = bgEv.changes.first().position
+                            }
+                        } else if (selectedPopupMode == EdgePopupMode.SWIPE) {
+                            // ═══ 스와이프 탐색 모드 ═══
+                            val totalItems = modeCount + 1  // 모드 버튼 + 확인 버튼
+                            val startIdx = selectedItemIndex ?: 0
+
+                            var bgEv = awaitPointerEvent()
+                            while (bgEv.type == PointerEventType.Move) {
+                                bgEv.changes.forEach { it.consume() }
+                                val pos = bgEv.changes.first().position
+
+                                if (isNearEdge(pos)) { resetPopup(); return@awaitEachGesture }
+
+                                val dx = pos.x - bgDownPos.x
+                                val dy = pos.y - bgDownPos.y
+                                val linearOffset = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy))
+                                    (dx / navStepPx).roundToInt()
+                                else
+                                    (dy / navStepPx).roundToInt()
+                                selectedItemIndex = (startIdx + linearOffset).coerceIn(0, totalItems - 1)
+                                bgEv = awaitPointerEvent()
+                            }
+
+                            if (bgEv.type == PointerEventType.Release) {
+                                val upPos = bgEv.changes.first().position
+                                val dist = (upPos - bgDownPos).getDistance()
+                                if (dist < tapThresholdPx && modeCount > 0) {
+                                    val idx = selectedItemIndex ?: 0
+                                    if (idx < modeCount) {
+                                        val mode = visibleModes[idx]
+                                        pendingEdgeState = applyEdgeModeToggle(
+                                            pendingEdgeState ?: latestState, mode
+                                        )
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        } else {
+                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                        }
+                                    } else {
+                                        val finalState = pendingEdgeState ?: latestState
+                                        latestOnStateChange(finalState)
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        } else {
+                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                        }
+                                        resetPopup()
+                                    }
+                                }
+                            }
+                        }
+                        return@awaitEachGesture
+                    }
+
+                    // ── 엣지 스와이프 감지 (Phase 4.3.12) ──
+                    val downPos = down.changes.first().position
+                    val detectedEntryEdge = detectEntryEdge(
+                        pos = downPos,
+                        width = size.width.toFloat(),
+                        height = size.height.toFloat(),
+                        edgeWidthPx = edgeHitWidthPx
+                    )
+                    isEdgeCandidate = detectedEntryEdge != null
+                    entryEdge = detectedEntryEdge
+                    val edgeStartInwardPx = if (detectedEntryEdge != null)
+                        getInwardDistance(downPos, detectedEntryEdge, size.width.toFloat(), size.height.toFloat())
+                    else 0f
+                    val edgeStartAlongPx = if (detectedEntryEdge != null)
+                        getAlongEdgePosition(downPos, detectedEntryEdge)
+                    else 0f
 
                     // 스크롤 모드 전용 로컬 상태 (각 제스처마다 초기화)
                     var scrollAxis = ScrollAxis.UNDECIDED
@@ -307,6 +521,66 @@ fun TouchpadWrapper(
                                 previousTouchPosition.value,
                                 currentTouchPosition.value
                             )
+
+                            // ── 엣지 스와이프 처리 (Phase 4.3.12) ──
+                            if (isEdgeCandidate) {
+                                val edge = entryEdge
+                                val currentInward = getInwardDistance(
+                                    pos, edge, size.width.toFloat(), size.height.toFloat()
+                                )
+                                val inwardMoved = currentInward - edgeStartInwardPx
+                                val currentAlong = getAlongEdgePosition(pos, edge)
+                                val perpMoved = abs(currentAlong - edgeStartAlongPx)
+
+                                fingerAlongEdgePx = currentAlong
+                                inwardDistancePx = inwardMoved.coerceAtLeast(0f)
+
+                                if (!showEdgePopup && !isModeSelecting) {
+                                    when {
+                                        inwardMoved >= triggerDistancePx -> {
+                                            // 모드 선택 단계 진입: 관성 중단 후 모드 선택 UI 표시
+                                            inertiaWasActiveOnDown = inertiaJob?.isActive == true
+                                            inertiaJob?.cancel()
+                                            inertiaJob = null
+                                            isModeSelecting = true
+                                            pendingEdgeState = latestState
+                                        }
+                                        inwardMoved < 0f -> {
+                                            // 시작점보다 엣지 방향으로 되돌아감 → 후보 취소
+                                            isEdgeCandidate = false
+                                        }
+                                        perpMoved >= triggerDistancePx -> {
+                                            // 진입 방향 수직으로 먼저 충분히 이동 → 일반 커서로 처리
+                                            isEdgeCandidate = false
+                                        }
+                                    }
+                                } else if (isModeSelecting) {
+                                    // 모드 선택 단계: navStepPx 단위 step으로 두 모드를 왔다 갔다
+                                    val alongDelta = currentAlong - edgeStartAlongPx
+                                    val modeStep = (alongDelta / navStepPx).roundToInt()
+                                    selectedPopupMode = if (modeStep >= 0) EdgePopupMode.SWIPE else EdgePopupMode.DIRECT_TOUCH
+                                    // 진입 엣지로 되돌아오면 취소
+                                    if (currentInward <= cancelThresholdPx) {
+                                        isModeSelecting = false
+                                        isEdgeCandidate = false
+                                        pendingEdgeState = null
+                                        selectedPopupMode = null
+                                    }
+                                } else {
+                                    // 팝업 표시 중(Gesture 1): 진입 엣지로 되돌아오면 취소
+                                    if (currentInward <= cancelThresholdPx) {
+                                        showEdgePopup = false
+                                        isModeSelecting = false
+                                        isEdgeCandidate = false
+                                        pendingEdgeState = null
+                                        selectedItemIndex = null
+                                        popupAnchorPx = Offset.Zero
+                                        selectedPopupMode = null
+                                    }
+                                }
+
+                                if (isEdgeCandidate) continue  // 일반 커서/스크롤 처리 건너뜀
+                            }
 
                             // ── 스크롤 모드 분기 (NORMAL_SCROLL / INFINITE_SCROLL 공통) ──
                             if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL ||
@@ -539,7 +813,22 @@ fun TouchpadWrapper(
                         previousTouchPosition.value = currentTouchPosition.value
                         currentTouchPosition.value = moveEvent.changes.first().position
 
-                        if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL ||
+                        if (isModeSelecting) {
+                            // ── 모드 선택 단계에서 손 뗌 → 항상 확정 (항상 모드 선택 상태) ──
+                            val confirmedMode = selectedPopupMode ?: EdgePopupMode.SWIPE
+                            isModeSelecting = false
+                            showEdgePopup = true
+                            selectedItemIndex = if (confirmedMode == EdgePopupMode.SWIPE) 0 else null
+                            popupAnchorPx = Offset.Zero  // 앵커는 다음 탭에서 설정
+                            isEdgeCandidate = false
+                            fingerAlongEdgePx = 0f
+                            inwardDistancePx = 0f
+                        } else if (showEdgePopup) {
+                            // ── 팝업 열린 채로 손 뗌 → 팝업 유지 ──
+                            isEdgeCandidate = false
+                            fingerAlongEdgePx = 0f
+                            inwardDistancePx = 0f
+                        } else if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL ||
                             latestState.scrollMode == ScrollMode.INFINITE_SCROLL
                         ) {
                             if (!deadZoneEscaped.value) {
@@ -779,9 +1068,146 @@ fun TouchpadWrapper(
                 showLabel = showPresetLabel
             )
         }
+
+        // 엣지 스와이프 팝업 오버레이 (Phase 4.3.12) — 최상단 레이어
+        EdgeSwipeOverlay(
+            visible = showEdgePopup,
+            pendingState = pendingEdgeState ?: touchpadState,
+            config = config,
+            selectedIndex = selectedItemIndex,
+            popupAnchorPx = popupAnchorPx,
+            isModeSelecting = isModeSelecting,
+            selectedPopupMode = selectedPopupMode,
+            isEdgeCandidate = isEdgeCandidate,
+            entryEdge = entryEdge,
+            fingerAlongEdgePx = fingerAlongEdgePx,
+            inwardDistancePx = inwardDistancePx,
+            modifier = Modifier.fillMaxSize()
+        )
         }  // inner Box 끝
 
     }  // outer Box 끝
+}
+
+// ============================================================
+// 엣지 스와이프 헬퍼 함수 (Phase 4.3.12)
+// ============================================================
+
+/**
+ * 터치 시작점([pos])이 어느 가장자리 영역에 속하는지 반환합니다.
+ * 코너는 LEFT 우선(순서상 첫 번째 매칭)으로 처리됩니다.
+ */
+private fun detectEntryEdge(
+    pos: androidx.compose.ui.geometry.Offset,
+    width: Float,
+    height: Float,
+    edgeWidthPx: Float
+): EntryEdge? = when {
+    pos.x < edgeWidthPx          -> EntryEdge.LEFT
+    pos.x > width - edgeWidthPx  -> EntryEdge.RIGHT
+    pos.y < edgeWidthPx          -> EntryEdge.TOP
+    pos.y > height - edgeWidthPx -> EntryEdge.BOTTOM
+    else                         -> null
+}
+
+/**
+ * [edge] 방향 기준으로, 현재 손가락 위치[pos]가 가장자리에서 안쪽으로 얼마나 들어왔는지(px)를 반환합니다.
+ * 값이 클수록 안쪽, 0에 가까울수록 가장자리에 있는 것입니다.
+ */
+private fun getInwardDistance(
+    pos: androidx.compose.ui.geometry.Offset,
+    edge: EntryEdge?,
+    width: Float,
+    height: Float
+): Float = when (edge) {
+    EntryEdge.LEFT   -> pos.x
+    EntryEdge.RIGHT  -> width - pos.x
+    EntryEdge.TOP    -> pos.y
+    EntryEdge.BOTTOM -> height - pos.y
+    null             -> 0f
+}
+
+/**
+ * [edge] 방향 기준으로, 손가락의 엣지 축(진입 방향에 수직인 축) 위치(px)를 반환합니다.
+ * LEFT/RIGHT 엣지 → y 좌표, TOP/BOTTOM 엣지 → x 좌표
+ */
+private fun getAlongEdgePosition(
+    pos: androidx.compose.ui.geometry.Offset,
+    edge: EntryEdge?
+): Float = when (edge) {
+    EntryEdge.LEFT, EntryEdge.RIGHT  -> pos.y
+    EntryEdge.TOP, EntryEdge.BOTTOM  -> pos.x
+    null                             -> 0f
+}
+
+/**
+ * 직접 터치 모드에서 버튼 영역(Rect) 리스트를 계산합니다.
+ * 인덱스 0..<modeCount = 모드 버튼, modeCount = 확인 버튼.
+ * 2열 그리드 배치이며 앵커를 중심으로 하되, 터치패드 경계 안에 clamping합니다.
+ */
+private fun computeDirectTouchButtonRects(
+    anchorPx: Offset,
+    containerWidth: Float,
+    containerHeight: Float,
+    modeCount: Int,
+    buttonSizePx: Float,
+    gapPx: Float,
+    density: androidx.compose.ui.unit.Density
+): List<Rect> {
+    val cols = if (modeCount <= 1) 1 else 2
+    val modeRows = (modeCount + cols - 1) / cols
+    val confirmHeightPx = density.run { EdgeSwipeConstants.EDGE_POPUP_DIRECT_CONFIRM_HEIGHT_DP.dp.toPx() }
+
+    val gridW = cols * buttonSizePx + (cols - 1) * gapPx
+    val gridH = modeRows * buttonSizePx + modeRows * gapPx + confirmHeightPx
+
+    val gridLeft = (anchorPx.x - gridW / 2).coerceIn(0f, (containerWidth - gridW).coerceAtLeast(0f))
+    val gridTop = (anchorPx.y - gridH / 2).coerceIn(0f, (containerHeight - gridH).coerceAtLeast(0f))
+
+    val rects = mutableListOf<Rect>()
+    for (i in 0 until modeCount) {
+        val row = i / cols
+        val col = i % cols
+        val x = gridLeft + col * (buttonSizePx + gapPx)
+        val y = gridTop + row * (buttonSizePx + gapPx)
+        rects.add(Rect(x, y, x + buttonSizePx, y + buttonSizePx))
+    }
+    // 확인 버튼: 마지막 행, 그리드 가로 중앙, 높이만 줄인 직사각형
+    val confirmX = gridLeft + (gridW - buttonSizePx) / 2
+    val confirmY = gridTop + modeRows * (buttonSizePx + gapPx)
+    rects.add(Rect(confirmX, confirmY, confirmX + buttonSizePx, confirmY + confirmHeightPx))
+
+    return rects
+}
+
+/**
+ * 엣지 스와이프로 [mode]를 토글한 새로운 [TouchpadState]를 반환합니다.
+ */
+private fun applyEdgeModeToggle(state: TouchpadState, mode: EdgeSwipeMode): TouchpadState = when (mode) {
+    EdgeSwipeMode.SCROLL -> when (state.scrollMode) {
+        ScrollMode.OFF             -> state.copy(
+            scrollMode = ScrollMode.NORMAL_SCROLL,
+            lastScrollMode = ScrollMode.NORMAL_SCROLL,
+            customDpiMultiplier = null
+        )
+        ScrollMode.NORMAL_SCROLL   -> state.copy(
+            scrollMode = ScrollMode.INFINITE_SCROLL,
+            lastScrollMode = ScrollMode.INFINITE_SCROLL
+        )
+        ScrollMode.INFINITE_SCROLL -> state.copy(
+            scrollMode = ScrollMode.OFF,
+            lastScrollMode = ScrollMode.NORMAL_SCROLL  // OFF 후 다음 활성화는 항상 NORMAL_SCROLL
+        )
+    }
+    EdgeSwipeMode.CLICK -> state.copy(
+        clickMode = if (state.clickMode == ClickMode.LEFT_CLICK) ClickMode.RIGHT_CLICK else ClickMode.LEFT_CLICK
+    )
+    EdgeSwipeMode.MOVE -> state.copy(
+        moveMode = if (state.moveMode == MoveMode.FREE) MoveMode.RIGHT_ANGLE else MoveMode.FREE
+    )
+    EdgeSwipeMode.CURSOR -> state.copy(
+        cursorMode = if (state.cursorMode == CursorMode.SINGLE) CursorMode.MULTI else CursorMode.SINGLE
+    )
 }
 
 /**

@@ -73,3 +73,37 @@ object ScrollConstants {
     /** 직각 이동 모드에서 주축 전환 방지 데드밴드 각도 (°). 45° ± 이 값 범위 내이면 대각선 판정 */
     const val RIGHT_ANGLE_DEADBAND_DEG = 22.5f
 }
+
+/**
+ * 엣지 스와이프 제스처 관련 조정 가능 상수 (Phase 4.3.12)
+ */
+object EdgeSwipeConstants {
+    /** 가장자리에서 이 폭 이내에서 시작해야 엣지 스와이프 후보로 인식 (dp) */
+    const val EDGE_HIT_WIDTH_DP           = 24f
+
+    /** 이 이상 안쪽으로 이동 시 모드 선택 팝업 등장 (dp) */
+    const val TRIGGER_DISTANCE_DP         = 28f
+
+    /** 팝업 등장 후, 진입 엣지에서 이 폭 이내로 되돌아오면 팝업 취소 (dp) */
+    const val CANCEL_THRESHOLD_DP         = 12f
+
+    /** 이 이상 안쪽으로 이동 시 물방울 애니메이션 등장 — Phase 4.3.13에서 사용 (dp) */
+    const val DROPLET_APPEAR_THRESHOLD_DP =  4f
+
+    /** 팝업 열린 상태에서 탭 vs 스와이프 구분 이동 임계값 (dp). 이 미만이면 탭, 이상이면 스와이프 */
+    const val EDGE_POPUP_TAP_THRESHOLD_DP = 15f
+
+    /** 팝업 내 버튼 탐색 시 선택이 1칸 이동하기 위한 스와이프 거리 (dp) */
+    const val EDGE_POPUP_NAV_STEP_DP = 30f
+
+    // ── 직접 터치 모드 ──
+
+    /** 직접 터치 모드 버튼 크기 (dp) */
+    const val EDGE_POPUP_DIRECT_BUTTON_SIZE_DP = 48f
+
+    /** 직접 터치 모드 버튼 간격 (dp) */
+    const val EDGE_POPUP_DIRECT_BUTTON_GAP_DP = 6f
+
+    /** 직접 터치 모드 확인 버튼 높이 (dp) — 가로는 버튼 크기와 동일, 높이만 줄여 직사각형으로 표시 */
+    const val EDGE_POPUP_DIRECT_CONFIRM_HEIGHT_DP = 28f
+}
