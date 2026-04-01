@@ -54,6 +54,11 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ## Phase 4.4.1: HorizontalPager 5페이지 확장 + Page 2 풀 와이드 레이아웃
 
+> **⚠️ Phase 4.3.11 변경사항**: `ControlButtonContainer`에 `config: ControlButtonConfig` 파라미터 추가.
+> CursorModeButton 표시 활성화는 `showCursorModeButton = true` 파라미터가 아닌
+> `config = ControlButtonConfig(showCursorMode = true)` 방식으로 전달.
+> 기본값 `ControlButtonConfig()`는 기존 Page 1 구성(CursorMode 비표시)과 동일.
+
 **목표**: 페이지 수를 4 → 5로 늘리고, Page 2를 Actions 패널 없이 터치패드가 전체 너비를 점유하는 레이아웃으로 구현합니다.
 
 **개발 기간**: 0.5일

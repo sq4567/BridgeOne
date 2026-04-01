@@ -36,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -72,6 +73,32 @@ private val ColorRed = TouchpadColorRed
 private val ColorButtonText = TouchpadColorButtonText
 
 // ============================================================
+// 버튼 구성 설정 (Phase 4.3.11)
+// ============================================================
+
+/**
+ * 터치패드 제어 버튼 구성 설정
+ *
+ * 비표시로 설정된 버튼은 UI에서 완전히 제거되며, 나머지 버튼들의 너비가 균등 재배치됩니다.
+ * 기본값은 Page 1 현재 구성 (CursorMode 비표시)과 동일합니다.
+ *
+ * @param showClickMode ClickModeButton 표시 여부
+ * @param showMoveMode MoveModeButton 표시 여부
+ * @param showScrollMode ScrollModeButton 표시 여부 (false 시 scrollMode = ScrollMode.OFF 강제)
+ * @param showCursorMode CursorModeButton 표시 여부 (기본값: false — Page 1 구성)
+ * @param showDpi DpiControlButton 표시 여부
+ * @param showScrollSensitivity ScrollSensitivityButton 표시 여부 (DPI와 슬롯 공유)
+ */
+data class ControlButtonConfig(
+    val showClickMode: Boolean = true,
+    val showMoveMode: Boolean = true,
+    val showScrollMode: Boolean = true,
+    val showCursorMode: Boolean = false,
+    val showDpi: Boolean = true,
+    val showScrollSensitivity: Boolean = true
+)
+
+// ============================================================
 // ControlButtonContainer
 // ============================================================
 
@@ -95,6 +122,7 @@ fun ControlButtonContainer(
     onStateChange: (TouchpadState) -> Unit,
     isStandardMode: Boolean = true,
     onDpiLongPress: (() -> Unit)? = null,
+    config: ControlButtonConfig = ControlButtonConfig(),
     modifier: Modifier = Modifier
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
@@ -108,10 +136,30 @@ fun ControlButtonContainer(
         // 버튼 간격: 고정 2dp
         val buttonSpacing = 2.dp
 
-        // 버튼 크기: 좌4 + 우1 = 5버튼 기준 (DPI/ScrollSensitivity는 동일 슬롯 공유)
+        // 버튼 크기: 최대 5슬롯 기준 고정 (비표시 슬롯이 생겨도 크기 유지)
+        val hasRightSlot = config.showDpi || config.showScrollSensitivity
+        val visibleSlotCount = listOf(
+            config.showClickMode, config.showMoveMode, config.showScrollMode,
+            config.showCursorMode, hasRightSlot
+        ).count { it }
         val availableWidth = containerWidth - containerPadding * 2
         val buttonWidth = ((availableWidth - buttonSpacing * 4) / 5).coerceAtLeast(20.dp)
-        val buttonHeight = (buttonWidth * 2f).coerceAtMost(controlHeight) // 1:2 비율
+        val buttonHeight = (buttonWidth * 2f).coerceAtMost(controlHeight)
+        // 5개 미만이면 원래 간격(buttonSpacing)을 유지한 채 남은 공간을 양쪽에 균등 배분
+        val rowContentWidth = buttonWidth * visibleSlotCount + buttonSpacing * (visibleSlotCount - 1).coerceAtLeast(0)
+        val extraInset = ((availableWidth - rowContentWidth) / 2).coerceAtLeast(0.dp)
+
+        // Phase 4.3.11: 비표시 버튼에 해당하는 모드 상태 강제
+        LaunchedEffect(config) {
+            var state = touchpadState
+            if (!config.showClickMode && state.clickMode != ClickMode.LEFT_CLICK)
+                state = state.copy(clickMode = ClickMode.LEFT_CLICK)
+            if (!config.showMoveMode && state.moveMode != MoveMode.FREE)
+                state = state.copy(moveMode = MoveMode.FREE)
+            if (!config.showScrollMode && state.scrollMode != ScrollMode.OFF)
+                state = state.copy(scrollMode = ScrollMode.OFF)
+            if (state != touchpadState) onStateChange(state)
+        }
 
         // Phase 4.3.2: 컨테이너 전체 Standard↔Essential 슬라이드 애니메이션 (300ms)
         AnimatedVisibility(
@@ -123,19 +171,14 @@ fun ControlButtonContainer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(controlHeight)
-                    .padding(horizontal = containerPadding)
+                    .padding(horizontal = containerPadding + extraInset)
                     .clipToBounds(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(buttonSpacing),
                 verticalAlignment = Alignment.Top
             ) {
-                // ── 좌측: 모드 제어 버튼 ──
-                Row(
-                    modifier = Modifier.clipToBounds(),
-                    horizontalArrangement = Arrangement.spacedBy(buttonSpacing),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    // 1. ClickModeButton: 고정 크기 Box 내 슬라이드 애니메이션
-                    // Box가 항상 공간을 차지 → ScrollModeButton 위치 고정
+                // 1. ClickModeButton: 고정 크기 Box 내 슬라이드 애니메이션
+                // Box가 항상 공간을 차지 → ScrollModeButton 위치 고정
+                if (config.showClickMode) {
                     Box(modifier = Modifier.size(buttonWidth, controlHeight).clipToBounds()) {
                         androidx.compose.animation.AnimatedVisibility(
                             visible = touchpadState.isCursorMoveActive,
@@ -159,8 +202,10 @@ fun ControlButtonContainer(
                             )
                         }
                     }
+                }
 
-                    // 2. MoveModeButton: 고정 크기 Box 내 슬라이드 애니메이션
+                // 2. MoveModeButton: 고정 크기 Box 내 슬라이드 애니메이션
+                if (config.showMoveMode) {
                     Box(modifier = Modifier.size(buttonWidth, controlHeight).clipToBounds()) {
                         androidx.compose.animation.AnimatedVisibility(
                             visible = touchpadState.isCursorMoveActive,
@@ -184,124 +229,130 @@ fun ControlButtonContainer(
                             )
                         }
                     }
-
-                    // 3. ScrollModeButton: 항상 표시, 위치 고정
-                    // 탭 = 켜기/끄기 토글, 롱프레스 = NORMAL ↔ INFINITE 전환 (스크롤 ON 중만)
-                    ControlButton(
-                        text = scrollModeButtonText(touchpadState),
-                        iconResId = scrollModeButtonIcon(touchpadState),
-                        backgroundColor = scrollModeButtonColor(touchpadState),
-                        buttonWidth = buttonWidth,
-                        buttonHeight = buttonHeight,
-                        onClick = {
-                            onStateChange(toggleScrollMode(touchpadState))
-                        },
-                        onLongClick = if (touchpadState.isScrollActive) {
-                            { onStateChange(switchScrollMode(touchpadState)) }
-                        } else null
-                    )
-
-                    // 4. CursorModeButton: Disabled (Phase 4+ 멀티 커서 미구현)
-                    ControlButton(
-                        text = if (touchpadState.cursorMode == CursorMode.SINGLE)
-                            "멀티\n커서" else "싱글\n커서",
-                        iconResId = if (touchpadState.cursorMode == CursorMode.SINGLE)
-                            R.drawable.ic_multi_cursor else R.drawable.ic_single_cursor,
-                        backgroundColor = if (touchpadState.cursorMode == CursorMode.SINGLE)
-                            ColorPurple else ColorBlue,
-                        buttonWidth = buttonWidth,
-                        buttonHeight = buttonHeight,
-                        enabled = false,
-                        onClick = { /* Phase 4+: 멀티 커서 미구현 */ }
-                    )
                 }
 
-                // ── 우측: 옵션 수치 제어 버튼 ──
-                // Phase 4.3.2: DPI ↔ ScrollSensitivity 동일 슬롯에서 슬라이드 교체
-                Box(modifier = Modifier.size(buttonWidth, controlHeight).clipToBounds()) {
-                    // DPIControlButton: 커서 이동 모드에서 표시
-                    // 등장: ScrollSensitivity 퇴장(200ms) 후 딜레이 등장
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = touchpadState.isCursorMoveActive,
-                        enter = slideInVertically(tween(200, delayMillis = 200)) { -it }
-                                + fadeIn(tween(200, delayMillis = 200)),
-                        exit = slideOutVertically(tween(200)) { -it }
-                                + fadeOut(tween(200))
-                    ) {
-                        val customMultiplier = touchpadState.customDpiMultiplier
-                        val isCustomDpi = customMultiplier != null
-                        // 탭 순환 연결 대상 = 커스텀 값보다 큰 사전 정의 값 중 최솟값 (없으면 LOW로 wrap)
-                        val customNextTarget = if (isCustomDpi) {
-                            dpiNextTargetForCustom(customMultiplier!!)
-                        } else {
-                            touchpadState.dpiLevel
-                        }
-                        // 버튼 표시용 = 커스텀 값에 가장 가까운 사전 정의 레벨의 스타일
-                        val customDisplayLevel = if (isCustomDpi) {
-                            dpiClosestLevel(customMultiplier!!)
-                        } else {
-                            touchpadState.dpiLevel
-                        }
+                // 3. ScrollModeButton: 탭 = 켜기/끄기 토글, 롱프레스 = NORMAL ↔ INFINITE 전환 (스크롤 ON 중만)
+                if (config.showScrollMode) {
+                    Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
                         ControlButton(
-                            text = if (isCustomDpi) {
-                                "DPI\n${"%.1f".format(customMultiplier!!)}x"
-                            } else {
-                                "DPI\n${touchpadState.dpiLevel.label}"
-                            },
-                            iconResId = if (isCustomDpi) {
-                                dpiButtonIcon(customDisplayLevel)
-                            } else {
-                                dpiButtonIcon(touchpadState.dpiLevel)
-                            },
-                            backgroundColor = if (isCustomDpi) {
-                                dpiButtonColor(customDisplayLevel)
-                            } else {
-                                dpiButtonColor(touchpadState.dpiLevel)
-                            },
+                            text = scrollModeButtonText(touchpadState),
+                            iconResId = scrollModeButtonIcon(touchpadState),
+                            backgroundColor = scrollModeButtonColor(touchpadState),
                             buttonWidth = buttonWidth,
                             buttonHeight = buttonHeight,
-                            onClick = {
-                                if (isCustomDpi) {
-                                    // 커스텀 → 탭 순환 연결 대상(사전 정의)으로 전환, 커스텀 소멸
-                                    onStateChange(touchpadState.copy(
-                                        dpiLevel = customNextTarget,
-                                        customDpiMultiplier = null
-                                    ))
-                                } else {
-                                    onStateChange(touchpadState.copy(
-                                        dpiLevel = touchpadState.dpiLevel.next()
-                                    ))
-                                }
-                            },
-                            onLongClick = onDpiLongPress
+                            onClick = { onStateChange(toggleScrollMode(touchpadState)) },
+                            onLongClick = if (touchpadState.isScrollActive) {
+                                { onStateChange(switchScrollMode(touchpadState)) }
+                            } else null
                         )
                     }
+                }
 
-                    // ScrollSensitivityButton: 스크롤 모드에서 표시
-                    // 등장: DPI 퇴장(200ms) 후 딜레이 등장
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = touchpadState.isScrollActive,
-                        enter = slideInVertically(tween(200, delayMillis = 200)) { -it }
-                                + fadeIn(tween(200, delayMillis = 200)),
-                        exit = slideOutVertically(tween(200)) { -it }
-                                + fadeOut(tween(200))
-                    ) {
+                // 4. CursorModeButton: Disabled (Phase 4+ 멀티 커서 미구현)
+                if (config.showCursorMode) {
+                    Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
                         ControlButton(
-                            text = "스크롤\n${touchpadState.scrollSensitivity.label}",
-                            iconResId = scrollSensitivityButtonIcon(
-                                touchpadState.scrollSensitivity
-                            ),
-                            backgroundColor = scrollSensitivityButtonColor(
-                                touchpadState.scrollSensitivity
-                            ),
+                            text = if (touchpadState.cursorMode == CursorMode.SINGLE)
+                                "멀티\n커서" else "싱글\n커서",
+                            iconResId = if (touchpadState.cursorMode == CursorMode.SINGLE)
+                                R.drawable.ic_multi_cursor else R.drawable.ic_single_cursor,
+                            backgroundColor = if (touchpadState.cursorMode == CursorMode.SINGLE)
+                                ColorPurple else ColorBlue,
                             buttonWidth = buttonWidth,
                             buttonHeight = buttonHeight,
-                            onClick = {
-                                onStateChange(touchpadState.copy(
-                                    scrollSensitivity = touchpadState.scrollSensitivity.next()
-                                ))
-                            }
+                            enabled = false,
+                            onClick = { /* Phase 4+: 멀티 커서 미구현 */ }
                         )
+                    }
+                }
+
+                // 5. DPI / ScrollSensitivity 슬롯 (우측 옵션 버튼)
+                // Phase 4.3.2: DPI ↔ ScrollSensitivity 동일 슬롯에서 슬라이드 교체
+                if (hasRightSlot) {
+                    Box(modifier = Modifier.size(buttonWidth, controlHeight).clipToBounds()) {
+                        if (config.showDpi) {
+                            // showScrollSensitivity=false이면 항상 표시 (스왑 불필요)
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = if (config.showScrollSensitivity) touchpadState.isCursorMoveActive else true,
+                                enter = slideInVertically(tween(200, delayMillis = 200)) { -it }
+                                        + fadeIn(tween(200, delayMillis = 200)),
+                                exit = slideOutVertically(tween(200)) { -it }
+                                        + fadeOut(tween(200))
+                            ) {
+                                val customMultiplier = touchpadState.customDpiMultiplier
+                                val isCustomDpi = customMultiplier != null
+                                val customNextTarget = if (isCustomDpi) {
+                                    dpiNextTargetForCustom(customMultiplier!!)
+                                } else {
+                                    touchpadState.dpiLevel
+                                }
+                                val customDisplayLevel = if (isCustomDpi) {
+                                    dpiClosestLevel(customMultiplier!!)
+                                } else {
+                                    touchpadState.dpiLevel
+                                }
+                                ControlButton(
+                                    text = if (isCustomDpi) {
+                                        "DPI\n${"%.1f".format(customMultiplier!!)}x"
+                                    } else {
+                                        "DPI\n${touchpadState.dpiLevel.label}"
+                                    },
+                                    iconResId = if (isCustomDpi) {
+                                        dpiButtonIcon(customDisplayLevel)
+                                    } else {
+                                        dpiButtonIcon(touchpadState.dpiLevel)
+                                    },
+                                    backgroundColor = if (isCustomDpi) {
+                                        dpiButtonColor(customDisplayLevel)
+                                    } else {
+                                        dpiButtonColor(touchpadState.dpiLevel)
+                                    },
+                                    buttonWidth = buttonWidth,
+                                    buttonHeight = buttonHeight,
+                                    onClick = {
+                                        if (isCustomDpi) {
+                                            onStateChange(touchpadState.copy(
+                                                dpiLevel = customNextTarget,
+                                                customDpiMultiplier = null
+                                            ))
+                                        } else {
+                                            onStateChange(touchpadState.copy(
+                                                dpiLevel = touchpadState.dpiLevel.next()
+                                            ))
+                                        }
+                                    },
+                                    onLongClick = onDpiLongPress
+                                )
+                            }
+                        }
+
+                        if (config.showScrollSensitivity) {
+                            // showDpi=false이면 항상 표시 (스왑 불필요)
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = if (config.showDpi) touchpadState.isScrollActive else true,
+                                enter = slideInVertically(tween(200, delayMillis = 200)) { -it }
+                                        + fadeIn(tween(200, delayMillis = 200)),
+                                exit = slideOutVertically(tween(200)) { -it }
+                                        + fadeOut(tween(200))
+                            ) {
+                                ControlButton(
+                                    text = "스크롤\n${touchpadState.scrollSensitivity.label}",
+                                    iconResId = scrollSensitivityButtonIcon(
+                                        touchpadState.scrollSensitivity
+                                    ),
+                                    backgroundColor = scrollSensitivityButtonColor(
+                                        touchpadState.scrollSensitivity
+                                    ),
+                                    buttonWidth = buttonWidth,
+                                    buttonHeight = buttonHeight,
+                                    onClick = {
+                                        onStateChange(touchpadState.copy(
+                                            scrollSensitivity = touchpadState.scrollSensitivity.next()
+                                        ))
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }

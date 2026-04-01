@@ -1099,8 +1099,6 @@ TouchpadWrapper
 
 **개발 기간**: 0.5일
 
-**쉬운 설명**: 터치패드 상단 제어 버튼 중 특정 인스턴스(예: Page 1 터치패드)에서 필요 없는 버튼을 처음부터 없는 것처럼 구성할 수 있습니다. 예를 들어 직각 이동 버튼을 비표시로 설정하면 그 자리가 비어 보이지 않고, 나머지 버튼들이 균등한 너비로 자연스럽게 채웁니다. 이것은 스크롤 모드에서 버튼이 일시적으로 사라지는 것과는 달리, 처음부터 해당 버튼 자체가 존재하지 않는 구성 차원의 설정입니다.
-
 **배경**: 현재 `CursorModeButton`은 Page 1에서 이미 비표시로 구성되어 있습니다(§1.3 현재 배치 구성 참조). 이 Phase에서는 이 구성 방식을 나머지 버튼들에도 동일하게 확장합니다.
 
 **세부 목표**:
@@ -1138,14 +1136,22 @@ TouchpadWrapper
 **참조 문서**:
 - `docs/android/component-touchpad.md` §1.3 (버튼 구성 독립성)
 
+**실제 구현 내용 (계획과 다른 부분)**:
+- **레이아웃 방식**: 계획의 `Modifier.weight(1f)` 균등 너비 분배 대신 **버튼 크기 고정 + extraInset 센터링** 방식으로 구현
+  - 버튼 너비는 항상 5슬롯 기준으로 고정 (버튼이 줄어도 크기 불변)
+  - 비표시 슬롯 수에 비례해 `extraInset`을 양쪽에 균등 분배 → 남은 버튼들이 안쪽으로 센터링
+  - 버튼 간 간격은 항상 `buttonSpacing(2dp)` 고정
+  - 수식: `extraInset = (availableWidth - visibleCount*buttonWidth - (visibleCount-1)*buttonSpacing) / 2`
+- **후속 Phase 영향**: `ControlButtonContainer` 레이아웃 비율 변경 없음 — 버튼 크기·위치 기준은 동일
+
 **검증**:
-- [ ] `ControlButtonConfig` 기본값으로 호출 시 현재 Page 1 구성과 동일하게 렌더링
-- [ ] `showMoveMode = false`: MoveModeButton 슬롯 완전 제거, 나머지 버튼 균등 너비 재배치 확인
-- [ ] `showClickMode = false`: ClickModeButton 슬롯 완전 제거, 나머지 버튼 균등 너비 재배치 확인
-- [ ] `showScrollMode = false`: ScrollModeButton 슬롯 완전 제거, 스크롤 모드 전환 애니메이션 미발생 확인
-- [ ] `showScrollMode = false` 시 `DPIControlButton ↔ ScrollSensitivityButton` 교체 애니메이션 미발생 확인
-- [ ] 비표시 버튼에 해당하는 모드 상태 강제값 적용 확인 (FREE 이동, 좌클릭 고정 등)
-- [ ] 모드 기반 일시 숨김(스크롤 ON/OFF 시 ClickMode 교체)은 `showClickMode = true`인 경우 기존대로 정상 동작 확인
+- [x] `ControlButtonConfig` 기본값으로 호출 시 현재 Page 1 구성과 동일하게 렌더링
+- [x] `showMoveMode = false`: MoveModeButton 슬롯 완전 제거, 나머지 버튼 고정 너비·균등 간격 유지
+- [x] `showClickMode = false`: ClickModeButton 슬롯 완전 제거, 나머지 버튼 고정 너비·균등 간격 유지
+- [x] `showScrollMode = false`: ScrollModeButton 슬롯 완전 제거, 스크롤 모드 전환 애니메이션 미발생 확인
+- [x] `showScrollMode = false` 시 `DPIControlButton ↔ ScrollSensitivityButton` 교체 애니메이션 미발생 확인
+- [x] 비표시 버튼에 해당하는 모드 상태 강제값 적용 확인 (FREE 이동, 좌클릭 고정 등)
+- [x] 모드 기반 일시 숨김(스크롤 ON/OFF 시 ClickMode 교체)은 `showClickMode = true`인 경우 기존대로 정상 동작 확인
 
 ---
 
