@@ -6,12 +6,17 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -62,6 +68,7 @@ import com.bridgeone.app.ui.components.touchpad.ScrollGuideline
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
 import com.bridgeone.app.ui.components.touchpad.MoveMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
+import com.bridgeone.app.ui.components.touchpad.touchpadBorderColors
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.ui.utils.DeltaCalculator
 import com.bridgeone.app.ui.utils.RightAngleAxis
@@ -180,13 +187,58 @@ fun TouchpadWrapper(
         showPresetLabel = false
     }
 
-    val CORNER_RADIUS = 5.dp
+    val CORNER_RADIUS = 12.dp
 
-    Box(modifier = modifier) {
+    // 테두리 색상 애니메이션 (300ms) — Essential 모드는 Transparent로 처리
+    val (leftTarget, rightTarget) = if (bridgeMode != BridgeMode.ESSENTIAL) {
+        touchpadBorderColors(touchpadState)
+    } else {
+        Color.Transparent to Color.Transparent
+    }
+    val animatedLeftColor by animateColorAsState(
+        targetValue = leftTarget,
+        animationSpec = tween(300),
+        label = "borderLeft"
+    )
+    val animatedRightColor by animateColorAsState(
+        targetValue = rightTarget,
+        animationSpec = tween(300),
+        label = "borderRight"
+    )
+
+    // 글로우 애니메이션: 밝은 스팟이 테두리를 따라 천천히 이동 (3초 주기 무한 반복)
+    // 단색일 때는 양쪽 색상이 동일하므로 시각적 변화 없음
+    var glowProgress by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            animate(0f, 1f, animationSpec = tween(3000, easing = LinearEasing)) { value, _ ->
+                glowProgress = value
+            }
+        }
+    }
+
+    BoxWithConstraints(modifier = modifier) {
+        // 테두리 너비: 터치패드 너비의 0.8% (최소 2dp, 최대 4dp)
+        val borderWidth = (maxWidth * 0.008f).coerceIn(2.dp, 4.dp)
+
+        // 글로우 Brush: [배경색, 밝은 스팟, 배경색] 패턴이 좌→우로 3초 주기 이동
+        // 중심점: -widthPx(화면 왼쪽 밖) → +2*widthPx(화면 오른쪽 밖)
+        // 양 끝에서 화면이 단색이므로 반복 리셋 시 점프가 보이지 않음
+        val widthPx: Float = with(density) { maxWidth.toPx() }
+        val glowShift: Float = (glowProgress * 3f - 1f) * widthPx
+        val glowStartX: Float = glowShift - widthPx
+        val glowEndX: Float = glowShift + widthPx
+        val borderBrush = Brush.linearGradient(
+            colors = listOf(animatedRightColor, animatedLeftColor, animatedRightColor),
+            start = Offset(glowStartX, 0f),
+            end = Offset(glowEndX, 0f)
+        )
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(CORNER_RADIUS))
+                .border(borderWidth, borderBrush, RoundedCornerShape(CORNER_RADIUS))
                 .background(Color(0xFF1A1A1A))
                 .pointerInput(Unit) {
                 // dp → px 변환 상수 (제스처 루프 시작 전 1회 계산)

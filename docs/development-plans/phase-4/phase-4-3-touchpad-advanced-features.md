@@ -1004,7 +1004,7 @@ TouchpadWrapper
 >
 > **TouchpadWrapper.kt — Box 구조 변경 (⚠️ 핵심)**
 > - 외부 Box(unclipped) + 내부 Box(clipped) **2중 구조**로 변경됨
-> - 테두리 Modifier는 **내부 Box에 적용**해야 함. 현재 `CORNER_RADIUS = 5.dp`
+> - 테두리 Modifier는 **내부 Box에 적용**해야 함. ~~현재 `CORNER_RADIUS = 5.dp`~~ → Phase 4.3.10에서 `12.dp`로 수정됨
 > - `DynamicsPresetButton` 오버레이 추가 (커서 이동 모드 시 `Alignment.BottomStart`, `NormalScrollButtons`와 교대 표시)
 > - `NormalScrollButtons` 오버레이 추가 (NORMAL_SCROLL 모드 시 `Alignment.BottomStart`, `padding(start=8.dp, bottom=8.dp)`, 40dp×84dp 영역 점유)
 > - `Vibrator` 인스턴스 추가 (무한 스크롤 속도 비례 연속 진동용)
@@ -1062,19 +1062,38 @@ TouchpadWrapper
 - `docs/android/component-touchpad.md` §2.2.2 (조합 규칙)
 
 **검증**:
-- [ ] 기본 상태(좌클릭 + 자유이동): 파란색 단색 테두리
-- [ ] 우클릭 전환 시: 노란색 단색 테두리
-- [ ] 직각 이동 전환 시: 주황색 단색 테두리
-- [ ] 우클릭 + 직각 이동: 노란색→주황색 그라데이션 테두리
-- [ ] 일반 스크롤 모드: 초록색 단색 테두리
-- [ ] 무한 스크롤 모드: 빨간색 단색 테두리 (최우선)
-- [ ] 모드 전환 시 테두리 색상 즉시 반영
-- [ ] Essential 모드에서 테두리 비표시
-- [ ] 테두리 너비 2~4dp 범위 준수
+- [x] 기본 상태(좌클릭 + 자유이동): 파란색 단색 테두리
+- [x] 우클릭 전환 시: 노란색 단색 테두리
+- [x] 직각 이동 전환 시: 주황색 단색 테두리
+- [x] 우클릭 + 직각 이동: 노란색→주황색 그라데이션 테두리
+- [x] 일반 스크롤 모드: 초록색 단색 테두리
+- [x] 무한 스크롤 모드: 빨간색 단색 테두리 (최우선)
+- [x] 모드 전환 시 테두리 색상 즉시 반영
+- [x] Essential 모드에서 테두리 비표시
+- [x] 테두리 너비 2~4dp 범위 준수
 
 ---
 
 ## Phase 4.3.11: ControlButtonContainer 버튼 구성 설정
+
+> **⚠️ Phase 4.3.10 변경사항**
+>
+> **신규 파일**
+> - `TouchpadColors.kt` — 터치패드 공용 색상 팔레트 9개 + `touchpadBorderColors(TouchpadState): Pair<Color, Color>` 함수. ControlButtonContainer.kt는 이미 이 파일 참조로 변경 완료.
+>
+> **TouchpadWrapper.kt — 테두리 구현 (⚠️ 핵심)**
+> - 테두리 색상: `touchpadBorderColors(state)` + `animateColorAsState` (300ms) 좌/우 독립 애니메이션
+> - 테두리 Brush: `Brush.linearGradient` + 3초 주기 글로우 애니메이션 (계획의 단순 `horizontalGradient` 아님)
+>   - 중심점 범위: `(-widthPx) → (+2*widthPx)` (off-screen 기법, seamless loop)
+> - `CORNER_RADIUS = 12.dp` (이전 노트의 5.dp는 오기 — 실제 12dp로 구현됨)
+> - Modifier 순서: `.clip(RoundedCornerShape(CORNER_RADIUS))` → `.border(...)` (clip 먼저)
+> - Essential 모드: `Color.Transparent` 대입으로 테두리 비표시
+>
+> **ControlButtonContainer.kt**
+> - private 색상 상수 제거 → `TouchpadColors.kt` 상수 참조 (`private val ColorBlue = TouchpadColorBlue` 등 alias 유지)
+>
+> **ScrollGuideline.kt**
+> - `ScrollGuidelineColorNormal/Infinite` → `TouchpadColorGreen/Red` 참조로 교체
 
 **목표**: `component-touchpad.md` §1.3 버튼 구성 독립성 원칙에 따라, 터치패드 인스턴스별로 특정 제어 버튼을 완전히 제외할 수 있도록 `ControlButtonContainer`에 버튼 구성 파라미터를 추가합니다. 비표시로 설정된 버튼은 UI에서 완전히 제거되고, 나머지 버튼들의 간격이 자연스럽게 재배치됩니다.
 

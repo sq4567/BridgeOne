@@ -60,19 +60,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// ============================================================
-// 색상 팔레트 (component-touchpad.md §2.1)
-// ============================================================
-
-private val ColorBlue = Color(0xFF2196F3)       // 기본 (좌클릭, 자유이동, 보통 DPI/감도)
-private val ColorYellow = Color(0xFFF3D021)      // 우클릭
-private val ColorGreen = Color(0xFF84E268)       // 일반 스크롤
-private val ColorTeal = Color(0xFF20D8AD)        // 느림 (DPI 낮음, 스크롤 감도 느림)
-private val ColorLightPurple = Color(0xFF818BFF) // 빠름/높음 (DPI 높음, 스크롤 감도 빠름)
-private val ColorPurple = Color(0xFFB552F6)      // 멀티 커서
-private val ColorOrange = Color(0xFFFF8A00)      // 직각 이동
-private val ColorRed = Color(0xFFF32121)         // 무한 스크롤
-private val ColorButtonText = Color(0xFF1E1E1E)  // 버튼 텍스트/아이콘 색상
+// 색상 팔레트 — TouchpadColors.kt 참조 (component-touchpad.md §2.1)
+private val ColorBlue = TouchpadColorBlue
+private val ColorYellow = TouchpadColorYellow
+private val ColorGreen = TouchpadColorGreen
+private val ColorTeal = TouchpadColorTeal
+private val ColorLightPurple = TouchpadColorLightPurple
+private val ColorPurple = TouchpadColorPurple
+private val ColorOrange = TouchpadColorOrange
+private val ColorRed = TouchpadColorRed
+private val ColorButtonText = TouchpadColorButtonText
 
 // ============================================================
 // ControlButtonContainer

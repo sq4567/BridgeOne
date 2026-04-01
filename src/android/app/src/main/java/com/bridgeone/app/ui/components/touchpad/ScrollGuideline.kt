@@ -15,7 +15,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -27,11 +26,11 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.sqrt
 
-/** 일반 스크롤 가이드라인 색상 (초록) */
-private val ScrollGuidelineColorNormal = Color(0xFF84E268)
+/** 일반 스크롤 가이드라인 색상 (초록) — TouchpadColors.kt 참조 */
+private val ScrollGuidelineColorNormal = TouchpadColorGreen
 
-/** 무한 스크롤 가이드라인 색상 (빨강) */
-private val ScrollGuidelineColorInfinite = Color(0xFFF32121)
+/** 무한 스크롤 가이드라인 색상 (빨강) — TouchpadColors.kt 참조 */
+private val ScrollGuidelineColorInfinite = TouchpadColorRed
 
 /** 일반 선 두께 */
 private val GuidelineStrokeWidthThin = 1.dp
