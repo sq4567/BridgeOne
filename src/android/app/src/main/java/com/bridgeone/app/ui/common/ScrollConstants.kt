@@ -106,4 +106,27 @@ object EdgeSwipeConstants {
 
     /** 직접 터치 모드 확인 버튼 높이 (dp) — 가로는 버튼 크기와 동일, 높이만 줄여 직사각형으로 표시 */
     const val EDGE_POPUP_DIRECT_CONFIRM_HEIGHT_DP = 28f
+
+    // ── 산봉우리 애니메이션 (Phase 4.4.6) ──
+
+    /** 산봉우리 피크 높이 상한 (dp). TRIGGER_DISTANCE_DP 이상이어야 트리거 전 시각 피드백이 끊기지 않음 */
+    const val MAX_PEAK_HEIGHT_DP = 36f
+
+    /** 산봉우리 기저부 반폭 (dp). 이 값 × 2 = 기저부 전체 너비 */
+    const val BUMP_BASE_HALF_SIZE_DP = 40f
+
+    /** 산봉우리 테두리(stroke) 두께 (dp) */
+    const val BUMP_STROKE_WIDTH_DP = 2f
+
+    /** 산봉우리 glow 기본 블러 반경 (dp) */
+    const val BUMP_GLOW_RADIUS_DP = 8f
+
+    /** 산봉우리 glow MAX 도달 시 블러 반경 (dp) */
+    const val BUMP_GLOW_MAX_RADIUS_DP = 16f
+
+    /** 산봉우리 수축 spring 강성 */
+    const val BUMP_SHRINK_SPRING_STIFFNESS = 800f
+
+    /** 산봉우리 수축 spring 감쇠비 */
+    const val BUMP_SHRINK_SPRING_DAMPING = 0.7f
 }

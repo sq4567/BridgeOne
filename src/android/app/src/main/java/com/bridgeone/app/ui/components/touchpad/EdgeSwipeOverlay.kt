@@ -1,5 +1,7 @@
 package com.bridgeone.app.ui.components.touchpad
 
+import android.graphics.BlurMaskFilter
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +25,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PaintingStyle
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -553,3 +562,165 @@ private fun modeCurrentInfo(mode: EdgeSwipeMode, state: TouchpadState): ModeDisp
         )
     }
 }
+
+// ============================================================
+// 산봉우리(Bump) 오버레이 (Phase 4.4.6)
+// ============================================================
+
+/**
+ * 엣지 스와이프 제스처 시 손가락 위치에 따라 둥근 산봉우리를 Canvas로 렌더링합니다.
+ *
+ * @param entryEdge          진입 가장자리 방향
+ * @param fingerAlongEdgePx  손가락의 엣지 축 위치 (px)
+ * @param inwardDistancePx   엣지에서 안쪽으로 이동한 거리 (px) — 수축 애니메이션 시 Animatable 값
+ * @param maxPeakHeightPx    피크 높이 상한 (px)
+ * @param baseHalfSizePx     기저부 반폭 (px)
+ * @param strokeWidthPx      테두리 두께 (px)
+ * @param glowRadiusPx       glow 기본 반경 (px)
+ * @param glowMaxRadiusPx    MAX 도달 시 glow 반경 (px)
+ * @param borderColors       터치패드 테두리 그라데이션 색상 쌍 (left, right)
+ */
+@Composable
+fun EdgeBumpOverlay(
+    entryEdge: EntryEdge,
+    fingerAlongEdgePx: Float,
+    inwardDistancePx: Float,
+    maxPeakHeightPx: Float,
+    baseHalfSizePx: Float,
+    strokeWidthPx: Float,
+    glowRadiusPx: Float,
+    glowMaxRadiusPx: Float,
+    borderColors: Pair<Color, Color>,
+    modifier: Modifier = Modifier
+) {
+    val dropletThresholdPx = with(LocalDensity.current) {
+        EdgeSwipeConstants.DROPLET_APPEAR_THRESHOLD_DP.dp.toPx()
+    }
+    if (inwardDistancePx < dropletThresholdPx) return
+
+    Canvas(modifier = modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+
+        // 피크 높이: inwardDistancePx에 비례하되 상한 적용
+        val peakHeight = inwardDistancePx.coerceAtMost(maxPeakHeightPx)
+        val isAtMax = inwardDistancePx >= maxPeakHeightPx
+
+        // 그라데이션 Brush (터치패드 전체 크기 기준)
+        val gradientBrush = Brush.linearGradient(
+            colors = listOf(borderColors.first, borderColors.second),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
+        )
+
+        // 엣지별 Path 좌표 계산
+        val path = Path()
+        val along = fingerAlongEdgePx
+        val base = baseHalfSizePx
+
+        when (entryEdge) {
+            EntryEdge.LEFT -> {
+                // 기저부: 엣지(x=0)에서 위→아래, 피크: 오른쪽(+x)으로 솟음
+                val topY = along - base
+                val bottomY = along + base
+                val peakX = peakHeight
+                val peakY = along
+                path.moveTo(0f, topY)
+                path.cubicTo(0f, topY + base * 0.3f, peakX, peakY - base * 0.4f, peakX, peakY)
+                path.cubicTo(peakX, peakY + base * 0.4f, 0f, bottomY - base * 0.3f, 0f, bottomY)
+                path.close()
+            }
+            EntryEdge.RIGHT -> {
+                val topY = along - base
+                val bottomY = along + base
+                val peakX = w - peakHeight
+                val peakY = along
+                path.moveTo(w, topY)
+                path.cubicTo(w, topY + base * 0.3f, peakX, peakY - base * 0.4f, peakX, peakY)
+                path.cubicTo(peakX, peakY + base * 0.4f, w, bottomY - base * 0.3f, w, bottomY)
+                path.close()
+            }
+            EntryEdge.BOTTOM -> {
+                val leftX = along - base
+                val rightX = along + base
+                val peakY = h - peakHeight
+                val peakX = along
+                path.moveTo(leftX, h)
+                path.cubicTo(leftX + base * 0.3f, h, peakX - base * 0.4f, peakY, peakX, peakY)
+                path.cubicTo(peakX + base * 0.4f, peakY, rightX - base * 0.3f, h, rightX, h)
+                path.close()
+            }
+            EntryEdge.TOP -> {
+                val leftX = along - base
+                val rightX = along + base
+                val peakY = peakHeight
+                val peakX = along
+                path.moveTo(leftX, 0f)
+                path.cubicTo(leftX + base * 0.3f, 0f, peakX - base * 0.4f, peakY, peakX, peakY)
+                path.cubicTo(peakX + base * 0.4f, peakY, rightX - base * 0.3f, 0f, rightX, 0f)
+                path.close()
+            }
+        }
+
+        // 피크 끝점 좌표 (glow 위치 계산)
+        val peakPoint = when (entryEdge) {
+            EntryEdge.LEFT -> Offset(peakHeight, along)
+            EntryEdge.RIGHT -> Offset(w - peakHeight, along)
+            EntryEdge.BOTTOM -> Offset(along, h - peakHeight)
+            EntryEdge.TOP -> Offset(along, peakHeight)
+        }
+
+        // 현재 위치에 해당하는 그라데이션 색상 보간
+        val gradientT = when (entryEdge) {
+            EntryEdge.LEFT, EntryEdge.RIGHT -> {
+                // 수평 그라데이션이므로 x 기준 + y 기준 혼합
+                val tx = if (w > 0f) peakPoint.x / w else 0f
+                val ty = if (h > 0f) peakPoint.y / h else 0f
+                (tx + ty) / 2f
+            }
+            EntryEdge.TOP, EntryEdge.BOTTOM -> {
+                val tx = if (w > 0f) peakPoint.x / w else 0f
+                val ty = if (h > 0f) peakPoint.y / h else 0f
+                (tx + ty) / 2f
+            }
+        }
+        val interpolatedColor = lerp(borderColors.first, borderColors.second, gradientT.coerceIn(0f, 1f))
+
+        drawIntoCanvas { canvas ->
+            // 1) Fill — 반투명
+            val fillPaint = Paint().apply {
+                style = PaintingStyle.Fill
+                color = interpolatedColor.copy(alpha = 0.2f)
+            }
+            canvas.drawPath(path, fillPaint)
+
+            // 2) Stroke — 테두리
+            val strokePaint = Paint().apply {
+                style = PaintingStyle.Stroke
+                this.strokeWidth = strokeWidthPx
+                color = interpolatedColor
+            }
+            canvas.drawPath(path, strokePaint)
+
+            // 3) Glow — 피크 발광
+            val glowRadius = if (isAtMax) glowMaxRadiusPx else glowRadiusPx
+            val glowAlpha = if (isAtMax) 0.6f else 0.35f
+            val nativePaint = android.graphics.Paint().apply {
+                this.color = interpolatedColor.copy(alpha = glowAlpha).toArgb()
+                maskFilter = BlurMaskFilter(glowRadius, BlurMaskFilter.Blur.NORMAL)
+                style = android.graphics.Paint.Style.FILL
+            }
+            canvas.nativeCanvas.drawCircle(
+                peakPoint.x, peakPoint.y, glowRadius * 0.8f, nativePaint
+            )
+        }
+    }
+}
+
+/** 두 Color 사이를 t(0..1) 비율로 선형 보간 */
+private fun lerp(a: Color, b: Color, t: Float): Color = Color(
+    red = a.red + (b.red - a.red) * t,
+    green = a.green + (b.green - a.green) * t,
+    blue = a.blue + (b.blue - a.blue) * t,
+    alpha = a.alpha + (b.alpha - a.alpha) * t
+)

@@ -16,7 +16,7 @@ updated: "2026-04-02"
 - 프리셋 팝업 등장/소멸 애니메이션
 - 터치패드 테두리 모드 색상 표시 (단색/그라데이션)
 - ControlButtonContainer 버튼 구성 설정
-- 엣지 스와이프 제스처 + 물방울 애니메이션
+- 엣지 스와이프 제스처 + 산봉우리 애니메이션
 - 모드 프리셋 버튼 (모드 구성 스냅샷 즉시 전환)
 
 **선행 조건**: Phase 4.3 완료
@@ -352,7 +352,7 @@ updated: "2026-04-02"
 - [x] 프리셋 버튼 — 스크롤 모드 진입 시 버튼 페이드아웃 확인
 - [x] 프리셋 버튼 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 확인)
 
-> 하드웨어 의존 검증 (커서 가속 동작, DPI 중첩, 배율 상한 등)은 **Phase 4.4.8 E2E 하드웨어 테스트**에서 수행
+> 하드웨어 의존 검증 (커서 가속 동작, DPI 중첩, 배율 상한 등)은 **Phase 4.4.9 E2E 하드웨어 테스트**에서 수행
 
 ---
 
@@ -592,14 +592,14 @@ updated: "2026-04-02"
        const val EDGE_HIT_WIDTH_DP           = 24f  // 가장자리에서 이 폭 이내 시작해야 엣지 스와이프 후보
        const val TRIGGER_DISTANCE_DP         = 28f  // 이 이상 안쪽으로 이동 시 팝업 등장
        const val CANCEL_THRESHOLD_DP         = 12f  // 팝업 등장 후, 진입 엣지에서 이 폭 이내로 되돌아오면 취소 (EDGE_HIT_WIDTH_DP보다 엄격)
-       const val DROPLET_APPEAR_THRESHOLD_DP =  4f  // 이 이상 안쪽으로 이동 시 물방울 애니메이션 등장 (4.3.13)
+       const val BUMP_APPEAR_THRESHOLD_DP =  4f  // 이 이상 안쪽으로 이동 시 산봉우리 애니메이션 등장 (4.3.13)
    }
    ```
 2. **`EdgeSwipeOverlay.kt` 신규** — 모드 선택 팝업 오버레이 (애니메이션 없는 기본 구현):
    - **팝업**: `DynamicsPresetPopup`과 동일한 스타일, 애니메이션 없이 즉시 표시
-     - 터치패드 전체 영역에 어두운 반투명 배경 (alpha 0.6, 즉시 표시 — fade-in 애니메이션은 Phase 4.4.6)
+     - 터치패드 전체 영역에 어두운 반투명 배경 (alpha 0.6, 즉시 표시 — fade-in 애니메이션은 Phase 4.4.7)
      - 중앙에 모드 아이콘 그리드 — `ControlButtonConfig` 기준으로 `showXxx = true`인 모드만 렌더링 (최대 4개, 최소 1개)
-     - 아이콘 그리드 즉시 표시 (stagger slide-up 등장 애니메이션은 Phase 4.4.6)
+     - 아이콘 그리드 즉시 표시 (stagger slide-up 등장 애니메이션은 Phase 4.4.7)
      - 손가락 현재 위치에서 가장 가까운 아이콘에 흰 테두리 강조
      - 하단 안내 카드: "원하는 모드로 이동 후 손 떼기 / 들어온 가장자리로 되돌리면 취소"
    - **파라미터**:
@@ -611,7 +611,7 @@ updated: "2026-04-02"
          touchpadState: TouchpadState,
          config: ControlButtonConfig,
          onModeToggle: (EdgeSwipeMode) -> Unit,
-         // 물방울 애니메이션용 (Phase 4.4.6)
+         // 산봉우리 애니메이션용 (Phase 4.4.6)
          isEdgeCandidate: Boolean = false,
          entryEdge: EntryEdge? = null,
          fingerAlongEdgePx: Float = 0f,
@@ -650,7 +650,7 @@ updated: "2026-04-02"
    //   ① 안쪽 이동량 >= TRIGGER_DISTANCE_PX → showEdgePopup = true (팝업 등장)
    //   ② 안쪽 이동량 < 0 (엣지 방향으로 되돌아감) → isEdgeCandidate = false (팝업 등장 전 취소)
    //   ③ 진입 방향과 수직 이동이 먼저 TRIGGER_DISTANCE_PX 초과 → isEdgeCandidate = false, 일반 커서 처리
-   //   → 위 조건 해당 없으면: fingerAlongEdgePx, inwardDistancePx 업데이트 (물방울 추적용)
+   //   → 위 조건 해당 없으면: fingerAlongEdgePx, inwardDistancePx 업데이트 (산봉우리 추적용)
    // MOVE (showEdgePopup == true):
    //   ① 손가락이 진입 엣지(entryEdge) 방향으로 되돌아가 CANCEL_THRESHOLD_DP 이내 진입 → showEdgePopup = false, isEdgeCandidate = false (팝업 등장 후 취소)
    //      ※ 다른 엣지로 이동해도 팝업 유지 (맞은편 모드 아이콘 선택 중 실수 취소 방지)
@@ -661,7 +661,7 @@ updated: "2026-04-02"
 7. **시각 피드백**:
    - 모드 확정 시: `HapticFeedbackConstants.CONFIRM` + `ToastController.show("스크롤 ON", ToastType.INFO, 1500)`
    - 멀티 커서 확정 시: `ToastController.show("멀티 커서 ON", ToastType.INFO, 1500)` (Phase 4.4 이전 유일한 피드백)
-   - 취소 시: 팝업 즉시 닫기, 햅틱/토스트 없음 (fade-out 애니메이션은 Phase 4.4.6에서 추가)
+   - 취소 시: 팝업 즉시 닫기, 햅틱/토스트 없음 (fade-out 애니메이션은 Phase 4.4.7에서 추가)
 8. **`TouchpadWrapper.kt`에 `EdgeSwipeOverlay` 배치**:
    - `DynamicsPresetPopup`, `DpiAdjustPopup`과 동일하게 `Box` 내 최상단 레이어로 추가
    - `StandardModePage`에서 `config`를 `TouchpadWrapper`에 전달 (현재 `ControlButtonContainer`에 전달하는 것과 동일 방식)
@@ -701,71 +701,116 @@ updated: "2026-04-02"
 
 ---
 
-## Phase 4.4.6: 터치패드 엣지 스와이프 애니메이션
+## Phase 4.4.6: 엣지 스와이프 산봉우리 애니메이션
 
 > **⚠️ Phase 4.4.5 변경사항**:
 > - `EdgeSwipeOverlay` 실제 시그니처: `visible`, `pendingState`, `config`, `selectedIndex`, `popupAnchorPx`, `isModeSelecting`, `selectedPopupMode`, `isEdgeCandidate`, `entryEdge`, `fingerAlongEdgePx`, `inwardDistancePx`, `modifier`
 > - `EdgePopupMode { SWIPE, DIRECT_TOUCH }` enum 추가 — 팝업 모드 선택 중간 단계 존재
 > - 모드 선택 UI: `BoxWithConstraints`로 터치패드 폭 기준 Row/Column 자동 전환 (`maxWidth >= 400.dp`)
-> - 물방울 Canvas 그리기 시 터치패드 크기는 `BoxWithConstraints` 또는 `onGloballyPositioned`로 직접 측정해서 사용
+> - 산봉우리 Canvas 그리기 시 터치패드 크기는 `BoxWithConstraints` 또는 `onGloballyPositioned`로 직접 측정해서 사용
 > - `TouchpadWrapper`에 `config: ControlButtonConfig = ControlButtonConfig()` 파라미터 추가됨
-> - `ScrollConstants.kt`에 `EdgeSwipeConstants` object 추가됨 (`EDGE_HIT_WIDTH_DP=24`, `TRIGGER_DISTANCE_DP=28`, `CANCEL_THRESHOLD_DP=12`, `DROPLET_APPEAR_THRESHOLD_DP=4`)
+> - `ScrollConstants.kt`에 `EdgeSwipeConstants` object 추가됨 (`EDGE_HIT_WIDTH_DP=24`, `TRIGGER_DISTANCE_DP=28`, `CANCEL_THRESHOLD_DP=12`, `BUMP_APPEAR_THRESHOLD_DP=4`)
 
-**목표**: Phase 4.4.5에서 기본 동작만 구현된 엣지 스와이프 제스처에 시각적 풍부함을 더합니다. 손가락이 엣지에서 안쪽으로 이동할 때 물방울이 늘어나는 Canvas 애니메이션과, 팝업 등장/소멸 시 부드러운 전환 효과를 추가합니다.
+**목표**: 손가락이 엣지에서 안쪽으로 이동할 때 산봉우리가 둥글게 솟아오르는 Canvas 애니메이션을 추가합니다.
 
-**개발 기간**: 0.5-1일
+**개발 기간**: 0.5일
 
 **에뮬레이터 호환성**: 에뮬레이터에서 애니메이션 확인 가능. 실기기에서 자연스러움 검증 필요.
 
 **전제 조건**: Phase 4.4.5 완료 (기본 제스처 인식 및 팝업 기능 동작 중)
 
 **세부 목표**:
-1. **물방울 Canvas 애니메이션 추가** (`EdgeSwipeOverlay.kt` 수정):
-   - **등장 조건**: `isEdgeCandidate == true` AND `inwardDistancePx >= DROPLET_APPEAR_THRESHOLD_PX` (4dp 변환값)
-   - **모양**: `Canvas`에 `Path.cubicTo()`로 teardrop/산봉우리 형태 그리기
+1. **산봉우리 Canvas 애니메이션 추가** (`EdgeSwipeOverlay.kt` 수정):
+   - **등장 조건**: `isEdgeCandidate == true` AND `inwardDistancePx >= BUMP_APPEAR_THRESHOLD_PX` (4dp 변환값)
+   - **모양**: `Canvas`에 `Path.cubicTo()`로 **둥근 산봉우리** 형태 그리기 (피크가 뾰족하지 않고 둥글게 솟아오르는 형태)
      ```
      엣지 기저부 상단 (fingerAlongEdgePx - baseHalfSize)
-           ↓ cubicTo (제어점: 엣지에 붙어 있음)
-     피크 포인트 (inwardDistancePx 만큼 안쪽으로 튀어나온 지점)
-           ↓ cubicTo (제어점: 엣지에 붙어 있음)
+           ↓ cubicTo (제어점: 엣지에서 안쪽으로 향하되, 피크에서 둥글게 꺾이도록 배치)
+     피크 포인트 (둥근 꼭대기 — inwardDistancePx에 비례하되 MAX_PEAK_HEIGHT_PX 이하로 제한)
+           ↓ cubicTo (제어점: 피크에서 둥글게 꺾여 엣지로 내려오도록 배치)
      엣지 기저부 하단 (fingerAlongEdgePx + baseHalfSize)
      ```
-   - **Spring 애니메이션 2개**:
-     - `fingerAlongEdgeSpring`: `spring(dampingRatio = 0.5f, stiffness = 400f)` — 기저부 중심이 손가락 위치를 약간 느리게 따라가며 찰랑이는 느낌
-     - `inwardDistanceSpring`: `spring(dampingRatio = 0.4f, stiffness = 300f)` — 피크가 손가락 이동에 탄성 있게 늘어나고 줄어드는 느낌
-   - **물방울 색상**: 테두리와 동일한 `Brush`를 공유하여 완전 동기화
-     - 테두리와 물방울 모두 터치패드 전체 크기 기준 좌표계의 `Brush.linearGradient(colors, start=Offset(0,0), end=Offset(width,height))`로 채움
-     - 물방울이 엣지 어느 위치에 있든 별도 계산 없이 해당 위치의 그라데이션 색상이 자동 적용됨
+   - **피크 높이 상한**: `MAX_PEAK_HEIGHT_DP` 상수 추가 (`EdgeSwipeConstants`에 정의). 손가락이 아무리 멀리 이동해도 산봉우리 피크는 이 값을 초과하지 않음 (`coerceAtMost(MAX_PEAK_HEIGHT_PX)`)
+     - **제약**: `MAX_PEAK_HEIGHT_DP >= TRIGGER_DISTANCE_DP(28dp)` 이상으로 설정. 트리거 전에 피크가 멈추는 구간이 없도록 하여 시각 피드백이 끊기지 않음
+   - **즉시 추적 (Spring 없음)**: 기저부 중심(`fingerAlongEdgePx`)과 피크 높이(`inwardDistancePx`) 모두 손가락 위치를 spring 없이 즉시 반영. 별도의 `Animatable`/spring 불필요 — 터치 이벤트에서 받은 raw 값을 그대로 Canvas에 전달
+   - **손 떼기 시 수축 애니메이션**: 트리거 거리 도달 전에 손을 떼면 `Animatable.animateTo(0f, spring(...))` 한 번만 재생 → 산봉우리가 엣지 안으로 쏙 빨려 들어가는 효과. 드래그 중에는 spring을 사용하지 않고 수축 시에만 사용
+   - **드래그 중 엣지 쪽으로 되돌아오기**: 손을 떼지 않고 `inwardDistancePx`가 0 방향으로 감소하면 산봉우리가 raw 값 그대로 줄어듦. `coerceAtLeast(0f)`로 음수 방지만 처리하고 별도 spring 불필요
+   - **산봉우리 렌더링 — 반투명 fill + 테두리 분리**:
+     - **Fill (안쪽)**: 동일 Path를 `Paint(style = Fill)`로 먼저 그리되 `color.copy(alpha = 0.2f)` 수준의 반투명 색상 적용. 터치패드 UI가 뒤에 비쳐 보여 덜 방해됨
+     - **Stroke (테두리)**: 동일 Path를 `Paint(style = Stroke)`로 덧그리되 터치패드 테두리와 동일한 `Brush.linearGradient`를 공유. 산봉우리 윤곽을 선명하게 잡아줌
+     - **그라데이션 좌표계**: 터치패드 전체 크기 기준 `Brush.linearGradient(colors, start=Offset(0,0), end=Offset(width,height))` — 산봉우리 위치에 관계없이 자동으로 해당 위치의 그라데이션 색상 적용
      - 단색 모드일 때는 `listOf(color, color)`로 동일하게 처리 (분기 불필요)
-   - **팝업 전환 snapping**: `inwardDistancePx >= TRIGGER_DISTANCE_PX` 도달 시, `inwardDistanceSpring`을 0으로 되돌리는 snapping 애니메이션 직후 팝업 표시
-   - **참조**: [JellyFab](https://github.com/iprashantpanwar/JellyFab) (spring + Canvas Path 기반 탄성 blob 구조), [Morphing Blobs with Compose](https://proandroiddev.com/morphing-blobs-with-jetpack-compose-from-circle-to-organic-waves-901759190d3b) (anchor 기반 bezier 곡선 유기적 변형)
-2. **팝업 등장 애니메이션 추가** (`EdgeSwipeOverlay.kt` 수정):
+   - **피크 Glow 효과**: 반투명 fill 덕분에 피크의 glow가 어두운 터치패드 배경 위에서 직접 발광하여 잘 보임
+     - 피크 끝점 근처에 `Paint(blurMaskFilter = BlurMaskFilter(radius, NORMAL))`로 발광 레이어 추가
+     - **MAX 도달 강조**: `inwardDistancePx >= MAX_PEAK_HEIGHT_PX`이면 glow 반경을 더 크게 키워 "준비 완료" 상태를 시각적으로 강조
+   - **팝업 전환**: `inwardDistancePx >= TRIGGER_DISTANCE_PX` 도달 시 즉시 팝업 표시. 팝업이 열린 동안에도 **산봉우리는 계속 렌더링되며 `inwardDistancePx`를 그대로 추적**함 — 산봉우리를 수축하지 않으므로 팝업과 산봉우리가 동시에 보임. 이 상태에서 손가락을 엣지 쪽으로 되돌리면(`inwardDistancePx < TRIGGER_DISTANCE_PX`) 산봉우리가 줄어들면서 팝업이 닫힘 — 손가락을 떼지 않고 되집어 넣는 동작으로 직관적으로 취소 가능
+   - **트리거 시 햅틱 피드백**: 팝업이 열리는 순간 `LocalHapticFeedback.current.performHapticFeedback(HapticFeedbackType.LongPress)` 1회 호출. 팝업 닫힘(취소) 시에는 진동 없음
+   - **참조**: [Wolt Overscroll](https://careers.wolt.com/en/blog/tech/jetpack-compose-custom-overscroll-effect) (bezier bump + snapTo/animateTo 패턴), [Flutter Fluid Tab](https://github.com/amalChandran/flutter-fluid-tab) (cubicTo 2개로 hill 구성)
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/EdgeSwipeOverlay.kt`
+  — 산봉우리 Canvas 렌더링 추가
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/ScrollConstants.kt`
+  — `EdgeSwipeConstants`에 `MAX_PEAK_HEIGHT_DP` 상수 추가
+
+**참조 코드**:
+- [Wolt - Custom Overscroll Effect](https://careers.wolt.com/en/blog/tech/jetpack-compose-custom-overscroll-effect) — 엣지에서 bezier curve로 curved bump 그리기 + onPull 즉시 추적/onRelease snap back 패턴 (가장 근접한 레퍼런스)
+- [Android 공식 - Advanced Animation: Gestures](https://developer.android.com/develop/ui/compose/animation/advanced) — `Animatable.snapTo()`(드래그 즉시 추적) + `animateTo(0f, spring())`(릴리즈 수축) 공식 패턴
+- [Flutter Fluid Tab](https://github.com/amalChandran/flutter-fluid-tab) — cubicTo 2개로 엣지에 둥근 hill 형태 구성하는 구조 (Flutter이지만 bezier control point 배치 참고)
+- [Cubic Bezier Curves in Compose](https://medium.com/design-bootcamp/cubic-bezier-curves-in-compose-b8f93a3ce4b4) — Compose Canvas에서 `cubicTo()` control point가 curve 형태를 어떻게 결정하는지 실전 예제
+
+**검증 (UX — 에뮬레이터/실기기 UI 확인)**:
+- [x] 왼쪽/오른쪽/하단 엣지에서 4dp 이상 안쪽으로 이동 시 산봉우리 등장 확인 (4dp 미만에서는 미등장)
+- [x] 손가락이 엣지를 따라 이동 시 산봉우리 기저부가 지연 없이 즉시 따라오는지 확인
+- [x] 안쪽 이동에 비례해 피크가 **둥글게** 솟아오르는 유기적 bezier 곡선 확인 (뾰족한 teardrop이 아닌 둥근 산봉우리 형태)
+- [x] 피크 높이가 `MAX_PEAK_HEIGHT_DP` 이상으로 늘어나지 않는 상한 제한 확인
+- [x] 산봉우리 안쪽이 반투명 fill로 채워지고 윤곽은 테두리 Stroke으로 구분되는지 확인 (터치패드 UI가 뒤에 비쳐 보여야 함)
+- [x] 피크 끝에 glow 발광 효과 확인, MAX 도달 시 glow가 더 커지며 "준비 완료" 상태 강조 확인
+- [x] 트리거 거리 도달 전 손을 떼면 산봉우리가 엣지 안으로 쏙 수축되는 spring 애니메이션 확인
+- [x] 트리거 거리 도달 시 산봉우리 수축 없이 **즉시 팝업으로 전환**되는 확인
+- [x] 팝업 열림 순간 진동 1회 발생, 취소 시에는 진동 없음 확인
+- [x] 팝업 표시 중 엣지 쪽으로 되돌아가면 팝업이 닫히고 산봉우리가 다시 등장하는 취소 흐름 확인
+
+---
+
+## Phase 4.4.7: 엣지 스와이프 팝업 등장/소멸 애니메이션
+
+> **⚠️ Phase 4.4.6 변경사항**:
+> - 산봉우리 렌더링은 `EdgeSwipeOverlay` 내부가 아닌 별도 `EdgeBumpOverlay` Composable로 분리 구현됨
+> - `EdgeSwipeConstants`에 산봉우리 관련 상수 7개 추가: `MAX_PEAK_HEIGHT_DP(36)`, `BUMP_BASE_HALF_SIZE_DP(40)`, `BUMP_STROKE_WIDTH_DP(2)`, `BUMP_GLOW_RADIUS_DP(8)`, `BUMP_GLOW_MAX_RADIUS_DP(16)`, `BUMP_SHRINK_SPRING_STIFFNESS(800)`, `BUMP_SHRINK_SPRING_DAMPING(0.7)`
+> - `TouchpadWrapper`에서 산봉우리 위치는 plain state (`lastBumpInwardPx`, `lastBumpAlongPx`, `lastBumpEntryEdge`) + 수축 전용 `bumpShrinkAnimatable` (Animatable 1개)로 관리. 드래그 중에는 raw 값 직접 전달(Animatable 불사용), 릴리즈/모드선택 시에만 spring 수축
+> - `lastBump*` 값은 entry edge 기준 상대 이동량이 아닌, **현재 손가락에서 가장 가까운 엣지(nearest edge) 기준 절대 거리**. `findNearestEdge()` private 함수가 TouchpadWrapper 하단에 추가됨
+> - 트리거 시 `view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)` 1회 호출 추가됨
+> - **모드 선택 직후** (스와이프/직접터치 중 하나 선택 후 손 뗌) 팝업 등장과 **동시에** 산봉우리 spring 수축 애니메이션이 재생됨 → 팝업 fade-in 애니메이션(Phase 4.4.7)과 타이밍이 겹치므로 시각적 조화 고려 필요
+
+**목표**: Phase 4.4.5에서 즉시 표시/닫기로 구현된 엣지 스와이프 팝업에 부드러운 등장/소멸 전환 효과를 추가합니다.
+
+**개발 기간**: 0.5일
+
+**전제 조건**: Phase 4.4.6 완료 (산봉우리 애니메이션 동작 중)
+
+**세부 목표**:
+1. **팝업 등장 애니메이션 추가** (`EdgeSwipeOverlay.kt` 수정):
    - 배경 fade-in: alpha 0 → 0.6, 200ms
    - 아이콘 그리드 stagger slide-up 등장: 아이콘마다 30ms 간격
-3. **팝업 소멸 애니메이션 추가** (`EdgeSwipeOverlay.kt` 수정):
+2. **팝업 소멸 애니메이션 추가** (`EdgeSwipeOverlay.kt` 수정):
    - 취소/확정 시: 팝업 전체 fade-out (즉시 닫기 → 부드러운 소멸로 교체)
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/EdgeSwipeOverlay.kt`
-  — 물방울 Canvas 렌더링, 팝업 fade-in/out, 아이콘 stagger 애니메이션 추가
+  — 팝업 fade-in/out, 아이콘 stagger 애니메이션 추가
 
 **참조 코드**:
 - `DynamicsPresetPopup.kt` — 팝업 fade-in/out 애니메이션 구조 참조
-- [JellyFab](https://github.com/iprashantpanwar/JellyFab) — spring + Canvas Path 기반 탄성 blob 구조
-- [Morphing Blobs with Compose](https://proandroiddev.com/morphing-blobs-with-jetpack-compose-from-circle-to-organic-waves-901759190d3b) — anchor 기반 bezier 곡선 유기적 변형
 
 **검증 (UX — 에뮬레이터/실기기 UI 확인)**:
-- [ ] 왼쪽/오른쪽/하단 엣지에서 4dp 이상 안쪽으로 이동 시 물방울 등장 확인 (4dp 미만에서는 미등장)
-- [ ] 손가락이 엣지를 따라 이동 시 물방울 기저부가 spring으로 따라오는 찰랑이는 느낌 확인
-- [ ] 안쪽 이동에 비례해 피크가 탄성 있게 늘어나는 유기적 bezier 곡선 확인 (타원 아닌 산봉우리/teardrop 형태)
-- [ ] 48dp 트리거 거리에서 물방울 snapping(엣지로 수축) 후 팝업으로 전환되는 애니메이션 확인
 - [ ] 팝업 배경 fade-in (200ms) 확인
 - [ ] 아이콘 stagger slide-up 등장 (30ms 간격) 확인
 - [ ] 취소/확정 시 팝업 fade-out 확인
 
 ---
 
-## Phase 4.4.7: 모드 프리셋 버튼
+## Phase 4.4.8: 모드 프리셋 버튼
 
 **목표**: 여러 개의 모드 구성 스냅샷(프리셋)을 저장해두고 버튼 하나로 즉시 전환하는 `ModePresetButton`을 구현합니다. 탭으로 순환, 롱프레스로 팝업 선택 방식이며, `DynamicsPresetButton` (Phase 4.4.1)과 동일한 패턴을 재사용합니다.
 
@@ -869,7 +914,7 @@ updated: "2026-04-02"
 
 ---
 
-## Phase 4.4.8: 터치패드 E2E 하드웨어 테스트
+## Phase 4.4.9: 터치패드 E2E 하드웨어 테스트
 
 **목표**: Phase 4.3에서 구현한 터치패드 기능 전체를 실기기 + 실제 PC 연결 환경에서 하나씩 검증하여 하드웨어 수준의 이상 없음을 확인
 

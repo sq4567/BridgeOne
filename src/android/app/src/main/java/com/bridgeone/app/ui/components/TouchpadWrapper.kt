@@ -7,8 +7,10 @@ import android.os.Vibrator
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -66,6 +68,7 @@ import com.bridgeone.app.ui.components.touchpad.ClickMode
 import com.bridgeone.app.ui.components.touchpad.ControlButtonConfig
 import com.bridgeone.app.ui.components.touchpad.CursorMode
 import com.bridgeone.app.ui.components.touchpad.DynamicsPresetButton
+import com.bridgeone.app.ui.components.touchpad.EdgeBumpOverlay
 import com.bridgeone.app.ui.components.touchpad.EdgePopupMode
 import com.bridgeone.app.ui.components.touchpad.EdgeSwipeMode
 import com.bridgeone.app.ui.components.touchpad.EdgeSwipeOverlay
@@ -196,6 +199,15 @@ fun TouchpadWrapper(
     var entryEdge by remember { mutableStateOf<EntryEdge?>(null) }
     var fingerAlongEdgePx by remember { mutableFloatStateOf(0f) }
     var inwardDistancePx by remember { mutableFloatStateOf(0f) }
+
+    // ── 산봉우리 애니메이션 상태 (Phase 4.4.6) ──
+    // 드래그 중 마지막 유효 값 (release 시 즉시 0으로 리셋되지 않음 → 수축 애니메이션 시작점)
+    var lastBumpInwardPx by remember { mutableFloatStateOf(0f) }
+    var lastBumpAlongPx by remember { mutableFloatStateOf(0f) }
+    var lastBumpEntryEdge by remember { mutableStateOf<EntryEdge?>(null) }
+    val bumpShrinkAnimatable = remember { Animatable(0f) }
+    var isBumpShrinking by remember { mutableStateOf(false) }
+    var edgeSwipeHapticFired by remember { mutableStateOf(false) }
     // 대기 상태: 팝업 열릴 때 현재 상태로 초기화, 탭 토글로 변경, 확인 탭 시 적용
     var pendingEdgeState by remember { mutableStateOf<TouchpadState?>(null) }
     // 현재 선택(하이라이트)된 항목 인덱스 (null = 없음)
@@ -215,6 +227,32 @@ fun TouchpadWrapper(
         showPresetLabel = true
         delay(1500L)
         showPresetLabel = false
+    }
+
+    // ── 산봉우리 수축 애니메이션 (Phase 4.4.6) ──
+    // 드래그 중에는 raw 값을 직접 전달 (LaunchedEffect/Animatable 불필요)
+    // 릴리즈/취소 시에만 Animatable로 spring 수축
+    LaunchedEffect(isEdgeCandidate) {
+        if (!isEdgeCandidate && lastBumpInwardPx > 0f && !isModeSelecting) {
+            // 팝업 등장 여부 무관 — 손 뗌 또는 모드 선택 직후 항상 수축 애니메이션 재생
+            isBumpShrinking = true
+            bumpShrinkAnimatable.snapTo(lastBumpInwardPx)
+            bumpShrinkAnimatable.animateTo(
+                0f,
+                spring(
+                    dampingRatio = EdgeSwipeConstants.BUMP_SHRINK_SPRING_DAMPING,
+                    stiffness = EdgeSwipeConstants.BUMP_SHRINK_SPRING_STIFFNESS
+                )
+            )
+            isBumpShrinking = false
+            lastBumpEntryEdge = null
+            lastBumpInwardPx = 0f
+            lastBumpAlongPx = 0f
+        } else if (!isEdgeCandidate && !isModeSelecting) {
+            lastBumpEntryEdge = null
+            lastBumpInwardPx = 0f
+            lastBumpAlongPx = 0f
+        }
     }
 
     val CORNER_RADIUS = 12.dp
@@ -285,6 +323,7 @@ fun TouchpadWrapper(
                 val navStepPx = density.run { EdgeSwipeConstants.EDGE_POPUP_NAV_STEP_DP.dp.toPx() }
                 val directButtonSizePx = density.run { EdgeSwipeConstants.EDGE_POPUP_DIRECT_BUTTON_SIZE_DP.dp.toPx() }
                 val directButtonGapPx = density.run { EdgeSwipeConstants.EDGE_POPUP_DIRECT_BUTTON_GAP_DP.dp.toPx() }
+                val bumpAppearThresholdPx = density.run { EdgeSwipeConstants.DROPLET_APPEAR_THRESHOLD_DP.dp.toPx() }
                 // 모드 선택 step: navStepPx 재사용
 
                 awaitEachGesture {
@@ -476,6 +515,7 @@ fun TouchpadWrapper(
                     )
                     isEdgeCandidate = detectedEntryEdge != null
                     entryEdge = detectedEntryEdge
+                    edgeSwipeHapticFired = false
                     val edgeStartInwardPx = if (detectedEntryEdge != null)
                         getInwardDistance(downPos, detectedEntryEdge, size.width.toFloat(), size.height.toFloat())
                     else 0f
@@ -535,6 +575,13 @@ fun TouchpadWrapper(
                                 fingerAlongEdgePx = currentAlong
                                 inwardDistancePx = inwardMoved.coerceAtLeast(0f)
 
+                                // 산봉우리 시각화: 가장 가까운 엣지 기준으로 갱신 (Phase 4.4.6)
+                                // 제스처 로직(entryEdge 기준 inwardMoved/perpMoved)은 변경하지 않음
+                                val visualEdge = findNearestEdge(pos, size.width.toFloat(), size.height.toFloat())
+                                lastBumpEntryEdge = visualEdge
+                                lastBumpInwardPx = getInwardDistance(pos, visualEdge, size.width.toFloat(), size.height.toFloat()).coerceAtLeast(0f)
+                                lastBumpAlongPx = getAlongEdgePosition(pos, visualEdge)
+
                                 if (!showEdgePopup && !isModeSelecting) {
                                     when {
                                         inwardMoved >= triggerDistancePx -> {
@@ -544,13 +591,19 @@ fun TouchpadWrapper(
                                             inertiaJob = null
                                             isModeSelecting = true
                                             pendingEdgeState = latestState
+                                            // 햅틱 피드백 (Phase 4.4.6)
+                                            if (!edgeSwipeHapticFired) {
+                                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                                edgeSwipeHapticFired = true
+                                            }
                                         }
                                         inwardMoved < 0f -> {
                                             // 시작점보다 엣지 방향으로 되돌아감 → 후보 취소
                                             isEdgeCandidate = false
                                         }
-                                        perpMoved >= triggerDistancePx -> {
-                                            // 진입 방향 수직으로 먼저 충분히 이동 → 일반 커서로 처리
+                                        perpMoved >= triggerDistancePx && inwardDistancePx < bumpAppearThresholdPx -> {
+                                            // 산봉우리가 나오기 전에 엣지 방향으로 충분히 이동 → 일반 커서로 처리
+                                            // 산봉우리가 이미 나온 상태(inwardDistancePx >= bumpAppearThresholdPx)에서는 취소하지 않음
                                             isEdgeCandidate = false
                                         }
                                     }
@@ -1011,6 +1064,13 @@ fun TouchpadWrapper(
                         // 직각 이동 가이드라인 숨김 (Phase 4.3.5)
                         rightAngleGuidelineVisible = false
 
+                        // 엣지 후보 상태에서 팝업 없이 손 뗌 → 후보 취소 (산봉우리 수축 트리거)
+                        if (isEdgeCandidate && !showEdgePopup) {
+                            isEdgeCandidate = false
+                            fingerAlongEdgePx = 0f
+                            inwardDistancePx = 0f
+                        }
+
                         // 공통 상태 초기화
                         touchDownTime.value = 0L
                         touchDownPosition.value = Offset.Zero
@@ -1066,6 +1126,37 @@ fun TouchpadWrapper(
                 onTouchpadStateChange = onTouchpadStateChange,
                 onLongPress = onDynamicsLongPress,
                 showLabel = showPresetLabel
+            )
+        }
+
+        // 산봉우리 오버레이 (Phase 4.4.6)
+        // 드래그 중: lastBump*(nearest edge 기준) 사용 / 수축 중: Animatable 값 사용
+        val effectiveBumpEdge = when {
+            isEdgeCandidate || lastBumpInwardPx > 0f || isBumpShrinking -> lastBumpEntryEdge
+            else -> null
+        }
+        val effectiveBumpInward = when {
+            isBumpShrinking -> bumpShrinkAnimatable.value
+            else -> lastBumpInwardPx  // 드래그 중 및 gap 프레임 모두 커버
+        }
+        val effectiveBumpAlong = lastBumpAlongPx
+        if (effectiveBumpEdge != null && effectiveBumpInward > 0f) {
+            val maxPeakPx = with(density) { EdgeSwipeConstants.MAX_PEAK_HEIGHT_DP.dp.toPx() }
+            val baseHalfPx = with(density) { EdgeSwipeConstants.BUMP_BASE_HALF_SIZE_DP.dp.toPx() }
+            val strokePx = with(density) { EdgeSwipeConstants.BUMP_STROKE_WIDTH_DP.dp.toPx() }
+            val glowPx = with(density) { EdgeSwipeConstants.BUMP_GLOW_RADIUS_DP.dp.toPx() }
+            val glowMaxPx = with(density) { EdgeSwipeConstants.BUMP_GLOW_MAX_RADIUS_DP.dp.toPx() }
+            EdgeBumpOverlay(
+                entryEdge = effectiveBumpEdge,
+                fingerAlongEdgePx = effectiveBumpAlong,
+                inwardDistancePx = effectiveBumpInward,
+                maxPeakHeightPx = maxPeakPx,
+                baseHalfSizePx = baseHalfPx,
+                strokeWidthPx = strokePx,
+                glowRadiusPx = glowPx,
+                glowMaxRadiusPx = glowMaxPx,
+                borderColors = animatedLeftColor to animatedRightColor,
+                modifier = Modifier.fillMaxSize()
             )
         }
 
@@ -1138,6 +1229,27 @@ private fun getAlongEdgePosition(
     EntryEdge.LEFT, EntryEdge.RIGHT  -> pos.y
     EntryEdge.TOP, EntryEdge.BOTTOM  -> pos.x
     null                             -> 0f
+}
+
+/**
+ * [pos] 에서 가장 가까운 엣지를 반환합니다.
+ * 산봉우리 시각화에 사용되며, 제스처 로직과는 무관합니다.
+ */
+private fun findNearestEdge(
+    pos: androidx.compose.ui.geometry.Offset,
+    width: Float,
+    height: Float
+): EntryEdge {
+    val fromLeft   = pos.x
+    val fromRight  = width - pos.x
+    val fromTop    = pos.y
+    val fromBottom = height - pos.y
+    return when (minOf(fromLeft, fromRight, fromTop, fromBottom)) {
+        fromLeft   -> EntryEdge.LEFT
+        fromRight  -> EntryEdge.RIGHT
+        fromTop    -> EntryEdge.TOP
+        else       -> EntryEdge.BOTTOM
+    }
 }
 
 /**
