@@ -354,11 +354,13 @@ fun TouchpadWrapper(
                     if (showEdgePopup) {
                         val bgDownPos = down.changes.first().position
 
-                        // visibleModes: overlay와 동일한 로직
+                        // visibleModes: overlay와 동일한 로직 (스크롤 활성 시 CLICK/MOVE 제외)
+                        val isScrollingForPopup =
+                            (pendingEdgeState ?: latestState).scrollMode != ScrollMode.OFF
                         val visibleModes = buildList<EdgeSwipeMode> {
                             if (latestConfig.showScrollMode) add(EdgeSwipeMode.SCROLL)
-                            if (latestConfig.showClickMode) add(EdgeSwipeMode.CLICK)
-                            if (latestConfig.showMoveMode) add(EdgeSwipeMode.MOVE)
+                            if (latestConfig.showClickMode && !isScrollingForPopup) add(EdgeSwipeMode.CLICK)
+                            if (latestConfig.showMoveMode && !isScrollingForPopup) add(EdgeSwipeMode.MOVE)
                             if (latestConfig.showCursorMode) add(EdgeSwipeMode.CURSOR)
                         }
                         val modeCount = visibleModes.size

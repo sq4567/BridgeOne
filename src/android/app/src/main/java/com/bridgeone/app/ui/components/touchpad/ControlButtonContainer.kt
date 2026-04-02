@@ -11,6 +11,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -179,11 +181,11 @@ fun ControlButtonContainer(
                 // 1. ClickModeButton: 고정 크기 Box 내 슬라이드 애니메이션
                 // Box가 항상 공간을 차지 → ScrollModeButton 위치 고정
                 if (config.showClickMode) {
-                    Box(modifier = Modifier.size(buttonWidth, controlHeight).clipToBounds()) {
+                    Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
                         androidx.compose.animation.AnimatedVisibility(
                             visible = touchpadState.isCursorMoveActive,
-                            enter = slideInVertically(tween(200)) { -it } + fadeIn(tween(200)),
-                            exit = slideOutVertically(tween(200)) { -it } + fadeOut(tween(200))
+                            enter = scaleIn(tween(200), initialScale = 0.7f) + fadeIn(tween(200)),
+                            exit = scaleOut(tween(200), targetScale = 0.7f) + fadeOut(tween(200))
                         ) {
                             ControlButton(
                                 text = if (touchpadState.clickMode == ClickMode.LEFT_CLICK)
@@ -206,11 +208,11 @@ fun ControlButtonContainer(
 
                 // 2. MoveModeButton: 고정 크기 Box 내 슬라이드 애니메이션
                 if (config.showMoveMode) {
-                    Box(modifier = Modifier.size(buttonWidth, controlHeight).clipToBounds()) {
+                    Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
                         androidx.compose.animation.AnimatedVisibility(
                             visible = touchpadState.isCursorMoveActive,
-                            enter = slideInVertically(tween(200)) { -it } + fadeIn(tween(200)),
-                            exit = slideOutVertically(tween(200)) { -it } + fadeOut(tween(200))
+                            enter = scaleIn(tween(200), initialScale = 0.7f) + fadeIn(tween(200)),
+                            exit = scaleOut(tween(200), targetScale = 0.7f) + fadeOut(tween(200))
                         ) {
                             ControlButton(
                                 text = if (touchpadState.moveMode == MoveMode.FREE)
@@ -269,15 +271,15 @@ fun ControlButtonContainer(
                 // 5. DPI / ScrollSensitivity 슬롯 (우측 옵션 버튼)
                 // Phase 4.3.2: DPI ↔ ScrollSensitivity 동일 슬롯에서 슬라이드 교체
                 if (hasRightSlot) {
-                    Box(modifier = Modifier.size(buttonWidth, controlHeight).clipToBounds()) {
+                    Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
                         if (config.showDpi) {
                             // showScrollSensitivity=false이면 항상 표시 (스왑 불필요)
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = if (config.showScrollSensitivity) touchpadState.isCursorMoveActive else true,
-                                enter = slideInVertically(tween(200, delayMillis = 200)) { -it }
-                                        + fadeIn(tween(200, delayMillis = 200)),
-                                exit = slideOutVertically(tween(200)) { -it }
-                                        + fadeOut(tween(200))
+                                enter = scaleIn(tween(200, delayMillis = 150), initialScale = 0.7f)
+                                        + fadeIn(tween(200, delayMillis = 150)),
+                                exit = scaleOut(tween(150), targetScale = 0.7f)
+                                        + fadeOut(tween(150))
                             ) {
                                 val customMultiplier = touchpadState.customDpiMultiplier
                                 val isCustomDpi = customMultiplier != null
@@ -330,10 +332,10 @@ fun ControlButtonContainer(
                             // showDpi=false이면 항상 표시 (스왑 불필요)
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = if (config.showDpi) touchpadState.isScrollActive else true,
-                                enter = slideInVertically(tween(200, delayMillis = 200)) { -it }
-                                        + fadeIn(tween(200, delayMillis = 200)),
-                                exit = slideOutVertically(tween(200)) { -it }
-                                        + fadeOut(tween(200))
+                                enter = scaleIn(tween(200, delayMillis = 150), initialScale = 0.7f)
+                                        + fadeIn(tween(200, delayMillis = 150)),
+                                exit = scaleOut(tween(150), targetScale = 0.7f)
+                                        + fadeOut(tween(150))
                             ) {
                                 ControlButton(
                                     text = "스크롤\n${touchpadState.scrollSensitivity.label}",

@@ -1,6 +1,9 @@
 package com.bridgeone.app.ui.components.touchpad
 
 import android.graphics.BlurMaskFilter
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,9 +24,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -43,6 +53,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Row
 import com.bridgeone.app.R
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 // ============================================================
 // 진입 엣지
@@ -77,7 +89,6 @@ enum class EdgeSwipeMode { SCROLL, CLICK, MOVE, CURSOR }
  * - 스와이프: 손가락 위치 → 해당 존의 버튼이 하이라이트(선택)
  * - 탭 (이동 거리 < 임계값): 선택된 모드 버튼 ON/OFF 토글 (대기 상태 변경만)
  * - 확인 버튼 탭: 대기 상태를 실제 상태에 적용 + 팝업 닫기
- * 애니메이션은 Phase 4.3.13에서 추가됩니다.
  *
  * @param visible              표시 여부 (showEdgePopup 상태)
  * @param pendingState         표시할 대기 상태 (팝업 열릴 때 현재 상태로 초기화, 탭 토글로 갱신)
@@ -108,14 +119,138 @@ fun EdgeSwipeOverlay(
     inwardDistancePx: Float = 0f,
     modifier: Modifier = Modifier
 ) {
-    if (!visible && !isModeSelecting) return
+    // ── 표시 가능한 모드 목록 (애니메이션 개수 계산에도 사용) ──
+    // configuredModes: config 기반 전체 목록 (스크롤 필터 없음)
+    // visibleModes: 스크롤 모드 활성 시 CLICK/MOVE 제외
+    val configuredModes = buildList {
+        if (config.showScrollMode) add(EdgeSwipeMode.SCROLL)
+        if (config.showClickMode) add(EdgeSwipeMode.CLICK)
+        if (config.showMoveMode) add(EdgeSwipeMode.MOVE)
+        if (config.showCursorMode) add(EdgeSwipeMode.CURSOR)
+    }
+    val isScrolling = pendingState.scrollMode != ScrollMode.OFF
+    val visibleModes = configuredModes.filter { mode ->
+        mode != EdgeSwipeMode.CLICK && mode != EdgeSwipeMode.MOVE || !isScrolling
+    }
+
+    // ── 등장/소멸 애니메이션 상태 (Phase 4.4.7) ──
+    val bgAlpha = remember { Animatable(0f) }
+    val maxAnimItems = 6 // 최대 4 모드 + 확인 + 여유
+    val itemOffsets = remember { List(maxAnimItems) { Animatable(40f) } }
+    val itemAlphas = remember { List(maxAnimItems) { Animatable(0f) } }
+    val hintAlpha = remember { Animatable(0f) }
+    var isActive by remember { mutableStateOf(false) }
+    // 실제 렌더링에 사용하는 목록 — 애니메이션 완료 후 visibleModes와 동기화됨
+    var displayedModes by remember { mutableStateOf(visibleModes) }
+
+    val shouldShow = visible || isModeSelecting
+
+    LaunchedEffect(isModeSelecting, visible) {
+        if (shouldShow) {
+            isActive = true
+            itemAlphas.forEach { it.snapTo(0f) }
+            hintAlpha.snapTo(0f)
+
+            // 배경 fade-in (이전 단계에서 이미 올라가 있으면 건너뜀)
+            if (bgAlpha.value < 0.3f) {
+                launch { bgAlpha.animateTo(0.6f, tween(200)) }
+            }
+
+            // 아이템 개수: 모드 선택기는 카드 2개, 팝업은 모드 버튼 + 확인
+            displayedModes = visibleModes
+            val count = if (isModeSelecting) 2 else (displayedModes.size + 1)
+
+            if (isModeSelecting) {
+                // 모드 선택기 카드: scale 0.7 → 1.0 + fade-in
+                itemOffsets.forEach { it.snapTo(0.7f) }
+                repeat(2) { i ->
+                    launch {
+                        delay(i * 30L)
+                        launch { itemOffsets[i].animateTo(1f, tween(250, easing = FastOutSlowInEasing)) }
+                        launch { itemAlphas[i].animateTo(1f, tween(200)) }
+                    }
+                }
+            } else {
+                // 팝업 아이콘: scale 0.7 → 1.0 + fade-in
+                itemOffsets.forEach { it.snapTo(0.7f) }
+                repeat(count.coerceAtMost(maxAnimItems)) { i ->
+                    launch {
+                        delay(i * 30L)
+                        launch { itemOffsets[i].animateTo(1f, tween(250, easing = FastOutSlowInEasing)) }
+                        launch { itemAlphas[i].animateTo(1f, tween(200)) }
+                    }
+                }
+            }
+
+            // 힌트 카드 fade-in
+            delay(count.coerceAtMost(maxAnimItems) * 30L + 150L)
+            hintAlpha.animateTo(1f, tween(150))
+        } else {
+            if (!isActive) return@LaunchedEffect
+            // 소멸 애니메이션: 전체 fade-out
+            launch { hintAlpha.animateTo(0f, tween(100)) }
+            itemAlphas.forEach { anim -> launch { anim.animateTo(0f, tween(150)) } }
+            delay(100)
+            bgAlpha.animateTo(0f, tween(200))
+            isActive = false
+        }
+    }
+
+    // 팝업이 열린 상태에서 스크롤 모드 토글 시 아이템 등장/소멸 애니메이션 (Phase 4.4.7)
+    LaunchedEffect(visibleModes) {
+        if (!isActive) {
+            displayedModes = visibleModes
+            return@LaunchedEffect
+        }
+
+        val oldDisplayed = displayedModes
+        val removedModes = oldDisplayed.filter { it !in visibleModes }
+
+        // 1단계: 제거될 항목을 먼저 fade-out
+        if (removedModes.isNotEmpty()) {
+            removedModes.forEach { mode ->
+                val idx = oldDisplayed.indexOf(mode)
+                launch { itemAlphas[idx].animateTo(0f, tween(200)) }
+                launch { itemOffsets[idx].animateTo(0.7f, tween(200, easing = FastOutSlowInEasing)) }
+            }
+            delay(220)
+        }
+
+        // 2단계: 남은 항목과 확인 버튼이 새 인덱스로 이동할 때 alpha/offset 동기화
+        val newDisplayed = visibleModes
+        newDisplayed.forEachIndexed { newIdx, mode ->
+            if (mode in oldDisplayed) {
+                itemAlphas[newIdx].snapTo(1f)
+                itemOffsets[newIdx].snapTo(1f)
+            }
+        }
+        val newConfirmIdx = newDisplayed.size
+        if (newConfirmIdx < maxAnimItems) {
+            itemAlphas[newConfirmIdx].snapTo(1f)
+            itemOffsets[newConfirmIdx].snapTo(1f)
+        }
+
+        displayedModes = newDisplayed
+
+        // 3단계: 새로 추가된 항목 fade-in
+        val addedModes = newDisplayed.filter { it !in oldDisplayed }
+        addedModes.forEach { mode ->
+            val newIdx = newDisplayed.indexOf(mode)
+            itemAlphas[newIdx].snapTo(0f)
+            itemOffsets[newIdx].snapTo(0.7f)
+            launch { itemAlphas[newIdx].animateTo(1f, tween(200)) }
+            launch { itemOffsets[newIdx].animateTo(1f, tween(200, easing = FastOutSlowInEasing)) }
+        }
+    }
+
+    if (!isActive) return
 
     // ═══ EdgePopupModeSelector (팝업 모드 선택기) ═══
     if (isModeSelecting) {
         BoxWithConstraints(
             modifier = modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.6f))
+                .background(Color.Black.copy(alpha = bgAlpha.value))
         ) {
             val isHorizontalLayout = maxWidth >= 400.dp
             // 힌트 텍스트도 카드 배치 방향에 맞춤
@@ -131,12 +266,18 @@ fun EdgeSwipeOverlay(
                     ModeSelectCard(
                         title = "직접 터치",
                         iconResId = R.drawable.ic_l_click,
-                        isHighlighted = selectedPopupMode == EdgePopupMode.DIRECT_TOUCH
+                        isHighlighted = selectedPopupMode == EdgePopupMode.DIRECT_TOUCH,
+                        modifier = Modifier
+                            .alpha(itemAlphas[0].value)
+                            .scale(itemOffsets[0].value)
                     )
                     ModeSelectCard(
                         title = "스와이프",
                         iconResId = R.drawable.ic_scroll,
-                        isHighlighted = selectedPopupMode == EdgePopupMode.SWIPE
+                        isHighlighted = selectedPopupMode == EdgePopupMode.SWIPE,
+                        modifier = Modifier
+                            .alpha(itemAlphas[1].value)
+                            .scale(itemOffsets[1].value)
                     )
                 }
             } else {
@@ -148,12 +289,18 @@ fun EdgeSwipeOverlay(
                     ModeSelectCard(
                         title = "직접 터치",
                         iconResId = R.drawable.ic_l_click,
-                        isHighlighted = selectedPopupMode == EdgePopupMode.DIRECT_TOUCH
+                        isHighlighted = selectedPopupMode == EdgePopupMode.DIRECT_TOUCH,
+                        modifier = Modifier
+                            .alpha(itemAlphas[0].value)
+                            .scale(itemOffsets[0].value)
                     )
                     ModeSelectCard(
                         title = "스와이프",
                         iconResId = R.drawable.ic_scroll,
-                        isHighlighted = selectedPopupMode == EdgePopupMode.SWIPE
+                        isHighlighted = selectedPopupMode == EdgePopupMode.SWIPE,
+                        modifier = Modifier
+                            .alpha(itemAlphas[1].value)
+                            .scale(itemOffsets[1].value)
                     )
                 }
             }
@@ -161,6 +308,7 @@ fun EdgeSwipeOverlay(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                    .alpha(hintAlpha.value)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF2A2A2A).copy(alpha = 0.9f))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -178,22 +326,16 @@ fun EdgeSwipeOverlay(
         return
     }
 
-    val visibleModes = buildList {
-        if (config.showScrollMode) add(EdgeSwipeMode.SCROLL)
-        if (config.showClickMode) add(EdgeSwipeMode.CLICK)
-        if (config.showMoveMode) add(EdgeSwipeMode.MOVE)
-        if (config.showCursorMode) add(EdgeSwipeMode.CURSOR)
-    }
-    if (visibleModes.isEmpty()) return
+    if (configuredModes.isEmpty()) return
 
-    val confirmIndex = visibleModes.size
+    val confirmIndex = displayedModes.size
     val isDirectTouch = selectedPopupMode == EdgePopupMode.DIRECT_TOUCH
 
-    // 어두운 반투명 배경 — 즉시 표시 (fade-in 애니메이션은 Phase 4.3.13)
+    // 어두운 반투명 배경 — fade-in 애니메이션 적용 (Phase 4.4.7)
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f))
+            .background(Color.Black.copy(alpha = bgAlpha.value))
     ) {
         if (isDirectTouch && popupAnchorPx != Offset.Zero) {
             // ═══ 직접 터치 모드: 앵커 위치 중심 작은 버튼 그리드 ═══
@@ -207,8 +349,8 @@ fun EdgeSwipeOverlay(
                 val buttonSizeDp = EdgeSwipeConstants.EDGE_POPUP_DIRECT_BUTTON_SIZE_DP.dp
                 val confirmHeightDp = EdgeSwipeConstants.EDGE_POPUP_DIRECT_CONFIRM_HEIGHT_DP.dp
 
-                val cols = if (visibleModes.size <= 1) 1 else 2
-                val modeRows = (visibleModes.size + cols - 1) / cols
+                val cols = if (displayedModes.size <= 1) 1 else 2
+                val modeRows = (displayedModes.size + cols - 1) / cols
                 val gridW = cols * buttonSizePx + (cols - 1) * gapPx
                 val gridH = modeRows * buttonSizePx + modeRows * gapPx + confirmHeightPx
 
@@ -216,12 +358,11 @@ fun EdgeSwipeOverlay(
                 val gridTop = (popupAnchorPx.y - gridH / 2).coerceIn(0f, (containerH - gridH).coerceAtLeast(0f))
 
                 // 모드 버튼
-                visibleModes.forEachIndexed { index, mode ->
+                displayedModes.forEachIndexed { index, mode ->
                     val row = index / cols
                     val col = index % cols
                     val x = gridLeft + col * (buttonSizePx + gapPx)
                     val y = gridTop + row * (buttonSizePx + gapPx)
-
                     val info = modeCurrentInfo(mode, pendingState)
                     val contentColor = contentColorFor(info.color)
                     val isSel = selectedIndex == index
@@ -229,6 +370,8 @@ fun EdgeSwipeOverlay(
                     Box(
                         modifier = Modifier
                             .offset { IntOffset(x.toInt(), y.toInt()) }
+                            .alpha(itemAlphas[index].value)
+                            .scale(itemOffsets[index].value)
                             .size(buttonSizeDp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(info.color.copy(alpha = if (isSel) 1.0f else 0.85f))
@@ -255,6 +398,8 @@ fun EdgeSwipeOverlay(
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(confirmX.toInt(), confirmY.toInt()) }
+                        .alpha(itemAlphas[confirmIndex].value)
+                        .scale(itemOffsets[confirmIndex].value)
                         .width(buttonSizeDp)
                         .height(confirmHeightDp)
                         .clip(RoundedCornerShape(8.dp))
@@ -290,11 +435,14 @@ fun EdgeSwipeOverlay(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     maxItemsInEachRow = 2
                 ) {
-                    visibleModes.forEachIndexed { index, mode ->
+                    displayedModes.forEachIndexed { index, mode ->
                         EdgeSwipeModeItem(
                             mode = mode,
                             pendingState = pendingState,
-                            isSelected = selectedIndex == index
+                            isSelected = selectedIndex == index,
+                            modifier = Modifier
+                                .alpha(itemAlphas[index].value)
+                                .scale(itemOffsets[index].value)
                         )
                     }
                 }
@@ -302,6 +450,8 @@ fun EdgeSwipeOverlay(
                 // 확인 버튼
                 Box(
                     modifier = Modifier
+                        .alpha(itemAlphas[confirmIndex].value)
+                        .scale(itemOffsets[confirmIndex].value)
                         .width(176.dp)
                         .height(44.dp)
                         .clip(RoundedCornerShape(8.dp))
@@ -331,6 +481,8 @@ fun EdgeSwipeOverlay(
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
+                    .alpha(itemAlphas[0].value)
+                    .scale(itemOffsets[0].value)
                     .padding(horizontal = 40.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xFF2A2A2A).copy(alpha = 0.95f))
@@ -353,6 +505,7 @@ fun EdgeSwipeOverlay(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                .alpha(hintAlpha.value)
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF2A2A2A).copy(alpha = 0.9f))
                 .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -386,7 +539,8 @@ fun EdgeSwipeOverlay(
 private fun EdgeSwipeModeItem(
     mode: EdgeSwipeMode,
     pendingState: TouchpadState,
-    isSelected: Boolean
+    isSelected: Boolean,
+    modifier: Modifier = Modifier
 ) {
     val info = modeCurrentInfo(mode, pendingState)
 
@@ -394,7 +548,7 @@ private fun EdgeSwipeModeItem(
     val contentColor = contentColorFor(info.color)
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(80.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(info.color.copy(alpha = if (isSelected) 1.0f else 0.75f))
@@ -441,10 +595,11 @@ private fun EdgeSwipeModeItem(
 private fun ModeSelectCard(
     title: String,
     iconResId: Int,
-    isHighlighted: Boolean
+    isHighlighted: Boolean,
+    modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(100.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(

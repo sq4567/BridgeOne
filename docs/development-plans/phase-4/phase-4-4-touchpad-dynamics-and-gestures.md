@@ -804,13 +804,23 @@ updated: "2026-04-02"
 - `DynamicsPresetPopup.kt` — 팝업 fade-in/out 애니메이션 구조 참조
 
 **검증 (UX — 에뮬레이터/실기기 UI 확인)**:
-- [ ] 팝업 배경 fade-in (200ms) 확인
-- [ ] 아이콘 stagger slide-up 등장 (30ms 간격) 확인
-- [ ] 취소/확정 시 팝업 fade-out 확인
+- [x] 팝업 배경 fade-in (200ms) 확인
+- [x] 아이콘 stagger 등장 (30ms 간격) 확인 — **구현 변경**: slide-up 대신 scale 0.7→1.0 + fade-in으로 교체 (유저 피드백)
+- [x] 취소/확정 시 팝업 fade-out 확인
+
+**계획과 다르게 구현된 부분 (Phase 4.4.7)**:
+1. **아이콘 등장 애니메이션**: `slide-up (offset 40→0)` → `scale 0.7→1.0 + fade-in` 으로 변경. 모드 선택기 카드 2개에도 동일 적용.
+2. **스크롤 모드 시 CLICK/MOVE 숨김 (계획 외 추가)**: 스크롤 모드 활성화 시 `EdgeSwipeOverlay`의 팝업에서 CLICK/MOVE 버튼 제외. 팝업 내에서 토글 시 fade-out/in 애니메이션 적용. `displayedModes` 상태를 `visibleModes`와 분리하여 제거 전 애니메이션 후 목록 갱신하는 구조 도입.
+3. **`ControlButtonContainer` 버튼 애니메이션 교체 (계획 외 추가)**: 스크롤 모드 토글 시 ClickMode/MoveMode/DPI/ScrollSensitivity 버튼의 `slideInVertically/slideOutVertically` → `scaleIn/scaleOut + fadeIn/fadeOut`으로 교체.
+4. **`TouchpadWrapper.kt` visibleModes 스크롤 필터 추가 (계획 외 버그픽스)**: 팝업 제스처 처리(`visibleModes`, `modeCount`, `buttonRects`)가 스크롤 상태를 반영하지 않아 인덱스 불일치 발생 → `isScrollingForPopup` 변수로 CLICK/MOVE 필터링 추가.
 
 ---
 
 ## Phase 4.4.8: 모드 프리셋 버튼
+
+> **⚠️ Phase 4.4.7 변경사항**:
+> - `TouchpadWrapper.kt` 제스처 블록(showEdgePopup 분기) 내 `visibleModes` 계산에 스크롤 필터 추가됨. `isScrollingForPopup` 변수가 해당 블록에 선언되어 있으므로, Phase 4.4.8에서 동일 블록 수정 시 변수명 충돌 주의.
+> - `EdgeSwipeOverlay.kt`에 `displayedModes` 상태 추가됨 (렌더링 목록). 향후 EdgeSwipeOverlay를 수정할 경우 `visibleModes`(필터된 실제 상태)와 `displayedModes`(애니메이션 완료 전까지 이전 목록 유지) 두 변수를 구분하여 사용해야 함.
 
 **목표**: 여러 개의 모드 구성 스냅샷(프리셋)을 저장해두고 버튼 하나로 즉시 전환하는 `ModePresetButton`을 구현합니다. 탭으로 순환, 롱프레스로 팝업 선택 방식이며, `DynamicsPresetButton` (Phase 4.4.1)과 동일한 패턴을 재사용합니다.
 
