@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.9: 리팩터링"
-description: "BridgeOne 프로젝트 Phase 4.9 - 조정 가능 상수 중앙화 및 Deprecated API 교체"
+title: "BridgeOne Phase 4.10: 리팩터링"
+description: "BridgeOne 프로젝트 Phase 4.10 - 조정 가능 상수 중앙화 및 Deprecated API 교체"
 tags: ["android", "refactoring", "constants", "maintainability"]
 version: "v1.2"
 owner: "Chatterbones"
 updated: "2026-04-01"
 ---
 
-# BridgeOne Phase 4.9: 리팩터링
+# BridgeOne Phase 4.10: 리팩터링
 
 **개발 기간**: 미정
 
@@ -15,14 +15,14 @@ updated: "2026-04-01"
 
 | 하위 Phase | 내용 | 상태 |
 |-----------|------|------|
-| 4.9.1 | 조정 가능 상수 중앙화 | 미시작 |
-| 4.9.2 | Deprecated API 교체 | 미시작 |
+| 4.10.1 | 조정 가능 상수 중앙화 | 미시작 |
+| 4.10.2 | Deprecated API 교체 | 미시작 |
 
-**선행 조건**: Phase 4.8 완료
+**선행 조건**: Phase 4.9 완료
 
 ---
 
-## Phase 4.9.1: AppConstants.kt 신규 생성 및 상수 통합
+## Phase 4.10.1: AppConstants.kt 신규 생성 및 상수 통합
 
 **개발 기간**: 0.5일
 
@@ -133,7 +133,7 @@ object AppConstants {
 
 ---
 
-## Phase 4.9.2: Deprecated API 교체
+## Phase 4.10.2: Deprecated API 교체
 
 **개발 기간**: 0.5일 미만
 

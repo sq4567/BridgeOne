@@ -73,9 +73,9 @@ Standard 모드
        when (page) {
            0 -> Page1TouchpadActions(...)
            1 -> Page2AbsolutePointing(...)  // 절대좌표 패드, 임시 Placeholder
-           1 -> Page2AbsolutePointing(...)  // Phase 4.4에서 구현, 임시 Placeholder
-           2 -> Page3KeyboardCentric(...)   // Phase 4.5에서 구현, 임시 Placeholder
-           3 -> Page4Minecraft(...)          // Phase 4.6에서 구현, 임시 Placeholder
+           1 -> Page2AbsolutePointing(...)  // Phase 4.6에서 구현, 임시 Placeholder
+           2 -> Page3KeyboardCentric(...)   // Phase 4.7에서 구현, 임시 Placeholder
+           3 -> Page4Minecraft(...)          // Phase 4.8에서 구현, 임시 Placeholder
        }
    }
    ```
@@ -265,7 +265,7 @@ Standard 모드
 - `StandardModePage.kt`: Shortcuts placeholder → `ShortcutsGrid()` 교체 (SpecialKeysGrid와 동일 패턴: chunked(2) + Row)
 - HID 실제 전송 연결은 Phase 4.3 이후 실기기 검증 시 추가 (현재 Log만 출력)
 
-> **⚠️ Phase 4.5.4 참고**: `ShortcutButton` + `ShortcutDef`는 `ui/components/`에 public으로 구현됨. Page 3 Shortcuts 패널(12개)에서 그대로 재사용 가능. 추가 단축키는 `ShortcutDef` 인스턴스만 새로 정의하면 됨.
+> **⚠️ Phase 4.6.4 참고**: `ShortcutButton` + `ShortcutDef`는 `ui/components/`에 public으로 구현됨. Page 3 Shortcuts 패널(12개)에서 그대로 재사용 가능. 추가 단축키는 `ShortcutDef` 인스턴스만 새로 정의하면 됨.
 
 **검증**:
 - [x] 8개 단축키 2열 그리드 렌더링
@@ -387,8 +387,8 @@ StandardModePage
 │   │       ├── Special Keys (8개, 2열 그리드)
 │   │       ├── Shortcuts (8개, ShortcutButton, 2열 그리드)
 │   │       └── Macros (3개, Disabled placeholder)
-│   ├── Page 2: Placeholder ← Phase 4.4에서 구현 (AbsolutePointingPad)
-│   ├── Page 3: Placeholder ← Phase 4.5에서 구현 (키보드)
-│   └── Page 4: Placeholder ← Phase 4.6에서 구현 (Minecraft)
+│   ├── Page 2: Placeholder ← Phase 4.6에서 구현 (AbsolutePointingPad)
+│   ├── Page 3: Placeholder ← Phase 4.7에서 구현 (키보드)
+│   └── Page 4: Placeholder ← Phase 4.8에서 구현 (Minecraft)
 └── PageIndicator (닷 4개)
 ```

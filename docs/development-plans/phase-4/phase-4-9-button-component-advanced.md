@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.8: 버튼 컴포넌트 고급 기능"
-description: "BridgeOne 프로젝트 Phase 4.8 - KeyboardKeyButton Sticky Hold, ContainerButton, Essential 모드 UI 재정비"
+title: "BridgeOne Phase 4.9: 버튼 컴포넌트 고급 기능"
+description: "BridgeOne 프로젝트 Phase 4.9 - KeyboardKeyButton Sticky Hold, ContainerButton, Essential 모드 UI 재정비"
 tags: ["android", "button", "sticky-hold", "container-button", "essential", "ui"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-03-26"
 ---
 
-# BridgeOne Phase 4.8: 버튼 컴포넌트 고급 기능
+# BridgeOne Phase 4.9: 버튼 컴포넌트 고급 기능
 
 **개발 기간**: 2-3일
 
@@ -18,13 +18,13 @@ updated: "2026-03-26"
 - ContainerButton (하위 버튼 그룹화, 팝업 오버레이, 일반/지속 모드)
 - Essential 모드 EssentialModePage 재정비 (스타일프레임 완전 준수)
 
-**선행 조건**: Phase 4.6 (Page 4 키보드) 완료
+**선행 조건**: Phase 4.7 (Page 4 키보드) 완료
 
 **에뮬레이터 호환성**: ContainerButton 팝업 오버레이, Essential 모드 UI 재정비 전체 에뮬레이터에서 개발 가능.
 
 ---
 
-## Phase 4.8.1: KeyboardKeyButton Sticky Hold
+## Phase 4.9.1: KeyboardKeyButton Sticky Hold
 
 **개발 기간**: 0.5-1일
 
@@ -40,7 +40,7 @@ updated: "2026-03-26"
 5. `stickyActivatedDuringPress` 플래그로 손 뗌 시 해제 방지
 6. 재탭 시 `onKeyReleased` → `isStickyLatched = false`
 
-**별도 처리 항목** (Phase 4.5.3에서 함께 추가):
+**별도 처리 항목** (Phase 4.6.3에서 함께 추가):
 - `stickyHoldEnabled` 파라미터 (현재는 항상 활성)
 - 햅틱 피드백 (Hold 진입/해제 시)
 
@@ -51,7 +51,7 @@ updated: "2026-03-26"
 
 ---
 
-## Phase 4.8.2: ContainerButton 컴포넌트
+## Phase 4.9.2: ContainerButton 컴포넌트
 
 **목표**: 하위 버튼을 그룹화하여 팝업 오버레이로 표시하는 ContainerButton
 
@@ -101,7 +101,7 @@ updated: "2026-03-26"
 
 ---
 
-## Phase 4.8.3: Essential 모드 UI 재정비
+## Phase 4.9.3: Essential 모드 UI 재정비
 
 **목표**: Essential 모드 페이지를 스타일프레임에 완전히 준수하도록 재정비
 
@@ -120,7 +120,7 @@ updated: "2026-03-26"
    ```
    - 두 토스트 순차 표시, 사이 간격 300ms
 3. Boot Keyboard Cluster 재정비:
-   - `FKeyPopupDialog` → Phase 4.8.2의 `ContainerButton`으로 교체
+   - `FKeyPopupDialog` → Phase 4.9.2의 `ContainerButton`으로 교체
    - Del 키: 최상단 독립 배치 (BIOS 진입용 강조)
    - F1-F12: ContainerButton으로 그룹화 (3×4 그리드 팝업)
    - Esc/Enter: 한 줄 배치
@@ -161,18 +161,18 @@ updated: "2026-03-26"
 
 ---
 
-## Phase 4.8 완료 후 컴포넌트 기능 매트릭스
+## Phase 4.9 완료 후 컴포넌트 기능 매트릭스
 
 | 컴포넌트 | 기본 기능 | 고급 기능 | 구현 Phase |
 |----------|----------|----------|-----------|
-| KeyboardKeyButton | ✅ 탭 KeyDown/KeyUp | ⏳ Sticky Hold (4.6.1), Key Repeat (4.4.3) | 4.6.1 + 4.4.3 |
+| KeyboardKeyButton | ✅ 탭 KeyDown/KeyUp | ⏳ Sticky Hold (4.7.1), Key Repeat (4.5.3) | 4.7.1 + 4.5.3 |
 | ShortcutButton | ✅ 키 조합 순차 전송 | ✅ 디바운스, Alt+Tab 홀드 | 4.2.4 |
-| ContainerButton | — | ✅ 일반/지속 팝업 모드 | 4.6.2 |
+| ContainerButton | — | ✅ 일반/지속 팝업 모드 | 4.7.2 |
 | MacroButton | — | ⏳ Phase 5+ (Disabled placeholder) | 4.2.5 (placeholder) |
-| DPad | ✅ 4방향+대각선 탭 | ✅ Sticky Hold, 드래그 전환 | 4.5.1 + 4.5.2 |
-| ModifiersBar | — | ✅ 3단계 Sticky (탭/더블탭/롱프레스) | 4.4.1 |
-| MediaControlButton | — | ✅ Play/Pause 토글, Stop | 4.4.4 |
-| LockKeyButton | — | ✅ HID LED 동기화 | 4.4.4 |
+| DPad | ✅ 4방향+대각선 탭 | ✅ Sticky Hold, 드래그 전환 | 4.6.1 + 4.6.2 |
+| ModifiersBar | — | ✅ 3단계 Sticky (탭/더블탭/롱프레스) | 4.5.1 |
+| MediaControlButton | — | ✅ Play/Pause 토글, Stop | 4.5.4 |
+| LockKeyButton | — | ✅ HID LED 동기화 | 4.5.4 |
 
 ---
 
@@ -183,10 +183,11 @@ updated: "2026-03-26"
 | **4.1** | 스플래시 & 연결 대기 | 3-4일 | 앱 진입 흐름 완성 |
 | **4.2** | Page 1 터치패드+Actions | 4-5일 | Standard 메인 페이지, ShortcutButton |
 | **4.3** | 터치패드 고급 기능 | 5-7일 | 스크롤, 직각 이동, DPI, 가이드라인 |
-| **4.4** | Page 2 절대좌표 패드 | 3-4일 | AbsolutePointingPad, 줌 기능, Vendor CDC 줌 오버레이 |
-| **4.5** | Page 3 키보드 중심 | 4.5-5.5일 | KeyDisplayRegistry, Modifiers Sticky, Key Repeat, Lock Keys LED 동기화 |
-| **4.6** | Page 4 Minecraft | 4-5일 | DPad Sticky Hold, 게임 최적화 |
-| **4.7** | 버튼 고급 기능 | 2-3일 | Sticky Hold 구현, ContainerButton, Essential 재정비 |
+| **4.5** | Page 2 멀티 커서 | 6-8일 | 풀 와이드 터치패드, 멀티 커서, 그리드 분할 |
+| **4.6** | Page 3 절대좌표 패드 | 3-4일 | AbsolutePointingPad, 줌 기능, Vendor CDC 줌 오버레이 |
+| **4.7** | Page 4 키보드 중심 | 4.5-5.5일 | KeyDisplayRegistry, Modifiers Sticky, Key Repeat, Lock Keys LED 동기화 |
+| **4.8** | Page 5 Minecraft | 4-5일 | DPad Sticky Hold, 게임 최적화 |
+| **4.9** | 버튼 고급 기능 | 2-3일 | Sticky Hold 구현, ContainerButton, Essential 재정비 |
 | **합계** | | **25.5-33.5일** | |
 
 ### Phase 4 완료 후 미구현 항목 (Phase 5+)

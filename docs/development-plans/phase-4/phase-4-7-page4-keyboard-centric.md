@@ -1,17 +1,17 @@
 ---
-title: "BridgeOne Phase 4.6: Page 4 — 키보드 중심 페이지"
-description: "BridgeOne 프로젝트 Phase 4.6 - Standard 모드 Page 4: Modifiers, Navigation/Editing, Function Row, Shortcuts, Media, Lock Keys"
+title: "BridgeOne Phase 4.7: Page 4 — 키보드 중심 페이지"
+description: "BridgeOne 프로젝트 Phase 4.7 - Standard 모드 Page 4: Modifiers, Navigation/Editing, Function Row, Shortcuts, Media, Lock Keys"
 tags: ["android", "keyboard", "modifiers", "shortcuts", "media", "lock-keys", "ui"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-04-01"
 ---
 
-# BridgeOne Phase 4.6: Page 4 — 키보드 중심 페이지
+# BridgeOne Phase 4.7: Page 4 — 키보드 중심 페이지
 
 **개발 기간**: 4.5-5.5일
 
-**목표**: 키보드 입력과 단축키 트리거에 특화된 Page 4를 구현합니다. 터치패드 없이 키 입력에 집중하는 전용 인터페이스입니다. Phase 4.6.1에서 키 디스플레이 레지스트리를 먼저 구축하여, 이후 모든 키 배치에서 아이콘 자동 표시를 활용합니다.
+**목표**: 키보드 입력과 단축키 트리거에 특화된 Page 4를 구현합니다. 터치패드 없이 키 입력에 집중하는 전용 인터페이스입니다. Phase 4.7.1에서 키 디스플레이 레지스트리를 먼저 구축하여, 이후 모든 키 배치에서 아이콘 자동 표시를 활용합니다.
 
 **핵심 성과물**:
 - Modifiers Bar (Ctrl/Shift/Alt/Win) — Sticky/토글/홀드 3단계
@@ -37,7 +37,7 @@ updated: "2026-04-01"
 - `KeyboardKeyButton.kt`: **Sticky Hold 이미 구현됨** (500ms 롱프레스 → 키 유지 → 재탭 해제)
   - Fill 애니메이션 (좌→우), 오렌지 테두리, 색상 전환
   - `isStickyLatched`, `stickyActivatedDuringPress` 상태 관리
-  - **⚠️ Phase 4.2.3 완료**: Key Repeat 파라미터(`repeatEnabled`, `stickyHoldEnabled`, `repeatInitialDelayMs`, `repeatIntervalMs`, `onRepeatStart`) 이미 추가됨. Phase 4.6.3에서 `KeyboardKeyButton.kt` 추가 수정 불필요.
+  - **⚠️ Phase 4.2.3 완료**: Key Repeat 파라미터(`repeatEnabled`, `stickyHoldEnabled`, `repeatInitialDelayMs`, `repeatIntervalMs`, `onRepeatStart`) 이미 추가됨. Phase 4.7.3에서 `KeyboardKeyButton.kt` 추가 수정 불필요.
 - `HidConstants.kt`: KEY_F1~F12, 방향키, 수정자 키, `isModifierKeyCode()`, `modifierBitFlag()` 완비. **Phase 4.2.3에서 `KEY_TAB`, `KEY_BACKSPACE`, `KEY_SPACE`, `KEY_HOME`, `KEY_END` 추가됨.** **Phase 4.2.4에서 문자 키(`KEY_C`, `KEY_D`, `KEY_S`, `KEY_V`, `KEY_X`, `KEY_Z`) + 수정자 비트플래그 상수(`MOD_BIT_LCTRL`, `MOD_BIT_LSHIFT`, `MOD_BIT_LALT`, `MOD_BIT_LGUI`) + 수정자 키 코드(`MOD_KEY_LCTRL` 등) 추가됨.**
 - ~~`StandardModePage.kt` → `KeyboardPage`: 수정자 키 추적 (`activeModifierKeys` MutableState) 로직 존재~~ **→ Phase 4.2.2에서 삭제됨**
 - Modifiers 3단계 Sticky (탭/더블탭/롱프레스) 없음, Lock Keys HID LED 동기화 없음, Media Controls 없음
@@ -61,7 +61,7 @@ Page 3
 
 ---
 
-## Phase 4.6.1: 키 디스플레이 레지스트리 (KeyDisplayRegistry)
+## Phase 4.7.1: 키 디스플레이 레지스트리 (KeyDisplayRegistry)
 
 **목표**: HID 키코드별 아이콘/레이블 매핑 레지스트리를 도입하여, `KeyboardKeyButton`에 `keyCode`만 전달하면 자동으로 적절한 아이콘+레이블이 표시되도록 개선
 
@@ -70,7 +70,7 @@ Page 3
 **배경**:
 - 현재 `KeyboardKeyButton`은 `keyLabel: String`을 호출부에서 매번 수동 지정 → 표기 불일관 (예: Enter가 `"⏎"`, `"Enter"` 등 혼재)
 - Tab, Space, Enter, Backspace, Shift 등 특정 키는 **아이콘(Material Icons / 커스텀 벡터)**과 함께 표시하면 가독성과 디자인 품질이 크게 향상
-- Phase 4.5~4.6에서 대량의 키 배치가 예정되어 있으므로, 사전에 레지스트리를 구축하면 이후 작업 효율 극대화
+- Phase 4.6~4.8에서 대량의 키 배치가 예정되어 있으므로, 사전에 레지스트리를 구축하면 이후 작업 효율 극대화
 
 **세부 목표**:
 1. `KeyDisplayRegistry` object:
@@ -120,7 +120,7 @@ Page 3
 
 ---
 
-## Phase 4.6.2: Page 3 레이아웃 및 Modifiers Bar
+## Phase 4.7.2: Page 3 레이아웃 및 Modifiers Bar
 
 **목표**: Page 3 기본 레이아웃 구조와 Sticky Modifiers 구현
 
@@ -166,7 +166,7 @@ Page 3
 > 2. **다중 토스트 스태킹**: 기존 토스트 표시 중 새 토스트 표시 시 → 새 토스트가 위에서 아래로 슬라이드인(350ms) → 완료 후 기존 토스트가 위로 슬라이드아웃(300ms). 두 토스트가 잠시 동시에 표시됨.
 > 3. **중복 제거**: `ToastMessage.equals()`가 message·type·durationMs 내용 기준(내부 id 제외). 동일 내용의 `show()` 연속 호출 → StateFlow 충돌 방지 → 단일 토스트만 표시.
 
-> **⚠️ Phase 4.2.2 변경사항**: `StandardModePage.kt`에서 `KeyboardPage` Composable 및 `showKeyboard` 상태 관리 로직이 **완전 삭제됨**. 기존 코드에서 참조 불가. `Page3KeyboardCentric`은 `StandardModePage.kt`의 `HorizontalPager` page=3 분기에서 렌더링되며 (Phase 4.4 이후 5페이지 구조), 현재는 `Page4KeyboardPlaceholder()`로 대체 중. Phase 4.6 구현 시 이 placeholder를 `Page4KeyboardCentric` Composable로 교체하면 됨. 수정자 키 추적(`activeModifierKeys`)은 Page 4 내부에서 새로 선언해야 함.
+> **⚠️ Phase 4.2.2 변경사항**: `StandardModePage.kt`에서 `KeyboardPage` Composable 및 `showKeyboard` 상태 관리 로직이 **완전 삭제됨**. 기존 코드에서 참조 불가. `Page3KeyboardCentric`은 `StandardModePage.kt`의 `HorizontalPager` page=3 분기에서 렌더링되며 (Phase 4.5 이후 5페이지 구조), 현재는 `Page4KeyboardPlaceholder()`로 대체 중. Phase 4.7 구현 시 이 placeholder를 `Page4KeyboardCentric` Composable로 교체하면 됨. 수정자 키 추적(`activeModifierKeys`)은 Page 4 내부에서 새로 선언해야 함.
 
 **검증**:
 - [ ] 4개 모디파이어 키 렌더링
@@ -177,13 +177,13 @@ Page 3
 
 ---
 
-## Phase 4.6.3: Navigation/Editing Grid
+## Phase 4.7.3: Navigation/Editing Grid
 
 **목표**: 방향키 (Inverted-T) + 편집 키 그리드 구현
 
 **개발 기간**: 1일
 
-> **⚠️ Phase 4.6.1 변경사항**: `KeyDisplayRegistry`가 도입됨. 방향키, Backspace, Delete, Enter, Tab, Home, End 등 모든 편집/네비게이션 키는 `useRegistry = true`로 설정하여 자동 아이콘 표시를 활용할 것. `keyLabel` 수동 지정 불필요.
+> **⚠️ Phase 4.7.1 변경사항**: `KeyDisplayRegistry`가 도입됨. 방향키, Backspace, Delete, Enter, Tab, Home, End 등 모든 편집/네비게이션 키는 `useRegistry = true`로 설정하여 자동 아이콘 표시를 활용할 것. `keyLabel` 수동 지정 불필요.
 
 **세부 목표**:
 1. Inverted-T 방향키:
@@ -219,7 +219,7 @@ Page 3
 
 ---
 
-## Phase 4.6.4: Function Row 및 확장 Shortcuts
+## Phase 4.7.4: Function Row 및 확장 Shortcuts
 
 **목표**: F1-F12 수평 스크롤 + 12개 확장 단축키 패널
 
@@ -251,13 +251,13 @@ Page 3
 
 ---
 
-## Phase 4.6.5: Media Controls 및 Lock Keys
+## Phase 4.7.5: Media Controls 및 Lock Keys
 
 **목표**: 미디어 제어 버튼과 Lock Keys (HID LED 동기화)
 
 **개발 기간**: 1일
 
-> **⚠️ Phase 4.6.1 변경사항**: CapsLock 등 Lock Keys는 `KeyDisplayRegistry`에 아이콘이 등록되어 있으므로, `LockKeyButton` 구현 시 레지스트리를 활용하여 아이콘 표시 가능.
+> **⚠️ Phase 4.7.1 변경사항**: CapsLock 등 Lock Keys는 `KeyDisplayRegistry`에 아이콘이 등록되어 있으므로, `LockKeyButton` 구현 시 레지스트리를 활용하여 아이콘 표시 가능.
 
 **세부 목표**:
 1. Media Controls:
@@ -291,7 +291,7 @@ Page 3
 - `docs/android/technical-specification-app.md` §2.3.2.8 (Media Controls 구현 요구사항)
 - `docs/android/technical-specification-app.md` §2.3.2.9 (Lock Keys HID LED 동기화 구현 요구사항)
 
-**⚠️ ESP32-S3 펌웨어 수정 필요 (Phase 4.5 사전 작업)**:
+**⚠️ ESP32-S3 펌웨어 수정 필요 (Phase 4.6 사전 작업)**:
 - `tud_hid_set_report_cb()` **이미 구현됨** (`hid_handler.c:313`): LED 상태를 `g_hid_keyboard_led_status`에 저장
 - `hid_get_keyboard_led_status()` **이미 구현됨**: LED 상태 조회 함수
 - **⚠️ 미구현 부분**: LED 상태 변경 시 **UART를 통해 Android로 알림 전송**하는 로직
@@ -309,7 +309,7 @@ Page 3
 
 ---
 
-## Phase 4.6 완료 후 Page 3 구조
+## Phase 4.7 완료 후 Page 3 구조
 
 ```
 Page 3 — Keyboard Centric

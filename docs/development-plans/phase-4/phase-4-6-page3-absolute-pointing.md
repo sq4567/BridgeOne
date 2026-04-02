@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.5: Page 3 — 절대좌표 패드 페이지"
-description: "BridgeOne 프로젝트 Phase 4.5 - Standard 모드 Page 3: AbsolutePointingPad, 줌 기능, Vendor CDC 줌 오버레이"
+title: "BridgeOne Phase 4.6: Page 3 — 절대좌표 패드 페이지"
+description: "BridgeOne 프로젝트 Phase 4.6 - Standard 모드 Page 3: AbsolutePointingPad, 줌 기능, Vendor CDC 줌 오버레이"
 tags: ["android", "absolute-pointing", "zoom", "vendor-cdc", "overlay", "ui"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-04-01"
 ---
 
-# BridgeOne Phase 4.5: Page 3 — 절대좌표 패드 페이지
+# BridgeOne Phase 4.6: Page 3 — 절대좌표 패드 페이지
 
 **개발 기간**: 3-4일
 
@@ -20,7 +20,7 @@ updated: "2026-04-01"
 - FrameBuilder.buildAbsoluteFrame() (0x80 프레임 타입)
 - Vendor CDC 줌 상태 전송 (VCDC_CMD_ZOOM_STATE 0x30)
 
-**선행 조건**: Phase 4.4 (Page 2 풀 와이드 터치패드) 완료, Phase 4.3 (터치패드 고급 기능) 완료
+**선행 조건**: Phase 4.5 (Page 2 풀 와이드 터치패드) 완료, Phase 4.3 (터치패드 고급 기능) 완료
 
 **에뮬레이터 호환성**: AbsolutePointingPad 전체 UI, 줌 인터랙션, CoordinateIndicator 에뮬레이터에서 개발 가능. 절대좌표 HID 전송 및 줌 오버레이 Vendor CDC 연동은 실기기에서 별도 검증.
 
@@ -52,7 +52,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.5.1: AbsolutePointingPad 기본 구현
+## Phase 4.6.1: AbsolutePointingPad 기본 구현
 
 **목표**: 절대좌표 패드 기본 포인팅 + 클릭 기능 구현
 
@@ -84,7 +84,7 @@ Page 3 — AbsolutePointingPad
 8. ControlBar:
    - ClickModeButton: 좌↔우 토글
    - ScrollToggleButton: 스크롤 모드 진입/해제
-   - ZoomButton: 이 Phase에서는 Disabled 상태 (Phase 4.5.2에서 활성화)
+   - ZoomButton: 이 Phase에서는 Disabled 상태 (Phase 4.6.2에서 활성화)
 
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/AbsolutePointingPad.kt`
@@ -116,7 +116,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.5.2: 줌 기능 구현
+## Phase 4.6.2: 줌 기능 구현
 
 **목표**: 드래그 기반 줌 진입 + 줌 상태 좌표 변환 + 줌 해제
 
@@ -149,7 +149,7 @@ Page 3 — AbsolutePointingPad
 - `AbsoluteCoordinateCalculator.kt` (줌 매핑 범위 계산 추가)
 
 **참조 문서**:
-- `docs/android/component-design-guide-app.md` §4.5 (줌 기능 설계)
+- `docs/android/component-design-guide-app.md` §4.6 (줌 기능 설계)
 
 **검증**:
 - [ ] ZoomButton 탭 → 줌 모드 진입
@@ -162,7 +162,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.5.3: Vendor CDC 줌 상태 전송 및 PC 오버레이 연동
+## Phase 4.6.3: Vendor CDC 줌 상태 전송 및 PC 오버레이 연동
 
 **목표**: 줌 상태를 Windows 서버로 전송하여 PC 화면에 줌 영역 박스 오버레이 표시
 
@@ -197,7 +197,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.5 완료 후 Page 2 구조
+## Phase 4.6 완료 후 Page 2 구조
 
 ```
 Page 3 — AbsolutePointingPad
