@@ -683,10 +683,10 @@ updated: "2026-04-02"
 - `EdgeSwipeOverlay` 파라미터에 `visible: Boolean`과 `hoveredMode: EdgeSwipeMode?` 추가 (스펙의 `onModeToggle` 대신 TouchpadWrapper에서 직접 처리)
 - 모드 아이콘 가장 가까운 것 계산(`calculateHoveredEdgeMode`)은 TouchpadWrapper 내부에서 수행 후 `hoveredMode`로 전달
 - `touchpadWidthPx` / `touchpadHeightPx` 파라미터 제거 (overlay 내부에서 `fillMaxSize` 사용으로 불필요)
-- **팝업 모드 선택 UX 추가**: `EdgePopupMode { SWIPE, DIRECT_TOUCH }` enum 신규. 팝업 열기 전 중간 단계(isModeSelecting)에서 엣지 축 방향 스와이프로 두 모드 중 선택. `EDGE_POPUP_DIRECT_TOUCH` 상수 삭제 → 런타임 제스처로 대체
-- **모드 선택 제스처**: `navStepPx` (30dp) step 기반 즉시 토글 — dead zone 없이 delta ≥ 0 → SWIPE, delta < 0 → DIRECT_TOUCH. `EDGE_MODE_SELECT_PERP_THRESHOLD_DP` 미사용
-- **모드 선택 카드 UI**: `ModeSelectCard(title, iconResId, isHighlighted)` — 직접 터치 아이콘(`ic_l_click`), 스와이프 아이콘(`ic_scroll`). 설명(subtitle) 없음
-- **모드 선택 레이아웃**: `entryEdge` 기준이 아닌 터치패드 폭 기준 (`BoxWithConstraints`의 `maxWidth >= 400.dp` → Row, 미만 → Column)
+- **EdgePopupModeSelector(팝업 모드 선택기) UX 추가**: `EdgePopupMode { SWIPE, DIRECT_TOUCH }` enum 신규. 팝업 열기 전 중간 단계(isModeSelecting)에서 엣지 축 방향 스와이프로 두 모드 중 선택. `EDGE_POPUP_DIRECT_TOUCH` 상수 삭제 → 런타임 제스처로 대체
+- **팝업 모드 선택기 제스처**: `navStepPx` (30dp) step 기반 즉시 토글 — dead zone 없이 delta ≥ 0 → SWIPE, delta < 0 → DIRECT_TOUCH. `EDGE_MODE_SELECT_PERP_THRESHOLD_DP` 미사용
+- **팝업 모드 선택기 카드 UI**: `ModeSelectCard(title, iconResId, isHighlighted)` — 직접 터치 아이콘(`ic_l_click`), 스와이프 아이콘(`ic_scroll`). 설명(subtitle) 없음
+- **팝업 모드 선택기 레이아웃**: `entryEdge` 기준이 아닌 터치패드 폭 기준 (`BoxWithConstraints`의 `maxWidth >= 400.dp` → Row, 미만 → Column)
 
 **검증 (UX — 에뮬레이터/실기기 UI 확인)**:
 - [x] 팝업 내 손가락 이동에 따라 가장 가까운 아이콘 선택 강조 확인

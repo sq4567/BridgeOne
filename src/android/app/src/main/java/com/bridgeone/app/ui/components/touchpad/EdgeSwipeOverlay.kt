@@ -70,6 +70,8 @@ enum class EdgeSwipeMode { SCROLL, CLICK, MOVE, CURSOR }
 
 /**
  * 엣지 스와이프 제스처로 팝업이 열린 후 표시되는 모드 선택 오버레이 (Phase 4.3.12).
+ * 팝업 열기 전 중간 단계에서 스와이프/직접 터치 중 하나를 선택하는 UI를
+ * **EdgePopupModeSelector (팝업 모드 선택기)** 라 부릅니다.
  *
  * 팝업이 열리면 터치패드를 존(zone)으로 나눠 각 버튼에 매핑합니다.
  * - 스와이프: 손가락 위치 → 해당 존의 버튼이 하이라이트(선택)
@@ -82,8 +84,8 @@ enum class EdgeSwipeMode { SCROLL, CLICK, MOVE, CURSOR }
  * @param config               버튼 구성 설정 (비표시 모드는 그리드에서 제외)
  * @param selectedIndex        현재 선택(하이라이트)된 항목 인덱스
  *                             (0..visibleModes.size-1 = 모드 버튼, visibleModes.size = 확인 버튼, null = 없음)
- * @param isModeSelecting      팝업 모드 선택 단계 여부 — 스와이프/직접 터치 중 선택 중
- * @param selectedPopupMode    선택된(또는 선택 중인) 팝업 모드 — 모드 선택 UI 하이라이트 및 팝업 UI 분기에 사용
+ * @param isModeSelecting      EdgePopupModeSelector(팝업 모드 선택기) 활성 여부 — 스와이프/직접 터치 중 선택 중
+ * @param selectedPopupMode    선택된(또는 선택 중인) 팝업 모드 — 팝업 모드 선택기 하이라이트 및 팝업 UI 분기에 사용
  * @param isEdgeCandidate      엣지 후보 상태 — Phase 4.3.13 물방울 애니메이션용
  * @param entryEdge            진입 가장자리 — 모드 선택 UI 방향 결정 및 Phase 4.3.13 물방울 기준점용
  * @param fingerAlongEdgePx    손가락의 엣지 축 위치 (px) — Phase 4.3.13용
@@ -108,18 +110,19 @@ fun EdgeSwipeOverlay(
 ) {
     if (!visible && !isModeSelecting) return
 
-    // ═══ 모드 선택 단계 UI ═══
+    // ═══ EdgePopupModeSelector (팝업 모드 선택기) ═══
     if (isModeSelecting) {
-        val hintText = if (entryEdge == EntryEdge.TOP || entryEdge == EntryEdge.BOTTOM)
-            "왼쪽/오른쪽으로 선택 · 손을 놓으면 확정\n엣지로 되돌아오면 취소"
-        else
-            "위/아래로 선택 · 손을 놓으면 확정\n엣지로 되돌아오면 취소"
         BoxWithConstraints(
             modifier = modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.6f))
         ) {
             val isHorizontalLayout = maxWidth >= 400.dp
+            // 힌트 텍스트도 카드 배치 방향에 맞춤
+            val hintText = if (isHorizontalLayout)
+                "왼쪽/오른쪽으로 선택 · 손을 놓으면 확정\n엣지로 되돌아오면 취소"
+            else
+                "위/아래로 선택 · 손을 놓으면 확정\n엣지로 되돌아오면 취소"
             if (isHorizontalLayout) {
                 Row(
                     modifier = Modifier.align(Alignment.Center),

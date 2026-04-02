@@ -214,7 +214,7 @@ fun TouchpadWrapper(
     var selectedItemIndex by remember { mutableStateOf<Int?>(null) }
     // 직접 터치 모드: 손가락을 놓은 위치 (버튼 그리드 앵커)
     var popupAnchorPx by remember { mutableStateOf(Offset.Zero) }
-    // 모드 선택 단계: 팝업 모드(스와이프/직접 터치)를 선택 중
+    // EdgePopupModeSelector(팝업 모드 선택기): 팝업 모드(스와이프/직접 터치)를 선택 중
     var isModeSelecting by remember { mutableStateOf(false) }
     // 선택된(또는 선택 중인) 팝업 모드 (null = 미선택)
     var selectedPopupMode by remember { mutableStateOf<EdgePopupMode?>(null) }
@@ -608,9 +608,15 @@ fun TouchpadWrapper(
                                         }
                                     }
                                 } else if (isModeSelecting) {
-                                    // 모드 선택 단계: navStepPx 단위 step으로 두 모드를 왔다 갔다
-                                    val alongDelta = currentAlong - edgeStartAlongPx
-                                    val modeStep = (alongDelta / navStepPx).roundToInt()
+                                    // 모드 선택 단계: 카드 레이아웃 방향에 맞춰 선택 축 결정
+                                    // 가로 레이아웃(width >= 400dp): 좌/우 이동으로 선택
+                                    // 세로 레이아웃: 위/아래 이동으로 선택
+                                    val isHorizontalCardLayout = size.width >= with(density) { 400.dp.toPx() }
+                                    val modeSelectDelta = if (isHorizontalCardLayout)
+                                        pos.x - downPos.x
+                                    else
+                                        pos.y - downPos.y
+                                    val modeStep = (modeSelectDelta / navStepPx).roundToInt()
                                     selectedPopupMode = if (modeStep >= 0) EdgePopupMode.SWIPE else EdgePopupMode.DIRECT_TOUCH
                                     // 진입 엣지로 되돌아오면 취소
                                     if (currentInward <= cancelThresholdPx) {
