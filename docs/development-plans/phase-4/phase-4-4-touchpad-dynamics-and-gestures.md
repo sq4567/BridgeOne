@@ -910,15 +910,14 @@ updated: "2026-04-02"
 - `DynamicsPresetButton.kt`, `DynamicsPresetPopup.kt` (Phase 4.4.1에서 구현한 동일 패턴)
 
 **검증 (UX — 에뮬레이터/실기기 UI 확인)**:
-- [ ] `ModePresetButton` — 터치패드 우측 하단에 항상 표시 확인 (스크롤 모드에서도)
-- [ ] `ModePresetButton` — 원탭으로 프리셋 순환 전환 확인
-- [ ] `ModePresetButton` — 탭 시 프리셋 이름 라벨 표시 후 자동 소멸 확인
-- [ ] `ModePresetButton` — 롱프레스 시 팝업 오버레이 표시 확인
-- [ ] 팝업 — 그리드 선택 + 확인 단계 동작 확인 (`DynamicsPresetPopup`과 동일)
-- [ ] 프리셋 적용 시 `ControlButtonContainer` 버튼 상태 즉시 반영 확인 (DPI, 클릭, 이동, 스크롤)
-- [ ] 프리셋 적용 시 다이나믹스 전역 업데이트 확인
-- [ ] 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 확인)
-- [ ] 멀티 커서 모드: 프리셋 적용이 활성 패드에만 적용되고 다른 패드는 유지 확인
+- [x] `ModePresetButton` — 터치패드 우측 하단에 항상 표시 확인 (스크롤 모드에서도)
+- [x] `ModePresetButton` — 원탭으로 프리셋 순환 전환 확인
+- [x] `ModePresetButton` — 탭 시 프리셋 이름 라벨 표시 후 자동 소멸 확인
+- [x] `ModePresetButton` — 롱프레스 시 팝업 오버레이 표시 확인
+- [x] 팝업 — 그리드 선택 + 확인 단계 동작 확인 (`DynamicsPresetPopup`과 동일)
+- [x] 프리셋 적용 시 `ControlButtonContainer` 버튼 상태 즉시 반영 확인 (DPI, 클릭, 이동, 스크롤)
+- [x] 프리셋 적용 시 다이나믹스 전역 업데이트 확인
+- [x] 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 확인)
 
 ---
 

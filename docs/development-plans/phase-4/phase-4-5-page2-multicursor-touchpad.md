@@ -174,6 +174,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 - [ ] CursorModeButton 재탭 → 싱글 커서 복귀
 - [ ] ControlButtonContainer 버튼이 activePad의 PadModeState 반영 확인
 - [ ] 페이지 전환 후 복귀 시 멀티 커서 상태 유지 (ViewModel 싱글톤 확인)
+- [ ] `ModePresetButton` 프리셋 적용이 활성 패드(`activePadIndex`)에만 적용되고, 다른 패드의 `PadModeState`는 유지 확인
 
 ---
 
