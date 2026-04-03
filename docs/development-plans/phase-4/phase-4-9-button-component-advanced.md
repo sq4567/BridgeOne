@@ -173,26 +173,3 @@ updated: "2026-03-26"
 | ModifiersBar | — | ✅ 3단계 Sticky (탭/더블탭/롱프레스) | 4.5.1 |
 | MediaControlButton | — | ✅ Play/Pause 토글, Stop | 4.5.4 |
 | LockKeyButton | — | ✅ HID LED 동기화 | 4.5.4 |
-
----
-
-## Phase 4 전체 요약
-
-| Phase | 내용 | 기간 | 핵심 |
-|-------|------|------|------|
-| **4.1** | 스플래시 & 연결 대기 | 3-4일 | 앱 진입 흐름 완성 |
-| **4.2** | Page 1 터치패드+Actions | 4-5일 | Standard 메인 페이지, ShortcutButton |
-| **4.3** | 터치패드 고급 기능 | 5-7일 | 스크롤, 직각 이동, DPI, 가이드라인 |
-| **4.5** | Page 2 멀티 커서 | 6-8일 | 풀 와이드 터치패드, 멀티 커서, 그리드 분할 |
-| **4.6** | Page 3 절대좌표 패드 | 3-4일 | AbsolutePointingPad, 줌 기능, Vendor CDC 줌 오버레이 |
-| **4.7** | Page 4 키보드 중심 | 4.5-5.5일 | KeyDisplayRegistry, Modifiers Sticky, Key Repeat, Lock Keys LED 동기화 |
-| **4.8** | Page 5 Minecraft | 4-5일 | DPad Sticky Hold, 게임 최적화 |
-| **4.9** | 버튼 고급 기능 | 2-3일 | Sticky Hold 구현, ContainerButton, Essential 재정비 |
-| **합계** | | **25.5-33.5일** | |
-
-### Phase 4 완료 후 미구현 항목 (Phase 5+)
-- 멀티 커서 모드 (CursorModeButton → 현재 Disabled)
-- MacroButton 실제 구현 (현재 Disabled placeholder)
-- AES256 암호화 및 challenge-response 인증
-- 자동 CI/CD 테스트 파이프라인
-- 성능 벤치마킹 파이프라인

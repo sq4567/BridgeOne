@@ -899,7 +899,28 @@ BridgeOne 시스템의 각 플랫폼별 핵심 로직과 구현 세부사항은 
 - **ESP32-S3**: 프로토콜 변환, USB 브릿지 역할, 메시지 중계
 - **Windows 서버**: 고급 기능 처리, 멀티 커서 관리, 시스템 통합
 
-#### 4.4.1 Software Macro 실행 (Orbit 연동)
+#### 4.4.1 Software Macro 실행 (Orbit Mini 연동)
+
+##### 4.4.1.0 MacroButton 타입 및 매크로 동적 할당
+
+Android MacroButton은 두 가지 타입으로 구분됩니다. 타입은 버튼 생성 시 고정되며, 할당된 _매크로_는 롱프레스로 언제든 변경 가능합니다.
+
+| 타입 | 식별 색상 | 실행 경로 | Windows 서버 필요 |
+|------|---------|---------|----------------|
+| **Orbit Mini** | `#7E57C2` (보라) | Android → ESP32 → Vendor CDC → Windows → Orbit Mini | O |
+| **Native** | `#F57C00` (주황) | Android → ESP32 → USB HID 직접 | X |
+
+**Orbit Mini 타입 매크로 목록 실시간 조회 플로우** (롱프레스 시):
+```
+Android MacroButton 롱프레스
+  ↓ MACRO_LIST_REQUEST 전송 (UART → ESP32 → Vendor CDC → Windows)
+Windows 서버: isOrbitConnected 확인 → Named Pipe로 MACRO_LIST 전송
+Orbit Mini: 현재 등록된 활성 매크로 목록 반환 (MACRO_LIST_RESULT)
+Windows 서버: MACRO_LIST_RESPONSE로 변환 → Vendor CDC → ESP32 → Android
+Android: 팝업에 목록 표시 → 유저 선택 → SharedPreferences 저장
+```
+
+---
 
 ##### 4.4.1.1 매크로 실행 플로우 전체 시퀀스
 
@@ -916,7 +937,7 @@ BridgeOne 시스템의 각 플랫폼별 핵심 로직과 구현 세부사항은 
    ↓ isOrbitConnected 확인
    ↓ Named Pipe 전송: {"message_id": "7a3b2f8c-...", "command": "MACRO_EXECUTE", "payload": {"macro_id": "550e8400-..."}}
    
-4. Orbit 프로그램: Named Pipe 수신 → JSON 파싱
+4. Orbit Mini: Named Pipe 수신 → JSON 파싱
    ↓ macro_id로 매크로 레지스트리 검색
    ↓ 매크로 실행 (키보드/마우스 조작 등)
    ↓ 실행 결과 생성: {"success": true/false, "error_message": "..."}
@@ -940,18 +961,19 @@ BridgeOne 시스템의 각 플랫폼별 핵심 로직과 구현 세부사항은 
 - **Android 앱**: MacroButton 탭 감지, 요청 전송, UI 상태 업데이트
 - **ESP32-S3**: UART-CDC 프레임 변환, 양방향 중계
 - **Windows 서버**: message_id 관리, Orbit 연결 확인, 요청-응답 매칭
-- **Orbit 프로그램**: 매크로 레지스트리 관리, 실제 매크로 실행
+- **Orbit Mini**: 매크로 레지스트리 관리, 실제 매크로 실행
 
 ##### 4.4.1.2 매크로 실행 오류 처리
 
 | 오류 유형 | 감지 위치 | 응답 시간 | 오류 메시지 | 복구 전략 |
 |----------|----------|----------|-----------|----------|
-| **Orbit 미연결** | Windows 서버 | 즉시 | `ORBIT_NOT_CONNECTED` | Android 앱에 즉시 알림, Orbit 시작 권장 |
+| **Orbit Mini 미연결** | Windows 서버 | 즉시 | `ORBIT_NOT_CONNECTED` | Android 앱에 즉시 알림, Orbit Mini 시작 권장 |
 | **매크로 타임아웃** | Windows 서버 | 30초 | `MACRO_TIMEOUT` | Android 앱에 타임아웃 알림, 매크로 재실행 옵션 제공 |
-| **존재하지 않는 매크로** | Orbit | 1초 이내 | `MACRO_NOT_FOUND` | Android 앱에 오류 알림, 매크로 ID 확인 권장 |
-| **매크로 실행 실패** | Orbit | 가변 | `EXECUTION_ERROR: {상세 메시지}` | Android 앱에 상세 오류 표시, 수동 해결 필요 |
+| **존재하지 않는 매크로** | Orbit Mini | 1초 이내 | `MACRO_NOT_FOUND` | Android 앱에 오류 알림, 매크로 ID 확인 권장 |
+| **매크로 실행 실패** | Orbit Mini | 가변 | `EXECUTION_ERROR: {상세 메시지}` | Android 앱에 상세 오류 표시, 수동 해결 필요 |
+| **목록 조회 타임아웃** | Windows 서버 | 5초 | `MACRO_LIST_TIMEOUT` | Android 앱에 오류 알림, Orbit Mini 연결 상태 확인 권장 |
 | **JSON 파싱 오류** | ESP32-S3/Windows | 즉시 | `INVALID_FORMAT` | 로그 기록, Android 앱에 일반 오류 알림 |
-| **Named Pipe 끊김** | Windows 서버 | 3초 | `PIPE_DISCONNECTED` | 자동 재연결 시도 (최대 3회), 실패 시 Orbit 재시작 권장 |
+| **Named Pipe 끊김** | Windows 서버 | 3초 | `PIPE_DISCONNECTED` | 자동 재연결 시도 (최대 3회), 실패 시 Orbit Mini 재시작 권장 |
 
 각 플랫폼의 상세한 구현 명세와 기술적 요구사항은 해당 참조 문서에서 확인할 수 있습니다.
 
@@ -1002,14 +1024,14 @@ BridgeOne 시스템의 각 플랫폼별 핵심 로직과 구현 세부사항은 
 | 항목 | Software Macro | Native Macro |
 |------|---------------|-------------|
 | **실행 경로** | Android → ESP32 → Vendor CDC → Windows → Orbit → SendInput | Android → ESP32 → USB HID 직접 전송 |
-| **저장 위치** | Orbit 프로그램 | ESP32-S3 NVS Flash |
+| **저장 위치** | Orbit Mini | ESP32-S3 NVS Flash |
 | **Windows 서버 필요** | 필수 | 불필요 |
 | **안티치트 우회** | 불가 (소프트웨어 입력 주입) | 가능 (하드웨어 입력과 동일) |
 | **지원 기능 범위** | 키보드/마우스 + OS 레벨 조작 (파일 실행 등) | 키보드/마우스 HID 입력 (상대·절대좌표 모두 지원) |
 | **최대 매크로 수** | Orbit 저장소 제한 없음 | ESP32-S3 NVS (최대 64개) |
 | **최대 액션 수** | Orbit 제한 | 매크로당 최대 255개 |
 | **실행 지연** | 전체 경유 시 ~50ms + Orbit 처리 시간 | ESP32 내부 처리만 (~1ms) |
-| **매크로 편집** | Orbit 프로그램에서 | Android 앱 내 편집 화면 |
+| **매크로 편집** | Orbit Mini에서 | Android 앱 내 편집 화면 |
 
 각 플랫폼의 상세한 구현 명세는 해당 참조 문서에서 확인할 수 있습니다:
 - **Android**: `docs/android/technical-specification-app.md` §2.9
@@ -1480,8 +1502,10 @@ class Esp32SerialManager {
 | **비활성 매크로** | 메시지 전송 기반 매크로 | SendMessage/PostMessage | UI 관리 모드 | 개별 컴포넌트 선택적 비활성화 (작업 완료 시 자동 복원) |
 | **매크로 실행 타임아웃** | 매크로 실행 제한 시간 | 30,000ms | 타임아웃 타이머 | 작업 중단 + UI 자동 복원 + 오류 알림 |
 | **매크로 강제 해제** | 실행 중 매크로 중단 | 재탭으로 취소 요청 | MACRO_CANCEL_REQUEST | UI_FORCE_ENABLE_ALL_TOUCHABLES_REQUEST 전송 |
-| **Orbit 프로그램** | 외부 매크로 실행 엔진 | Windows Named Pipe | 독립 프로세스 | BridgeOne 서버와 IPC 통신 |
-| **매크로 ID** | UUID v4 기반 매크로 고유 식별자 | 예: `550e8400-e29b-41d4-a716-446655440000` | Android → ESP32-S3 → Windows → Orbit 전달 | 요청-응답 매칭에 사용 |
+| **Orbit Mini** | 외부 매크로 실행 엔진 (정식 명칭) | Windows Named Pipe | 독립 프로세스 | BridgeOne 서버와 IPC 통신 |
+| **Orbit Mini 타입 MacroButton** | Orbit Mini 매크로를 실행하는 버튼 타입 | UUID v4 macro_id 기반 | 보라색 (`#7E57C2`), 배지 "OM" | 롱프레스로 실시간 목록 조회 후 매크로 변경 가능 |
+| **Native 타입 MacroButton** | ESP32-S3 Native Macro를 실행하는 버튼 타입 | 정수 슬롯 번호 기반 | 주황색 (`#F57C00`), 배지 "NT" | 롱프레스로 앱 내 캐시 목록에서 매크로 변경 가능 |
+| **매크로 ID** | UUID v4 기반 Orbit Mini 매크로 고유 식별자 | 예: `550e8400-e29b-41d4-a716-446655440000` | Android → ESP32-S3 → Windows → Orbit Mini 전달 | 요청-응답 매칭에 사용 |
 
 #### 6.1.4 용어 사용 원칙
 

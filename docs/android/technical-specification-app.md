@@ -2045,33 +2045,79 @@ data class ShortcutButtonState(
 
 **MacroButton 핵심 구현 요구사항:**
 
-**매크로 ID 관리:**
-- **UUID v4 형식**: 각 매크로는 UUID v4 형식의 고유 식별자를 가짐 (예: `550e8400-e29b-41d4-a716-446655440000`)
-- **하드코딩 방식**: MacroButton 생성 시 `macroId` 파라미터로 UUID 전달
-- **Orbit 프로그램 연동**: 동일한 UUID로 Orbit에서 매크로 등록 및 실행
+---
 
-**매크로 실행 플로우:**
-- **실행 요청**: `MACRO_START_REQUEST(macroId)`를 JSON 형식으로 생성
-- **JSON 크기 검증** (Phase 2 통신 안정화): UTF-8 인코딩 후 448 bytes 이하 확인
-- **UART 전송**: 0xFF 헤더로 시작하는 커스텀 명령 프레임으로 ESP32-S3에 전송
-- **JSON 구조**: `{"command": "MACRO_START_REQUEST", "macro_id": "uuid-v4", "timestamp": "ISO-8601"}`
-- **즉시 비활성화**: 요청 전송 후 `isEnabled = false`로 전환하여 중복 실행 방지
-- **응답 대기**: `onNewData()` 콜백으로 `MACRO_RESULT` 수신 대기
-- **오류 처리** (Phase 2 통신 안정화): 
-  - `CRC_MISMATCH` 수신 시 자동 재전송 (최대 3회, 지수 백오프)
-  - `JSON_PARSE_ERROR` 수신 시 즉시 사용자에게 오류 알림 (재전송 없음)
-  - 재전송 실패 시 "통신 오류: 재전송 실패" 토스트 표시
+**매크로 타입 (MacroType)**:
 
-**통신 경로 상세:**
+MacroButton은 두 가지 타입을 지원하며, 버튼 생성 시 `macroType` 파라미터로 타입을 지정합니다. 타입은 버튼 생성 후 변경되지 않습니다. (버튼에 할당되는 _매크로_는 롱프레스로 변경 가능)
+
+| 항목 | Orbit Mini 타입 | Native 타입 |
+|------|----------------|------------|
+| 실행 경로 | Android → ESP32 → Vendor CDC → Windows → Orbit Mini | Android → ESP32 → USB HID 직접 전송 |
+| 매크로 ID 형식 | UUID v4 (예: `550e8400-...`) | 정수 슬롯 번호 (0~63) |
+| 기본 색상 | `#7E57C2` (보라) | `#F57C00` (주황) |
+| 실행 중 색상 | `#6A1B9A` | `#E65100` |
+| 타입 배지 | "OM" | "NT" |
+| Windows 서버 필요 | O | X |
+
+---
+
+**매크로 할당 관리:**
+
+- **동적 할당 방식**: MacroButton이 실행할 매크로는 하드코딩하지 않고, 롱프레스를 통해 유저가 변경할 수 있습니다.
+- **할당 저장**: 버튼 슬롯별로 할당된 매크로 ID를 SharedPreferences에 영구 저장합니다.
+  - 키 형식: `"macro_button_{slot}_id"` (예: `"macro_button_0_id"`)
+- **미할당 상태**: 할당된 매크로가 없는 버튼은 탭이 비활성화되며, 롱프레스만 허용합니다. 버튼 중앙에 "+" 아이콘 표시.
+- **Orbit Mini 타입 ID**: UUID v4 형식. Orbit Mini의 매크로 레지스트리와 동일한 UUID 사용.
+- **Native 타입 ID**: 정수 슬롯 번호 (0~63). ESP32-S3 NVS 슬롯 번호와 동일.
+
+---
+
+**롱프레스 → 매크로 선택 팝업:**
+
+500ms 롱프레스 감지 시 Fill 애니메이션(좌→우)과 함께 매크로 선택 팝업이 열립니다.
+
+**(A) Orbit Mini 타입**: 실시간 목록 조회 플로우
 ```
-MacroButton 탭
+롱프레스 감지
+  ↓ 팝업 표시: 로딩 스피너 + "Orbit Mini에서 목록 가져오는 중..."
+  ↓ MACRO_LIST_REQUEST 전송
+  ↓ Android → ESP32 → Vendor CDC → Windows → Named Pipe → Orbit Mini
+  ↓ Orbit Mini: 현재 활성 매크로 목록 반환 (is_active: true만 포함)
+  ↓ Windows → Vendor CDC → ESP32 → Android
+팝업 업데이트: 매크로 목록 표시
+  - 각 항목: 매크로 이름 + 설명
+  - 현재 할당된 매크로에 체크 표시
+  - 비활성(is_active: false) 매크로는 목록에 포함되지 않음
+선택 시: macroId(UUID) 저장 → 팝업 닫힘
+```
+- **목록 조회 타임아웃**: 5초 이내 응답 없으면 "목록을 불러올 수 없습니다" 오류 표시
+- **Orbit Mini 미연결 시**: "Orbit Mini가 실행되지 않았습니다" 즉시 표시 후 팝업 닫힘
+
+**(B) Native 타입**: 캐시된 목록 표시 플로우
+```
+롱프레스 감지
+  ↓ 팝업 표시: 앱에 캐시된 Native Macro 목록 즉시 표시
+  - 각 항목: 매크로 이름 (ESP32-S3에서 수신한 이름)
+  - 현재 할당된 슬롯 번호에 체크 표시
+선택 시: 슬롯 번호(정수) 저장 → 팝업 닫힘
+```
+- **캐시 없는 경우**: "Native 매크로 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요." 표시
+
+---
+
+**탭 → 매크로 실행 플로우:**
+
+**(A) Orbit Mini 타입 실행 경로:**
+```
+MacroButton 탭 (macroId: UUID v4)
   ↓ JSON 생성: MACRO_START_REQUEST
   ↓ UART 전송 (0xFF 헤더)
 ESP32-S3 중계
   ↓ Vendor CDC 프레임 재구성 (CRC16 추가)
 Windows 서버 중계
   ↓ Named Pipe 전송 (\\.\pipe\BridgeOne_Orbit)
-Orbit 프로그램 실행
+Orbit Mini 실행
   ↓ Named Pipe 응답: MACRO_RESULT
 Windows 서버 중계
   ↓ Vendor CDC 프레임 전송
@@ -2081,17 +2127,39 @@ MacroButton 응답 처리
   ↓ UI 상태 업데이트
 ```
 
+**(B) Native 타입 실행 경로:**
+```
+MacroButton 탭 (macroId: 슬롯 번호 0~63)
+  ↓ UART 전송: NATIVE_MACRO_PLAY(slotId)
+ESP32-S3: NVS에서 HID 시퀀스 로드 → USB HID 직접 재생
+  ↓ 완료 후 UART 응답
+MacroButton 응답 처리
+  ↓ UI 상태 업데이트 (성공/실패)
+```
+
+- **JSON 크기 검증** (Phase 2 통신 안정화): Orbit Mini 타입 요청 시 UTF-8 인코딩 후 448 bytes 이하 확인
+- **즉시 비활성화**: 요청 전송 후 `isEnabled = false`로 전환하여 중복 실행 방지
+- **응답 대기**: `onNewData()` 콜백으로 결과 수신 대기
+- **오류 처리** (Phase 2 통신 안정화): 
+  - `CRC_MISMATCH` 수신 시 자동 재전송 (최대 3회, 지수 백오프)
+  - `JSON_PARSE_ERROR` 수신 시 즉시 사용자에게 오류 알림 (재전송 없음)
+  - 재전송 실패 시 "통신 오류: 재전송 실패" 토스트 표시
+
+---
+
 **타임아웃 처리:**
-- **실행 타임아웃**: `MACRO_TIMEOUT_MS = 30000ms` (30초)로 무한 대기 방지
+- **Orbit Mini 실행 타임아웃**: `MACRO_TIMEOUT_MS = 30000ms` (30초)로 무한 대기 방지
+- **Native 실행 타임아웃**: `NATIVE_MACRO_TIMEOUT_MS = 10000ms` (10초)
 - **타이머 관리**: 실행 시작 시점부터 독립적 타임아웃 타이머 시작
 - **자동 복구**: 타임아웃 발생 시 `isEnabled = true`로 자동 복원
-- **타임아웃 응답**: ESP32-S3 또는 Windows 서버에서 `MACRO_TIMEOUT` 응답 수신 시에도 동일 처리
 
-**강제 해제 처리:**
+**강제 해제 처리 (Orbit Mini 타입만):**
 - **재탭 감지**: 비활성화 상태에서 동일 버튼 재탭 시 강제 해제 모드 진입
 - **취소 요청**: `MACRO_CANCEL_REQUEST(macroId)` JSON 생성 및 전송
 - **강제 활성화**: `UI_FORCE_ENABLE_ALL_TOUCHABLES_REQUEST` 전송으로 전체 UI 복원
-- **취소 경로**: Android → ESP32-S3 → Windows → Orbit (실행 중단)
+- **취소 경로**: Android → ESP32-S3 → Windows → Orbit Mini (실행 중단)
+
+---
 
 **오류 처리 및 사용자 피드백:**
 
@@ -2099,31 +2167,63 @@ MacroButton 응답 처리
 |----------|-----------|-----------|------|---------|
 | `MACRO_RESULT (success=true)` | 녹색 (#4CAF50) | "매크로 실행 완료" | Success (40ms) | 자동 |
 | `MACRO_RESULT (success=false)` | 빨간색 (#F44336) | "매크로 실행 실패: {error_message}" | Error (100ms-200ms-100ms) | 자동 |
-| `ORBIT_NOT_CONNECTED` | 빨간색 (#F44336) | "Orbit 프로그램이 실행되지 않았습니다" | Error | 즉시 |
-| `MACRO_TIMEOUT` | 주황색 (#FF9800) | "매크로 실행 시간 초과 (30초)" | Medium (30ms) | 자동 |
+| `ORBIT_NOT_CONNECTED` | 빨간색 (#F44336) | "Orbit Mini가 실행되지 않았습니다" | Error | 즉시 |
+| `MACRO_TIMEOUT` | 주황색 (#FF9800) | "매크로 실행 시간 초과" | Medium (30ms) | 자동 |
 | `MACRO_NOT_FOUND` | 빨간색 (#F44336) | "존재하지 않는 매크로입니다" | Error | 즉시 |
 | `MACRO_CANCEL_REQUEST` | 주황색 (#FF9800) | "매크로 실행 취소됨" | Medium (30ms) | 즉시 |
-| **진행 중** | 파란색 (#2196F3) | "매크로 실행 중..." | - | 1초 간격 갱신 |
+| **진행 중** | 타입별 색상 | "매크로 실행 중..." | - | 1초 간격 갱신 |
+
+---
 
 **상태 모델:**
 ```kotlin
+enum class MacroType { ORBIT_MINI, NATIVE }
+
 data class MacroButtonState(
+    val macroType: MacroType,
+    val macroId: String = "",        // Orbit Mini: UUID v4 / Native: 슬롯 번호 문자열 / 미할당: ""
+    val macroName: String = "",      // 표시용 이름 (할당 시 저장)
     val isEnabled: Boolean = true,
     val isExecuting: Boolean = false,
     val executionStartTime: Long = 0L,
-    val macroId: String = "", // UUID v4 형식
     val lastErrorMessage: String? = null
-)
+) {
+    val isAssigned: Boolean get() = macroId.isNotEmpty()
+}
 ```
 
-**JSON 메시지 구조 상세:**
+---
 
-**Android → ESP32-S3 (MACRO_START_REQUEST)**:
+**JSON 메시지 구조:**
+
+**Android → ESP32-S3 (MACRO_START_REQUEST, Orbit Mini 타입)**:
 ```json
 {
   "command": "MACRO_START_REQUEST",
   "macro_id": "550e8400-e29b-41d4-a716-446655440000",
   "timestamp": "2025-10-21T12:34:56.789Z"
+}
+```
+
+**Android → ESP32-S3 (MACRO_LIST_REQUEST, Orbit Mini 타입)**:
+```json
+{
+  "command": "MACRO_LIST_REQUEST",
+  "timestamp": "2025-10-21T12:34:56.789Z"
+}
+```
+
+**ESP32-S3 → Android (MACRO_LIST_RESPONSE)**:
+```json
+{
+  "command": "MACRO_LIST_RESPONSE",
+  "timestamp": "2025-10-21T12:34:57.012Z",
+  "payload": {
+    "macros": [
+      { "macro_id": "550e8400-...", "name": "복사 붙여넣기", "description": "Ctrl+C 후 Ctrl+V", "is_active": true },
+      { "macro_id": "661f9511-...", "name": "화면 잠금", "description": "Win+L", "is_active": true }
+    ]
+  }
 }
 ```
 
