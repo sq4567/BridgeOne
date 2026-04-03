@@ -66,7 +66,9 @@ import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
 import com.bridgeone.app.ui.components.touchpad.DpiAdjustPopup
 import com.bridgeone.app.ui.components.touchpad.DpiLevel
+import com.bridgeone.app.ui.common.MODE_PRESETS
 import com.bridgeone.app.ui.components.touchpad.DynamicsPresetPopup
+import com.bridgeone.app.ui.components.touchpad.ModePresetPopup
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.utils.ClickDetector
@@ -106,10 +108,14 @@ fun StandardModePage() {
     // Phase 4.3.8: 다이나믹스 프리셋 팝업 상태
     var dynamicsPresetPopupVisible by remember { mutableStateOf(false) }
 
+    // Phase 4.4.8: 모드 프리셋 팝업 상태
+    var modePresetPopupVisible by remember { mutableStateOf(false) }
+
     // 페이지 전환 시 팝업 취소 (커스텀 값 미적용)
     LaunchedEffect(pagerState.currentPage) {
         if (dpiAdjustPopupVisible) dpiAdjustPopupVisible = false
         if (dynamicsPresetPopupVisible) dynamicsPresetPopupVisible = false
+        if (modePresetPopupVisible) modePresetPopupVisible = false
     }
 
     // 스크롤 모드 전환 시 다이나믹스 팝업 취소 (Phase 4.3.8)
@@ -156,8 +162,10 @@ fun StandardModePage() {
                         onTouchpadStateChange = { touchpadState = it },
                         dpiAdjustPopupVisible = dpiAdjustPopupVisible,
                         dynamicsPresetPopupVisible = dynamicsPresetPopupVisible,
+                        modePresetPopupVisible = modePresetPopupVisible,
                         onDpiLongPress = { dpiAdjustPopupVisible = true },
                         onDynamicsLongPress = { dynamicsPresetPopupVisible = true },
+                        onModePresetLongPress = { modePresetPopupVisible = true },
                         onDpiAdjustConfirm = { value ->
                             dpiAdjustPopupVisible = false
                             // 사전 정의 값과 일치 시 해당 레벨로 매핑, 아니면 커스텀
@@ -178,7 +186,21 @@ fun StandardModePage() {
                             dynamicsPresetPopupVisible = false
                             touchpadState = touchpadState.copy(dynamicsPresetIndex = index)
                         },
-                        onDynamicsPresetDismiss = { dynamicsPresetPopupVisible = false }
+                        onDynamicsPresetDismiss = { dynamicsPresetPopupVisible = false },
+                        onModePresetConfirmed = { index ->
+                            modePresetPopupVisible = false
+                            val preset = MODE_PRESETS[index]
+                            touchpadState = touchpadState.copy(
+                                clickMode = preset.padModeState.clickMode,
+                                moveMode = preset.padModeState.moveMode,
+                                scrollMode = preset.padModeState.scrollMode,
+                                dpiLevel = preset.padModeState.dpi,
+                                customDpiMultiplier = null,
+                                dynamicsPresetIndex = preset.dynamicsPresetIndex,
+                                modePresetIndex = index
+                            )
+                        },
+                        onModePresetDismiss = { modePresetPopupVisible = false }
                     )
                     1 -> Page2AbsolutePointingPlaceholder()
                     2 -> Page3KeyboardPlaceholder()
@@ -292,12 +314,16 @@ private fun Page1TouchpadActions(
     onTouchpadStateChange: (TouchpadState) -> Unit,
     dpiAdjustPopupVisible: Boolean = false,
     dynamicsPresetPopupVisible: Boolean = false,
+    modePresetPopupVisible: Boolean = false,
     onDpiLongPress: () -> Unit = {},
     onDynamicsLongPress: () -> Unit = {},
+    onModePresetLongPress: () -> Unit = {},
     onDpiAdjustConfirm: (Float) -> Unit = {},
     onDpiAdjustDismiss: () -> Unit = {},
     onDynamicsPresetConfirmed: (Int) -> Unit = {},
-    onDynamicsPresetDismiss: () -> Unit = {}
+    onDynamicsPresetDismiss: () -> Unit = {},
+    onModePresetConfirmed: (Int) -> Unit = {},
+    onModePresetDismiss: () -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
@@ -323,9 +349,9 @@ private fun Page1TouchpadActions(
         ) {
             // ── 좌측: 터치패드 (64% / 60%) ──
             // Phase 4.3.1: Box 내부에 ControlButtonContainer 오버레이 추가
-            // Phase 4.3.6 / 4.3.8: DPI 팝업 또는 다이나믹스 팝업 표시 시 배경 블러 적용
+            // Phase 4.3.6 / 4.3.8 / 4.4.8: DPI 팝업, 다이나믹스 팝업, 모드 프리셋 팝업 표시 시 배경 블러 적용
             val blurRadius by animateDpAsState(
-                targetValue = if (dpiAdjustPopupVisible || dynamicsPresetPopupVisible) 8.dp else 0.dp,
+                targetValue = if (dpiAdjustPopupVisible || dynamicsPresetPopupVisible || modePresetPopupVisible) 8.dp else 0.dp,
                 animationSpec = tween(200),
                 label = "popupBlur"
             )
@@ -347,6 +373,7 @@ private fun Page1TouchpadActions(
                         touchpadState = touchpadState,
                         onTouchpadStateChange = onTouchpadStateChange,
                         onDynamicsLongPress = onDynamicsLongPress,
+                        onModePresetLongPress = onModePresetLongPress,
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
@@ -386,6 +413,18 @@ private fun Page1TouchpadActions(
                     currentIndex = touchpadState.dynamicsPresetIndex,
                     onPresetConfirmed = onDynamicsPresetConfirmed,
                     onDismiss = onDynamicsPresetDismiss,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(12.dp))
+                )
+
+                // Phase 4.4.8: 모드 프리셋 팝업 오버레이
+                // 항상 렌더링하고 visible 파라미터로 제어 (exit 애니메이션 보장)
+                ModePresetPopup(
+                    visible = modePresetPopupVisible,
+                    currentIndex = touchpadState.modePresetIndex,
+                    onPresetConfirmed = onModePresetConfirmed,
+                    onDismiss = onModePresetDismiss,
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(RoundedCornerShape(12.dp))

@@ -120,6 +120,42 @@ enum class ScrollAxis {
 }
 
 // ============================================================
+// 패드 모드 상태 (모드 프리셋용 스냅샷)
+// ============================================================
+
+/**
+ * 터치패드의 핵심 모드 값들만 담은 스냅샷.
+ * ModePreset이 저장·적용하는 단위.
+ */
+data class PadModeState(
+    val clickMode: ClickMode = ClickMode.LEFT_CLICK,
+    val moveMode: MoveMode = MoveMode.FREE,
+    val scrollMode: ScrollMode = ScrollMode.OFF,
+    val dpi: DpiLevel = DpiLevel.NORMAL
+)
+
+// ============================================================
+// 모드 프리셋 정의 (Phase 4.4.8)
+// ============================================================
+
+/**
+ * 모드 프리셋 정의.
+ *
+ * @property name                 프리셋 이름 (버튼 + 팝업 표시용)
+ * @property icon                 UI 아이콘 (AppIcons에서 참조)
+ * @property description          팝업 확인 단계에서 표시할 한 줄 설명
+ * @property padModeState         클릭/이동/스크롤/DPI 모드 스냅샷
+ * @property dynamicsPresetIndex  함께 적용할 다이나믹스 프리셋 인덱스
+ */
+data class ModePreset(
+    val name: String,
+    val icon: AppIconDef,
+    val description: String,
+    val padModeState: PadModeState,
+    val dynamicsPresetIndex: Int = 0
+)
+
+// ============================================================
 // 터치패드 전체 상태
 // ============================================================
 
@@ -143,7 +179,9 @@ data class TouchpadState(
     /** 임시 커스텀 DPI 배율 (null = 사전 정의 레벨 사용). 앱 재시작 및 USB 끊김 시 소멸. */
     val customDpiMultiplier: Float? = null,
     /** 현재 포인터 다이나믹스 프리셋 인덱스 (DYNAMICS_PRESETS 기준). 기본값: 0 = Off */
-    val dynamicsPresetIndex: Int = 0
+    val dynamicsPresetIndex: Int = 0,
+    /** 현재 모드 프리셋 인덱스 (MODE_PRESETS 기준). 기본값: 0 = Standard */
+    val modePresetIndex: Int = 0
 ) {
     /** 실제 적용되는 DPI 배율 (커스텀 우선, 없으면 레벨 배율) */
     val effectiveDpiMultiplier: Float

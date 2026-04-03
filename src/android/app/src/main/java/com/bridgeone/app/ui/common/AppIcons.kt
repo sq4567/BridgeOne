@@ -2,7 +2,9 @@ package com.bridgeone.app.ui.common
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Adjust
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
@@ -10,6 +12,7 @@ import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.Mouse
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Speed
@@ -51,6 +54,11 @@ object AppIcons {
     val DynamicsPrecision = AppIconDef(Icons.Filled.Adjust)
     val DynamicsStandard  = AppIconDef(Icons.Filled.Speed)
     val DynamicsFast      = AppIconDef(Icons.Filled.FlashOn)
+
+    // 모드 프리셋 (Phase 4.4.8)
+    val ModePresetStandard = AppIconDef(Icons.Filled.Tune)
+    val ModePresetPrecise  = AppIconDef(Icons.Filled.GpsFixed)
+    val ModePresetFast     = AppIconDef(Icons.AutoMirrored.Filled.DirectionsRun)
 
     // DPI
     val DpiLow    = AppIconDef(Icons.Outlined.Mouse)

@@ -824,8 +824,6 @@ updated: "2026-04-02"
 
 **목표**: 여러 개의 모드 구성 스냅샷(프리셋)을 저장해두고 버튼 하나로 즉시 전환하는 `ModePresetButton`을 구현합니다. 탭으로 순환, 롱프레스로 팝업 선택 방식이며, `DynamicsPresetButton` (Phase 4.4.1)과 동일한 패턴을 재사용합니다.
 
-**쉬운 설명**: 포토샵 같은 작업에서 "정밀하게 움직이는 마우스 모드"와 "빠르게 이동하는 마우스 모드"를 반복적으로 오갈 때, 지금은 DPI 버튼, 이동 모드 버튼 등을 하나씩 탭해야 합니다. 이 Phase에서는 여러 설정을 묶은 "프리셋"을 미리 만들어두고, 터치패드 오른쪽 아래 버튼 한 번으로 전부 한꺼번에 바꿀 수 있게 합니다.
-
 **개발 기간**: 1-1.5일
 
 **세부 목표**:
@@ -836,7 +834,7 @@ updated: "2026-04-02"
        val icon: AppIconDef,
        val description: String,
        val padModeState: PadModeState,
-       val dynamicsPresetIndex: Int = DEFAULT_PRESET_INDEX
+       val dynamicsPresetIndex: Int = 0  // 실제 구현: DEFAULT_PRESET_INDEX 대신 0 (ui.common ↔ ui.components.touchpad 순환 import 방지)
    )
    ```
 2. **`ModePresetConstants.kt` 신규 파일** (기본 프리셋 정의):
@@ -854,10 +852,10 @@ updated: "2026-04-02"
            icon = AppIcons.ModePresetPrecise,
            description = "저DPI + 직각 이동 — 정밀 작업용",
            padModeState = PadModeState(
-               dpi = DpiLevel.LOW,
-               moveMode = MoveMode.ORTHOGONAL,
                clickMode = ClickMode.LEFT_CLICK,
-               scrollMode = ScrollMode.NONE
+               moveMode = MoveMode.RIGHT_ANGLE,  // 실제 구현: ORTHOGONAL 아님
+               scrollMode = ScrollMode.OFF,      // 실제 구현: NONE 아님
+               dpi = DpiLevel.LOW
            ),
            dynamicsPresetIndex = 1  // Precision
        ),
@@ -866,10 +864,10 @@ updated: "2026-04-02"
            icon = AppIcons.ModePresetFast,
            description = "고DPI + 자유 이동 — 빠른 탐색용",
            padModeState = PadModeState(
-               dpi = DpiLevel.HIGH,
-               moveMode = MoveMode.FREE,
                clickMode = ClickMode.LEFT_CLICK,
-               scrollMode = ScrollMode.NONE
+               moveMode = MoveMode.FREE,
+               scrollMode = ScrollMode.OFF,      // 실제 구현: NONE 아님
+               dpi = DpiLevel.HIGH
            ),
            dynamicsPresetIndex = 3  // Fast
        ),
@@ -879,7 +877,7 @@ updated: "2026-04-02"
 3. **`TouchpadState`에 `modePresetIndex: Int` 필드 추가** (기본값: `DEFAULT_MODE_PRESET_INDEX`)
 4. **`AppIcons`에 모드 프리셋 아이콘 추가** (`AppIcons.kt`):
    - `ModePresetStandard`, `ModePresetPrecise`, `ModePresetFast`
-   - 대응 VectorDrawable: `ic_mode_standard.xml`, `ic_mode_precise.xml`, `ic_mode_fast.xml`
+   - ~~대응 VectorDrawable: `ic_mode_standard.xml`, `ic_mode_precise.xml`, `ic_mode_fast.xml`~~ **실제 구현**: Material Icons 사용 (`Icons.Filled.Tune`, `Icons.Filled.GpsFixed`, `Icons.AutoMirrored.Filled.DirectionsRun`) — VectorDrawable 파일 불생성
 5. **`ModePresetButton.kt` 신규** — `DynamicsPresetButton.kt`와 동일 구조:
    - **위치**: `Alignment.BottomEnd`, `padding(end = 8.dp, bottom = 8.dp)`
    - **크기**: 40dp × 40dp
@@ -926,6 +924,13 @@ updated: "2026-04-02"
 
 ## Phase 4.4.9: 터치패드 E2E 하드웨어 테스트
 
+> **⚠️ Phase 4.4.8 변경사항**:
+> - `TouchpadMode.kt`에 `PadModeState`(클릭/이동/스크롤/DPI 스냅샷) + `ModePreset` data class 신규 추가.
+> - `TouchpadState`에 `modePresetIndex: Int` 필드 추가됨. 기존 코드에서 `TouchpadState` 복사 시 해당 필드도 전파됨.
+> - `TouchpadWrapper`에 `onModePresetLongPress: () -> Unit` 파라미터 추가됨.
+> - 터치패드 **우측 하단**에 40dp × 40dp `ModePresetButton` 상시 오버레이됨. E2E 테스트 시 해당 버튼과 터치패드 우측 하단 터치 영역 간 겹침 여부 확인 필요.
+> - `ModePresetConstants.kt` 신규 (`ui.common` 패키지): Standard(index 0), Precise(index 1), Fast(index 2) 3개 프리셋.
+
 **목표**: Phase 4.3에서 구현한 터치패드 기능 전체를 실기기 + 실제 PC 연결 환경에서 하나씩 검증하여 하드웨어 수준의 이상 없음을 확인
 
 **개발 기간**: 0.5-1일
@@ -947,6 +952,19 @@ updated: "2026-04-02"
 - [ ] DPI 배율과 다이나믹스 배율 중첩 적용 정상 동작 (Low DPI + 가속 프리셋 조합)
 - [ ] 최대 배율 상한 초과 방지 (`coerceIn` 확인)
 - [ ] 스크롤 모드 중 다이나믹스 배율 미적용 확인 (커서 이동 모드 전용)
+
+#### 모드 프리셋 버튼 (Phase 4.4.8)
+- [ ] `ModePresetButton` — 터치패드 우측 하단 상시 표시 (스크롤 모드에서도 유지)
+- [ ] 탭 시 Standard → Precise → Fast → Standard 순환 확인
+- [ ] 탭 시 프리셋 이름 라벨(1.5초) 표시 후 자동 소멸 확인
+- [ ] 롱프레스 시 팝업 오버레이 등장 확인 (배경 블러 포함)
+- [ ] 팝업 그리드 — 스와이프로 프리셋 이동, 범위 초과 시 빨간 테두리 + 진동 확인
+- [ ] 팝업 현재 프리셋 탭 → 팝업 닫힘 확인
+- [ ] 팝업 다른 프리셋 탭 → CONFIRM 단계 진입 확인
+- [ ] CONFIRM — 스와이프로 예/아니요 선택, 탭으로 확정 확인
+- [ ] 프리셋 적용 시 `ControlButtonContainer` (DPI/클릭/이동) 즉시 반영 확인
+- [ ] Precise 프리셋 적용 후 직각 이동 모드 + 저DPI + Precision 다이나믹스 동작 확인
+- [ ] Fast 프리셋 적용 후 자유 이동 + 고DPI + Fast 다이나믹스 동작 확인
 
 > (이후 Phase 완료 시 추가 항목 계속 추가)
 

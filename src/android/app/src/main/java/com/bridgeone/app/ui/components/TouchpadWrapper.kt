@@ -68,6 +68,7 @@ import com.bridgeone.app.ui.components.touchpad.ClickMode
 import com.bridgeone.app.ui.components.touchpad.ControlButtonConfig
 import com.bridgeone.app.ui.components.touchpad.CursorMode
 import com.bridgeone.app.ui.components.touchpad.DynamicsPresetButton
+import com.bridgeone.app.ui.components.touchpad.ModePresetButton
 import com.bridgeone.app.ui.components.touchpad.EdgeBumpOverlay
 import com.bridgeone.app.ui.components.touchpad.EdgePopupMode
 import com.bridgeone.app.ui.components.touchpad.EdgeSwipeMode
@@ -137,6 +138,7 @@ fun TouchpadWrapper(
     touchpadState: TouchpadState = TouchpadState(),
     onTouchpadStateChange: (TouchpadState) -> Unit = {},
     onDynamicsLongPress: () -> Unit = {},
+    onModePresetLongPress: () -> Unit = {},
     config: ControlButtonConfig = ControlButtonConfig(),
     onTouchEvent: (
         eventType: PointerEventType,
@@ -227,6 +229,16 @@ fun TouchpadWrapper(
         showPresetLabel = true
         delay(1500L)
         showPresetLabel = false
+    }
+
+    // 모드 프리셋 탭 라벨 표시 상태 (Phase 4.4.8)
+    var showModePresetLabel by remember { mutableStateOf(false) }
+    var isFirstModePresetRender by remember { mutableStateOf(true) }
+    LaunchedEffect(touchpadState.modePresetIndex) {
+        if (isFirstModePresetRender) { isFirstModePresetRender = false; return@LaunchedEffect }
+        showModePresetLabel = true
+        delay(1500L)
+        showModePresetLabel = false
     }
 
     // ── 산봉우리 수축 애니메이션 (Phase 4.4.6) ──
@@ -1134,6 +1146,19 @@ fun TouchpadWrapper(
                 onTouchpadStateChange = onTouchpadStateChange,
                 onLongPress = onDynamicsLongPress,
                 showLabel = showPresetLabel
+            )
+        }
+
+        // 모드 프리셋 버튼 (Standard 모드에서 항상 표시, Phase 4.4.8)
+        if (bridgeMode != BridgeMode.ESSENTIAL) {
+            ModePresetButton(
+                touchpadState = touchpadState,
+                onTouchpadStateChange = onTouchpadStateChange,
+                onLongPress = onModePresetLongPress,
+                showLabel = showModePresetLabel,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 8.dp, bottom = 8.dp)
             )
         }
 
