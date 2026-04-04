@@ -248,22 +248,30 @@ updated: "2026-04-03"
 **개발 기간**: 0.5-1일
 
 **작업 내용**:
-- `ScrollConstants.kt`에 `InfiniteScrollDirectionBoost` 상수 객체 추가 (UP/DOWN 방향별 배율, 기본값 `1.0f`)
-- `TouchpadWrapper.kt` 무한 스크롤 MOVE 이벤트 및 관성 초기 속도 계산에 방향별 배율 적용
-- 적용 범위: 무한 스크롤 모드에만 적용, 일반 스크롤·커서 이동 영향 없음
+- `ScrollConstants.kt`에 `ScrollDirectionBoost` 상수 객체 추가 (UP/DOWN/LEFT/RIGHT 방향별 배율, 기본값 `1.0f`)
+- `TouchpadWrapper.kt` MOVE 이벤트 scrollAccum 누적 및 무한 스크롤 관성 초기 속도 계산에 방향별 배율 적용
+- 적용 범위: 일반·무한 스크롤 공통 적용, 커서 이동 영향 없음
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/common/ScrollConstants.kt`
-  — `InfiniteScrollDirectionBoost` 상수 추가
+  — `ScrollDirectionBoost` 상수 추가, `SCROLL_GUIDELINE_STEP_DP` 삭제 (`SCROLL_UNIT_DISTANCE_DP`로 통합)
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
-  — 무한 스크롤 MOVE 이벤트 및 관성 초기 속도 계산에 방향별 배율 적용
+  — MOVE 이벤트 scrollAccum 누적에 방향별 배율 적용 (일반·무한 스크롤 공통)
+  — 무한 스크롤 가이드라인 연속 추적에도 배율 반영
+  — 관성 초기 속도 계산에 방향별 배율 적용
 
 **검증**:
-- [ ] `DOWN_MULTIPLIER = 1.5f` 설정 후 아래로 스와이프 시 기존 대비 스크롤 속도 1.5배 증가 확인
-- [ ] `UP_MULTIPLIER = 1.0f` 유지 시 위로 스와이프 속도 변화 없음 확인
-- [ ] 배율 변경 시 관성 단계에도 동일하게 반영되는지 확인
-- [ ] 일반 스크롤 모드에 영향 없음 확인
-- [ ] 양방향 모두 `1.0f`일 때 기존 동작과 완전 동일한지 확인
+- [x] `DOWN_MULTIPLIER = 1.5f` 설정 후 아래로 스와이프 시 기존 대비 스크롤 속도 1.5배 증가 확인
+- [x] `UP_MULTIPLIER = 1.0f` 유지 시 위로 스와이프 속도 변화 없음 확인
+- [x] 배율 변경 시 관성 단계에도 동일하게 반영되는지 확인
+- [x] 일반 스크롤 모드에도 배율 적용 확인
+- [x] 양방향 모두 `1.0f`일 때 기존 동작과 완전 동일한지 확인
+
+> **실제 구현 (계획과 다름)**: 계획은 무한 스크롤 전용 `InfiniteScrollDirectionBoost`(UP/DOWN)이었으나 다음과 같이 확장됨.
+> - `ScrollDirectionBoost`로 이름 변경, LEFT/RIGHT 배율 추가 (4방향 지원)
+> - 일반·무한 스크롤 공통 적용으로 범위 확대 (커서 이동에는 미적용)
+> - 무한 스크롤 드래그 중 가이드라인도 배율 반영 (`guidelineTarget += axisDeltaDp * dirMult`) — 스크롤 효과를 시각적으로 일관되게 표시
+> - `SCROLL_GUIDELINE_STEP_DP` 삭제 — `SCROLL_UNIT_DISTANCE_DP`와 항상 동일해야 자연스러우므로 통합
 
 ---
 

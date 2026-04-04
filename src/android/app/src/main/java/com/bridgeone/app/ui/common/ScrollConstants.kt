@@ -14,7 +14,7 @@ object ScrollConstants {
     const val SCROLL_AXIS_DIAGONAL_DEAD_ZONE_DEG = 15f
 
     /** 스크롤 1단위를 전송하기 위해 손가락이 이동해야 하는 거리 (dp). 값이 작을수록 빠름 */
-    const val SCROLL_UNIT_DISTANCE_DP = 20f
+    const val SCROLL_UNIT_DISTANCE_DP = 15f
 
     /** 느림 단계 스크롤 비율 배수 */
     const val SCROLL_SENSITIVITY_SLOW = 0.5f
@@ -24,9 +24,6 @@ object ScrollConstants {
 
     /** 빠름 단계 스크롤 비율 배수 */
     const val SCROLL_SENSITIVITY_FAST = 2.0f
-
-    /** 스크롤 1단위 전송 시 가이드라인이 이동하는 스텝 거리 (dp) */
-    const val SCROLL_GUIDELINE_STEP_DP = 20f
 
     /** 가이드라인 선 간격 (dp) — 배경에 등간격으로 여러 선이 표시됨 */
     const val SCROLL_GUIDELINE_SPACING_DP = 40f
@@ -83,6 +80,27 @@ object ScrollConstants {
 
     /** 직각 이동 모드에서 주축 전환 방지 데드밴드 각도 (°). 45° ± 이 값 범위 내이면 대각선 판정 */
     const val RIGHT_ANGLE_DEADBAND_DEG = 22.5f
+}
+
+/**
+ * 스크롤 방향별 속도 배율 (Phase 4.5.8)
+ *
+ * 특정 방향 스크롤이 다른 방향보다 느리게 느껴질 때 조정합니다.
+ * 원인은 기기 특성일 수도 있고, 사용자의 신체 상황으로 인해
+ * 특정 방향으로의 동일한 움직임이 어려운 경우일 수도 있습니다.
+ * 1.0f = 변경 없음. MOVE 이벤트 scrollAccum 누적에 적용됩니다 (일반·무한 스크롤 공통).
+ * 무한 스크롤의 관성 초기 속도에도 동일 배율이 반영됩니다.
+ * 커서 이동 모드에는 영향 없음.
+ */
+object ScrollDirectionBoost {
+    /** 아래 방향(손가락↓) 배율. 1.0f = 변경 없음 */
+    const val DOWN_MULTIPLIER = 1.0f
+    /** 위 방향(손가락↑) 배율. 1.0f = 변경 없음 */
+    const val UP_MULTIPLIER = 1.0f
+    /** 오른쪽 방향(손가락→) 배율. 1.0f = 변경 없음 */
+    const val RIGHT_MULTIPLIER = 1.0f
+    /** 왼쪽 방향(손가락←) 배율. 1.0f = 변경 없음 */
+    const val LEFT_MULTIPLIER = 1.0f
 }
 
 /**

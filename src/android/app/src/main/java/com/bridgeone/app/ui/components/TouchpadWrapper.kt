@@ -61,11 +61,11 @@ import com.bridgeone.app.ui.common.ScrollConstants.RIGHT_ANGLE_DEADBAND_DEG
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_AXIS_DIAGONAL_DEAD_ZONE_DEG
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_AXIS_LOCK_DISTANCE_DP
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_HIDE_DELAY_MS
-import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_STEP_DP
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_STOP_THRESHOLD_MS
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_FRAME_MIN_INTERVAL_MS
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_MAX_FRAMES_PER_EVENT
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_UNIT_DISTANCE_DP
+import com.bridgeone.app.ui.common.ScrollDirectionBoost
 import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
 import com.bridgeone.app.ui.components.touchpad.ClickMode
 import com.bridgeone.app.ui.components.touchpad.ControlButtonConfig
@@ -741,7 +741,17 @@ fun TouchpadWrapper(
                                     }
 
                                     // 스크롤 단위 누적 (소수점 보존으로 단위 손실 방지)
-                                    scrollAccum += axisDelta
+                                    // 방향별 속도 배율 적용 (Phase 4.5.8) — 일반·무한 스크롤 공통
+                                    val dirMult = when (scrollAxis) {
+                                        ScrollAxis.VERTICAL ->
+                                            if (axisDelta >= 0f) ScrollDirectionBoost.DOWN_MULTIPLIER
+                                            else ScrollDirectionBoost.UP_MULTIPLIER
+                                        ScrollAxis.HORIZONTAL ->
+                                            if (axisDelta >= 0f) ScrollDirectionBoost.RIGHT_MULTIPLIER
+                                            else ScrollDirectionBoost.LEFT_MULTIPLIER
+                                        ScrollAxis.UNDECIDED -> 1.0f
+                                    }
+                                    scrollAccum += axisDelta * dirMult
 
                                     var framesThisEvent = 0
                                     while (abs(scrollAccum) >= effectiveUnitPx &&
@@ -772,7 +782,7 @@ fun TouchpadWrapper(
                                         guidelineVisible = true
                                         // 일반 스크롤: 단위별 스텝 이동 (무한 스크롤은 아래에서 연속 추적)
                                         if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL) {
-                                            guidelineTarget += direction * SCROLL_GUIDELINE_STEP_DP
+                                            guidelineTarget += direction * SCROLL_UNIT_DISTANCE_DP
                                         }
 
                                         // 햅틱 피드백 (일반 스크롤: 단위별 틱)
@@ -788,8 +798,8 @@ fun TouchpadWrapper(
                                         val now = System.currentTimeMillis()
                                         // dp 단위로 변환 (px / density)
                                         val axisDeltaDp = axisDelta / density.density
-                                        // 가이드라인이 손가락과 함께 연속 이동
-                                        guidelineTarget += axisDeltaDp
+                                        // 가이드라인이 스크롤 효과에 비례하여 연속 이동 (배율 반영)
+                                        guidelineTarget += axisDeltaDp * dirMult
                                         velocitySamples.addLast(Pair(axisDeltaDp, now))
                                         // 윈도우 밖 오래된 샘플 제거
                                         val cutoff = now - INFINITE_SCROLL_VELOCITY_WINDOW_MS
@@ -984,11 +994,23 @@ fun TouchpadWrapper(
                                     0f
                                 }
 
-                                if (abs(initialVelocity) > INFINITE_SCROLL_MIN_VELOCITY_DP_MS) {
+                                // 방향별 속도 배율 적용 (Phase 4.5.8)
+                                val dirMultiplier = when (capturedAxis) {
+                                    ScrollAxis.VERTICAL ->
+                                        if (initialVelocity >= 0f) ScrollDirectionBoost.DOWN_MULTIPLIER
+                                        else ScrollDirectionBoost.UP_MULTIPLIER
+                                    ScrollAxis.HORIZONTAL ->
+                                        if (initialVelocity >= 0f) ScrollDirectionBoost.RIGHT_MULTIPLIER
+                                        else ScrollDirectionBoost.LEFT_MULTIPLIER
+                                    ScrollAxis.UNDECIDED -> 1.0f
+                                }
+                                val boostedInitialVelocity = initialVelocity * dirMultiplier
+
+                                if (abs(boostedInitialVelocity) > INFINITE_SCROLL_MIN_VELOCITY_DP_MS) {
                                     val capturedScrollUnitDp = SCROLL_UNIT_DISTANCE_DP
 
                                     inertiaJob = coroutineScope.launch {
-                                        var velocity = initialVelocity
+                                        var velocity = boostedInitialVelocity
                                         var inertiaScrollAccum = 0f
                                         var lastTimestamp = System.currentTimeMillis()
                                         val effectiveUnitDp = capturedScrollUnitDp / capturedSensitivity
