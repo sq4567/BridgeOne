@@ -145,6 +145,17 @@ fun EdgeSwipeOverlay(
 
     val shouldShow = visible || isModeSelecting
 
+    // 소멸 애니메이션 중 resetPopup()으로 상태가 리셋되어도
+    // 이전 값을 기억하여 올바른 UI 분기를 유지 (Phase 4.5.3)
+    var lastPopupMode by remember { mutableStateOf(selectedPopupMode) }
+    if (selectedPopupMode != null) {
+        lastPopupMode = selectedPopupMode
+    }
+    var lastAnchorPx by remember { mutableStateOf(popupAnchorPx) }
+    if (popupAnchorPx != Offset.Zero) {
+        lastAnchorPx = popupAnchorPx
+    }
+
     LaunchedEffect(isModeSelecting, visible) {
         if (shouldShow) {
             isActive = true
@@ -193,6 +204,8 @@ fun EdgeSwipeOverlay(
             delay(100)
             bgAlpha.animateTo(0f, tween(200))
             isActive = false
+            lastPopupMode = null
+            lastAnchorPx = Offset.Zero
         }
     }
 
@@ -329,7 +342,10 @@ fun EdgeSwipeOverlay(
     if (configuredModes.isEmpty()) return
 
     val confirmIndex = displayedModes.size
-    val isDirectTouch = selectedPopupMode == EdgePopupMode.DIRECT_TOUCH
+    // 소멸 애니메이션 중에도 이전 값 기준으로 올바른 UI 분기 (Phase 4.5.3)
+    val effectiveMode = selectedPopupMode ?: lastPopupMode
+    val isDirectTouch = effectiveMode == EdgePopupMode.DIRECT_TOUCH
+    val effectiveAnchor = if (popupAnchorPx != Offset.Zero) popupAnchorPx else lastAnchorPx
 
     // 어두운 반투명 배경 — fade-in 애니메이션 적용 (Phase 4.4.7)
     Box(
@@ -337,7 +353,7 @@ fun EdgeSwipeOverlay(
             .fillMaxSize()
             .background(Color.Black.copy(alpha = bgAlpha.value))
     ) {
-        if (isDirectTouch && popupAnchorPx != Offset.Zero) {
+        if (isDirectTouch && effectiveAnchor != Offset.Zero) {
             // ═══ 직접 터치 모드: 앵커 위치 중심 작은 버튼 그리드 ═══
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val density = LocalDensity.current
@@ -354,8 +370,8 @@ fun EdgeSwipeOverlay(
                 val gridW = cols * buttonSizePx + (cols - 1) * gapPx
                 val gridH = modeRows * buttonSizePx + modeRows * gapPx + confirmHeightPx
 
-                val gridLeft = (popupAnchorPx.x - gridW / 2).coerceIn(0f, (containerW - gridW).coerceAtLeast(0f))
-                val gridTop = (popupAnchorPx.y - gridH / 2).coerceIn(0f, (containerH - gridH).coerceAtLeast(0f))
+                val gridLeft = (effectiveAnchor.x - gridW / 2).coerceIn(0f, (containerW - gridW).coerceAtLeast(0f))
+                val gridTop = (effectiveAnchor.y - gridH / 2).coerceIn(0f, (containerH - gridH).coerceAtLeast(0f))
 
                 // 모드 버튼
                 displayedModes.forEachIndexed { index, mode ->
@@ -476,7 +492,7 @@ fun EdgeSwipeOverlay(
                 }
             }
         }
-        else if (isDirectTouch && popupAnchorPx == Offset.Zero) {
+        else if (isDirectTouch && effectiveAnchor == Offset.Zero) {
             // ═══ 직접 터치 모드: 앵커 미설정 — 위치 선택 안내 ═══
             Box(
                 modifier = Modifier

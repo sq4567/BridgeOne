@@ -442,13 +442,13 @@ fun TouchpadWrapper(
                                     } else {
                                         // 확인 버튼 탭
                                         val finalState = pendingEdgeState ?: latestState
-                                        latestOnStateChange(finalState)
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                                         } else {
                                             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                                         }
                                         resetPopup()
+                                        latestOnStateChange(finalState)
                                     }
                                 }
                             }
@@ -505,13 +505,13 @@ fun TouchpadWrapper(
                                         }
                                     } else {
                                         val finalState = pendingEdgeState ?: latestState
-                                        latestOnStateChange(finalState)
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                                         } else {
                                             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                                         }
                                         resetPopup()
+                                        latestOnStateChange(finalState)
                                     }
                                 }
                             }
