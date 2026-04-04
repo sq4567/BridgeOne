@@ -192,7 +192,48 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.7: 무한 스크롤 방향별 속도 비대칭 보정 옵션
+## Phase 4.5.7: 무한 스크롤 고속 스크롤 시 phantom 키 입력 버그 수정
+
+**개발 기간**: 0.5일
+
+**증상**:
+- 무한 스크롤 모드에서 매우 빠르게 스크롤하면 Windows에서 경보음(삐삐삐삐) 발생
+- 이후 알 수 없는 키 입력이 발생하고 Microsoft 365 URL(`https://m365.cloud.microsoft/`)이 브라우저에서 열림
+- 느린 스크롤에서는 재현 안 됨 — 빠를수록 재현 확률 높음
+
+**원인**:
+- `TouchpadWrapper.kt`의 MOVE 이벤트 처리 중 `while (abs(scrollAccum) >= effectiveUnitPx)` 루프가 throttle 없이 단일 터치 이벤트에서 수십 개의 BridgeFrame을 연속 전송
+- 예: 1회 MOVE에서 손가락이 300dp 이동 + `SCROLL_UNIT_DISTANCE_DP = 20dp` + 감도 1.0 → 15프레임 즉시 전송
+- ESP32-S3의 UART RX 버퍼 크기는 256바이트(= 32프레임 수용 한계), `frame_queue` 크기는 10
+- `frame_queue`가 가득 차면 `uart_task`가 최대 10ms 블록되고, 그 사이 UART RX 버퍼에 쌓이는 바이트가 한도를 초과하면 바이트 드롭 발생
+- 바이트가 드롭되면 8바이트 프레임 경계가 어긋나고, 이후 read가 잘못된 오프셋에서 시작됨
+- 미정렬 프레임에서는 `wheel`·`seq`·`deltaX` 등 다른 필드의 바이트 값이 `modifier`(키보드 수정자) 또는 `keycode1`/`keycode2` 위치에 놓이게 됨
+- 예: `seq = 0x08`이 `modifier` 위치에 오면 `LEFT_GUI`(bit3 = Windows 키) 설정 → Windows 단축키 트리거 → M365 URL 오픈
+- 연속된 phantom 수정자 키 토글이 삐삐삐삐 경보음(Windows Sticky Keys 혹은 FilterKeys 경고)을 유발
+
+**수정 내용**:
+- `TouchpadWrapper.kt`: MOVE 이벤트 내 스크롤 전송 루프의 최대 프레임 수를 `SCROLL_MAX_FRAMES_PER_EVENT`로 제한
+  - `framesThisEvent < SCROLL_MAX_FRAMES_PER_EVENT` 조건을 `while` 루프에 추가
+  - 제한 초과 시 나머지 `scrollAccum`은 다음 MOVE 이벤트로 자연 이월 (스크롤 거리 손실 없음)
+- `ScrollConstants.kt`: `SCROLL_MAX_FRAMES_PER_EVENT = 5` 상수 추가
+
+> **선택적 보강**: `uart_handler.h`의 `UART_RX_BUFFER_SIZE`를 256 → 1024로 늘리면 RX 버퍼 여유가 4배로 커져 버스트 내성이 높아짐. Android 측 수정만으로도 재현이 없으면 펌웨어 수정 불필요.
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/ScrollConstants.kt`
+  — `SCROLL_MAX_FRAMES_PER_EVENT = 5` 상수 추가
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
+  — MOVE 이벤트 스크롤 루프에 `framesThisEvent` 카운터 및 `SCROLL_MAX_FRAMES_PER_EVENT` 상한 추가
+
+**검증**:
+- [ ] 무한 스크롤 모드에서 최대한 빠르게 스크롤 → 경보음 없고 phantom 키 입력 없음 확인
+- [ ] 동일 조건에서 브라우저/앱이 예상치 않게 열리지 않음 확인
+- [ ] 빠른 스크롤에서도 스크롤 속도·거리가 느린 스크롤 대비 비례적으로 유지되는지 확인 (거리 손실 없음)
+- [ ] 일반 스크롤 모드의 고속 스크롤에서도 동일 현상 없음 확인
+
+---
+
+## Phase 4.5.8: 무한 스크롤 방향별 속도 비대칭 보정 옵션
 
 **개발 기간**: 0.5-1일
 
@@ -216,7 +257,7 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.8: 엣지 스와이프 2단계 제스처 UX 개선
+## Phase 4.5.9: 엣지 스와이프 2단계 제스처 UX 개선
 
 **개발 기간**: 1일
 
@@ -292,7 +333,7 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.9: 엣지 스와이프 팝업 등장 시 햅틱 피드백
+## Phase 4.5.10: 엣지 스와이프 팝업 등장 시 햅틱 피드백
 
 **개발 기간**: 0.5일 미만
 
@@ -310,7 +351,7 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.10: 산봉우리 애니메이션 간소화 (베이스 고정, 피크만 추종)
+## Phase 4.5.11: 산봉우리 애니메이션 간소화 (베이스 고정, 피크만 추종)
 
 **개발 기간**: 0.5일
 
@@ -355,7 +396,7 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.11: Windows 서버 감지 간헐적 실패 — 종합 원인 조사 및 수정
+## Phase 4.5.12: Windows 서버 감지 간헐적 실패 — 종합 원인 조사 및 수정
 
 **개발 기간**: 2-3일 (조사 포함)
 
@@ -425,7 +466,7 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.12: 엣지 스와이프로 DPI·스크롤 속도·포인터 다이나믹스 조정
+## Phase 4.5.13: 엣지 스와이프로 DPI·스크롤 속도·포인터 다이나믹스 조정
 
 **개발 기간**: 1-1.5일
 
@@ -495,7 +536,7 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.13: 포인터 다이나믹스 커스텀 프리셋 그래프 편집기
+## Phase 4.5.14: 포인터 다이나믹스 커스텀 프리셋 그래프 편집기
 
 **개발 기간**: 2-3일
 
