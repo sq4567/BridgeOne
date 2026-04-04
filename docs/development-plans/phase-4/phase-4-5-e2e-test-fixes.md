@@ -67,10 +67,10 @@ updated: "2026-04-03"
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
 
 **검증**:
-- [ ] Essential 모드에서 터치패드 가장자리 스와이프 → 산봉우리·팝업이 전혀 나타나지 않음 확인
-- [ ] Essential 모드에서 가장자리 터치 시작 후 안쪽 이동 → 일반 커서 이동으로 처리됨 확인
-- [ ] Standard 모드에서 엣지 스와이프 기존 동작 정상 유지 확인
-- [ ] Essential 모드에서 테두리 색상이 여전히 투명인지 확인 (기존 동작 보존)
+- [x] Essential 모드에서 터치패드 가장자리 스와이프 → 산봉우리·팝업이 전혀 나타나지 않음 확인
+- [x] Essential 모드에서 가장자리 터치 시작 후 안쪽 이동 → 일반 커서 이동으로 처리됨 확인
+- [x] Standard 모드에서 엣지 스와이프 기존 동작 정상 유지 확인
+- [x] Essential 모드에서 테두리 색상이 여전히 투명인지 확인 (기존 동작 보존)
 
 ---
 

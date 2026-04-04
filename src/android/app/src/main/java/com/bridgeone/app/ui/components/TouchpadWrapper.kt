@@ -521,12 +521,16 @@ fun TouchpadWrapper(
 
                     // ── 엣지 스와이프 감지 (Phase 4.3.12) ──
                     val downPos = down.changes.first().position
-                    val detectedEntryEdge = detectEntryEdge(
-                        pos = downPos,
-                        width = size.width.toFloat(),
-                        height = size.height.toFloat(),
-                        edgeWidthPx = edgeHitWidthPx
-                    )
+                    val detectedEntryEdge = if (bridgeMode == BridgeMode.ESSENTIAL) {
+                        null // Essential 모드에서는 엣지 스와이프 비활성화
+                    } else {
+                        detectEntryEdge(
+                            pos = downPos,
+                            width = size.width.toFloat(),
+                            height = size.height.toFloat(),
+                            edgeWidthPx = edgeHitWidthPx
+                        )
+                    }
                     isEdgeCandidate = detectedEntryEdge != null
                     entryEdge = detectedEntryEdge
                     edgeSwipeHapticFired = false
