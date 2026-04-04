@@ -46,10 +46,10 @@ object ScrollConstants {
     // ── 무한 스크롤 관성 (Phase 4.3.4) ──
 
     /** 관성 지수 감쇠 시간 상수 (ms). 이 시간 후 속도가 약 37%(1/e)로 감소. 클수록 오래 지속 */
-    const val INFINITE_SCROLL_TIME_CONSTANT_MS = 800f
+    const val INFINITE_SCROLL_TIME_CONSTANT_MS = 1500f
 
     /** 관성 정지 임계 속도 (dp/ms). 이 속도 미만이 되면 관성 종료 */
-    const val INFINITE_SCROLL_MIN_VELOCITY_DP_MS = 0.08f
+    const val INFINITE_SCROLL_MIN_VELOCITY_DP_MS = 0.2f
 
     /** 관성 속도 샘플 윈도우 (ms). 이 시간 범위 내 이동량으로 초기 속도 계산 */
     const val INFINITE_SCROLL_VELOCITY_WINDOW_MS = 100L
@@ -94,7 +94,7 @@ object ScrollConstants {
  */
 object ScrollDirectionBoost {
     /** 아래 방향(손가락↓) 배율. 1.0f = 변경 없음 */
-    const val DOWN_MULTIPLIER = 1.0f
+    const val DOWN_MULTIPLIER = 2.0f
     /** 위 방향(손가락↑) 배율. 1.0f = 변경 없음 */
     const val UP_MULTIPLIER = 1.0f
     /** 오른쪽 방향(손가락→) 배율. 1.0f = 변경 없음 */
