@@ -56,10 +56,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.sqrt
 
-// 스와이프 1단계 이동 임계값 (dp)
+// 스와이프 1단계 이동 임계값 (dp). 기본값: 30f
 private const val SWIPE_STEP_DP = 30f
 
-// 탭 판정 최대 이동량 (dp)
+// 탭 판정 최대 이동량 (dp). 기본값: 8f
 private const val TAP_THRESHOLD_DP = 8f
 
 private enum class PopupPhase { GRID, CONFIRM }

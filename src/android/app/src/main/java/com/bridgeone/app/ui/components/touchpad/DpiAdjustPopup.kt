@@ -38,11 +38,11 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 // DPI 조절 파라미터
-private const val DPI_ADJUST_STEP_DP = 20f   // 0.1x 변화당 필요한 드래그 거리 (dp)
-private const val DPI_MIN = 0.1f
-private const val DPI_MAX = 5.0f
-private const val DPI_STEP = 0.1f
-private const val TAP_THRESHOLD_DP = 8f       // 탭 판정 최대 이동량 (dp)
+private const val DPI_ADJUST_STEP_DP = 20f   // 0.1x 변화당 필요한 드래그 거리 (dp). 기본값: 20f
+private const val DPI_MIN = 0.1f             // 기본값: 0.1f
+private const val DPI_MAX = 5.0f             // 기본값: 5.0f
+private const val DPI_STEP = 0.1f            // 기본값: 0.1f
+private const val TAP_THRESHOLD_DP = 8f      // 탭 판정 최대 이동량 (dp). 기본값: 8f
 
 /**
  * DPI 세밀 조절 팝업 (Phase 4.3.6)

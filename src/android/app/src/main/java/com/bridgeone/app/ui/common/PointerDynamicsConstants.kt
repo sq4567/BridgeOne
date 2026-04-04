@@ -48,5 +48,5 @@ val DYNAMICS_PRESETS: List<PointerDynamicsPreset> = listOf(
     ),
 )
 
-/** 기본 프리셋 인덱스 (Off). TouchpadState.dynamicsPresetIndex 초기값과 일치해야 합니다. */
+/** 기본 프리셋 인덱스 (Off). TouchpadState.dynamicsPresetIndex 초기값과 일치해야 합니다. 기본값: 0 */
 const val DEFAULT_PRESET_INDEX = 0

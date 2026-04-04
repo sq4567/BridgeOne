@@ -72,12 +72,14 @@ object ClickDetector {
     /**
      * 클릭 최대 누르는 시간 (밀리초)
      * 이 시간 이내에 손가락을 떼면 LEFT_CLICK, 초과하면 RIGHT_CLICK 판정
+     * 기본값: 500L
      */
     const val CLICK_MAX_DURATION: Long = 500L
 
     /**
      * 클릭 최대 이동 거리 (dp)
      * 손가락 이동이 이 거리 이내여야 클릭으로 판정됨 (손떨림 보상)
+     * 기본값: 15f
      */
     const val CLICK_MAX_MOVEMENT_DP: Float = 15f
 

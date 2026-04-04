@@ -18,9 +18,9 @@ import androidx.compose.ui.unit.dp
 // 이 상수들은 BridgeOneApp.kt에서 한 번만 적용되며,
 // 모든 Active 상태 페이지는 자동으로 이 제약 안에 배치됩니다.
 
-val TOP_SAFE_ZONE = 40.dp
-val BOTTOM_SAFE_ZONE = 40.dp
+val TOP_SAFE_ZONE = 40.dp       // 기본값: 40.dp
+val BOTTOM_SAFE_ZONE = 40.dp    // 기본값: 40.dp
 
 // [DEV] Phase 4.4.9 테스트 편의성: Page 1 터치패드 하단 오프셋
-// 터치패드 하단을 지정한 dp만큼 위로 올립니다. 0.dp = 기본값.
+// 터치패드 하단을 지정한 dp만큼 위로 올립니다. 기본값: 0.dp ⚠️ 의도적 변경
 val PAGE1_TOUCHPAD_BOTTOM_TEST_OFFSET = 80.dp

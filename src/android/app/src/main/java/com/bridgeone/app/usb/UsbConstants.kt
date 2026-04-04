@@ -24,7 +24,7 @@ object UsbConstants {
      *
      * 참조: docs/board/YD-ESP32-S3-N16R8-analysis.md §2.1.1
      */
-    const val ESP32_S3_VID = 0x1A86
+    const val ESP32_S3_VID = 0x1A86  // 기본값: 0x1A86
 
     /**
      * CH343P USB-to-UART 브릿지 Product ID.
@@ -34,7 +34,7 @@ object UsbConstants {
      *
      * 참조: docs/board/YD-ESP32-S3-N16R8-analysis.md §2.1.1
      */
-    const val ESP32_S3_PID = 0x55D3
+    const val ESP32_S3_PID = 0x55D3  // 기본값: 0x55D3
 
     // ========== UART Communication Settings ==========
 
@@ -43,21 +43,21 @@ object UsbConstants {
      * Android → ESP32-S3 간 직렬 통신 속도 (1Mbps).
      * CLAUDE.md에 명시: "1Mbps 속도로 Android와 통신"
      */
-    const val UART_BAUDRATE = 1000000
+    const val UART_BAUDRATE = 1000000  // 기본값: 1000000
 
     /**
      * UART 데이터 비트 수.
      * 표준 설정: 8비트 데이터
      * CLAUDE.md에 명시: "8N1" 프로토콜
      */
-    const val UART_DATA_BITS = 8
+    const val UART_DATA_BITS = 8  // 기본값: 8
 
     /**
      * UART 정지 비트 수.
      * 표준 설정: 1비트 정지 비트
      * CLAUDE.md에 명시: "8N1" 프로토콜
      */
-    const val UART_STOP_BITS = 1
+    const val UART_STOP_BITS = 1  // 기본값: 1
 
     /**
      * UART 패리티 설정.
@@ -67,7 +67,7 @@ object UsbConstants {
      *
      * 참조: com.hoho.android.usbserial.driver.UsbSerialPort.PARITY_NONE
      */
-    const val UART_PARITY = UsbSerialPort.PARITY_NONE
+    const val UART_PARITY = UsbSerialPort.PARITY_NONE  // 기본값: PARITY_NONE
 
     // ========== USB Timeout and Retry Settings ==========
 
@@ -75,19 +75,19 @@ object UsbConstants {
      * USB 포트 오픈 시도 타임아웃 (밀리초).
      * 포트 열기 작업이 이 시간 내에 완료되어야 합니다.
      */
-    const val USB_OPEN_TIMEOUT_MS = 1000
+    const val USB_OPEN_TIMEOUT_MS = 1000  // 기본값: 1000
 
     /**
      * USB 포트 읽기 작업 타임아웃 (밀리초).
      * 데이터 수신 대기 시간.
      */
-    const val USB_READ_TIMEOUT_MS = 100
+    const val USB_READ_TIMEOUT_MS = 100  // 기본값: 100
 
     /**
      * USB 포트 쓰기 작업 타임아웃 (밀리초).
      * 데이터 송신 대기 시간.
      */
-    const val USB_WRITE_TIMEOUT_MS = 1000
+    const val USB_WRITE_TIMEOUT_MS = 1000  // 기본값: 1000
 
     // ========== Frame Protocol Settings ==========
 
@@ -101,13 +101,13 @@ object UsbConstants {
      * - wheel (1바이트)
      * - flags (1바이트)
      */
-    const val DELTA_FRAME_SIZE = 8
+    const val DELTA_FRAME_SIZE = 8  // 기본값: 8
 
     /**
      * 순번(sequence number) 최대값.
      * 0~253 범위에서 순환하여 패킷 유실을 감지합니다.
      * 0xFE(역방향 알림 프레임 헤더)와 0xFF(미래 예약)는 프로토콜 예약 바이트입니다.
      */
-    const val MAX_SEQUENCE_NUMBER = 253
+    const val MAX_SEQUENCE_NUMBER = 253  // 기본값: 253
 }
 

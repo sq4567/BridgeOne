@@ -212,6 +212,33 @@ cd src/android
 
 > **⚠️ Windows 환경 주의**: PowerShell에서는 `./gradlew` 대신 `.\gradlew` 또는 `gradlew.bat` 사용
 
+## Claude의 상수 기본값 주석 정책
+
+**핵심 원칙: 새로운 상수를 추가할 때 반드시 기본값을 주석으로 명시합니다.**
+
+### 주석 형식
+- **KDoc 주석 내**: 설명 끝에 `기본값: {값}` 형태로 추가
+  ```kotlin
+  /** 축 확정 임계값 (dp). 기본값: 8f */
+  const val SCROLL_AXIS_LOCK_DISTANCE_DP = 8f
+  ```
+- **인라인 주석**: `// 기본값: {값}` 형태로 추가
+  ```kotlin
+  const val PHASE_1_DURATION_MS = 100  // 기본값: 100
+  ```
+
+### 의도적 변경 표기
+현재 값이 기본값과 다른 경우 (유저의 사용 환경에 맞춰 의도적으로 조정한 값):
+```kotlin
+/** 관성 감쇠 시간 상수 (ms). 기본값: 800f ⚠️ 의도적 변경 */
+const val INFINITE_SCROLL_TIME_CONSTANT_MS = 1500f
+```
+
+### 적용 범위
+- Android 앱의 **모든 조정 가능한 상수** (const val, 컴패니언 오브젝트 상수, 파일 레벨 상수)
+- USB/프로토콜 설정값, UI 임계값, 타이밍 값, 물리 파라미터 등
+- HID 키 코드, 색상 상수, 로그 태그 등 **고정된 식별자 성격의 상수는 제외**
+
 ## Claude의 펌웨어 빌드 정책
 
 **핵심 원칙: 보드 펌웨어 빌드는 LLM이 직접 수행하지 않고 유저에게 위임합니다.**

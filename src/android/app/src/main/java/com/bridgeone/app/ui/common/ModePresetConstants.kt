@@ -47,5 +47,5 @@ val MODE_PRESETS: List<ModePreset> = listOf(
     ),
 )
 
-/** 기본 모드 프리셋 인덱스 (Standard). TouchpadState.modePresetIndex 초기값과 일치해야 합니다. */
+/** 기본 모드 프리셋 인덱스 (Standard). TouchpadState.modePresetIndex 초기값과 일치해야 합니다. 기본값: 0 */
 const val DEFAULT_MODE_PRESET_INDEX = 0

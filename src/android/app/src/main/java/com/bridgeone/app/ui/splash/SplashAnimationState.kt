@@ -14,15 +14,15 @@ enum class AnimationPhase {
 }
 
 object SplashConstants {
-    const val PHASE_1_DURATION_MS = 100
-    const val PHASE_2_DURATION_MS = 300
-    const val PHASE_3_DURATION_MS = 500
-    const val PHASE_4_DURATION_MS = 300
-    const val PHASE_5_DURATION_MS = 100
-    const val PHASE_6_DURATION_MS = 600
-    const val TOTAL_DURATION_MS = 1900
-    const val BRIDGE_LINE_WIDTH_DP = 2.0f
-    const val STAR_ROTATION_DEGREES = 180f
-    const val STAR_SCALE_RATIO = 0.85f
-    const val SKIP_TAP_THRESHOLD_MS = 500
+    const val PHASE_1_DURATION_MS = 100           // 기본값: 100
+    const val PHASE_2_DURATION_MS = 300           // 기본값: 300
+    const val PHASE_3_DURATION_MS = 500           // 기본값: 500
+    const val PHASE_4_DURATION_MS = 300           // 기본값: 300
+    const val PHASE_5_DURATION_MS = 100           // 기본값: 100
+    const val PHASE_6_DURATION_MS = 600           // 기본값: 600
+    const val TOTAL_DURATION_MS = 1900            // 기본값: 1900
+    const val BRIDGE_LINE_WIDTH_DP = 2.0f         // 기본값: 2.0f
+    const val STAR_ROTATION_DEGREES = 180f        // 기본값: 180f
+    const val STAR_SCALE_RATIO = 0.85f            // 기본값: 0.85f
+    const val SKIP_TAP_THRESHOLD_MS = 500         // 기본값: 500
 }

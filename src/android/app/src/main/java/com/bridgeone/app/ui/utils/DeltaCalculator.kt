@@ -49,7 +49,7 @@ object DeltaCalculator {
      * - 밀도 2.0x 장치: 10px
      * - 밀도 3.0x 장치: 15px
      */
-    private val DEAD_ZONE_THRESHOLD = 5.dp
+    private val DEAD_ZONE_THRESHOLD = 5.dp  // 기본값: 5.dp
 
     /**
      * 델타 값의 최대 절댓값 (signed byte 범위)
@@ -57,7 +57,7 @@ object DeltaCalculator {
      * BridgeFrame의 deltaX, deltaY는 각각 1바이트 signed 정수이므로
      * 범위는 -128 ~ 127입니다.
      */
-    private const val MAX_DELTA_VALUE = 127
+    private const val MAX_DELTA_VALUE = 127  // 기본값: 127
 
     /**
      * 두 터치 위치 간의 상대 이동값(델타)을 계산합니다.
