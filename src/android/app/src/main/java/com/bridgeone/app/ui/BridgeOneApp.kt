@@ -54,7 +54,7 @@ import kotlinx.coroutines.launch
 private const val EXIT_CONFIRMATION_TOAST_DURATION_MS = 2000L
 
 // [DEV] true → USB 연결 없이 UI 테스트 (Splash 후 바로 Active, 모드 전환 버튼 표시)
-private const val DEV_SKIP_CONNECTION = false
+private const val DEV_SKIP_CONNECTION = true
 
 // ============================================================
 // 최상위 Composable

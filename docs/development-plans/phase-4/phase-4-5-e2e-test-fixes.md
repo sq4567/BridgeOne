@@ -147,27 +147,48 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.6: 무한 스크롤 가이드라인 애니메이션 끊김 개선
+## Phase 4.5.6: 무한 스크롤 가이드라인 애니메이션 버그 수정
 
 **개발 기간**: 0.5일
 
-**작업 내용**:
-- `ScrollConstants.kt`의 Spring stiffness/damping 상수 조정 (더 부드러운 보간)
-- 관성 단계 루프에서 `delay(16L)` → `withFrameMillis {}` 전환 검토 (Compose 프레임 동기화)
+### 확인된 증상
+
+**버그 A — 드래그 중 가이드라인이 스크롤 단위마다만 점프**
+- 무한 스크롤 모드에서 손가락을 떼지 않은 채 Y축으로 이동하면 스크롤(HID 전송)과 진동은 정상 동작하지만, 가이드라인 선들이 손가락과 함께 연속으로 흐르지 않음
+- 완전히 멈춰 있지는 않으며, 약 1–2초에 한 번씩 위치가 뚝 이동하는 형태로 매우 끊겨서 보임
+- 끊김 간격은 드래그 속도와 연동됨: 느리게 드래그할수록 간격이 더 길어짐
+
+**버그 B — 관성 단계 가이드라인 끊김**
+- 손가락을 밀어 놓으면 관성 스크롤 자체(속도·감속)는 원하는 대로 동작하나, 가이드라인 이동 애니메이션이 뚝뚝 끊기면서 보임
+
+### 관련 코드 위치
+
+| 위치 | 역할 |
+|------|------|
+| `TouchpadWrapper.kt` 라인 183–199 | `guidelineHideJob` (mutableStateOf) 선언, `scheduleGuidelineHide()` 정의 |
+| `TouchpadWrapper.kt` 라인 176 | `guidelineTarget` (mutableFloatStateOf) 선언 |
+| `TouchpadWrapper.kt` 라인 754–766 | 스크롤 단위 전송 시 `scheduleGuidelineHide()` 호출 → `guidelineHideJob` 갱신 |
+| `TouchpadWrapper.kt` 라인 770–784 | 무한 스크롤 MOVE 이벤트마다 `guidelineTarget += axisDeltaDp` 업데이트 |
+| `TouchpadWrapper.kt` 라인 979–1023 | 관성 루프 — `delay(16L)` 간격으로 `guidelineTarget += moveDp` 업데이트 |
+| `ScrollGuideline.kt` 라인 103–111 | `LaunchedEffect(targetOffset)` → spring 애니메이션으로 `animOffset` 추적 |
+| `ScrollConstants.kt` 라인 41–44 | `SCROLL_GUIDELINE_SPRING_STIFFNESS = 10_000f`, `SCROLL_GUIDELINE_SPRING_DAMPING = 1.0f` |
+
+### 작업 내용
+
+> **실제 구현 (계획과 다름)**: `TouchpadWrapper.kt`는 수정 불필요. `ScrollGuideline.kt`만 수정.
+> - 원인: `LaunchedEffect(targetOffset)`은 타겟이 바뀔 때마다 이전 `animateTo` 코루틴을 취소하고 새로 시작. 드래그/관성 중처럼 매 프레임 타겟이 변하면 `animateTo`가 시작되자마자 취소되어 실제 이동 없다가 값이 잠시 멈추는 순간에만 spring이 "뚝" 진행됨.
+> - 해결: `LaunchedEffect(targetOffset, scrollMode)`로 변경 + 무한 스크롤 모드에서는 `animateTo` 대신 `snapTo`(즉각 추적) 사용. 일반 스크롤 모드는 기존 spring `animateTo` 유지.
 
 **수정 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/common/ScrollConstants.kt`
-  — `GUIDELINE_SPRING_STIFFNESS`, `GUIDELINE_SPRING_DAMPING` 상수 조정
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
-  — 관성 단계 루프에서 `delay(16L)` → `withFrameMillis {}` 전환 검토
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/ScrollGuideline.kt`
-  — spring spec 반영 확인
+  — `LaunchedEffect(targetOffset)` → `LaunchedEffect(targetOffset, scrollMode)` + 무한 스크롤 시 `snapTo` 분기 추가
 
 **검증**:
-- [ ] 무한 스크롤 중 가이드라인이 손가락을 60fps로 부드럽게 따라오는지 실기기 확인
-- [ ] 관성 단계에서도 가이드라인이 부드럽게 감속하는지 확인
-- [ ] 일반 스크롤 모드의 가이드라인 동작에 영향 없는지 확인
-- [ ] 스크롤 정지 후 가이드라인 숨김 타이밍이 기존과 동일한지 확인
+- [x] 무한 스크롤 드래그 중 가이드라인 선들이 손가락 이동과 함께 연속으로 흐르는지 실기기 확인 (버그 A)
+- [x] 드래그 속도와 무관하게 가이드라인 업데이트 간격이 일정하고 부드러운지 확인 (버그 A 회귀)
+- [x] 관성 단계에서 가이드라인이 끊김 없이 부드럽게 감속하는지 확인 (버그 B)
+- [x] 일반 스크롤 모드의 가이드라인 동작에 영향 없는지 확인
+- [x] 스크롤 정지 후 가이드라인 숨김 타이밍이 기존과 동일한지 확인
 
 ---
 

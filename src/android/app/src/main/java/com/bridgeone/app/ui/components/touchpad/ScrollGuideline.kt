@@ -100,14 +100,20 @@ fun ScrollGuideline(
             val spacingPx = SCROLL_GUIDELINE_SPACING_DP * density.density
 
             // 오프셋 애니메이션
-            LaunchedEffect(targetOffset) {
-                animOffset.animateTo(
-                    targetValue = targetOffset,
-                    animationSpec = spring(
-                        stiffness = SCROLL_GUIDELINE_SPRING_STIFFNESS,
-                        dampingRatio = SCROLL_GUIDELINE_SPRING_DAMPING
+            // 무한 스크롤: 드래그/관성 중 targetOffset이 매 프레임 변하므로 snapTo로 즉각 추적
+            // 일반 스크롤: 단위별 업데이트이므로 spring으로 부드럽게 이동
+            LaunchedEffect(targetOffset, scrollMode) {
+                if (scrollMode == ScrollMode.INFINITE_SCROLL) {
+                    animOffset.snapTo(targetOffset)
+                } else {
+                    animOffset.animateTo(
+                        targetValue = targetOffset,
+                        animationSpec = spring(
+                            stiffness = SCROLL_GUIDELINE_SPRING_STIFFNESS,
+                            dampingRatio = SCROLL_GUIDELINE_SPRING_DAMPING
+                        )
                     )
-                )
+                }
             }
 
             // 축 전환 회전 애니메이션
