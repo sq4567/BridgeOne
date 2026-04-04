@@ -499,19 +499,19 @@ fun EdgeSwipeOverlay(
                     .align(Alignment.Center)
                     .alpha(itemAlphas[0].value)
                     .scale(itemOffsets[0].value)
-                    .padding(horizontal = 40.dp)
+                    .padding(horizontal = 20.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xFF2A2A2A).copy(alpha = 0.95f))
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "메뉴를 띄울 곳을\n터치하세요",
-                    fontSize = 14.sp,
+                    text = "메뉴를 띄울 곳을 터치하세요",
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color.White,
                     textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
+                    lineHeight = 17.sp
                 )
             }
         }
@@ -529,7 +529,7 @@ fun EdgeSwipeOverlay(
         ) {
             Text(
                 text = if (isDirectTouch)
-                    "버튼을 직접 터치 · 확인으로 적용\n엣지로 밀어서 취소"
+                    "직접 터치 · 확인으로 적용\n엣지로 밀어서 취소"
                 else
                     "스와이프로 선택 · 탭으로 ON/OFF\n확인 선택 후 탭으로 적용",
                 fontSize = 11.sp,
