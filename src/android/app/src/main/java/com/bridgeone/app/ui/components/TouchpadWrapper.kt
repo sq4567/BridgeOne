@@ -1057,10 +1057,17 @@ fun TouchpadWrapper(
                                 val pressDuration = System.currentTimeMillis() - touchDownTime.value
                                 val movement = (currentTouchPosition.value - touchDownPosition.value).getDistance()
                                 val detected = ClickDetector.detectClick(pressDuration, movement)
-                                if (bridgeMode == BridgeMode.ESSENTIAL && detected == 0x02u.toUByte()) {
-                                    0x01u.toUByte()
+                                // clickMode에 따라 버튼 상태 결정
+                                val modeApplied = if (detected != 0x00u.toUByte() && latestState.clickMode == ClickMode.RIGHT_CLICK) {
+                                    0x02u.toUByte() // 우클릭 모드: 클릭 감지 시 항상 우클릭
                                 } else {
                                     detected
+                                }
+                                // Essential 모드: 우클릭 강제 차단
+                                if (bridgeMode == BridgeMode.ESSENTIAL && modeApplied == 0x02u.toUByte()) {
+                                    0x01u.toUByte()
+                                } else {
+                                    modeApplied
                                 }
                             }
 
@@ -1072,12 +1079,17 @@ fun TouchpadWrapper(
                             ClickDetector.sendFrame(frame)
 
                             if (buttonState != 0x00u.toUByte()) {
-                                val releaseFrame = ClickDetector.createFrame(
-                                    buttonState = 0x00u.toUByte(),
-                                    deltaX = 0f,
-                                    deltaY = 0f
-                                )
-                                ClickDetector.sendFrame(releaseFrame)
+                                // press→release 간 지연: OS가 버튼 다운/업을 별도 이벤트로 처리하도록
+                                // (지연 없으면 우클릭 메뉴가 토글처럼 동작하는 문제 발생)
+                                coroutineScope.launch {
+                                    delay(30L)
+                                    val releaseFrame = ClickDetector.createFrame(
+                                        buttonState = 0x00u.toUByte(),
+                                        deltaX = 0f,
+                                        deltaY = 0f
+                                    )
+                                    ClickDetector.sendFrame(releaseFrame)
+                                }
                             }
                         }
 
