@@ -176,6 +176,10 @@ fun TouchpadWrapper(
     var guidelineTarget by remember { mutableFloatStateOf(0f) }
     var guidelineScrollMode by remember { mutableStateOf(ScrollMode.NORMAL_SCROLL) }
 
+    // 제스처 간 스크롤 축 유지 (Phase 4.5.5)
+    // 이전 제스처에서 확정된 축을 기억하여, 새 제스처의 데드존(대각선) 구간에서 재사용
+    var lastScrollAxis by remember { mutableStateOf(ScrollAxis.UNDECIDED) }
+
     // 가이드라인 자동 숨김 Job
     var guidelineHideJob by remember { mutableStateOf<Job?>(null) }
 
@@ -565,8 +569,13 @@ fun TouchpadWrapper(
                     onTouchEvent(PointerEventType.Press, currentTouchPosition.value, previousTouchPosition.value)
 
                     // ── MOVE ──
+                    // Phase 4.5.5: Release 이외의 이벤트(Enter/Exit 등)로 루프가 끊기지 않도록 방어
                     var moveEvent = awaitPointerEvent()
-                    while (moveEvent.type == PointerEventType.Move) {
+                    while (moveEvent.type != PointerEventType.Release) {
+                        if (moveEvent.type != PointerEventType.Move) {
+                            moveEvent = awaitPointerEvent()
+                            continue
+                        }
                         moveEvent.changes.forEach { it.consume() }
                         val change = moveEvent.changes.first()
                         val allPositions = change.historical.map { it.position } + change.position
@@ -690,13 +699,23 @@ fun TouchpadWrapper(
                                         scrollAxis = when {
                                             angleDeg < 45f - deadZoneDeg -> ScrollAxis.HORIZONTAL
                                             angleDeg > 45f + deadZoneDeg -> ScrollAxis.VERTICAL
-                                            else -> ScrollAxis.UNDECIDED  // 대각선 구간: 계속 누적
+                                            else -> {
+                                                // Phase 4.5.5: 대각선 구간에서 이전 축이 있으면 재사용
+                                                // 이전 제스처에서 확정된 축을 유��하여 축 고정 풀림 방지
+                                                if (lastScrollAxis != ScrollAxis.UNDECIDED) {
+                                                    lastScrollAxis
+                                                } else {
+                                                    ScrollAxis.UNDECIDED  // 대각선 구간: 계속 누적
+                                                }
+                                            }
                                         }
 
                                         if (scrollAxis != ScrollAxis.UNDECIDED) {
                                             // 축 확정: 누적 초기화 (확정 이전 분 버림)
                                             scrollAccum = 0f
                                             velocitySamples.clear()
+                                            // 제스처 간 축 유지 (Phase 4.5.5)
+                                            lastScrollAxis = scrollAxis
                                             // 가이드라인 설정
                                             guidelineAxis = scrollAxis
                                             guidelineScrollMode = latestState.scrollMode
@@ -922,6 +941,7 @@ fun TouchpadWrapper(
                                             lastScrollMode = latestState.scrollMode
                                         )
                                     )
+                                    lastScrollAxis = ScrollAxis.UNDECIDED  // Phase 4.5.5: 스크롤 종료 시 축 히스토리 리셋
                                     guidelineVisible = false
                                     guidelineHideJob?.cancel()
                                     inertiaJob?.cancel()
