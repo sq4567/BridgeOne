@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.protocol.BridgeMode
+import com.bridgeone.app.ui.common.PAGE1_TOUCHPAD_BOTTOM_TEST_OFFSET
 import com.bridgeone.app.ui.common.KEY_BACKSPACE
 import com.bridgeone.app.ui.common.KEY_DELETE
 import com.bridgeone.app.ui.common.KEY_END
@@ -360,6 +361,7 @@ private fun Page1TouchpadActions(
                     .weight(touchpadWeight)
                     .fillMaxHeight()
                     .align(Alignment.CenterVertically)
+                    .padding(bottom = PAGE1_TOUCHPAD_BOTTOM_TEST_OFFSET)
             ) {
                 // 팝업 표시 시 블러 처리되는 배경 영역
                 Box(

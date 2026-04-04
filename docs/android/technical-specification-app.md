@@ -2460,7 +2460,7 @@ enum class ModifierState {
 - Consumer Control 키코드는 별도 HID Report Type (Consumer Control) 사용
 - **구현 방안 A**: `BridgeFrame.keyCode1`에 특수 마커(0xFF 등) + `keyCode2`에 Consumer Usage 인코딩
 - **구현 방안 B**: 별도 Consumer Control 프레임 타입 정의
-- 구현 방안은 Phase 4.6.4 진행 시 확정
+- 구현 방안은 Phase 4.8.4 진행 시 확정
 
 **시각적 피드백:**
 - Play/Pause: 토글 상태에 따라 아이콘 전환 (`ic_play.xml` ↔ `ic_pause.xml`)

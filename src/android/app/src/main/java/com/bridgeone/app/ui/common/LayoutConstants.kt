@@ -20,3 +20,7 @@ import androidx.compose.ui.unit.dp
 
 val TOP_SAFE_ZONE = 40.dp
 val BOTTOM_SAFE_ZONE = 40.dp
+
+// [DEV] Phase 4.4.9 테스트 편의성: Page 1 터치패드 하단 오프셋
+// 터치패드 하단을 지정한 dp만큼 위로 올립니다. 0.dp = 기본값.
+val PAGE1_TOUCHPAD_BOTTOM_TEST_OFFSET = 80.dp

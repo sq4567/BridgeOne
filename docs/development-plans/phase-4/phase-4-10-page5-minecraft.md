@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.8: Page 5 — Minecraft 특화 페이지"
-description: "BridgeOne 프로젝트 Phase 4.8 - Standard 모드 Page 5: Touchpad(시점) + DPad(이동) + 게임 액션 버튼"
+title: "BridgeOne Phase 4.10: Page 5 — Minecraft 특화 페이지"
+description: "BridgeOne 프로젝트 Phase 4.10 - Standard 모드 Page 5: Touchpad(시점) + DPad(이동) + 게임 액션 버튼"
 tags: ["android", "minecraft", "dpad", "game", "touchpad", "camera", "hotbar", "ui"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-04-01"
 ---
 
-# BridgeOne Phase 4.8: Page 5 — Minecraft 특화 페이지
+# BridgeOne Phase 4.10: Page 5 — Minecraft 특화 페이지
 
 **개발 기간**: 4-5일
 
@@ -55,7 +55,7 @@ Page 5 — Minecraft
 
 ---
 
-## Phase 4.8.1: Page 5 레이아웃 및 DPad 기본 구현
+## Phase 4.10.1: Page 5 레이아웃 및 DPad 기본 구현
 
 **목표**: 좌측 터치패드+DPad, 우측 액션 패널의 2열 레이아웃 구현
 
@@ -115,7 +115,7 @@ Page 5 — Minecraft
 
 ---
 
-## Phase 4.8.2: DPad 고급 기능 (Sticky Hold, 드래그 전환, 대각선)
+## Phase 4.10.2: DPad 고급 기능 (Sticky Hold, 드래그 전환, 대각선)
 
 **목표**: DPad Sticky Hold, 드래그 방향 전환, 대각선 입력 구현
 
@@ -162,13 +162,13 @@ Page 5 — Minecraft
 
 ---
 
-## Phase 4.8.3: Combat & Movement 버튼
+## Phase 4.10.3: Combat & Movement 버튼
 
 **목표**: 전투, 사용, 이동 보조 버튼 구현
 
 **개발 기간**: 0.5-1일
 
-> **⚠️ Phase 4.5.1 변경사항**: `KeyDisplayRegistry`가 도입됨. Movement 버튼(Jump=Space, Sneak=Shift, Sprint=Ctrl)에 `KeyboardKeyButton`을 사용할 경우 `useRegistry = true`로 아이콘 자동 표시 활용 가능. 단, 게임 맥락에서는 "Jump", "Sneak" 등 게임 용어 레이블이 더 적절할 수 있으므로 `keyLabel` 수동 지정이 나을 수 있음 — 구현 시 판단.
+> **⚠️ Phase 4.7.1 변경사항**: `KeyDisplayRegistry`가 도입됨. Movement 버튼(Jump=Space, Sneak=Shift, Sprint=Ctrl)에 `KeyboardKeyButton`을 사용할 경우 `useRegistry = true`로 아이콘 자동 표시 활용 가능. 단, 게임 맥락에서는 "Jump", "Sneak" 등 게임 용어 레이블이 더 적절할 수 있으므로 `keyLabel` 수동 지정이 나을 수 있음 — 구현 시 판단.
 
 **세부 목표**:
 1. **Combat & Use** (우측 상단):
@@ -204,7 +204,7 @@ Page 5 — Minecraft
 
 ---
 
-## Phase 4.8.4: Inventory/Utility 및 Hotbar
+## Phase 4.10.4: Inventory/Utility 및 Hotbar
 
 **목표**: 인벤토리, 유틸리티, 핫바 버튼 구현
 
@@ -243,7 +243,7 @@ Page 5 — Minecraft
 
 ---
 
-## Phase 4.8 완료 후 Page 5 구조
+## Phase 4.10 완료 후 Page 5 구조
 
 ```
 Page 5 — Minecraft Specialized

@@ -73,9 +73,9 @@ Standard 모드
        when (page) {
            0 -> Page1TouchpadActions(...)
            1 -> Page2AbsolutePointing(...)  // 절대좌표 패드, 임시 Placeholder
-           1 -> Page2AbsolutePointing(...)  // Phase 4.6에서 구현, 임시 Placeholder
-           2 -> Page3KeyboardCentric(...)   // Phase 4.7에서 구현, 임시 Placeholder
-           3 -> Page4Minecraft(...)          // Phase 4.8에서 구현, 임시 Placeholder
+           1 -> Page2AbsolutePointing(...)  // Phase 4.7에서 구현, 임시 Placeholder
+           2 -> Page3KeyboardCentric(...)   // Phase 4.8에서 구현, 임시 Placeholder
+           3 -> Page4Minecraft(...)          // Phase 4.9에서 구현, 임시 Placeholder
        }
    }
    ```
@@ -265,7 +265,7 @@ Standard 모드
 - `StandardModePage.kt`: Shortcuts placeholder → `ShortcutsGrid()` 교체 (SpecialKeysGrid와 동일 패턴: chunked(2) + Row)
 - HID 실제 전송 연결은 Phase 4.3 이후 실기기 검증 시 추가 (현재 Log만 출력)
 
-> **⚠️ Phase 4.6.4 참고**: `ShortcutButton` + `ShortcutDef`는 `ui/components/`에 public으로 구현됨. Page 3 Shortcuts 패널(12개)에서 그대로 재사용 가능. 추가 단축키는 `ShortcutDef` 인스턴스만 새로 정의하면 됨.
+> **⚠️ Phase 4.7.4 참고**: `ShortcutButton` + `ShortcutDef`는 `ui/components/`에 public으로 구현됨. Page 3 Shortcuts 패널(12개)에서 그대로 재사용 가능. 추가 단축키는 `ShortcutDef` 인스턴스만 새로 정의하면 됨.
 
 **검증**:
 - [x] 8개 단축키 2열 그리드 렌더링
@@ -363,7 +363,7 @@ Standard 모드
 - `docs/android/styleframe-page1.md` §2.2-B: 키칩 → 아이콘 표기 반영
 - `docs/android/styleframe-page3.md` §2.2-1: 키칩 → 아이콘 표기 반영
 - `docs/android/component-design-guide-app.md` §2.3.2: ShortcutButton 시각/피드백에 아이콘 매핑 추가
-- `docs/development-plans/phase-4/phase-4-5-page3-keyboard-centric.md`: ShortcutDef 재사용 설명에 `icon` 필드 반영
+- `docs/development-plans/phase-4/phase-4-9-page4-keyboard-centric.md`: ShortcutDef 재사용 설명에 `icon` 필드 반영
 
 **검증**:
 - [x] 세 그룹(특수 키, 단축키, 매크로)이 스크롤 없이 화면에 표시
@@ -387,8 +387,8 @@ StandardModePage
 │   │       ├── Special Keys (8개, 2열 그리드)
 │   │       ├── Shortcuts (8개, ShortcutButton, 2열 그리드)
 │   │       └── Macros (3개, Disabled placeholder)
-│   ├── Page 2: Placeholder ← Phase 4.6에서 구현 (AbsolutePointingPad)
-│   ├── Page 3: Placeholder ← Phase 4.7에서 구현 (키보드)
-│   └── Page 4: Placeholder ← Phase 4.8에서 구현 (Minecraft)
+│   ├── Page 2: Placeholder ← Phase 4.7에서 구현 (AbsolutePointingPad)
+│   ├── Page 3: Placeholder ← Phase 4.8에서 구현 (키보드)
+│   └── Page 4: Placeholder ← Phase 4.9에서 구현 (Minecraft)
 └── PageIndicator (닷 4개)
 ```

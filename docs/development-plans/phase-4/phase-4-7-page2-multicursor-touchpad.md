@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.5: Page 2 — 풀 와이드 터치패드 (멀티 커서)"
-description: "BridgeOne 프로젝트 Phase 4.5 - Standard 모드 Page 2: 풀 와이드 터치패드 + 멀티 커서(최대 4개) + 그리드 분할/직접 전환 버튼 레이아웃 + 소리 감지 전환"
+title: "BridgeOne Phase 4.7: Page 2 — 풀 와이드 터치패드 (멀티 커서)"
+description: "BridgeOne 프로젝트 Phase 4.7 - Standard 모드 Page 2: 풀 와이드 터치패드 + 멀티 커서(최대 4개) + 그리드 분할/직접 전환 버튼 레이아웃 + 소리 감지 전환"
 tags: ["android", "multi-cursor", "touchpad", "full-width", "cursor-mode", "ui"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-04-01"
 ---
 
-# BridgeOne Phase 4.5: Page 2 — 풀 와이드 터치패드 (멀티 커서)
+# BridgeOne Phase 4.7: Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 **개발 기간**: 6-8일
 
@@ -32,7 +32,7 @@ updated: "2026-04-01"
 ## 현재 상태 분석
 
 ### 기존 구현
-- `StandardModePage.kt`: 4페이지 HorizontalPager 구조 (Page 2는 `Page2AbsolutePointingPlaceholder()` → Phase 4.5에서 Page 2 = 멀티 커서로 재정의, 이전 Placeholder는 Page 3으로 이동)
+- `StandardModePage.kt`: 4페이지 HorizontalPager 구조 (Page 2는 `Page2AbsolutePointingPlaceholder()` → Phase 4.7에서 Page 2 = 멀티 커서로 재정의, 이전 Placeholder는 Page 3으로 이동)
 - `TouchpadWrapper.kt`: 싱글 커서 터치패드 완전 구현 (Phase 4.3 완료)
 - `ControlButtonContainer.kt`: `CursorModeButton` 이미 존재 — Page 1에서는 비표시, Page 2에서 표시
 - `TouchpadState`: `cursorMode` 필드 존재 (SINGLE/MULTI)
@@ -52,7 +52,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
-## Phase 4.5.1: HorizontalPager 5페이지 확장 + Page 2 풀 와이드 레이아웃
+## Phase 4.7.1: HorizontalPager 5페이지 확장 + Page 2 풀 와이드 레이아웃
 
 > **⚠️ Phase 4.3.11 변경사항**: `ControlButtonContainer`에 `config: ControlButtonConfig` 파라미터 추가.
 > CursorModeButton 표시 활성화는 `showCursorModeButton = true` 파라미터가 아닌
@@ -103,7 +103,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
-## Phase 4.5.2: CursorModeButton 활성화 + CursorCountPopup + MultiCursorState ViewModel
+## Phase 4.7.2: CursorModeButton 활성화 + CursorCountPopup + MultiCursorState ViewModel
 
 **목표**: CursorModeButton 탭 시 커서 수 선택 팝업을 표시하고, 멀티 커서 활성화 흐름을 구현합니다. `MultiCursorState`를 앱 수준 ViewModel로 관리하는 구조도 이 Phase에서 확립합니다.
 
@@ -150,7 +150,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
    - `ControlButtonContainer`의 버튼 상태가 `activePad`의 `PadModeState`를 반영
 5. **멀티 커서 비활성화** (멀티 → 싱글 복귀):
    - `CursorModeButton` 재탭 → 즉시 팝업 없이 싱글 커서 복귀
-   - `deactivateMultiCursor()` 호출 → Windows 서버에 `hide_virtual_cursor` 전송 (Phase 4.5.6)
+   - `deactivateMultiCursor()` 호출 → Windows 서버에 `hide_virtual_cursor` 전송 (Phase 4.7.6)
 6. **싱글 커서 상태에서 `TouchpadState` 우선 사용**:
    - 싱글 커서 모드: 기존 `TouchpadState` 그대로 사용
    - 멀티 커서 모드: `MultiCursorState.activePad.PadModeState`를 참조
@@ -178,7 +178,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
-## Phase 4.5.3: 그리드 분할 레이아웃 모드
+## Phase 4.7.3: 그리드 분할 레이아웃 모드
 
 **목표**: 멀티 커서 활성 시 터치패드를 N개 영역으로 자동 분할합니다. 비활성 영역 탭으로 즉시 패드 전환, 활성 영역에서만 커서 제어가 동작합니다.
 
@@ -230,7 +230,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
-## Phase 4.5.4: 직접 전환 버튼 레이아웃 모드 (PadSwitchButtonPanel)
+## Phase 4.7.4: 직접 전환 버튼 레이아웃 모드 (PadSwitchButtonPanel)
 
 **목표**: 터치패드 전체 면적을 유지하면서 하단에 N개 전환 버튼을 표시합니다. 탭 1번으로 어떤 패드든 즉시 이동합니다.
 
@@ -273,7 +273,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
-## Phase 4.5.5: 소리 감지 패드 전환 (AudioRecord)
+## Phase 4.7.5: 소리 감지 패드 전환 (AudioRecord)
 
 **목표**: 마이크로 특정 음(솔 근방 주파수 + 볼륨 임계값 조합)을 감지하면 다음 패드로 순환 전환합니다. 헤드폰 사용 환경에서 손 조작 없이 패드를 전환할 수 있도록 합니다.
 
@@ -315,7 +315,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
-## Phase 4.5.6: Windows 서버 연동 (show_virtual_cursor + 패드 경계 홀드 리셋)
+## Phase 4.7.6: Windows 서버 연동 (show_virtual_cursor + 패드 경계 홀드 리셋)
 
 **목표**: 멀티 커서 활성화/비활성화 시 Windows 서버에 가상 커서 표시/숨김 명령을 전송합니다. 패드 경계 홀드 리셋 워크플로우도 이 Phase에서 구현합니다.
 
@@ -349,7 +349,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 **참조 문서**:
 - `docs/android/technical-specification-app.md` §2.2.6 (멀티 커서 활성화/비활성화 플로우)
-- `docs/technical-specification.md` §4.5.3 (멀티 커서 시스템 전체 플로우)
+- `docs/technical-specification.md` §4.4.3 (멀티 커서 시스템 전체 플로우)
 - `docs/windows/technical-specification-server.md` §3.6 (Windows 서버 N-1개 가상 커서)
 
 **검증**:
@@ -361,7 +361,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
-## Phase 4.5 완료 후 Page 2 구조
+## Phase 4.7 완료 후 Page 2 구조
 
 ```
 Page 2 — 풀 와이드 터치패드 (멀티 커서)
