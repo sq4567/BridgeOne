@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,6 +63,8 @@ import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_AXIS_LOCK_DISTANCE_DP
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_HIDE_DELAY_MS
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_GUIDELINE_STEP_DP
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_STOP_THRESHOLD_MS
+import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_FRAME_MIN_INTERVAL_MS
+import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_MAX_FRAMES_PER_EVENT
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_UNIT_DISTANCE_DP
 import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
 import com.bridgeone.app.ui.components.touchpad.ClickMode
@@ -179,6 +182,10 @@ fun TouchpadWrapper(
     // 제스처 간 스크롤 축 유지 (Phase 4.5.5)
     // 이전 제스처에서 확정된 축을 기억하여, 새 제스처의 데드존(대각선) 구간에서 재사용
     var lastScrollAxis by remember { mutableStateOf(ScrollAxis.UNDECIDED) }
+
+    // 스크롤 프레임 전송 시간 게이트 (Phase 4.5.7 개선)
+    // 이전 프레임 전송 시각을 기억하여 SCROLL_FRAME_MIN_INTERVAL_MS 내 과도한 버스트 방지
+    var lastScrollFrameSentMs by remember { mutableLongStateOf(0L) }
 
     // 가이드라인 자동 숨김 Job
     var guidelineHideJob by remember { mutableStateOf<Job?>(null) }
@@ -736,9 +743,18 @@ fun TouchpadWrapper(
                                     // 스크롤 단위 누적 (소수점 보존으로 단위 손실 방지)
                                     scrollAccum += axisDelta
 
-                                    while (abs(scrollAccum) >= effectiveUnitPx) {
+                                    var framesThisEvent = 0
+                                    while (abs(scrollAccum) >= effectiveUnitPx &&
+                                        framesThisEvent < SCROLL_MAX_FRAMES_PER_EVENT
+                                    ) {
+                                        // 시간 게이트: 마지막 전송 후 최소 간격 미충족 시 중단
+                                        // 나머지 scrollAccum은 다음 MOVE 이벤트로 자연 이월됨
+                                        val nowMs = System.currentTimeMillis()
+                                        if (nowMs - lastScrollFrameSentMs < SCROLL_FRAME_MIN_INTERVAL_MS) break
+
                                         val direction = if (scrollAccum > 0) 1 else -1
                                         scrollAccum -= direction * effectiveUnitPx
+                                        framesThisEvent++
 
                                         // 스크롤 프레임 전송
                                         val wheelDelta = (-direction).toByte()
@@ -747,8 +763,9 @@ fun TouchpadWrapper(
                                                 ClickDetector.createWheelFrame(wheelDelta)
                                             ScrollAxis.HORIZONTAL ->
                                                 ClickDetector.createHorizontalWheelFrame(wheelDelta)
-                                            ScrollAxis.UNDECIDED -> continue
+                                            ScrollAxis.UNDECIDED -> continue  // 축 미결정: 누적분만 소모, 타이머 갱신 안 함
                                         }
+                                        lastScrollFrameSentMs = nowMs  // 실제 전송 직전에만 타이머 갱신
                                         ClickDetector.sendFrame(frame)
 
                                         // 가이드라인 재표시 및 타이머 리셋

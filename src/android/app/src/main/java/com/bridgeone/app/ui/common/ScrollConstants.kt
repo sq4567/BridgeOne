@@ -65,6 +65,17 @@ object ScrollConstants {
     /** 일반 스크롤 버튼을 홀드할 때 스크롤 프레임 전송 간격 (ms). 값이 작을수록 빠름 */
     const val NORMAL_SCROLL_BUTTON_INTERVAL_MS = 100L
 
+    /** 단일 MOVE 이벤트에서 전송할 수 있는 최대 스크롤 프레임 수 (2차 안전장치).
+     *  주 제어는 SCROLL_FRAME_MIN_INTERVAL_MS의 시간 게이트.
+     *  초과분은 다음 MOVE 이벤트로 이월됨 (스크롤 거리 손실 없음). */
+    const val SCROLL_MAX_FRAMES_PER_EVENT = 3
+
+    /** 연속 스크롤 프레임 사이의 최소 간격 (ms).
+     *  초당 최대 전송 프레임 수 = 1000 / SCROLL_FRAME_MIN_INTERVAL_MS.
+     *  8ms = 최대 125fps → ESP32-S3 HID 1ms 폴링 기준 안전 마진 확보.
+     *  초과 시 해당 MOVE 이벤트의 나머지 누적분은 다음 이벤트로 이월됨. */
+    const val SCROLL_FRAME_MIN_INTERVAL_MS = 8L
+
     // ── 직각 이동 모드 (Phase 4.3.5) ──
 
     /** 직각 이동 모드에서 주축 확정을 위한 누적 이동 임계값 (dp). 이 거리 이전에는 UNDECIDED 유지 */

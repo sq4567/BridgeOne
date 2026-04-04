@@ -225,15 +225,25 @@ updated: "2026-04-03"
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
   — MOVE 이벤트 스크롤 루프에 `framesThisEvent` 카운터 및 `SCROLL_MAX_FRAMES_PER_EVENT` 상한 추가
 
+> **⚠️ 실제 구현 (계획과 다름)**: cap=5 per MOVE 이벤트로는 120Hz 기기에서 최대 600프레임/초까지 가능해 phantom 입력이 재현됨. 이벤트 단위 제한이 아닌 **시간 단위 rate limiter**가 필요했음.
+> - `SCROLL_MAX_FRAMES_PER_EVENT` = **5 → 3** 축소 (2차 안전장치)
+> - `SCROLL_FRAME_MIN_INTERVAL_MS = 8L` 추가 → 초당 최대 125프레임 하드 상한. 게이트 미충족 시 나머지 `scrollAccum` 다음 이벤트 이월.
+> - `TouchpadWrapper.kt`에 `lastScrollFrameSentMs` remember 상태 추가 (`mutableLongStateOf`)
+> - while 루프 시작부에 시간 게이트 (`nowMs - lastScrollFrameSentMs < SCROLL_FRAME_MIN_INTERVAL_MS`) 추가. UNDECIDED 이터레이션은 타이머 갱신 안 함.
+
 **검증**:
-- [ ] 무한 스크롤 모드에서 최대한 빠르게 스크롤 → 경보음 없고 phantom 키 입력 없음 확인
-- [ ] 동일 조건에서 브라우저/앱이 예상치 않게 열리지 않음 확인
-- [ ] 빠른 스크롤에서도 스크롤 속도·거리가 느린 스크롤 대비 비례적으로 유지되는지 확인 (거리 손실 없음)
-- [ ] 일반 스크롤 모드의 고속 스크롤에서도 동일 현상 없음 확인
+- [x] 무한 스크롤 모드에서 최대한 빠르게 스크롤 → 경보음 없고 phantom 키 입력 없음 확인
+- [x] 동일 조건에서 브라우저/앱이 예상치 않게 열리지 않음 확인
+- [x] 빠른 스크롤에서도 스크롤 속도·거리가 느린 스크롤 대비 비례적으로 유지되는지 확인 (거리 손실 없음)
+- [x] 일반 스크롤 모드의 고속 스크롤에서도 동일 현상 없음 확인
 
 ---
 
 ## Phase 4.5.8: 무한 스크롤 방향별 속도 비대칭 보정 옵션
+
+> **⚠️ Phase 4.5.7 변경사항**: `ScrollConstants.kt`에 `SCROLL_FRAME_MIN_INTERVAL_MS = 8L`, `SCROLL_MAX_FRAMES_PER_EVENT = 3` 추가됨.
+> `TouchpadWrapper.kt` remember 블록에 `lastScrollFrameSentMs` (`mutableLongStateOf`) 상태 추가됨.
+> MOVE 이벤트 스크롤 while 루프에 시간 게이트 로직 추가됨 — 방향별 배율 적용 시 이 게이트를 우회하거나 제거하지 말 것.
 
 **개발 기간**: 0.5-1일
 
