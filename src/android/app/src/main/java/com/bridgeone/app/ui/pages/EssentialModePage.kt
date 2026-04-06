@@ -54,7 +54,7 @@ fun EssentialModePage() {
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            .padding(start = 4.dp, end = 4.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.Bottom
     ) {
         Row(

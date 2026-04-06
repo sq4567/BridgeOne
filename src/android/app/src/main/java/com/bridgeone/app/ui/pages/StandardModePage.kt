@@ -155,7 +155,7 @@ fun StandardModePage() {
                 userScrollEnabled = touchpadState.scrollMode == ScrollMode.OFF,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp)
+                    .padding(horizontal = 4.dp, vertical = 8.dp)
             ) { page ->
                 when (page) {
                     0 -> Page1TouchpadActions(
@@ -345,7 +345,7 @@ private fun Page1TouchpadActions(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 4.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // ── 좌측: 터치패드 (64% / 60%) ──
