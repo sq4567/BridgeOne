@@ -8,6 +8,7 @@ import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.keyframes
@@ -15,6 +16,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -41,8 +43,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -323,6 +327,28 @@ fun TouchpadWrapper(
         label = "borderRight"
     )
 
+    // 엣지 존 힌트 오버레이 알파 (Phase 4.5.10) — 4개 엣지별 독립 애니메이션
+    // Essential 모드에서는 엣지 스와이프 자체가 없으므로 모두 base alpha 유지
+    val edgeHintAnimMs = EdgeSwipeConstants.EDGE_ZONE_HINT_ANIM_MS
+    val edgeHintBase = EdgeSwipeConstants.EDGE_ZONE_HINT_BASE_ALPHA
+    val edgeHintActive = EdgeSwipeConstants.EDGE_ZONE_HINT_ACTIVE_ALPHA
+    val leftHintAlpha by animateFloatAsState(
+        targetValue = if (isEdgeCandidate && entryEdge == EntryEdge.LEFT && !isModeSelecting) edgeHintActive else edgeHintBase,
+        animationSpec = tween(edgeHintAnimMs), label = "leftHint"
+    )
+    val rightHintAlpha by animateFloatAsState(
+        targetValue = if (isEdgeCandidate && entryEdge == EntryEdge.RIGHT && !isModeSelecting) edgeHintActive else edgeHintBase,
+        animationSpec = tween(edgeHintAnimMs), label = "rightHint"
+    )
+    val topHintAlpha by animateFloatAsState(
+        targetValue = if (isEdgeCandidate && entryEdge == EntryEdge.TOP && !isModeSelecting) edgeHintActive else edgeHintBase,
+        animationSpec = tween(edgeHintAnimMs), label = "topHint"
+    )
+    val bottomHintAlpha by animateFloatAsState(
+        targetValue = if (isEdgeCandidate && entryEdge == EntryEdge.BOTTOM && !isModeSelecting) edgeHintActive else edgeHintBase,
+        animationSpec = tween(edgeHintAnimMs), label = "bottomHint"
+    )
+
     // 글로우 애니메이션: 밝은 스팟이 테두리를 따라 천천히 이동 (3초 주기 무한 반복)
     // 단색일 때는 양쪽 색상이 동일하므로 시각적 변화 없음
     var glowProgress by remember { mutableFloatStateOf(0f) }
@@ -458,17 +484,14 @@ fun TouchpadWrapper(
                                 selectedPopupMode = modeItems[proposed.coerceIn(0, modeItems.lastIndex)]
                             }
 
-                            // 바깥쪽 스와이프 취소: 진입 엣지 방향으로 충분히 이동 시
+                            // 바깥쪽 스와이프 취소: 어느 방향이든 엣지 존에 닿으면 취소
                             val outwardDist = (bgDownPos - pos).getDistance()
                             if (outwardDist >= twoStepCancelSwipePx) {
-                                val isTowardEdge = when (entryEdge) {
-                                    EntryEdge.LEFT -> dx < 0
-                                    EntryEdge.RIGHT -> dx > 0
-                                    EntryEdge.TOP -> dy < 0
-                                    EntryEdge.BOTTOM -> dy > 0
-                                    else -> false
-                                }
-                                if (isTowardEdge) {
+                                val isNearAnyEdge = pos.x < edgeHitWidthPx ||
+                                    pos.x > size.width - edgeHitWidthPx ||
+                                    pos.y < edgeHitWidthPx ||
+                                    pos.y > size.height - edgeHitWidthPx
+                                if (isNearAnyEdge) {
                                     resetPinnedPopup()
                                     return@awaitEachGesture
                                 }
@@ -670,6 +693,10 @@ fun TouchpadWrapper(
                     isEdgeCandidate = detectedEntryEdge != null
                     entryEdge = detectedEntryEdge
                     edgeSwipeHapticFired = false
+                    // 산봉우리 등장 시 햅틱 피드백 (Phase 4.5.10)
+                    if (detectedEntryEdge != null) {
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
                     val edgeStartInwardPx = if (detectedEntryEdge != null)
                         getInwardDistance(downPos, detectedEntryEdge, size.width.toFloat(), size.height.toFloat())
                     else 0f
@@ -780,8 +807,12 @@ fun TouchpadWrapper(
                                         pos.y - downPos.y
                                     val modeStep = (modeSelectDelta / navStepPx).roundToInt()
                                     selectedPopupMode = if (modeStep >= 0) EdgePopupMode.SWIPE else EdgePopupMode.DIRECT_TOUCH
-                                    // 진입 엣지로 되돌아오면 취소
-                                    if (currentInward <= cancelThresholdPx) {
+                                    // 진입 엣지 복귀 또는 임의 엣지 존 도달 시 취소
+                                    val isNearAnyEdgeNow = pos.x < edgeHitWidthPx ||
+                                        pos.x > size.width - edgeHitWidthPx ||
+                                        pos.y < edgeHitWidthPx ||
+                                        pos.y > size.height - edgeHitWidthPx
+                                    if (currentInward <= cancelThresholdPx || isNearAnyEdgeNow) {
                                         isModeSelecting = false
                                         isEdgeCandidate = false
                                         pendingEdgeState = null
@@ -1240,7 +1271,9 @@ fun TouchpadWrapper(
                             compensatedDeltaX.value = releaseDpiDelta.x
                             compensatedDeltaY.value = releaseDpiDelta.y
 
-                            val buttonState = if (deadZoneEscaped.value) {
+                            val buttonState = if (deadZoneEscaped.value || isEdgeCandidate) {
+                                // 엣지 후보 상태에서 손 뗌 → 클릭 차단 (Phase 4.5.10)
+                                // 산봉우리가 나온 채로 손 놓을 경우 클릭이 발생하지 않도록
                                 0x00u.toUByte()
                             } else {
                                 val pressDuration = System.currentTimeMillis() - touchDownTime.value
@@ -1319,6 +1352,29 @@ fun TouchpadWrapper(
             scrollMode = guidelineScrollMode,
             modifier = Modifier.fillMaxSize()
         )
+
+        // 엣지 존 힌트 오버레이 (Phase 4.5.10) — 버튼보다 아래 레이어, Essential 모드 제외
+        if (bridgeMode != BridgeMode.ESSENTIAL) {
+            val edgeWidthDp = EdgeSwipeConstants.EDGE_HIT_WIDTH_DP.dp
+            val midBorderColor = lerp(animatedLeftColor, animatedRightColor, 0.5f)
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+                val edgePx = edgeWidthDp.toPx()
+                // LEFT
+                drawRect(animatedLeftColor, topLeft = Offset(0f, 0f),
+                    size = Size(edgePx, h), alpha = leftHintAlpha)
+                // RIGHT
+                drawRect(animatedRightColor, topLeft = Offset(w - edgePx, 0f),
+                    size = Size(edgePx, h), alpha = rightHintAlpha)
+                // TOP
+                drawRect(midBorderColor, topLeft = Offset(0f, 0f),
+                    size = Size(w, edgePx), alpha = topHintAlpha)
+                // BOTTOM
+                drawRect(midBorderColor, topLeft = Offset(0f, h - edgePx),
+                    size = Size(w, edgePx), alpha = bottomHintAlpha)
+            }
+        }
 
         // 일반 스크롤 버튼 (NORMAL_SCROLL 모드에서만 표시)
         AnimatedVisibility(

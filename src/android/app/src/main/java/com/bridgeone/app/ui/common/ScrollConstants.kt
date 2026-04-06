@@ -161,4 +161,15 @@ object EdgeSwipeConstants {
 
     /** 산봉우리 수축 spring 감쇠비. 기본값: 0.7f */
     const val BUMP_SHRINK_SPRING_DAMPING = 0.7f
+
+    // ── 엣지 존 힌트 오버레이 (Phase 4.5.10) ──
+
+    /** 엣지 존 힌트 평상시 알파 (흰색 기준). 기본값: 0.06f */
+    const val EDGE_ZONE_HINT_BASE_ALPHA = 0.06f
+
+    /** 손가락이 엣지 존에 닿았을 때 힌트 알파. 기본값: 0.20f */
+    const val EDGE_ZONE_HINT_ACTIVE_ALPHA = 0.20f
+
+    /** 엣지 존 힌트 알파 전환 애니메이션 시간 (ms). 기본값: 150 */
+    const val EDGE_ZONE_HINT_ANIM_MS = 150
 }

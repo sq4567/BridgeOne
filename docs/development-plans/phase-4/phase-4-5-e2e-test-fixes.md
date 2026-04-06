@@ -314,25 +314,34 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.10: 엣지 스와이프 팝업 등장 시 햅틱 피드백
+## Phase 4.5.10: 엣지 스와이프 UX 개선 (햅틱·클릭 차단·존 힌트·취소 확장)
 
 > **⚠️ Phase 4.5.9 변경사항**: 2단계 방식으로 고정됨. `showEdgePopup`은 모드 선택기에서 탭 확정 후에야 `true`로 전환됨.
-> 모드 선택기(isModeSelecting) 등장 시점에는 이미 `LONG_PRESS` 햅틱이 발생하므로, 팝업 고정(`isPopupPinned`) 시점의 추가 햅틱 필요 여부를 검토할 것.
 > `EdgeSwipeOverlay` 시그니처에 `isPopupPinned`, `pinnedBorderColor`, `pinnedShakeOffsetDp` 파라미터 추가됨.
 
 **개발 기간**: 0.5일 미만
 
-**작업 내용**:
-- `TouchpadWrapper.kt`에서 `showEdgePopup`이 `false → true`로 전환되는 시점에 `LaunchedEffect(showEdgePopup)`으로 햅틱 피드백 1회 발생
+**작업 내용** (계획 대비 확장 구현):
+- **햅틱**: DOWN 이벤트에서 엣지 감지(`detectedEntryEdge != null`) 시 `CLOCK_TICK` 1회 — `showEdgePopup` 전환 시점이 아닌 손가락이 엣지 존에 닿는 순간에 발생
+- **클릭 차단**: UP 이벤트에서 `isEdgeCandidate == true`이면 클릭 판정 차단 (엣지 존은 클릭 불가 영역)
+- **엣지 존 힌트 오버레이**: 엣지 존 경계를 테두리 색으로 시각화
+  - 평상시 alpha 6%, 손가락 진입 시 20%로 강조 (150ms 전환)
+  - 색상: LEFT → `animatedLeftColor`, RIGHT → `animatedRightColor`, TOP/BOTTOM → lerp 50%
+  - 버튼보다 아래 레이어로 렌더링, Essential 모드 제외
+  - 상수: `EDGE_ZONE_HINT_BASE_ALPHA`, `EDGE_ZONE_HINT_ACTIVE_ALPHA`, `EDGE_ZONE_HINT_ANIM_MS` → `EdgeSwipeConstants`
+- **모드 선택기 취소 확장**: 진입 엣지 방향뿐 아니라 임의 방향으로 엣지 존 도달 시 취소
+  - 1단계(손 올린 채 MOVE): `currentInward <= cancelThresholdPx` OR `isNearAnyEdge`
+  - 2단계(손 뗀 후 새 제스처): `outwardDist >= twoStepCancelSwipePx` AND `isNearAnyEdge`
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/ScrollConstants.kt` — `EdgeSwipeConstants`에 힌트 알파 상수 3개 추가
 
 **검증**:
-- [ ] 엣지 스와이프로 산봉우리 팝업이 등장하는 순간 진동 발생 확인
-- [ ] 팝업 닫힘·취소 시 추가 진동 없음 확인 (등장 시 1회만)
-- [ ] 기기 진동 설정이 꺼진 상태에서 앱 크래시 없음 확인
-- [ ] Essential 모드(Phase 4.5.2 적용 후)에서는 팝업도 진동도 발생하지 않음 확인
+- [x] 엣지 스와이프로 산봉우리 팝업이 등장하는 순간 진동 발생 확인
+- [x] 팝업 닫힘·취소 시 추가 진동 없음 확인 (등장 시 1회만)
+- [x] 기기 진동 설정이 꺼진 상태에서 앱 크래시 없음 확인
+- [x] Essential 모드(Phase 4.5.2 적용 후)에서는 팝업도 진동도 발생하지 않음 확인
 
 ---
 
@@ -381,19 +390,26 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.12: Windows 서버 감지 간헐적 실패 — 종합 원인 조사 및 수정
+## Phase 4.5.12: Windows 서버 감지 실패 — 종합 원인 조사 및 수정
 
 **개발 기간**: 2-3일 (조사 포함)
 
-**쉬운 설명**: 핸드폰이 "PC에 윈도우 서버가 켜져 있는지"를 가끔 감지 못해서 기능이 제한된 모드(ESSENTIAL)로 들어가는 문제입니다. 보드를 PC에서 뺐다 꽂거나, 핸드폰 쪽 선을 뺐다 꽂으면 해결되기도 하는 등 원인이 다양해 보여서 처음부터 전체적으로 조사합니다.
-
 **증상**:
+
+증상 1 — 간헐적 실패:
 - ESP32-S3가 PC에 연결되어 있고 Windows 서버가 실행 중임에도, 앱이 ESSENTIAL 모드로 진입
 - 항상 발생하는 것은 아니고 **간헐적**
 - 아래 방법 중 하나로 복구되는 경우가 있음 (일관되지 않음):
   - **보드를 PC에서 분리 후 재연결** → 복구됨
   - **핸드폰 쪽 USB 케이블 분리 후 재연결** → 복구되는 경우도 있음
   - **핸드폰 재연결만으로는 복구 안 되는 경우**도 있음
+
+증상 2 — 리빌드 후 **항상** 재현:
+- Android Studio에서 앱이 열려 있는 상태로 리빌드하면, 앱이 종료됐다가 재시작되는데 이때 **매번** ESSENTIAL 모드로 진입
+- 케이블은 그대로이고 서버도 계속 실행 중인 상태
+- 리빌드 직후 앱 프로세스가 재시작될 때만 발생 (USB 연결 상태는 변경 없음)
+- **복구 방법**: 핸드폰 쪽 USB 케이블을 뺐다가 다시 꽂으면 정상적으로 STANDARD 모드로 진입
+- **재현 조건이 명확**하므로, 간헐적 실패보다 원인 특정이 용이한 단서가 될 수 있음
 
 ### 1단계: 원인 조사 (구현 전 반드시 선행)
 
@@ -429,6 +445,12 @@ updated: "2026-04-03"
 - 한 번 연결된 후 서버가 종료·재시작되거나 일시적 통신 끊김이 있을 때 재감지 메커니즘이 없는 경우
 - **확인 방법**: 현재 keep-alive 구현 여부 및 타임아웃 후 재연결 로직 확인
 
+#### 조사 G: 앱 프로세스 재시작 시 USB 연결 이벤트 미수신 (증상 2 전담)
+- 리빌드 시 앱 프로세스가 종료됐다가 재시작되면, USB 케이블은 여전히 꽂혀 있으므로 `ACTION_USB_DEVICE_ATTACHED` 이벤트가 발생하지 않음
+- 이로 인해 `UsbSerialManager`가 연결을 시작하지 못하거나, 초기화 흐름에서 서버 감지를 건너뛸 가능성
+- 앱 시작 시점에 "이미 연결된 USB 기기"를 능동적으로 스캔하는 로직이 있는지, 그리고 그 경로에서도 서버 감지가 정상 실행되는지 확인 필요
+- **확인 방법**: `MainActivity.kt` 또는 `UsbSerialManager.kt`의 앱 시작 시 기존 연결 장치 스캔 로직 확인; 이벤트 기반 경로와 폴링 기반 경로가 동일하게 서버 감지를 수행하는지 비교
+
 ### 2단계: 확인된 원인별 수정
 
 > 1단계 조사 결과에 따라 이 섹션을 구체화합니다. 아래는 수정이 필요할 수 있는 영역의 개요입니다.
@@ -441,7 +463,8 @@ updated: "2026-04-03"
 > **⚠️ 펌웨어 수정 포함 가능**: 이 Phase는 ESP32 펌웨어 수정이 필요할 수 있습니다. 코드 수정 후 유저가 직접 빌드/플래시해야 합니다.
 
 **검증**:
-- [ ] 1단계 조사 완료: 각 후보 원인(A~F)에 대해 실제 원인 여부 판별 기록
+- [ ] 1단계 조사 완료: 각 후보 원인(A~G)에 대해 실제 원인 여부 판별 기록
+- [ ] **[증상 2]** Android Studio 리빌드 후 앱 재시작 시 매번 STANDARD 모드로 진입 확인 (5회 이상)
 - [ ] 서버 실행 중 앱 시작 시 STANDARD 모드로 감지되는지 20회 이상 반복 확인
 - [ ] 핸드폰 재연결만으로 정상 감지 복구되는지 확인
 - [ ] 보드 PC 재연결 없이도 정상 복구되는지 확인
