@@ -275,83 +275,50 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.5.9: 엣지 스와이프 2단계 제스처 UX 개선
+## Phase 4.5.9: 엣지 스와이프 제스처 UX 개선
 
 **개발 기간**: 1일
 
 **에뮬레이터 호환성**: 전체 에뮬레이터에서 개발 가능.
 
-### 현재 동작 vs 새 동작
+**팝업 내용**: 스와이프 모드 / 직접 터치 모드 중 하나를 선택하는 모드 선택기 화면. 현재 모드가 하이라이트된 상태로 표시됨.
 
-| 단계 | 현재 (1단계) | 변경 후 (2단계) |
-|------|------------|----------------|
-| ① | 엣지에서 안쪽으로 스와이프 | 엣지에서 안쪽으로 스와이프 |
-| ② | 손가락을 원하는 모드 위로 이동 | 트리거 거리 도달 → 팝업 등장 |
-| ③ | **손을 뗌 → 모드 확정·팝업 닫힘** | **손을 뗌 → 팝업 고정 (메뉴 유지)** |
-| ④ | — | 다시 손가락을 올려 원하는 모드 위로 이동 |
-| ⑤ | — | **탭으로 확정** |
-| 취소 | 진입 엣지로 되돌리기 | 팝업 고정 전: 진입 엣지로 되돌리기<br>팝업 고정 후: 안쪽→바깥쪽 스와이프 |
+**최종 결정**: 실사용 테스트 후 2단계 방식으로 완전 대체. `USE_TWO_STEP_EDGE_SWIPE` 상수 및 1단계 코드 삭제.
 
-### 추가 상수 (`ScrollConstants.kt` — `EdgeSwipeConstants`)
+### 동작 흐름 (2단계, 최종)
 
-- `LEGACY_GESTURE_MODE`: A/B 비교 플래그 (`true` = 기존 방식, `false` = 2단계 방식)
-- `PINNED_TAP_MAX_DISTANCE_DP`, `PINNED_TAP_MAX_DURATION_MS`: 고정 상태에서 탭 판정 기준
-- `PINNED_CLOSE_DISTANCE_DP`: 바깥쪽 스와이프 취소 최소 거리
+| 단계 | 동작 |
+|------|------|
+| ① | 엣지에서 안쪽으로 스와이프 |
+| ② | 트리거 거리 도달 → 모드 선택기 팝업 등장 (스와이프 모드 / 직접 터치 모드) |
+| ③ | **손을 뗌 → 팝업 고정 (메뉴 유지)** |
+| ④ | 화면 안쪽 어디서나 스와이프로 항목 탐색, 끝에서 경계 피드백 (빨간 테두리 + 흔들림 + 햅틱) |
+| ⑤ | **탭으로 확정** |
+| 취소 (고정 전) | 진입 엣지로 되돌리기 |
+| 취소 (고정 후) | 안쪽→바깥쪽 스와이프 (`TWO_STEP_CANCEL_SWIPE_DP = 60f`) |
 
-### 상태 변수 추가 (`TouchpadWrapper.kt`)
-
-- `edgeMenuPinned`: 팝업 고정 상태 플래그 (신규)
-- `pinnedDownX`, `pinnedDownY`, `pinnedDownTimeMs`: 고정 상태에서 터치 다운 기록
-- `pinnedCurX`, `pinnedCurY`: 고정 상태에서 현재 터치 위치
-
-### 이벤트 처리 변경 (`TouchpadWrapper.kt`)
-
-- **DOWN**: `edgeMenuPinned` 분기를 기존 `showEdgePopup` 분기보다 먼저 배치하여 고정 상태 터치 기록
-- **MOVE**: `edgeMenuPinned` 상태에서 `hoveredMode` 갱신 (기존 `calculateHoveredEdgeMode()` 재사용)
-- **UP**: `LEGACY_GESTURE_MODE` 분기
-  - `true`: 기존 방식 (손 뗌 = 확정)
-  - `false`: 고정 상태 판정 — 탭이면 모드 적용, 바깥 스와이프면 취소, 그 외는 팝업 유지
-- `isOutwardSwipe()` private 헬퍼 추가
-- `resetEdgeSwipeState()` 통합 헬퍼 추가 (기존 분산된 초기화 로직 통합)
-
-### 팝업 안내 텍스트 변경 (`EdgeSwipeOverlay.kt`)
-
-`EdgeSwipeOverlay`에 `isPinned: Boolean` 파라미터 추가:
-
-| 상태 | `isPinned` | 안내 텍스트 |
-|------|-----------|------------|
-| 팝업 등장 중 (스와이프 유지) | `false` | 새 방식: "손을 떼면 메뉴가 고정됩니다" |
-| 메뉴 고정 후 (핀 상태) | `true` | "원하는 모드를 탭하세요 / 바깥쪽으로 스와이프하면 닫힘" |
-
-`TouchpadWrapper.kt`에서 `EdgeSwipeOverlay` 호출 시 `isPinned = edgeMenuPinned` 전달.
-
-### 수정 파일
-
-- `src/android/app/src/main/java/com/bridgeone/app/ui/common/ScrollConstants.kt`
-  — `EdgeSwipeConstants`에 `LEGACY_GESTURE_MODE`, `PINNED_TAP_*`, `PINNED_CLOSE_DISTANCE_DP` 추가
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
-  — `edgeMenuPinned` 등 신규 상태 추가, UP/DOWN/MOVE 이벤트 분기 수정, `isOutwardSwipe()` 헬퍼 추가, `resetEdgeSwipeState()` 헬퍼 추가
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/EdgeSwipeOverlay.kt`
-  — `isPinned: Boolean` 파라미터 추가, 안내 텍스트 분기
+> **추가 구현 사항**:
+> - 트리거 거리 도달(모드 선택기 등장) 시 산봉우리 애니메이션이 진입 엣지 방향으로 수축하며 소멸 (`LaunchedEffect(isModeSelecting)`)
+> - 모드 선택기 취소 시 스와이프 모드 UI가 잠깐 보이던 버그 수정 (`isPopupShowing` 플래그 추가)
 
 **검증**:
-
-**새 방식 (`LEGACY_GESTURE_MODE = false`)**:
-- [ ] 엣지 스와이프 → 트리거 → 손 뗌 → 팝업이 닫히지 않고 고정 확인
-- [ ] 고정 상태에서 다시 터치 후 이동 시 hoveredMode 하이라이트 갱신 확인
-- [ ] 고정 상태에서 탭 → 모드 적용 + 팝업 닫힘 확인
-- [ ] 고정 상태에서 바깥쪽 스와이프(60dp 이상) → 취소·팝업 닫힘 확인 (모드 미변경)
-- [ ] 고정 상태에서 단순히 손만 뗌(탭 거리 초과, 바깥 스와이프 미달) → 팝업 유지 확인
-- [ ] 팝업 고정 전 취소(진입 엣지로 되돌리기) → 기존과 동일하게 동작 확인
-- [ ] 안내 텍스트가 고정 전/후 올바르게 전환되는지 확인
-
-**기존 방식 (`LEGACY_GESTURE_MODE = true`)**:
-- [ ] 엣지 스와이프 → 트리거 → 손 뗌 → 즉시 모드 확정 확인 (기존 동작 보존)
-- [ ] 진입 엣지로 되돌리기 → 취소 확인 (기존 동작 보존)
+- [x] 엣지 스와이프 → 트리거 → 손 뗌 → 팝업이 닫히지 않고 고정 확인
+- [x] 고정 상태에서 스와이프로 항목 이동 시 선택 항목 갱신 확인
+- [x] 첫 번째 항목에서 이전(↑·←) 시도 시 끝임을 표시 확인
+- [x] 마지막 항목에서 다음(↓·→) 시도 시 끝임을 표시 확인
+- [x] 고정 상태에서 탭 → 모드 적용 + 팝업 닫힘 확인
+- [x] 고정 상태에서 바깥쪽 스와이프 → 취소·팝업 닫힘 확인 (모드 미변경)
+- [x] 고정 상태에서 단순히 손만 뗌(탭 거리 초과, 바깥 스와이프 미달) → 팝업 유지 확인
+- [x] 팝업 고정 전 취소(진입 엣지로 되돌리기) → 기존과 동일하게 동작 확인
+- [x] 안내 텍스트가 고정 전/후 올바르게 전환되는지 확인
 
 ---
 
 ## Phase 4.5.10: 엣지 스와이프 팝업 등장 시 햅틱 피드백
+
+> **⚠️ Phase 4.5.9 변경사항**: 2단계 방식으로 고정됨. `showEdgePopup`은 모드 선택기에서 탭 확정 후에야 `true`로 전환됨.
+> 모드 선택기(isModeSelecting) 등장 시점에는 이미 `LONG_PRESS` 햅틱이 발생하므로, 팝업 고정(`isPopupPinned`) 시점의 추가 햅틱 필요 여부를 검토할 것.
+> `EdgeSwipeOverlay` 시그니처에 `isPopupPinned`, `pinnedBorderColor`, `pinnedShakeOffsetDp` 파라미터 추가됨.
 
 **개발 기간**: 0.5일 미만
 

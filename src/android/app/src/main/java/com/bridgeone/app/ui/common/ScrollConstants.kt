@@ -122,6 +122,9 @@ object EdgeSwipeConstants {
     /** 팝업 열린 상태에서 탭 vs 스와이프 구분 이동 임계값 (dp). 이 미만이면 탭, 이상이면 스와이프. 기본값: 15f */
     const val EDGE_POPUP_TAP_THRESHOLD_DP = 15f
 
+    /** 고정 상태에서 안쪽→바깥쪽 스와이프 취소 판정 거리 (dp). 기본값: 60f */
+    const val TWO_STEP_CANCEL_SWIPE_DP = 60f
+
     /** 팝업 내 버튼 탐색 시 선택이 1칸 이동하기 위한 스와이프 거리 (dp). 기본값: 30f */
     const val EDGE_POPUP_NAV_STEP_DP = 30f
 

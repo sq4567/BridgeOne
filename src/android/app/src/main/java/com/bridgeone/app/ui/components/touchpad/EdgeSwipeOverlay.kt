@@ -117,6 +117,10 @@ fun EdgeSwipeOverlay(
     entryEdge: EntryEdge? = null,
     fingerAlongEdgePx: Float = 0f,
     inwardDistancePx: Float = 0f,
+    // Phase 4.5.9: 2단계 팝업 고정 상태
+    isPopupPinned: Boolean = false,
+    pinnedBorderColor: Color = Color.White,
+    pinnedShakeOffsetDp: Float = 0f,
     modifier: Modifier = Modifier
 ) {
     // ── 표시 가능한 모드 목록 (애니메이션 개수 계산에도 사용) ──
@@ -142,6 +146,11 @@ fun EdgeSwipeOverlay(
     var isActive by remember { mutableStateOf(false) }
     // 실제 렌더링에 사용하는 목록 — 애니메이션 완료 후 visibleModes와 동기화됨
     var displayedModes by remember { mutableStateOf(visibleModes) }
+    // 현 세션에서 showEdgePopup(visible)이 실제로 true였는지 추적 (Phase 4.5.9)
+    // 모드 선택기만 보이다가 취소할 때 팝업 UI가 잠깐 렌더링되는 현상 방지용
+    var isPopupShowing by remember { mutableStateOf(false) }
+    if (visible) isPopupShowing = true
+    if (!isActive) isPopupShowing = false
 
     val shouldShow = visible || isModeSelecting
 
@@ -266,20 +275,35 @@ fun EdgeSwipeOverlay(
                 .background(Color.Black.copy(alpha = bgAlpha.value))
         ) {
             val isHorizontalLayout = maxWidth >= 400.dp
-            // 힌트 텍스트도 카드 배치 방향에 맞춤
-            val hintText = if (isHorizontalLayout)
-                "왼쪽/오른쪽으로 선택 · 손을 놓으면 확정\n엣지로 되돌아오면 취소"
+            // 힌트 텍스트: 고정 전/후 전환 (Phase 4.5.9)
+            val hintText = if (isPopupPinned) {
+                if (isHorizontalLayout)
+                    "스와이프로 선택 · 탭으로 확정\n바깥쪽 스와이프로 취소"
+                else
+                    "스와이프로 선택 · 탭으로 확정\n바깥쪽 스와이프로 취소"
+            } else {
+                if (isHorizontalLayout)
+                    "왼쪽/오른쪽으로 선택 · 손을 놓으면 확정\n엣지로 되돌아오면 취소"
+                else
+                    "위/아래로 선택 · 손을 놓으면 확정\n엣지로 되돌아오면 취소"
+            }
+            // 경계 피드백 흔들림 오프셋 (Phase 4.5.9)
+            val shakeModifier = if (isPopupPinned)
+                Modifier.offset(x = pinnedShakeOffsetDp.dp)
             else
-                "위/아래로 선택 · 손을 놓으면 확정\n엣지로 되돌아오면 취소"
+                Modifier
             if (isHorizontalLayout) {
                 Row(
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .then(shakeModifier),
                     horizontalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     ModeSelectCard(
                         title = "직접 터치",
                         iconResId = R.drawable.ic_l_click,
                         isHighlighted = selectedPopupMode == EdgePopupMode.DIRECT_TOUCH,
+                        borderColor = if (isPopupPinned) pinnedBorderColor else Color.White,
                         modifier = Modifier
                             .alpha(itemAlphas[0].value)
                             .scale(itemOffsets[0].value)
@@ -288,6 +312,7 @@ fun EdgeSwipeOverlay(
                         title = "스와이프",
                         iconResId = R.drawable.ic_scroll,
                         isHighlighted = selectedPopupMode == EdgePopupMode.SWIPE,
+                        borderColor = if (isPopupPinned) pinnedBorderColor else Color.White,
                         modifier = Modifier
                             .alpha(itemAlphas[1].value)
                             .scale(itemOffsets[1].value)
@@ -295,7 +320,9 @@ fun EdgeSwipeOverlay(
                 }
             } else {
                 Column(
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .then(shakeModifier),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -303,6 +330,7 @@ fun EdgeSwipeOverlay(
                         title = "직접 터치",
                         iconResId = R.drawable.ic_l_click,
                         isHighlighted = selectedPopupMode == EdgePopupMode.DIRECT_TOUCH,
+                        borderColor = if (isPopupPinned) pinnedBorderColor else Color.White,
                         modifier = Modifier
                             .alpha(itemAlphas[0].value)
                             .scale(itemOffsets[0].value)
@@ -311,6 +339,7 @@ fun EdgeSwipeOverlay(
                         title = "스와이프",
                         iconResId = R.drawable.ic_scroll,
                         isHighlighted = selectedPopupMode == EdgePopupMode.SWIPE,
+                        borderColor = if (isPopupPinned) pinnedBorderColor else Color.White,
                         modifier = Modifier
                             .alpha(itemAlphas[1].value)
                             .scale(itemOffsets[1].value)
@@ -340,6 +369,8 @@ fun EdgeSwipeOverlay(
     }
 
     if (configuredModes.isEmpty()) return
+    // 팝업(showEdgePopup)이 실제로 열린 적 없이 모드 선택기만 소멸 중 → 팝업 UI 건너뜀 (Phase 4.5.9)
+    if (!isPopupShowing) return
 
     val confirmIndex = displayedModes.size
     // 소멸 애니메이션 중에도 이전 값 기준으로 올바른 UI 분기 (Phase 4.5.3)
@@ -612,6 +643,7 @@ private fun ModeSelectCard(
     title: String,
     iconResId: Int,
     isHighlighted: Boolean,
+    borderColor: Color = Color.White,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -623,7 +655,7 @@ private fun ModeSelectCard(
             )
             .then(
                 if (isHighlighted)
-                    Modifier.border(2.dp, Color.White, RoundedCornerShape(12.dp))
+                    Modifier.border(2.dp, borderColor, RoundedCornerShape(12.dp))
                 else
                     Modifier.border(1.dp, Color(0xFF555555), RoundedCornerShape(12.dp))
             ),

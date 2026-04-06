@@ -10,6 +10,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -231,6 +232,11 @@ fun TouchpadWrapper(
     var isModeSelecting by remember { mutableStateOf(false) }
     // 선택된(또는 선택 중인) 팝업 모드 (null = 미선택)
     var selectedPopupMode by remember { mutableStateOf<EdgePopupMode?>(null) }
+    // 2단계 방식: 손 뗀 후 팝업 고정 상태 (Phase 4.5.9)
+    var isPopupPinned by remember { mutableStateOf(false) }
+    // 2단계 경계 피드백 애니메이션 (Phase 4.5.9)
+    val pinnedBoundaryShakeAnim = remember { Animatable(0f) }
+    var pinnedBorderColor by remember { mutableStateOf(Color.White) }
 
     // 프리셋 탭 라벨 표시 상태 (Phase 4.3.8)
     var showPresetLabel by remember { mutableStateOf(false) }
@@ -274,6 +280,26 @@ fun TouchpadWrapper(
         } else if (!isEdgeCandidate && !isModeSelecting) {
             lastBumpEntryEdge = null
             lastBumpInwardPx = 0f
+            lastBumpAlongPx = 0f
+        }
+    }
+
+    // 트리거 거리 도달 시 산봉우리 엣지 방향 수축 (Phase 4.5.9)
+    // isModeSelecting이 true가 되면 현재 bump 위치에서 0까지 spring 수축
+    LaunchedEffect(isModeSelecting) {
+        if (isModeSelecting && lastBumpInwardPx > 0f) {
+            isBumpShrinking = true
+            bumpShrinkAnimatable.snapTo(lastBumpInwardPx)
+            lastBumpInwardPx = 0f  // MOVE 루프가 덮어쓰지 못하도록 즉시 초기화
+            bumpShrinkAnimatable.animateTo(
+                0f,
+                spring(
+                    dampingRatio = EdgeSwipeConstants.BUMP_SHRINK_SPRING_DAMPING,
+                    stiffness = EdgeSwipeConstants.BUMP_SHRINK_SPRING_STIFFNESS
+                )
+            )
+            isBumpShrinking = false
+            lastBumpEntryEdge = null
             lastBumpAlongPx = 0f
         }
     }
@@ -347,6 +373,7 @@ fun TouchpadWrapper(
                 val directButtonSizePx = density.run { EdgeSwipeConstants.EDGE_POPUP_DIRECT_BUTTON_SIZE_DP.dp.toPx() }
                 val directButtonGapPx = density.run { EdgeSwipeConstants.EDGE_POPUP_DIRECT_BUTTON_GAP_DP.dp.toPx() }
                 val bumpAppearThresholdPx = density.run { EdgeSwipeConstants.DROPLET_APPEAR_THRESHOLD_DP.dp.toPx() }
+                val twoStepCancelSwipePx = density.run { EdgeSwipeConstants.TWO_STEP_CANCEL_SWIPE_DP.dp.toPx() }
                 // 모드 선택 step: navStepPx 재사용
 
                 awaitEachGesture {
@@ -370,6 +397,103 @@ fun TouchpadWrapper(
                     compensatedDeltaX.value = 0f
                     compensatedDeltaY.value = 0f
                     deadZoneEscaped.value = false
+
+                    // ── 2단계 팝업 고정 상태: 스와이프로 모드 탐색, 탭으로 확정 (Phase 4.5.9) ──
+                    if (isPopupPinned && isModeSelecting) {
+                        val bgDownPos = down.changes.first().position
+                        val modeItems = listOf(EdgePopupMode.DIRECT_TOUCH, EdgePopupMode.SWIPE)
+                        val currentIdx = modeItems.indexOf(selectedPopupMode ?: EdgePopupMode.SWIPE)
+                            .coerceAtLeast(0)
+                        val isHorizontalCardLayout = size.width >= with(density) { 400.dp.toPx() }
+
+                        fun resetPinnedPopup() {
+                            showEdgePopup = false
+                            isModeSelecting = false
+                            isEdgeCandidate = false
+                            pendingEdgeState = null
+                            selectedItemIndex = null
+                            popupAnchorPx = Offset.Zero
+                            selectedPopupMode = null
+                            isPopupPinned = false
+                        }
+
+                        var bgEv = awaitPointerEvent()
+                        while (bgEv.type == PointerEventType.Move) {
+                            bgEv.changes.forEach { it.consume() }
+                            val pos = bgEv.changes.first().position
+                            val dx = pos.x - bgDownPos.x
+                            val dy = pos.y - bgDownPos.y
+
+                            // 스와이프 탐색: 카드 레이아웃 방향에 맞춰 선택
+                            val linearOffset = if (isHorizontalCardLayout)
+                                (dx / navStepPx).roundToInt()
+                            else
+                                (dy / navStepPx).roundToInt()
+                            val proposed = currentIdx + linearOffset
+                            if (proposed < 0 || proposed > modeItems.lastIndex) {
+                                // 경계 피드백: 끝에서 더 이동 시도 시
+                                if (!pinnedBoundaryShakeAnim.isRunning) {
+                                    coroutineScope.launch {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+                                        } else {
+                                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                        }
+                                        pinnedBorderColor = Color(0xFFFF4444)
+                                        pinnedBoundaryShakeAnim.animateTo(
+                                            targetValue = 0f,
+                                            animationSpec = keyframes {
+                                                durationMillis = 300
+                                                8f at 50
+                                                -8f at 110
+                                                6f at 170
+                                                -6f at 230
+                                                0f at 300
+                                            }
+                                        )
+                                        pinnedBorderColor = Color.White
+                                    }
+                                }
+                            } else {
+                                selectedPopupMode = modeItems[proposed.coerceIn(0, modeItems.lastIndex)]
+                            }
+
+                            // 바깥쪽 스와이프 취소: 진입 엣지 방향으로 충분히 이동 시
+                            val outwardDist = (bgDownPos - pos).getDistance()
+                            if (outwardDist >= twoStepCancelSwipePx) {
+                                val isTowardEdge = when (entryEdge) {
+                                    EntryEdge.LEFT -> dx < 0
+                                    EntryEdge.RIGHT -> dx > 0
+                                    EntryEdge.TOP -> dy < 0
+                                    EntryEdge.BOTTOM -> dy > 0
+                                    else -> false
+                                }
+                                if (isTowardEdge) {
+                                    resetPinnedPopup()
+                                    return@awaitEachGesture
+                                }
+                            }
+
+                            bgEv = awaitPointerEvent()
+                        }
+
+                        if (bgEv.type == PointerEventType.Release) {
+                            val upPos = bgEv.changes.first().position
+                            val dist = (upPos - bgDownPos).getDistance()
+                            if (dist < tapThresholdPx) {
+                                // 탭 → 모드 확정, 팝업 열기
+                                val confirmedMode = selectedPopupMode ?: EdgePopupMode.SWIPE
+                                isModeSelecting = false
+                                isPopupPinned = false
+                                showEdgePopup = true
+                                selectedItemIndex = if (confirmedMode == EdgePopupMode.SWIPE) 0 else null
+                                popupAnchorPx = Offset.Zero
+                            }
+                            // 탭이 아닌 단순 손 뗌 → 팝업 유지 (아무 동작 안 함)
+                        }
+
+                        return@awaitEachGesture
+                    }
 
                     // ── 팝업 열린 상태: 상대 이동으로 버튼 선택, 탭으로 토글/확정 ──
                     // DOWN 지점이 기준(0,0). 손가락이 navStepPx 이동할 때마다 선택이 1칸 이동.
@@ -404,6 +528,7 @@ fun TouchpadWrapper(
                             selectedItemIndex = null
                             popupAnchorPx = Offset.Zero
                             selectedPopupMode = null
+                            isPopupPinned = false
                         }
 
                         if (selectedPopupMode == EdgePopupMode.DIRECT_TOUCH && popupAnchorPx != Offset.Zero) {
@@ -611,10 +736,13 @@ fun TouchpadWrapper(
 
                                 // 산봉우리 시각화: 가장 가까운 엣지 기준으로 갱신 (Phase 4.4.6)
                                 // 제스처 로직(entryEdge 기준 inwardMoved/perpMoved)은 변경하지 않음
-                                val visualEdge = findNearestEdge(pos, size.width.toFloat(), size.height.toFloat())
-                                lastBumpEntryEdge = visualEdge
-                                lastBumpInwardPx = getInwardDistance(pos, visualEdge, size.width.toFloat(), size.height.toFloat()).coerceAtLeast(0f)
-                                lastBumpAlongPx = getAlongEdgePosition(pos, visualEdge)
+                                // isModeSelecting 중에는 수축 애니메이션이 실행 중이므로 갱신 안 함 (Phase 4.5.9)
+                                if (!isModeSelecting) {
+                                    val visualEdge = findNearestEdge(pos, size.width.toFloat(), size.height.toFloat())
+                                    lastBumpEntryEdge = visualEdge
+                                    lastBumpInwardPx = getInwardDistance(pos, visualEdge, size.width.toFloat(), size.height.toFloat()).coerceAtLeast(0f)
+                                    lastBumpAlongPx = getAlongEdgePosition(pos, visualEdge)
+                                }
 
                                 if (!showEdgePopup && !isModeSelecting) {
                                     when {
@@ -658,6 +786,7 @@ fun TouchpadWrapper(
                                         isEdgeCandidate = false
                                         pendingEdgeState = null
                                         selectedPopupMode = null
+                                        isPopupPinned = false
                                     }
                                 } else {
                                     // 팝업 표시 중(Gesture 1): 진입 엣지로 되돌아오면 취소
@@ -936,13 +1065,10 @@ fun TouchpadWrapper(
                         previousTouchPosition.value = currentTouchPosition.value
                         currentTouchPosition.value = moveEvent.changes.first().position
 
-                        if (isModeSelecting) {
-                            // ── 모드 선택 단계에서 손 뗌 → 항상 확정 (항상 모드 선택 상태) ──
-                            val confirmedMode = selectedPopupMode ?: EdgePopupMode.SWIPE
-                            isModeSelecting = false
-                            showEdgePopup = true
-                            selectedItemIndex = if (confirmedMode == EdgePopupMode.SWIPE) 0 else null
-                            popupAnchorPx = Offset.Zero  // 앵커는 다음 탭에서 설정
+                        if (isModeSelecting && !isPopupPinned) {
+                            // 손 뗌 → 팝업 고정 (Phase 4.5.9: 2단계 방식으로 고정)
+                            isPopupPinned = true
+                            // isModeSelecting은 유지 — 다음 제스처에서 핀 상태로 처리
                             isEdgeCandidate = false
                             fingerAlongEdgePx = 0f
                             inwardDistancePx = 0f
@@ -1281,6 +1407,9 @@ fun TouchpadWrapper(
             entryEdge = entryEdge,
             fingerAlongEdgePx = fingerAlongEdgePx,
             inwardDistancePx = inwardDistancePx,
+            isPopupPinned = isPopupPinned,
+            pinnedBorderColor = pinnedBorderColor,
+            pinnedShakeOffsetDp = pinnedBoundaryShakeAnim.value,
             modifier = Modifier.fillMaxSize()
         )
         }  // inner Box 끝
