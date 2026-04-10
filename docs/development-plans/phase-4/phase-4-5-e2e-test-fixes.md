@@ -683,6 +683,69 @@ updated: "2026-04-03"
 
 ---
 
+## Phase 4.5.15: 관성 스크롤 단계 phantom 키 입력 버그 근본 수정
+
+**개발 기간**: 0.5일
+
+**증상**:
+- 고속 무한 스크롤 후 손가락을 떼면 관성이 시작되는 직후에 경보음 및 phantom 키 입력 재현
+- Phase 4.5.7 수정 후에도 동일 증상이 재현됨 (재현 조건: 빠른 스와이프 → 손가락 뗌 직후)
+
+**원인**:
+
+Phase 4.5.7은 **MOVE 이벤트 루프**에만 `SCROLL_FRAME_MIN_INTERVAL_MS` 시간 게이트와 `SCROLL_MAX_FRAMES_PER_EVENT` 상한을 적용했다. 그러나 손가락을 뗀 후 시작되는 **관성 코루틴**(`inertiaJob`)의 내부 `while` 루프는 동일한 게이트 없이 모든 누적분을 즉시 전송한다.
+
+관성 루프 구조:
+```
+outer while (velocity > MIN):
+    delay(16ms)                         ← 16ms 대기
+    moveDp = velocity * dt              ← 예: 6dp/ms × 16ms = 96dp
+    inertiaScrollAccum += moveDp       ← 96dp 누적
+    inner while (accum >= unitDp):      ← 96 / 15 ≈ 6회 반복
+        ClickDetector.sendFrame(...)    ← 6프레임 연속 전송 ← ⚠️ 게이트 없음
+```
+
+`DOWN_MULTIPLIER = 2.0f`, 초기 속도 3dp/ms인 경우 boosted 속도 6dp/ms → 첫 tick에서 최대 6프레임이 간격 없이 연속 전송된다. 이는 Phase 4.5.7이 해결하려 했던 원래 문제와 동일한 메커니즘이다.
+
+**수정 내용**:
+
+관성 코루틴의 내부 `while` 루프에 MOVE 이벤트 루프와 동일한 시간 게이트를 적용한다.
+
+- `TouchpadWrapper.kt` 관성 내부 `while` 루프 시작부에 시간 게이트 추가:
+  ```kotlin
+  while (abs(inertiaScrollAccum) >= effectiveUnitDp) {
+      val nowMs = System.currentTimeMillis()
+      if (nowMs - lastScrollFrameSentMs < SCROLL_FRAME_MIN_INTERVAL_MS) break  // 나머지는 다음 tick으로 이월
+      
+      val dir = if (inertiaScrollAccum > 0) 1 else -1
+      inertiaScrollAccum -= dir * effectiveUnitDp
+      ...
+      lastScrollFrameSentMs = nowMs  // 공유 타이머 갱신
+      ClickDetector.sendFrame(frame)
+      ...
+  }
+  ```
+- `lastScrollFrameSentMs`는 이미 MOVE 이벤트 루프와 공유되는 `mutableLongStateOf` 상태이므로 추가 선언 불필요. 관성 코루틴에서 동일 변수를 읽고 쓰면 MOVE ↔ 관성 간 전송 간격도 자동으로 보장됨.
+- 결과: 관성 루프 16ms tick당 최대 1프레임 전송 (8ms 게이트 기준). MOVE 이벤트와 합산해도 초당 최대 125프레임 하드 상한 유지.
+
+> **선택적 보강 (펌웨어)**:
+> - `uart_handler.h` → `UART_RX_BUFFER_SIZE` 256 → 1024 바이트 변경 (버스트 내성 4배 향상)
+> - Android 측 수정만으로 재현이 없으면 펌웨어 수정 불필요
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
+  — 관성 코루틴 내부 `while` 루프 시작부에 `lastScrollFrameSentMs` 시간 게이트 추가
+  — 프레임 전송 직전 `lastScrollFrameSentMs` 갱신
+
+**검증**:
+- [ ] 최대한 빠르게 아래로 스와이프 후 손가락을 뗌 → 관성 시작 직후 경보음·phantom 키 입력 없음 확인 (10회 이상)
+- [ ] 관성 중 PC 화면에서 브라우저/앱이 예상치 않게 열리지 않음 확인
+- [ ] 관성 스크롤 속도·거리가 수정 전과 동등하게 유지되는지 확인 (이월로 인한 스크롤 손실 없음)
+- [ ] 관성 → 재터치 → MOVE 스크롤 전환 시 phantom 없음 확인
+- [ ] 일반(Normal) 스크롤 모드의 고속 드래그에서 동일 현상 없음 확인 (회귀 없음)
+
+---
+
 ## Phase 4.5 완료 후 Phase 4.4.9 검증 항목 영향
 
 Phase 4.5 수정 완료 후 아래 Phase 4.4.9 검증 항목을 재검증해야 합니다:
@@ -691,6 +754,7 @@ Phase 4.5 수정 완료 후 아래 Phase 4.4.9 검증 항목을 재검증해야 
 |----------|---------------------|------------|
 | A. 앱 연결 상태 표시가 실제 연결 여부와 일치 | 4.5.11 | ✅ |
 | C. 우클릭 모드 전환 후 탭 → 우클릭 신호 전달 | 4.5.1 | ✅ |
-| D. 무한 스크롤 연속 패킷 전송 | 4.5.5, 4.5.6, 4.5.7 | ✅ |
+| D. 무한 스크롤 연속 패킷 전송 | 4.5.5, 4.5.6, 4.5.7, 4.5.15 | ✅ |
 | D. 무한 스크롤 속도 비례 | 4.5.7 | ✅ |
+| D. 무한 스크롤 관성 단계 phantom 키 입력 | 4.5.15 | ✅ |
 | H. 엣지 스와이프로 우클릭 모드 전환 후 탭 | 4.5.1 | ✅ |
