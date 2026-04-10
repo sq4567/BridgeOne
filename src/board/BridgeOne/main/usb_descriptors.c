@@ -35,7 +35,7 @@ tusb_desc_device_t const desc_device = {
     
     .bMaxPacketSize0    = 64,              // Control EP 최대 패킷 크기
     
-    // Vendor/Product ID (0x303A: Espressif VID, 0x4001: BridgeOne PID)
+    // Vendor/Product ID (0x04D9: Holtek VID, 0x0024: 일반 USB 키보드 PID)
     .idVendor           = USB_VID,
     .idProduct          = USB_PID,
     .bcdDevice          = 0x0100,          // 버전 1.0.0
@@ -185,10 +185,10 @@ uint8_t const desc_configuration[] = {
  */
 char const* string_desc_arr[] = {
     (const char[]){ 0x09, 0x04 },           // 0: Language ID (US English)
-    "Chatterbones",                          // 1: Manufacturer
-    "BridgeOne USB Bridge",                  // 2: Product
-    "00000001",                              // 3: Serial Number
-    "BridgeOne Vendor CDC",                  // 4: CDC Interface Description
+    "HOLTEK",                               // 1: Manufacturer (Holtek Semiconductor 호환)
+    "USB Gaming Keyboard",                  // 2: Product
+    "00000001",                             // 3: Serial Number
+    "USB Gaming Keyboard CDC",              // 4: CDC Interface Description
 };
 
 // NOTE: String descriptors are passed via tinyusb_config_t

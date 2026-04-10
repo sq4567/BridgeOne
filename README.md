@@ -383,6 +383,46 @@ struct VendorResponse {
 
 ---
 
+## 🎮 안티치트 소프트웨어 호환성
+
+### 배경
+
+일부 게임의 안티치트 소프트웨어(Easy Anti-Cheat, BattlEye 등)는 비표준 VID(Vendor ID)를 가진 HID 장치를 탐지해 입력을 차단하는 경우가 있습니다. BridgeOne의 ESP32-S3가 기본적으로 사용하는 Espressif VID(`0x303A`)는 흔한 키보드·마우스 장치에서는 볼 수 없는 값이기 때문에, 일부 환경에서 차단 대상이 될 수 있습니다.
+
+### 적용된 해결책: VID/PID 변경
+
+이를 방지하기 위해 펌웨어의 USB 식별자를 전 세계 수백만 대의 일반 USB 키보드에 쓰이는 Holtek Semiconductor 값으로 설정했습니다.
+
+| 항목 | 변경 전 | 변경 후 |
+|------|---------|---------|
+| VID | `0x303A` (Espressif) | `0x04D9` (Holtek Semiconductor) |
+| PID | `0x4001` | `0x0024` |
+| Manufacturer | Chatterbones | HOLTEK |
+| Product | BridgeOne USB Bridge | USB Gaming Keyboard |
+
+이 값은 [usb_descriptors.h](src/board/BridgeOne/main/usb_descriptors.h)에 정의되어 있으며, GitHub에서 클론 후 빌드하면 자동으로 적용됩니다. 별도 작업 불필요.
+
+### 한계
+
+VID/PID 변경은 단순 블랙리스트 방식의 차단에만 효과가 있습니다. Riot Vanguard처럼 커널 레벨에서 동작하며 장치 동작 패턴까지 분석하는 최신 안티치트에는 효과가 없을 수 있습니다.
+
+### 그래도 차단될 경우: 접근성 기기 예외 요청
+
+BridgeOne은 근육장애 보조를 목적으로 하는 접근성 기기입니다. 주요 안티치트 회사들은 접근성 기기에 대한 예외 신청 절차를 운영하고 있습니다.
+
+| 안티치트 | 문의 방법 |
+|----------|----------|
+| Easy Anti-Cheat (EAC) | 해당 게임 퍼블리셔에 접근성 기기 예외 요청 이메일 발송 |
+| BattlEye | https://www.battleye.com 고객지원 페이지에서 문의 |
+| Riot Vanguard | https://support-valorant.riotgames.com 에서 접근성 관련 티켓 제출 |
+
+문의 시 포함하면 좋은 내용:
+- BridgeOne이 근육장애를 가진 사용자의 유일한 입력 수단임을 명시
+- 장치의 VID/PID 정보 (`VID_04D9&PID_0024`)
+- 이 GitHub 저장소 링크 (오픈소스 접근성 프로젝트임을 증명)
+
+---
+
 ## 🛣️ 개발 로드맵 (작성 예정)
 
 ---

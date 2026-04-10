@@ -19,11 +19,16 @@
 
 // ==================== VID/PID 설정 ====================
 /**
- * VID: 0x303A (Espressif 공식 VID)
- * PID: 0x4001 (BridgeOne 프로젝트용)
+ * VID: 0x04D9 (Holtek Semiconductor - 범용 USB 키보드 OEM 제조사)
+ * PID: 0x0024 (Holtek 일반 USB 키보드 PID)
+ *
+ * 변경 이유:
+ * - 일부 안티치트 소프트웨어가 비표준 VID(Espressif 0x303A)를 가진 HID 장치를 차단함
+ * - Holtek은 수백만 대의 일반 USB 키보드에 사용되는 OEM 칩 제조사로, 광범위하게 허용됨
+ * - String Descriptor(제조사/제품명)도 함께 Holtek 호환 값으로 변경 필요 (usb_descriptors.c)
  */
-#define USB_VID             0x303A
-#define USB_PID             0x4001
+#define USB_VID             0x04D9
+#define USB_PID             0x0024
 
 // ==================== 엔드포인트 번호 정의 ====================
 /**
