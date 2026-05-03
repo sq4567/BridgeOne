@@ -245,6 +245,7 @@ Wrapper 구성 요소:
 - 동작 방식: 상세한 가이드라인 움직임 로직은 §4.2 참조
 
 ### 1.6 컴포넌트 간 상호작용
+- **ScrollPad 공존**: `ScrollPadWrapper` 컴포넌트가 같은 화면에 배치될 경우 휠 스크롤 보조 진입점으로 공존합니다 (현재 페이지 1에 배치). `TouchpadWrapper` 내부 ScrollMode와 독립적으로 동작하며, 두 진입점을 동시에 사용해도 `FrameBuilder` 시퀀스 자동 할당으로 충돌이 없습니다. 상세 명세는 `docs/android/component-scrollpad.md` 참조.
 - `TouchpadWrapper` 내부 컴포넌트 간 관계:
   - 제어 버튼들: 독립적으로 작동하지만 모드 간 우선순위 규칙 적용
   - 버튼 상태 변경: 즉시 TouchpadArea 동작과 시각적 피드백에 반영

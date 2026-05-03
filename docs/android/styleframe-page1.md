@@ -1,7 +1,7 @@
 ---
 title: "Styleframe - Page 1 (Touchpad + Actions)"
-description: "좌측 Touchpad, 우측 특수 키/키 조합/매크로 패널로 구성된 메인 조작 페이지"
-tags: ["styleframe", "touchpad", "keyboard", "macro", "ui"]
+description: "좌측 Touchpad, 우측 특수 키/키 조합/스크롤 패드 패널로 구성된 메인 조작 페이지"
+tags: ["styleframe", "touchpad", "keyboard", "scrollpad", "scroll", "ui"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2025-09-24"
@@ -13,7 +13,7 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 ## 1. 개요
 
 - 이 문서는 메인 조작 페이지(Page 1)의 스타일프레임을 정의합니다.
-- 레이아웃은 좌측에 Touchpad를 좌측 모서리에 밀착 배치하고, 우측에는 특수 키(Special Keys), 키 조합(Shortcuts), 매크로(Macros)를 세 영역으로 나누어 배치합니다.
+- 레이아웃은 좌측에 Touchpad를 좌측 모서리에 밀착 배치하고, 우측에는 특수 키(Special Keys), 키 조합(Shortcuts), 스크롤 패드(ScrollPad)를 세 영역으로 나누어 배치합니다.
 
 > **상세 아키텍처**: 전체 시스템 아키텍처는 [`technical-specification.md` §3]를 참조하세요.
 > **용어 정의**: 용어 정의는 [`technical-specification.md` §6.2 Android 플랫폼 용어집]을 참조하세요.
@@ -42,10 +42,9 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 
 ### 2.2 우측 Actions 패널
 
-- 스크롤 컨테이너. 세 그룹을 상단에서 하단 순으로 배치: Special Keys → Shortcuts → Macros.
+- 스크롤 컨테이너. 세 그룹을 상단에서 하단 순으로 배치: Special Keys → Shortcuts → ScrollPad.
 - 그룹 헤더: 굵게, 소문자 라벨 금지. 필요시 보조 설명 캡션 12sp.
-- 각 버튼 컴포넌트는 `KeyboardKeyButton`/`ShortcutButton`/`MacroButton`을 사용. 리플은 비활성, 터치 타겟은 ≥ 56dp, 간격 8~12dp.
-  - **⚠️ MacroButton은 추후 개발 예정**입니다.
+- 각 버튼 컴포넌트는 `KeyboardKeyButton`/`ShortcutButton`을 사용. 리플은 비활성, 터치 타겟은 ≥ 56dp, 간격 8~12dp.
 
 #### A. Special Keys(2열 그리드)
 
@@ -61,16 +60,16 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 - `Alt+Tab`: 누르고 있는 동안 `Selected` 유지, 해제 시 입력 종료.
 - `Win+D`: 토글형 아님, 단발성 트리거. 중복 입력 보호(500ms 디바운스).
 
-#### C. Macros(세로 리스트)
+#### C. ScrollPad(스크롤 전용 패드)
 
-> **⚠️ 추후 개발 예정**: 매크로 기능은 향후 개발 계획에 포함되어 있으며, 현재는 구현되지 않았습니다.
+**참조**: `docs/android/component-scrollpad.md`
 
-권장 기본: `Macro 1`, `Macro 2`, `Macro 3` — 사전 정의된 실행 전용 매크로(현재 비활성화).
-
-- **상태**: 모든 매크로 버튼이 항상 `Disabled` 상태로 표시됩니다.
-- **동작**: 유저가 터치해도 아무 일도 일어나지 않습니다.
-- **시각적 표시**: `#C2C2C2` 색상으로 비활성화 상태를 명확히 표시합니다.
-- **아이콘**: VectorDrawable 사용(예: `ic_play.xml`). 현재는 비활성화 상태로 표시됩니다.
+- **상태**: 항상 활성. 손가락을 올려 드래그하면 즉시 PC 휠 스크롤 입력 발생.
+- **지원 축**: 수직(상하) + 수평(좌우). 드래그 시작 후 `SCROLL_AXIS_LOCK_DISTANCE_DP`(기본: 8dp) 초과 시 축 자동 잠금.
+- **스크롤 모드**: NORMAL(일반) / INFINITE(무한 관성). 우측 상단 토글 칩으로 전환.
+- **배경**: `#1A1A1A`, 라운드 코너 12dp. 드래그/관성 중 테두리 `#2196F3` 강조.
+- **크기**: Actions 패널 잔여 높이 전체 사용 (`fillMaxHeight()`).
+- **터치패드 ScrollMode와 공존**: 터치패드 내부 ScrollMode 토글은 유지됨. 두 진입점 독립 동작.
 
 ### 2.3 ASCII 레이아웃(개략)
 
@@ -83,8 +82,8 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 │                                              │  │ ┌─ Shortcuts ───────────────┐ │
 │                                              │  │ │ Ctrl+C Ctrl+V Ctrl+S ...  │ │
 │                                              │  │ └───────────────────────────┘ │
-│                                              │  │ ┌─ Macros ─────────────────┐ │
-│                                              │  │ │  Macro1  Macro2  Macro3  │ │
+│                                              │  │ ┌─ ScrollPad ──────────────┐ │
+│                                              │  │ │  ≈/∞  [드래그 → 휠 스크롤]│ │
 │                                              │  │ └───────────────────────────┘ │
 └──────────────────────────────────────────────┘  └──────────────────────────────┘
   «권장 비율: 좌 64% / 우 36%, Portrait 기준»
@@ -106,7 +105,7 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 
 - 폭 < 360dp: 우측 패널 그룹 수를 줄이거나 탭으로 분리(상단 세그먼트 컨트롤). 기본은 스크롤 유지.
 - 폭 ≥ 600dp(Landscape/Tablet): 우측 패널 그리드를 최대 3열까지 확장, 버튼 최소 폭 120dp 유지.
-- 높이 제약 시: Macros를 우선 스크롤링 영역으로 배치하여 키/조합 가시성 우선 확보.
+- 높이 제약 시: ScrollPad를 우선 스크롤링 영역으로 배치하여 키/조합 가시성 우선 확보.
 
 ## 6. 구현 메모(개발자용)
 
