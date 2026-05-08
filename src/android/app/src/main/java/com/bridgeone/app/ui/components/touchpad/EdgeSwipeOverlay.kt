@@ -782,6 +782,7 @@ private fun modeCurrentInfo(mode: EdgeSwipeMode, state: TouchpadState): ModeDisp
  * @param maxPeakHeightPx    피크 높이 상한 (px)
  * @param baseHalfSizePx     기저부 반폭 (px)
  * @param strokeWidthPx      테두리 두께 (px)
+ * @param entryAlongEdgePx   진입 시점의 엣지 방향 위치 (px) — 베이스(발) 고정 기준점
  * @param glowRadiusPx       glow 기본 반경 (px)
  * @param glowMaxRadiusPx    MAX 도달 시 glow 반경 (px)
  * @param borderColors       터치패드 테두리 그라데이션 색상 쌍 (left, right)
@@ -790,6 +791,7 @@ private fun modeCurrentInfo(mode: EdgeSwipeMode, state: TouchpadState): ModeDisp
 fun EdgeBumpOverlay(
     entryEdge: EntryEdge,
     fingerAlongEdgePx: Float,
+    entryAlongEdgePx: Float,
     inwardDistancePx: Float,
     maxPeakHeightPx: Float,
     baseHalfSizePx: Float,
@@ -820,15 +822,17 @@ fun EdgeBumpOverlay(
         )
 
         // 엣지별 Path 좌표 계산
+        // along: 현재 손가락 위치 (피크 추종), entryAlong: 진입점 고정 (베이스 기준)
         val path = Path()
         val along = fingerAlongEdgePx
+        val entryAlong = entryAlongEdgePx
         val base = baseHalfSizePx
 
         when (entryEdge) {
             EntryEdge.LEFT -> {
-                // 기저부: 엣지(x=0)에서 위→아래, 피크: 오른쪽(+x)으로 솟음
-                val topY = along - base
-                val bottomY = along + base
+                // 기저부(발): 진입점(entryAlong) 고정 / 피크: 손가락 현재 위치(along) 추종
+                val topY = entryAlong - base
+                val bottomY = entryAlong + base
                 val peakX = peakHeight
                 val peakY = along
                 path.moveTo(0f, topY)
@@ -837,8 +841,8 @@ fun EdgeBumpOverlay(
                 path.close()
             }
             EntryEdge.RIGHT -> {
-                val topY = along - base
-                val bottomY = along + base
+                val topY = entryAlong - base
+                val bottomY = entryAlong + base
                 val peakX = w - peakHeight
                 val peakY = along
                 path.moveTo(w, topY)
@@ -847,8 +851,8 @@ fun EdgeBumpOverlay(
                 path.close()
             }
             EntryEdge.BOTTOM -> {
-                val leftX = along - base
-                val rightX = along + base
+                val leftX = entryAlong - base
+                val rightX = entryAlong + base
                 val peakY = h - peakHeight
                 val peakX = along
                 path.moveTo(leftX, h)
@@ -857,8 +861,8 @@ fun EdgeBumpOverlay(
                 path.close()
             }
             EntryEdge.TOP -> {
-                val leftX = along - base
-                val rightX = along + base
+                val leftX = entryAlong - base
+                val rightX = entryAlong + base
                 val peakY = peakHeight
                 val peakX = along
                 path.moveTo(leftX, 0f)
@@ -868,7 +872,7 @@ fun EdgeBumpOverlay(
             }
         }
 
-        // 피크 끝점 좌표 (glow 위치 계산)
+        // 피크 끝점 좌표 (glow 위치 계산) — 손가락 현재 위치(along) 기준 유지
         val peakPoint = when (entryEdge) {
             EntryEdge.LEFT -> Offset(peakHeight, along)
             EntryEdge.RIGHT -> Offset(w - peakHeight, along)

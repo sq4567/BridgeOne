@@ -381,12 +381,14 @@ updated: "2026-04-03"
   — `EdgeBumpOverlay` 호출 시 `entryAlongEdgePx` 전달
 
 **검증**:
-- [ ] LEFT 엣지 진입 후 손가락을 위아래로 움직일 때 산봉우리 발이 진입점에 고정되고 피크만 기울어지는지 확인
-- [ ] TOP / BOTTOM / RIGHT 엣지에서도 동일하게 동작 확인
-- [ ] 손가락을 엣지 따라 크게 이동해도 베이스가 이탈하지 않는지 확인
-- [ ] 피크가 지나치게 기울어져 모양이 무너지는 경우 없는지 확인 (베이스에서 피크까지 거리 상한 필요 시 `fingerAlongEdgePx.coerceIn()` 적용 검토)
-- [ ] `resetEdgeSwipeState()` 이후 다음 제스처 시 베이스 위치가 올바르게 초기화되는지 확인
-- [ ] 팝업 등장 및 소멸 애니메이션(Phase 4.4.7)과 시각적으로 어색함 없이 연동되는지 확인
+- [x] LEFT 엣지 진입 후 손가락을 위아래로 움직일 때 산봉우리 발이 진입점에 고정되고 피크만 기울어지는지 확인
+- [x] TOP / BOTTOM / RIGHT 엣지에서도 동일하게 동작 확인
+- [x] 손가락을 엣지 따라 크게 이동해도 베이스가 이탈하지 않는지 확인
+- [x] 피크가 지나치게 기울어져 모양이 무너지는 경우 없는지 확인 (베이스에서 피크까지 거리 상한 필요 시 `fingerAlongEdgePx.coerceIn()` 적용 검토)
+- [x] `resetEdgeSwipeState()` 이후 다음 제스처 시 베이스 위치가 올바르게 초기화되는지 확인
+- [x] 팝업 등장 및 소멸 애니메이션(Phase 4.4.7)과 시각적으로 어색함 없이 연동되는지 확인
+
+> **구현 노트**: `entryAlongEdgePx` remember 상태를 추가. DOWN 이벤트에서 `edgeStartAlongPx`로 초기화, 손 뗌 시 3곳(isModeSelecting 고정, showEdgePopup 유지, 후보 취소)에서 `0f`로 리셋. `EdgeBumpOverlay` 시그니처에 `entryAlongEdgePx` 파라미터 추가, 4개 엣지 분기에서 베이스(발) 좌표는 `entryAlongEdgePx` 기준, 피크 및 glow는 `fingerAlongEdgePx`(현재 손가락) 기준으로 분리.
 
 ---
 

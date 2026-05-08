@@ -216,6 +216,7 @@ fun TouchpadWrapper(
     var showEdgePopup by remember { mutableStateOf(false) }
     var entryEdge by remember { mutableStateOf<EntryEdge?>(null) }
     var fingerAlongEdgePx by remember { mutableFloatStateOf(0f) }
+    var entryAlongEdgePx by remember { mutableFloatStateOf(0f) }  // 기본값: 0f
     var inwardDistancePx by remember { mutableFloatStateOf(0f) }
 
     // ── 산봉우리 애니메이션 상태 (Phase 4.4.6) ──
@@ -703,6 +704,7 @@ fun TouchpadWrapper(
                     val edgeStartAlongPx = if (detectedEntryEdge != null)
                         getAlongEdgePosition(downPos, detectedEntryEdge)
                     else 0f
+                    entryAlongEdgePx = edgeStartAlongPx
 
                     // 스크롤 모드 전용 로컬 상태 (각 제스처마다 초기화)
                     var scrollAxis = ScrollAxis.UNDECIDED
@@ -1102,11 +1104,13 @@ fun TouchpadWrapper(
                             // isModeSelecting은 유지 — 다음 제스처에서 핀 상태로 처리
                             isEdgeCandidate = false
                             fingerAlongEdgePx = 0f
+                            entryAlongEdgePx = 0f
                             inwardDistancePx = 0f
                         } else if (showEdgePopup) {
                             // ── 팝업 열린 채로 손 뗌 → 팝업 유지 ──
                             isEdgeCandidate = false
                             fingerAlongEdgePx = 0f
+                            entryAlongEdgePx = 0f
                             inwardDistancePx = 0f
                         } else if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL ||
                             latestState.scrollMode == ScrollMode.INFINITE_SCROLL
@@ -1322,6 +1326,7 @@ fun TouchpadWrapper(
                         if (isEdgeCandidate && !showEdgePopup) {
                             isEdgeCandidate = false
                             fingerAlongEdgePx = 0f
+                            entryAlongEdgePx = 0f
                             inwardDistancePx = 0f
                         }
 
@@ -1439,6 +1444,7 @@ fun TouchpadWrapper(
             EdgeBumpOverlay(
                 entryEdge = effectiveBumpEdge,
                 fingerAlongEdgePx = effectiveBumpAlong,
+                entryAlongEdgePx = entryAlongEdgePx,
                 inwardDistancePx = effectiveBumpInward,
                 maxPeakHeightPx = maxPeakPx,
                 baseHalfSizePx = baseHalfPx,
