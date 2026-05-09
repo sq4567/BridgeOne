@@ -86,6 +86,16 @@ object UsbSerialManager {
     // ========== 태그 정의 (로그 출력용) ==========
     private const val TAG = "UsbSerialManager"
 
+    // ========== DTR/RTS 토글 타이밍 상수 (Phase 4.5.14) ==========
+    /** DTR/RTS OFF 후 CH343P 안정화 대기 시간 (ms). 기본값: 150ms */
+    private const val DTR_RTS_OFF_WAIT_MS = 150L
+
+    /** DTR/RTS ON 후 CH343P 안정화 대기 시간 (ms). 기본값: 100ms */
+    private const val DTR_RTS_ON_STABILIZE_MS = 100L
+
+    /** 모드 응답 없음으로 판정하는 기준 시간 (ms). 기본값: 10000ms */
+    private const val MODE_RESPONSE_TIMEOUT_MS = 10_000L
+
     // ========== 디버그 상태 (UI 표시용) ==========
     private val _debugState = MutableStateFlow(UsbDebugState())
     val debugState: StateFlow<UsbDebugState> = _debugState.asStateFlow()
@@ -216,17 +226,19 @@ object UsbSerialManager {
                 UsbConstants.UART_PARITY       // No parity (0)
             )
 
-            // DTR/RTS 토글 (Phase 3.5.9)
-            // CH343P의 UART RX→USB 방향을 확실히 활성화하기 위해
-            // DTR/RTS를 OFF→ON으로 토글합니다.
+            // DTR/RTS 토글 강화 (Phase 4.5.14)
+            // 앱 재시작 시 CH343P가 이전 세션의 RX 비활성화 상태를 유지할 수 있음.
+            // OFF 후 충분한 대기와 ON 후 안정화 시간을 늘려 CH343P를 확실히 재초기화.
             port.setDTR(false)
             port.setRTS(false)
-            Thread.sleep(50)
+            Thread.sleep(DTR_RTS_OFF_WAIT_MS)  // 기본값: 150ms
             port.setDTR(true)
             port.setRTS(true)
+            Thread.sleep(DTR_RTS_ON_STABILIZE_MS)  // 기본값: 100ms
 
             isConnected = true
             _modeConfirmed.value = false
+            lastModeResponseMs = System.currentTimeMillis()
             startSenderThread()
             startReceiverThread()
             startPollingThread()
@@ -382,6 +394,13 @@ object UsbSerialManager {
     @Volatile
     private var pollingThread: Thread? = null
 
+    /**
+     * 마지막 모드 응답 수신 시각 (ms, System.currentTimeMillis() 기준).
+     * 일정 시간 이상 응답 없으면 DTR/RTS 재토글로 CH343P를 재초기화합니다.
+     */
+    @Volatile
+    private var lastModeResponseMs = 0L
+
     // ========== 비동기 전송 큐 (Phase 2.3.6) ==========
 
     /**
@@ -504,6 +523,7 @@ object UsbSerialManager {
                         }
                         _bridgeMode.value = newMode
                         _modeConfirmed.value = true
+                        lastModeResponseMs = System.currentTimeMillis()
                         Log.i(TAG, "BridgeMode changed: $oldMode → $newMode (confirmed)")
                     }
 
@@ -558,6 +578,17 @@ object UsbSerialManager {
 
                     // 쿼리 전송 후 2초 대기 (첫 쿼리는 즉시 전송됨)
                     Thread.sleep(2000)
+
+                    // Phase 4.5.14: 응답 없음 감지 → DTR/RTS 재토글로 CH343P 재초기화
+                    // modeConfirmed == false + MODE_RESPONSE_TIMEOUT_MS 이상 응답 없으면
+                    // CH343P UART RX→USB 방향이 비활성화된 것으로 판정하고 재초기화.
+                    if (!_modeConfirmed.value && isConnected) {
+                        val elapsed = System.currentTimeMillis() - lastModeResponseMs
+                        if (elapsed > MODE_RESPONSE_TIMEOUT_MS) {
+                            Log.w(TAG, "Mode response timeout (${elapsed}ms), reinitializing UART via DTR/RTS retoggle")
+                            reinitializeUart()
+                        }
+                    }
                 } catch (e: InterruptedException) {
                     Thread.currentThread().interrupt()
                     break
@@ -567,6 +598,29 @@ object UsbSerialManager {
         }, "BridgeOne-Mode-Poller").apply {
             isDaemon = true
             start()
+        }
+    }
+
+    /**
+     * DTR/RTS 재토글로 CH343P UART를 재초기화합니다 (Phase 4.5.14).
+     *
+     * 앱 재시작 후 CH343P가 UART RX→USB 방향을 비활성화 상태로 유지할 때,
+     * DTR/RTS를 OFF→ON으로 재토글하여 CH343P를 강제 재초기화합니다.
+     * 케이블 재연결 없이 소프트웨어적으로 복구하는 메커니즘입니다.
+     */
+    private fun reinitializeUart() {
+        val port = usbSerialPort ?: return
+        try {
+            port.setDTR(false)
+            port.setRTS(false)
+            Thread.sleep(DTR_RTS_OFF_WAIT_MS)
+            port.setDTR(true)
+            port.setRTS(true)
+            Thread.sleep(DTR_RTS_ON_STABILIZE_MS)
+            lastModeResponseMs = System.currentTimeMillis()
+            Log.i(TAG, "UART reinitialized via DTR/RTS retoggle")
+        } catch (e: Exception) {
+            Log.e(TAG, "UART reinitialization failed: ${e.message}")
         }
     }
 
