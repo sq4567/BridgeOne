@@ -397,23 +397,22 @@ updated: "2026-04-03"
 **개발 기간**: 0.5일 미만
 
 **증상**:
-- 앱이 백그라운드에서 실행 중인 상태에서 보드를 핸드폰에 재연결하면 앱이 포그라운드로 복귀하지 않고 새 인스턴스가 생성됨
-- `ACTION_USB_DEVICE_ATTACHED` 인텐트가 발동될 때 `launchMode`가 기본값(`standard`)이면 앱이 이미 실행 중이어도 새 인스턴스를 생성하기 때문
+- 앱이 백그라운드에서 실행 중인 상태에서 보드를 핸드폰에 재연결하면 앱이 포그라운드로 복귀하지 않아야 하는데, 앱이 포그라운드로 나타남
 
 **작업 내용**:
-- `AndroidManifest.xml`의 `MainActivity`에 `android:launchMode="singleTop"` 추가
-- `MainActivity.kt`에 `onNewIntent()` 오버라이드 추가 — USB 재연결 인텐트를 기존 인스턴스에서 처리
+- `AndroidManifest.xml`의 `MainActivity`에서 `USB_DEVICE_ATTACHED` intent-filter 및 `meta-data` 제거
+- 보드 재연결 이벤트는 이미 정적 등록된 `UsbDeviceDetectionReceiver`가 처리하므로 기능 유지
+- 앱이 완전히 종료된 상태에서 보드 연결 시에는 자동 시작되지 않음 (직접 앱 실행 필요)
+
+> **실제 구현 (계획과 다름)**: 원래 계획(`singleTop` 추가 + `onNewIntent()` 추가)은 포그라운드 전환을 막지 못함. `singleTask`는 이미 설정되어 있었고 `onNewIntent()`도 이미 구현되어 있었음. 근본 원인은 Activity의 `USB_DEVICE_ATTACHED` intent-filter 자체이므로 제거하는 방식으로 변경.
 
 **수정 파일**:
 - `src/android/app/src/main/AndroidManifest.xml`
-  — `MainActivity`에 `android:launchMode="singleTop"` 추가
-- `src/android/app/src/main/java/com/bridgeone/app/MainActivity.kt`
-  — `onNewIntent(intent: Intent)` 오버라이드 추가
+  — `MainActivity`의 `USB_DEVICE_ATTACHED` intent-filter 및 `meta-data` 제거
 
 **검증**:
-- [ ] 앱 백그라운드 실행 중 보드 재연결 시 새 인스턴스 생성 없이 기존 앱이 포그라운드로 복귀 확인
-- [ ] 앱이 완전히 종료된 상태에서 보드 연결 시 기존과 동일하게 앱 실행 확인
-- [ ] 재연결 후 USB 통신이 정상 재개되는지 확인
+- [x] 앱 백그라운드 실행 중 보드 재연결 시 앱이 포그라운드로 나타나지 않고 아무 반응 없음 확인
+- [x] 재연결 후 USB 통신이 정상 재개되는지 확인
 
 ---
 
@@ -473,6 +472,12 @@ updated: "2026-04-03"
 - **확인 방법**: 현재 keep-alive 구현 여부 및 타임아웃 후 재연결 로직 확인
 
 #### 조사 G: 앱 프로세스 재시작 시 USB 연결 이벤트 미수신 (증상 2 전담)
+
+> **⚠️ Phase 4.5.12 변경사항**: `MainActivity`에서 `USB_DEVICE_ATTACHED` intent-filter가 제거됨.
+> 이로 인해 앱이 완전 종료된 상태에서 보드를 연결해도 시스템이 앱을 자동 시작하지 않음.
+> 리빌드 시나리오(증상 2)에서는 앱이 Android Studio에 의해 재시작되므로 영향 없음.
+> 단, `onCreate()` → `initializeUsbSystem()` 경로에서 이미 연결된 기기를 능동적으로 스캔하는 로직의 중요성이 더 커짐.
+
 - 리빌드 시 앱 프로세스가 종료됐다가 재시작되면, USB 케이블은 여전히 꽂혀 있으므로 `ACTION_USB_DEVICE_ATTACHED` 이벤트가 발생하지 않음
 - 이로 인해 `UsbSerialManager`가 연결을 시작하지 못하거나, 초기화 흐름에서 서버 감지를 건너뛸 가능성
 - 앱 시작 시점에 "이미 연결된 USB 기기"를 능동적으로 스캔하는 로직이 있는지, 그리고 그 경로에서도 서버 감지가 정상 실행되는지 확인 필요
