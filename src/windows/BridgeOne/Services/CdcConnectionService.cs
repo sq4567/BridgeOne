@@ -14,11 +14,11 @@ public sealed class CdcConnectionService : IDisposable
 {
     // ==================== 상수 ====================
 
-    /// <summary>Espressif VID</summary>
-    private const ushort TargetVid = 0x303A;
+    /// <summary>Holtek VID (안티치트 우회용으로 변경됨, usb_descriptors.h USB_VID)</summary>
+    private const ushort TargetVid = 0x04D9;
 
-    /// <summary>BridgeOne PID</summary>
-    private const ushort TargetPid = 0x4001;
+    /// <summary>BridgeOne PID (usb_descriptors.h USB_PID)</summary>
+    private const ushort TargetPid = 0x0024;
 
     /// <summary>CDC는 baud rate 무관하지만, 형식상 설정</summary>
     private const int BaudRate = 115200;
