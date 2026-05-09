@@ -75,6 +75,8 @@ import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
 import com.bridgeone.app.ui.components.touchpad.ClickMode
 import com.bridgeone.app.ui.components.touchpad.ControlButtonConfig
 import com.bridgeone.app.ui.components.touchpad.CursorMode
+import com.bridgeone.app.ui.components.touchpad.DpiLevel
+import com.bridgeone.app.ui.components.touchpad.ScrollSensitivity
 import com.bridgeone.app.ui.components.touchpad.DynamicsPresetButton
 import com.bridgeone.app.ui.components.touchpad.ModePresetButton
 import com.bridgeone.app.ui.components.touchpad.EdgeBumpOverlay
@@ -533,6 +535,9 @@ fun TouchpadWrapper(
                             if (latestConfig.showClickMode && !isScrollingForPopup) add(EdgeSwipeMode.CLICK)
                             if (latestConfig.showMoveMode && !isScrollingForPopup) add(EdgeSwipeMode.MOVE)
                             if (latestConfig.showCursorMode) add(EdgeSwipeMode.CURSOR)
+                            if (!isScrollingForPopup) add(EdgeSwipeMode.DPI)
+                            if (isScrollingForPopup) add(EdgeSwipeMode.SCROLL_SPEED)
+                            add(EdgeSwipeMode.DYNAMICS)
                         }
                         val modeCount = visibleModes.size
 
@@ -1618,6 +1623,16 @@ private fun applyEdgeModeToggle(state: TouchpadState, mode: EdgeSwipeMode): Touc
     )
     EdgeSwipeMode.CURSOR -> state.copy(
         cursorMode = if (state.cursorMode == CursorMode.SINGLE) CursorMode.MULTI else CursorMode.SINGLE
+    )
+    EdgeSwipeMode.DPI -> state.copy(
+        dpiLevel = state.dpiLevel.next(),
+        customDpiMultiplier = null
+    )
+    EdgeSwipeMode.SCROLL_SPEED -> state.copy(
+        scrollSensitivity = state.scrollSensitivity.next()
+    )
+    EdgeSwipeMode.DYNAMICS -> state.copy(
+        dynamicsPresetIndex = (state.dynamicsPresetIndex + 1) % DYNAMICS_PRESETS.size
     )
 }
 

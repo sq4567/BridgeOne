@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -48,10 +46,14 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.bridgeone.app.R
+import com.bridgeone.app.ui.common.AppIcons
+import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -74,7 +76,7 @@ enum class EntryEdge { TOP, BOTTOM, LEFT, RIGHT }
  * 엣지 스와이프로 토글 가능한 모드 종류.
  * 각각 ControlButtonContainer의 버튼 1개에 대응합니다.
  */
-enum class EdgeSwipeMode { SCROLL, CLICK, MOVE, CURSOR }
+enum class EdgeSwipeMode { SCROLL, CLICK, MOVE, CURSOR, DPI, SCROLL_SPEED, DYNAMICS }
 
 // ============================================================
 // EdgeSwipeOverlay
@@ -102,7 +104,6 @@ enum class EdgeSwipeMode { SCROLL, CLICK, MOVE, CURSOR }
  * @param fingerAlongEdgePx    손가락의 엣지 축 위치 (px) — Phase 4.3.13용
  * @param inwardDistancePx     엣지에서 안쪽으로 이동한 거리 (px) — Phase 4.3.13용
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EdgeSwipeOverlay(
     visible: Boolean,
@@ -131,15 +132,22 @@ fun EdgeSwipeOverlay(
         if (config.showClickMode) add(EdgeSwipeMode.CLICK)
         if (config.showMoveMode) add(EdgeSwipeMode.MOVE)
         if (config.showCursorMode) add(EdgeSwipeMode.CURSOR)
+        add(EdgeSwipeMode.DPI)
+        add(EdgeSwipeMode.SCROLL_SPEED)
+        add(EdgeSwipeMode.DYNAMICS)
     }
     val isScrolling = pendingState.scrollMode != ScrollMode.OFF
     val visibleModes = configuredModes.filter { mode ->
-        mode != EdgeSwipeMode.CLICK && mode != EdgeSwipeMode.MOVE || !isScrolling
+        when (mode) {
+            EdgeSwipeMode.CLICK, EdgeSwipeMode.MOVE, EdgeSwipeMode.DPI -> !isScrolling
+            EdgeSwipeMode.SCROLL_SPEED -> isScrolling
+            else -> true
+        }
     }
 
     // ── 등장/소멸 애니메이션 상태 (Phase 4.4.7) ──
     val bgAlpha = remember { Animatable(0f) }
-    val maxAnimItems = 6 // 최대 4 모드 + 확인 + 여유
+    val maxAnimItems = 9 // 최대 7 모드(SCROLL+CLICK+MOVE+CURSOR+DPI+SCROLL_SPEED+DYNAMICS) + 확인 + 여유
     val itemOffsets = remember { List(maxAnimItems) { Animatable(40f) } }
     val itemAlphas = remember { List(maxAnimItems) { Animatable(0f) } }
     val hintAlpha = remember { Animatable(0f) }
@@ -428,12 +436,21 @@ fun EdgeSwipeOverlay(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = info.iconResId),
-                            contentDescription = info.label,
-                            tint = contentColor,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        if (info.imageVector != null) {
+                            Icon(
+                                imageVector = info.imageVector,
+                                contentDescription = info.label,
+                                tint = contentColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        } else {
+                            Icon(
+                                painter = painterResource(id = info.iconResId),
+                                contentDescription = info.label,
+                                tint = contentColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 }
 
@@ -469,57 +486,84 @@ fun EdgeSwipeOverlay(
                 }
             }
         } else if (!isDirectTouch) {
-            // ═══ 스와이프 모드: 화면 중앙 큰 버튼 ═══
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    maxItemsInEachRow = 2
-                ) {
-                    displayedModes.forEachIndexed { index, mode ->
-                        EdgeSwipeModeItem(
-                            mode = mode,
-                            pendingState = pendingState,
-                            isSelected = selectedIndex == index,
-                            modifier = Modifier
-                                .alpha(itemAlphas[index].value)
-                                .scale(itemOffsets[index].value)
-                        )
-                    }
-                }
+            // ═══ 스와이프 모드: 2열 반응형 그리드 ═══
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                // 제어 버튼 높이 (ControlButtonContainer와 동일 공식)
+                val ctrlH = (maxHeight * 0.15f).coerceIn(48.dp, 72.dp)
+                val hPad = 24.dp
+                val itemGap = 12.dp
+                val confirmH = 40.dp
+                val vPad = 12.dp
 
-                // 확인 버튼
+                val rowCount = (displayedModes.size + 1) / 2
+                // 너비 기반 아이템 크기: (전체 너비 - 좌우 패딩 - 아이템 사이 간격) / 2
+                val wSize = (maxWidth - hPad * 2 - itemGap) / 2
+                // 높이 기반 아이템 크기: 제어버튼 아래 남은 영역에서 역산
+                val totalGaps = itemGap * (rowCount + 1)  // 행 사이 + 확인 버튼 위
+                val hSize = (maxHeight - ctrlH - vPad * 2 - totalGaps - confirmH) / rowCount
+                val itemSize = minOf(wSize, hSize).coerceIn(52.dp, 80.dp)
+
+                // 제어 버튼 영역을 제외한 공간에 중앙 배치
                 Box(
                     modifier = Modifier
-                        .alpha(itemAlphas[confirmIndex].value)
-                        .scale(itemOffsets[confirmIndex].value)
-                        .width(176.dp)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            if (selectedIndex == confirmIndex) Color(0xFF3A5A3A)
-                            else Color(0xFF3A3A3A).copy(alpha = 0.95f)
-                        )
-                        .border(
-                            width = if (selectedIndex == confirmIndex) 2.dp else 1.dp,
-                            color = if (selectedIndex == confirmIndex) Color(0xFF88CC88)
-                            else Color(0xFF666666),
-                            shape = RoundedCornerShape(8.dp)
-                        ),
+                        .fillMaxSize()
+                        .padding(top = ctrlH),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "확인",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (selectedIndex == confirmIndex) Color.White else Color(0xFFDDDDDD)
-                    )
+                    Column(
+                        modifier = Modifier.padding(horizontal = hPad),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(itemGap)
+                    ) {
+                        displayedModes.chunked(2).forEachIndexed { rowIdx, rowModes ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(itemGap)) {
+                                rowModes.forEachIndexed { colIdx, mode ->
+                                    val index = rowIdx * 2 + colIdx
+                                    EdgeSwipeModeItem(
+                                        mode = mode,
+                                        pendingState = pendingState,
+                                        isSelected = selectedIndex == index,
+                                        itemSize = itemSize,
+                                        modifier = Modifier
+                                            .alpha(itemAlphas[index].value)
+                                            .scale(itemOffsets[index].value)
+                                    )
+                                }
+                                if (rowModes.size == 1) {
+                                    Spacer(modifier = Modifier.size(itemSize))
+                                }
+                            }
+                        }
+
+                        // 확인 버튼
+                        val confirmWidth = itemSize * 2 + itemGap
+                        Box(
+                            modifier = Modifier
+                                .alpha(itemAlphas[confirmIndex].value)
+                                .scale(itemOffsets[confirmIndex].value)
+                                .width(confirmWidth)
+                                .height(confirmH)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (selectedIndex == confirmIndex) Color(0xFF3A5A3A)
+                                    else Color(0xFF3A3A3A).copy(alpha = 0.95f)
+                                )
+                                .border(
+                                    width = if (selectedIndex == confirmIndex) 2.dp else 1.dp,
+                                    color = if (selectedIndex == confirmIndex) Color(0xFF88CC88)
+                                    else Color(0xFF666666),
+                                    shape = RoundedCornerShape(8.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "확인",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (selectedIndex == confirmIndex) Color.White else Color(0xFFDDDDDD)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -587,16 +631,19 @@ private fun EdgeSwipeModeItem(
     mode: EdgeSwipeMode,
     pendingState: TouchpadState,
     isSelected: Boolean,
+    itemSize: Dp = 80.dp,
     modifier: Modifier = Modifier
 ) {
     val info = modeCurrentInfo(mode, pendingState)
+    val iconSize = (itemSize * 0.35f).coerceIn(18.dp, 28.dp)
+    val fontSize = (itemSize.value * 0.125f).coerceIn(7f, 11f)
 
     // 배경 밝기에 따라 텍스트/아이콘 색상 자동 결정
     val contentColor = contentColorFor(info.color)
 
     Box(
         modifier = modifier
-            .size(80.dp)
+            .size(itemSize)
             .clip(RoundedCornerShape(12.dp))
             .background(info.color.copy(alpha = if (isSelected) 1.0f else 0.75f))
             .then(
@@ -611,20 +658,29 @@ private fun EdgeSwipeModeItem(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(
-                painter = painterResource(id = info.iconResId),
-                contentDescription = null,
-                tint = contentColor,
-                modifier = Modifier.size(28.dp)
-            )
-            Spacer(modifier = Modifier.height(4.dp))
+            if (info.imageVector != null) {
+                Icon(
+                    imageVector = info.imageVector,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(iconSize)
+                )
+            } else {
+                Icon(
+                    painter = painterResource(id = info.iconResId),
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = info.label,
-                fontSize = 10.sp,
+                fontSize = fontSize.sp,
                 fontWeight = FontWeight.Bold,
                 color = contentColor,
                 textAlign = TextAlign.Center,
-                lineHeight = 13.sp
+                lineHeight = (fontSize * 1.3f).sp
             )
         }
     }
@@ -701,9 +757,10 @@ private fun contentColorFor(bg: Color): Color {
 // ============================================================
 
 private data class ModeDisplayInfo(
-    val iconResId: Int,
+    val iconResId: Int = 0,
     val label: String,
-    val color: Color
+    val color: Color,
+    val imageVector: ImageVector? = null
 )
 
 /**
@@ -765,6 +822,36 @@ private fun modeCurrentInfo(mode: EdgeSwipeMode, state: TouchpadState): ModeDisp
             iconResId = R.drawable.ic_multi_cursor,
             label = "멀티\n커서",
             color = TouchpadColorPurple
+        )
+    }
+    EdgeSwipeMode.DPI -> ModeDisplayInfo(
+        imageVector = when (state.dpiLevel) {
+            DpiLevel.LOW    -> AppIcons.DpiLow.staticIcon
+            DpiLevel.NORMAL -> AppIcons.DpiNormal.staticIcon
+            DpiLevel.HIGH   -> AppIcons.DpiHigh.staticIcon
+        },
+        label = "DPI\n${state.dpiLevel.label}",
+        color = when (state.dpiLevel) {
+            DpiLevel.LOW    -> TouchpadColorTeal
+            DpiLevel.NORMAL -> TouchpadColorBlue
+            DpiLevel.HIGH   -> TouchpadColorLightPurple
+        }
+    )
+    EdgeSwipeMode.SCROLL_SPEED -> ModeDisplayInfo(
+        imageVector = AppIcons.ScrollMode.staticIcon,
+        label = "스크롤\n${state.scrollSensitivity.label}",
+        color = when (state.scrollSensitivity) {
+            ScrollSensitivity.SLOW   -> TouchpadColorTeal
+            ScrollSensitivity.NORMAL -> TouchpadColorBlue
+            ScrollSensitivity.FAST   -> TouchpadColorLightPurple
+        }
+    )
+    EdgeSwipeMode.DYNAMICS -> {
+        val preset = DYNAMICS_PRESETS.getOrNull(state.dynamicsPresetIndex) ?: DYNAMICS_PRESETS.first()
+        ModeDisplayInfo(
+            imageVector = preset.icon.staticIcon,
+            label = "다이나믹스\n${preset.name}",
+            color = Color(0xFF5A7A5A)
         )
     }
 }

@@ -529,43 +529,27 @@ WMI 쿼리 `PNPDeviceID LIKE '%VID_303A&PID_4001%'`이 아무 장치도 반환�
 
 **개발 기간**: 1-1.5일
 
-### 새 EdgeSwipeMode 항목
+**작업 내용**:
+- `EdgeSwipeOverlay.kt`의 `EdgeSwipeMode` enum에 `DPI`, `SCROLL_SPEED`, `DYNAMICS` 3개 값 추가
 
-`EdgeSwipeOverlay.kt`의 `EdgeSwipeMode` enum에 3개 값 추가: `DPI`, `SCROLL_SPEED`, `DYNAMICS`
-
-| 항목 | EdgeSwipeMode | 순환 동작 | 상태 위치 |
-|-----|--------------|---------|---------|
-| 마우스 감도 | `DPI` | `LOW → NORMAL → HIGH → LOW` | `TouchpadState.dpi` (`DpiLevel`) |
-| 스크롤 속도 | `SCROLL_SPEED` | `SLOW → NORMAL → FAST → SLOW` | `TouchpadState.scrollSpeedLevel` (신규) |
-| 포인터 다이나믹스 | `DYNAMICS` | 프리셋 인덱스 순환 | `TouchpadState.dynamicsPresetIndex` |
-
-### 신규 상태: ScrollSpeedLevel
+  | 항목 | EdgeSwipeMode | 순환 동작 | 상태 위치 |
+  |-----|--------------|---------|---------|
+  | 마우스 감도 | `DPI` | `LOW → NORMAL → HIGH → LOW` | `TouchpadState.dpi` (`DpiLevel`) |
+  | 스크롤 속도 | `SCROLL_SPEED` | `SLOW → NORMAL → FAST → SLOW` | `TouchpadState.scrollSpeedLevel` (신규) |
+  | 포인터 다이나믹스 | `DYNAMICS` | 프리셋 인덱스 순환 | `TouchpadState.dynamicsPresetIndex` |
 
 - `ScrollConstants.kt`에 `ScrollSpeedLevel` enum (`SLOW`, `NORMAL`, `FAST`) 및 각 배율 상수 추가
 - `TouchpadState`에 `scrollSpeedLevel` 필드 추가 (기본값 `NORMAL`)
 - 스크롤 델타에 `ScrollSpeedLevelConstants` 배율 적용 (Phase 4.5.7의 `InfiniteScrollDirectionBoost`와 독립적으로 먼저 적용)
-
-### visibleModes 로직 변경
-
 - `TouchpadWrapper.kt`의 `visibleModes` 빌드 블록에 `DPI`, `SCROLL_SPEED`, `DYNAMICS` 항상 추가
+- `applyEdgeModeToggle`에 3개 분기 추가: `DPI`(`LOW→NORMAL→HIGH→LOW`), `SCROLL_SPEED`(`SLOW→NORMAL→FAST→SLOW`), `DYNAMICS`(전체 프리셋 수 기준 modulo 순환)
+- `EdgeSwipeOverlay.kt`에서 3개 신규 항목의 아이콘·라벨·보조 라벨(현재 값) 추가
 
-### applyEdgeModeToggle 확장
-
-- `DPI`: `LOW → NORMAL → HIGH → LOW` 순환
-- `SCROLL_SPEED`: `SLOW → NORMAL → FAST → SLOW` 순환
-- `DYNAMICS`: `dynamicsPresetIndex` 순환 (전체 프리셋 수 기준 modulo)
-
-### EdgeSwipeOverlay 팝업 표시
-
-`EdgeSwipeOverlay.kt`에서 3개 신규 항목의 아이콘·라벨·보조 라벨(현재 값)을 추가합니다:
-
-| EdgeSwipeMode | 아이콘 | 라벨 | 보조 라벨 (현재 값) |
-|--------------|-------|-----|-----------------|
-| `DPI` | `speed` | "DPI" | `LOW` / `NORMAL` / `HIGH` |
-| `SCROLL_SPEED` | `swap_vert` | "스크롤 속도" | `느림` / `보통` / `빠름` |
-| `DYNAMICS` | `tune` | "다이나믹스" | 프리셋 이름 또는 인덱스 |
-
-현재 값이 팝업 항목 아래에 보조 라벨로 표시되어, 선택 전에 현재 설정을 확인할 수 있도록 합니다.
+  | EdgeSwipeMode | 아이콘 | 라벨 | 보조 라벨 (현재 값) |
+  |--------------|-------|-----|-----------------|
+  | `DPI` | `speed` | "DPI" | `LOW` / `NORMAL` / `HIGH` |
+  | `SCROLL_SPEED` | `swap_vert` | "스크롤 속도" | `느림` / `보통` / `빠름` |
+  | `DYNAMICS` | `tune` | "다이나믹스" | 프리셋 이름 또는 인덱스 |
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/EdgeSwipeOverlay.kt`
@@ -581,21 +565,30 @@ WMI 쿼리 `PNPDeviceID LIKE '%VID_303A&PID_4001%'`이 아무 장치도 반환�
   — 스크롤 이벤트 처리(일반·무한)에서 `scrollSpeedLevel` 배율 적용
 
 **검증**:
-- [ ] 엣지 스와이프 팝업에 DPI·스크롤 속도·다이나믹스 항목이 표시됨 확인
-- [ ] 각 항목에 현재 값이 보조 라벨로 표시됨 확인
-- [ ] DPI 항목 선택 시 `LOW→NORMAL→HIGH→LOW` 순환 확인
-- [ ] DPI 변경 후 터치패드 이동 시 PC 커서 속도 차이 확인
-- [ ] 스크롤 속도 항목 선택 시 `SLOW→NORMAL→FAST→SLOW` 순환 확인
-- [ ] FAST 스크롤 속도로 무한 스크롤 시 NORMAL 대비 2.5배 빠른 이동 확인
-- [ ] 스크롤 속도 NORMAL 상태에서 Phase 4.5.7 방향별 비대칭 배율이 정상 동작 확인
-- [ ] 다이나믹스 항목 선택 시 프리셋 인덱스 순환 확인
-- [ ] 변경된 설정이 팝업 닫힘 후에도 유지 확인
-- [ ] 엣지 스와이프 2단계 제스처(Phase 4.5.8)와 충돌 없음 확인
-- [ ] Essential 모드에서 엣지 스와이프 차단(Phase 4.5.2) 후 DPI 등 신규 항목도 차단됨 확인
+- [x] 엣지 스와이프 팝업에 DPI·스크롤 속도·다이나믹스 항목이 표시됨 확인
+- [x] 각 항목에 현재 값이 보조 라벨로 표시됨 확인
+- [x] DPI 항목 선택 시 `LOW→NORMAL→HIGH→LOW` 순환 확인
+- [x] DPI 변경 후 터치패드 이동 시 PC 커서 속도 차이 확인
+- [x] 스크롤 속도 항목 선택 시 `SLOW→NORMAL→FAST→SLOW` 순환 확인
+- [x] FAST 스크롤 속도로 무한 스크롤 시 NORMAL 대비 2.5배 빠른 이동 확인
+- [x] 스크롤 속도 NORMAL 상태에서 Phase 4.5.7 방향별 비대칭 배율이 정상 동작 확인
+- [x] 다이나믹스 항목 선택 시 프리셋 인덱스 순환 확인
+- [x] 변경된 설정이 팝업 닫힘 후에도 유지 확인
+- [x] 엣지 스와이프 2단계 제스처(Phase 4.5.8)와 충돌 없음 확인
+- [x] Essential 모드에서 엣지 스와이프 차단(Phase 4.5.2) 후 DPI 등 신규 항목도 차단됨 확인
+
+> **실제 구현 (계획과 다름)**:
+> - `ScrollSpeedLevel` 신규 enum 및 `TouchpadState.scrollSpeedLevel` 신규 필드 미추가. 기존 `TouchpadState.scrollSensitivity: ScrollSensitivity`가 동일 역할(SLOW/NORMAL/FAST 배율)을 이미 수행하고 스크롤 델타에도 적용되어 있어 재사용.
+> - `SCROLL_SPEED` 항목 가시성 조건 추가: 스크롤 ON 시에만 표시. `DPI` 항목도 스크롤 ON 시 숨김 (CLICK·MOVE와 동일 조건). 이는 계획에 없던 가시성 규칙.
+> - 스와이프 모드 팝업 레이아웃 반응형 개선 (계획 외 추가 구현): `BoxWithConstraints`로 터치패드 크기 측정 → 제어 버튼 높이(height×15%, 48~72dp 클램프)만큼 상단 padding 추가 → 아이템 크기를 너비·높이 기반으로 동적 계산(52~80dp 클램프). `EdgeSwipeModeItem`에 `itemSize: Dp` 파라미터 추가, 아이콘·폰트 크기 비례 조정.
+> - `FlowRow`(실험적 API) → 명시적 `chunked(2)` 기반 Row+Column 2열 그리드로 교체. `maxAnimItems` 9로 증가.
+> - `ModeDisplayInfo`(private) 에 `imageVector: ImageVector? = null` 필드 추가 — Material Icons 직접 사용 모드(DPI·스크롤 속도·다이나믹스)를 위한 내부 변경.
 
 ---
 
 ## Phase 4.5.16: 포인터 다이나믹스 커스텀 프리셋 그래프 편집기
+
+> **⚠️ Phase 4.5.15 변경사항**: `EdgeSwipeMode.DYNAMICS`의 `applyEdgeModeToggle` 분기가 `DYNAMICS_PRESETS.size`를 기준으로 modulo 순환함. 커스텀 프리셋을 통합 목록에 추가하면 이 분기를 통합 목록 크기 기준으로 업데이트해야 함.
 
 **개발 기간**: 2-3일
 
