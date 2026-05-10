@@ -1225,6 +1225,9 @@ fun TouchpadWrapper(
                                             guidelineTarget += moveDp
 
                                             while (abs(inertiaScrollAccum) >= effectiveUnitDp) {
+                                                val nowMs = System.currentTimeMillis()
+                                                if (nowMs - lastScrollFrameSentMs < SCROLL_FRAME_MIN_INTERVAL_MS) break
+
                                                 val dir = if (inertiaScrollAccum > 0) 1 else -1
                                                 inertiaScrollAccum -= dir * effectiveUnitDp
 
@@ -1236,6 +1239,7 @@ fun TouchpadWrapper(
                                                         ClickDetector.createHorizontalWheelFrame(wheelDelta)
                                                     ScrollAxis.UNDECIDED -> break
                                                 }
+                                                lastScrollFrameSentMs = nowMs
                                                 ClickDetector.sendFrame(frame)
 
                                                 guidelineVisible = true
