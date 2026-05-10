@@ -789,6 +789,194 @@ outer while (velocity > MIN):
 
 ---
 
+## Phase 4.5.18: 커스텀 프리셋 편집 UI BridgeOne 스타일 재설계 및 UX 개선
+
+**개발 기간**: 3-4일
+
+**개요**: `DynamicsCurveEditor`의 입력 방식 및 UI 전반을 BridgeOne 스타일로 재설계. 키보드 직접 타이핑(BasicTextField), AlertDialog 팝업, Material 버튼 방식을 스와이프 기반 인터랙션으로 교체.
+
+---
+
+### Phase 4.5.18.1: 스와이프 키보드 오버레이 (`SwipeKeyboardOverlay`)
+
+이름/설명 필드 탭 시 전체 화면 키보드 오버레이 등장. `BasicTextField` + 시스템 키보드 방식 제거.
+
+**화면 구조**:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  내 설정 1▮                                          │  ← 입력 결과 (조합 중 글자 강조)
+├──────────────────────────────────────────────────────┤
+│                                                      │
+│              ◀  [  ㄴ  ]  ▶                         │  ← 현재 선택 자모 (크게, DpiAdjustPopup 방식)
+│                                                      │
+│         스와이프로 이동 · 탭하여 입력                 │
+│                                                      │
+├──────────────────────────────────────────────────────┤
+│  ← 지우기     자음↔모음     스페이스     완료          │  ← 하단 액션 (스와이프로 선택, 탭으로 실행)
+└──────────────────────────────────────────────────────┘
+```
+
+**입력 모드**:
+
+| 모드 | 목록 |
+|-----|------|
+| 한글 자음 | ㄱ ㄴ ㄷ ㄹ ㅁ ㅂ ㅅ ㅇ ㅈ ㅊ ㅋ ㅌ ㅍ ㅎ |
+| 한글 모음 | ㅏ ㅐ ㅑ ㅒ ㅓ ㅔ ㅕ ㅖ ㅗ ㅘ ㅙ ㅚ ㅛ ㅜ ㅝ ㅞ ㅟ ㅠ ㅡ ㅢ ㅣ |
+| 영문/숫자 | a–z A–Z 0–9 (space) . - _ |
+
+**한글 자모 조합 상태 머신 (`HangulComposer`)**:
+
+```
+IDLE          → 자음 탭 → JASO_ONLY
+IDLE          → 모음 탭 → 단독 모음 확정, IDLE
+JASO_ONLY     → 모음 탭 → 초성+모음 조합, HAS_VOWEL; 자동으로 모음 모드 전환
+JASO_ONLY     → 자음 탭 → 이전 자음 단독 확정, 새 JASO_ONLY
+HAS_VOWEL     → 자음 탭 → 임시 받침 저장, JAMO_PENDING; 자동으로 자음 모드 전환
+HAS_VOWEL     → 모음 탭 → 현재 글자 확정, 단독 모음 확정, IDLE
+JAMO_PENDING  → 모음 탭 → 임시 받침이 다음 글자 초성, 새 초성+모음 조합, HAS_VOWEL
+JAMO_PENDING  → 자음 탭 → 임시 받침 확정, 이전 글자 완성; 새 자음 JASO_ONLY
+any           → 스페이스 탭 → 조합 중 글자 확정 + 공백 추가, IDLE
+any           → 지우기 탭 → 마지막 자모 역순 제거 (받침 → 모음 → 초성 순)
+any           → 완료 탭 → 조합 중 글자 확정, 오버레이 닫기
+```
+
+- 이중 받침(ㄳ ㄵ ㄶ ㄺ ㄻ ㄼ ㄽ ㄾ ㄿ ㅀ ㅄ)은 1차 구현에서 제외 (단순화)
+- 자모 전환은 초성 탭 후 자동으로 모음 모드로, 모음 탭·받침 대기 후 자동으로 자음 모드로 전환. 수동 전환 버튼도 유지
+
+**하단 액션 바**: DpiAdjustPopup 방식과 동일하게 스와이프로 4개 액션 이동, 탭으로 실행. 현재 선택 액션은 강조 표시.
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/SwipeKeyboardOverlay.kt`
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
+  — 이름/설명 `BasicTextField` 탭 핸들러 추가: `showKeyboard = true` + `keyboardTarget = NAME | DESC`
+  — `SwipeKeyboardOverlay` 조건부 렌더링 추가
+
+**검증**:
+- [ ] 이름 필드 탭 → 스와이프 키보드 오버레이 등장 확인
+- [ ] 스와이프로 자모 이동, 탭으로 입력 동작 확인
+- [ ] 초성 탭 후 자동으로 모음 모드 전환 확인
+- [ ] 자음+모음 조합으로 한글 완성형 생성 확인 (예: ㄴ + ㅏ = 나)
+- [ ] 받침 있는 글자 조합 확인 (예: ㄴ + ㅏ + ㅇ = 낭)
+- [ ] 받침 자음이 다음 초성으로 이동하는 연음 동작 확인 (예: 나 + ㅇ + ㅏ = 나아 아님, ㄴ+ㅏ+ㅇ = 낭, 낭+ㅏ = 나가)
+- [ ] 지우기: 받침 → 모음 → 초성 순으로 역삭제 확인
+- [ ] 영문/숫자 모드 전환 후 a-z 입력 확인
+- [ ] 완료 탭 → 조합 중 글자 확정 후 오버레이 닫힘 확인
+- [ ] 12자 이름 제한 초과 시 입력 차단 확인
+
+---
+
+### Phase 4.5.18.2: 아이콘 선택 인라인 화면 전환
+
+`AlertDialog` 아이콘 선택 팝업 제거. "아이콘" 행 탭 → 편집기 내부가 아이콘 선택 화면으로 `AnimatedContent` 전환.
+
+**아이콘 선택 화면 구조**:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  [← 뒤로]   아이콘 선택                              │
+├──────────────────────────────────────────────────────┤
+│  [없음] (이름 2자 표시)                              │
+├──────────────────────────────────────────────────────┤
+│  [○] [○] [○] [○] [○]                               │
+│  [○] [○] [○] [○] [○]   ← 아이콘 그리드              │
+│  [○] [○] [○] [○] [○]   (5열, 스크롤 가능)           │
+│  ...                                                 │
+└──────────────────────────────────────────────────────┘
+```
+
+- 현재 선택 아이콘은 `ACCENT_BLUE` 테두리 강조
+- 탭으로 즉시 선택 + 이전 화면 복귀
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
+  — `showIconPicker` AlertDialog 제거
+  — `currentScreen` 상태 추가 (`MAIN | ICON_PICKER`)
+  — `AnimatedContent(currentScreen)` 분기로 본 화면 / 아이콘 선택 화면 전환
+
+**검증**:
+- [ ] 아이콘 행 탭 → 아이콘 선택 화면으로 전환 확인
+- [ ] 아이콘 탭 → 즉시 선택 + 본 화면 복귀 확인
+- [ ] "없음" 선택 → 이름 2자 표시 방식으로 복귀 확인
+- [ ] 전환 애니메이션이 BridgeOne 스타일과 어울리는지 확인
+
+---
+
+### Phase 4.5.18.3: 템플릿 선택 스와이프 오버레이
+
+`AlertDialog` 템플릿 선택 팝업 제거. 템플릿 항목을 스와이프로 순환, 탭으로 적용.
+
+**오버레이 구조 (DynamicsPresetPopup CONFIRM 단계 참고)**:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  (반투명 배경)                                        │
+│                                                      │
+│  ┌────────────────────────────────────┐              │
+│  │  [템플릿 아이콘]                    │              │
+│  │  템플릿 이름                         │              │
+│  │  템플릿 설명                         │              │
+│  │                                    │              │
+│  │  적용    취소                        │  ← 스와이프  │
+│  └────────────────────────────────────┘              │
+│  ◀▶ 스와이프로 템플릿 이동                           │
+└──────────────────────────────────────────────────────┘
+```
+
+- 좌우 스와이프로 템플릿 목록 순환
+- 탭으로 "적용" / "취소" 확정
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
+  — `showTemplatePicker` AlertDialog 제거
+  — `TemplatePickerOverlay` private Composable 신규 추가
+
+**검증**:
+- [ ] 템플릿 선택 진입 시 스와이프 오버레이 등장 확인
+- [ ] 좌우 스와이프로 템플릿 순환 확인
+- [ ] 적용 탭 → 가속/감속 곡선 교체 확인
+- [ ] 취소 탭 → 곡선 변경 없이 오버레이 닫힘 확인
+
+---
+
+### Phase 4.5.18.4: 상단 바 및 전체 레이아웃 스타일 통일
+
+상단 바의 Material 버튼을 제거하고 BridgeOne 스타일로 정리. 삭제 확인 AlertDialog 제거.
+
+**상단 바 변경**:
+- `TextButton("템플릿")` 제거 → 이름 입력 행 아래 별도 "템플릿" 항목 행으로 이동 (아이콘 선택 행과 동일한 방식)
+- 저장 `IconButton` → `Text("저장")` 대형 텍스트 (비활성 시 Color.Gray)
+- 취소 `IconButton(Close)` 유지 (크기 및 여백 조정)
+
+**삭제 확인 AlertDialog 제거**:
+- 노드 롱프레스 → AlertDialog 대신 인라인 확인: 하단 안내 바가 "삭제 확인: 탭 · 취소: 다른 곳 터치"로 교체
+- 500ms 롱프레스 후 안내 바 전환, 다음 탭으로 삭제 실행
+
+**수정 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
+  — 상단 바 레이아웃 수정
+  — `showTemplatePicker` 상태 → `currentScreen = TEMPLATE_PICKER` 방식으로 통합
+  — `deleteTargetIndex` AlertDialog 제거, 하단 안내 바 인라인 확인 방식으로 교체
+
+**검증**:
+- [ ] 상단 바에 Material 버튼 없이 BridgeOne 스타일로 렌더링 확인
+- [ ] 노드 롱프레스 후 하단 안내 바가 삭제 확인으로 전환 확인
+- [ ] 확인 탭 → 노드 삭제 + 안내 바 복귀 확인
+- [ ] 다른 곳 터치 → 삭제 취소 + 안내 바 복귀 확인
+- [ ] 저장 비활성(이름 비어있음/중복) 시 저장 텍스트 회색 표시 + 탭 무시 확인
+
+---
+
+**신규 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/SwipeKeyboardOverlay.kt`
+
+**수정 파일 종합**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
+
+---
+
 ## Phase 4.5 완료 후 Phase 4.4.9 검증 항목 영향
 
 Phase 4.5 수정 완료 후 아래 Phase 4.4.9 검증 항목을 재검증해야 합니다:
