@@ -67,7 +67,11 @@ import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
 import com.bridgeone.app.ui.components.touchpad.DpiAdjustPopup
 import com.bridgeone.app.ui.components.touchpad.DpiLevel
+import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
+import com.bridgeone.app.ui.common.CustomPresetsRepository
+import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
 import com.bridgeone.app.ui.common.MODE_PRESETS
+import com.bridgeone.app.ui.components.touchpad.DynamicsCurveEditor
 import com.bridgeone.app.ui.components.touchpad.DynamicsPresetPopup
 import com.bridgeone.app.ui.components.touchpad.ModePresetPopup
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
@@ -103,6 +107,15 @@ fun StandardModePage() {
         saveDpiLevel(context, touchpadState.dpiLevel)
     }
 
+    // Phase 4.5.16: 커스텀 다이나믹스 프리셋 상태
+    val customPresetsRepo = remember { CustomPresetsRepository(context) }
+    var customPresets by remember { mutableStateOf<List<CustomPointerDynamicsPreset>>(emptyList()) }
+    LaunchedEffect(Unit) { customPresets = customPresetsRepo.loadAll() }
+
+    // Phase 4.5.16: 그래프 편집기 상태
+    var curveEditorVisible by remember { mutableStateOf(false) }
+    var editingPreset by remember { mutableStateOf<CustomPointerDynamicsPreset?>(null) }
+
     // Phase 4.3.6: DPI 세밀 조절 팝업 상태
     var dpiAdjustPopupVisible by remember { mutableStateOf(false) }
 
@@ -117,6 +130,7 @@ fun StandardModePage() {
         if (dpiAdjustPopupVisible) dpiAdjustPopupVisible = false
         if (dynamicsPresetPopupVisible) dynamicsPresetPopupVisible = false
         if (modePresetPopupVisible) modePresetPopupVisible = false
+        if (curveEditorVisible) curveEditorVisible = false
     }
 
     // 스크롤 모드 전환 시 다이나믹스 팝업 취소 (Phase 4.3.8)
@@ -124,6 +138,7 @@ fun StandardModePage() {
         if (dynamicsPresetPopupVisible) dynamicsPresetPopupVisible = false
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -160,6 +175,7 @@ fun StandardModePage() {
                 when (page) {
                     0 -> Page1TouchpadActions(
                         touchpadState = touchpadState,
+                        customPresets = customPresets,
                         onTouchpadStateChange = { touchpadState = it },
                         dpiAdjustPopupVisible = dpiAdjustPopupVisible,
                         dynamicsPresetPopupVisible = dynamicsPresetPopupVisible,
@@ -169,15 +185,11 @@ fun StandardModePage() {
                         onModePresetLongPress = { modePresetPopupVisible = true },
                         onDpiAdjustConfirm = { value ->
                             dpiAdjustPopupVisible = false
-                            // 사전 정의 값과 일치 시 해당 레벨로 매핑, 아니면 커스텀
                             val matchedLevel = DpiLevel.entries.firstOrNull {
                                 abs(it.multiplier - value) < 0.001f
                             }
                             touchpadState = if (matchedLevel != null) {
-                                touchpadState.copy(
-                                    dpiLevel = matchedLevel,
-                                    customDpiMultiplier = null
-                                )
+                                touchpadState.copy(dpiLevel = matchedLevel, customDpiMultiplier = null)
                             } else {
                                 touchpadState.copy(customDpiMultiplier = value)
                             }
@@ -188,6 +200,22 @@ fun StandardModePage() {
                             touchpadState = touchpadState.copy(dynamicsPresetIndex = index)
                         },
                         onDynamicsPresetDismiss = { dynamicsPresetPopupVisible = false },
+                        onAddCustomPreset = {
+                            editingPreset = null
+                            curveEditorVisible = true
+                        },
+                        onEditCustomPreset = { preset ->
+                            editingPreset = preset
+                            curveEditorVisible = true
+                        },
+                        onDeleteCustomPreset = { id ->
+                            customPresetsRepo.delete(id)
+                            customPresets = customPresetsRepo.loadAll()
+                            // 삭제된 프리셋이 선택중이면 Off(0)으로 초기화
+                            if (touchpadState.dynamicsPresetIndex >= DYNAMICS_PRESETS.size + customPresets.size) {
+                                touchpadState = touchpadState.copy(dynamicsPresetIndex = 0)
+                            }
+                        },
                         onModePresetConfirmed = { index ->
                             modePresetPopupVisible = false
                             val preset = MODE_PRESETS[index]
@@ -219,6 +247,36 @@ fun StandardModePage() {
                 .padding(bottom = 16.dp)
         )
     }
+
+    // ── Phase 4.5.16: 커스텀 프리셋 그래프 편집기 오버레이 ──
+    if (curveEditorVisible) {
+        DynamicsCurveEditor(
+            initialPreset = editingPreset,
+            existingPresets = customPresets,
+            onSave = { preset ->
+                if (editingPreset == null) {
+                    val saved = customPresetsRepo.add(preset)
+                    customPresets = customPresetsRepo.loadAll()
+                    // 새 프리셋을 즉시 선택
+                    val newIndex = DYNAMICS_PRESETS.size + customPresets.indexOfFirst { it.id == saved.id }
+                    if (newIndex >= DYNAMICS_PRESETS.size) {
+                        touchpadState = touchpadState.copy(dynamicsPresetIndex = newIndex)
+                    }
+                } else {
+                    customPresetsRepo.update(preset)
+                    customPresets = customPresetsRepo.loadAll()
+                }
+                curveEditorVisible = false
+                editingPreset = null
+            },
+            onDismiss = {
+                curveEditorVisible = false
+                editingPreset = null
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+    } // Box 닫기
 }
 
 // ============================================================
@@ -312,6 +370,7 @@ private fun PageIndicator(
 @Composable
 private fun Page1TouchpadActions(
     touchpadState: TouchpadState,
+    customPresets: List<CustomPointerDynamicsPreset> = emptyList(),
     onTouchpadStateChange: (TouchpadState) -> Unit,
     dpiAdjustPopupVisible: Boolean = false,
     dynamicsPresetPopupVisible: Boolean = false,
@@ -323,6 +382,9 @@ private fun Page1TouchpadActions(
     onDpiAdjustDismiss: () -> Unit = {},
     onDynamicsPresetConfirmed: (Int) -> Unit = {},
     onDynamicsPresetDismiss: () -> Unit = {},
+    onAddCustomPreset: () -> Unit = {},
+    onEditCustomPreset: (CustomPointerDynamicsPreset) -> Unit = {},
+    onDeleteCustomPreset: (String) -> Unit = {},
     onModePresetConfirmed: (Int) -> Unit = {},
     onModePresetDismiss: () -> Unit = {}
 ) {
@@ -373,6 +435,7 @@ private fun Page1TouchpadActions(
                     TouchpadWrapper(
                         bridgeMode = BridgeMode.STANDARD,
                         touchpadState = touchpadState,
+                        customPresets = customPresets,
                         onTouchpadStateChange = onTouchpadStateChange,
                         onDynamicsLongPress = onDynamicsLongPress,
                         onModePresetLongPress = onModePresetLongPress,
@@ -408,13 +471,17 @@ private fun Page1TouchpadActions(
                     )
                 }
 
-                // Phase 4.3.8 / 4.3.9: 다이나믹스 프리셋 팝업 오버레이
+                // Phase 4.3.8 / 4.3.9 / 4.5.16: 다이나믹스 프리셋 팝업 오버레이
                 // 항상 렌더링하고 visible 파라미터로 제어 (exit 애니메이션 보장)
                 DynamicsPresetPopup(
                     visible = dynamicsPresetPopupVisible,
                     currentIndex = touchpadState.dynamicsPresetIndex,
+                    customPresets = customPresets,
                     onPresetConfirmed = onDynamicsPresetConfirmed,
                     onDismiss = onDynamicsPresetDismiss,
+                    onAddCustomPreset = onAddCustomPreset,
+                    onEditCustomPreset = onEditCustomPreset,
+                    onDeleteCustomPreset = onDeleteCustomPreset,
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(RoundedCornerShape(12.dp))

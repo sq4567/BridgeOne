@@ -3,6 +3,15 @@ package com.bridgeone.app.ui.common
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -10,9 +19,19 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.Loop
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Waves
+import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material.icons.outlined.Mouse
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Speed
@@ -72,6 +91,33 @@ object AppIcons {
     // 모드
     val ScrollMode = AppIconDef(Icons.Filled.SwapVert)
     val CursorMode = AppIconDef(Icons.Filled.OpenWith)
+
+    // 커스텀 프리셋 아이콘 선택지 (Phase 4.5.16)
+    val PickStar       = AppIconDef(Icons.Filled.Star)
+    val PickFlash      = AppIconDef(Icons.Filled.FlashOn)
+    val PickSpeed      = AppIconDef(Icons.Filled.Speed)
+    val PickTune       = AppIconDef(Icons.Filled.Tune)
+    val PickAdjust     = AppIconDef(Icons.Filled.Adjust)
+    val PickTrendingUp = AppIconDef(Icons.Filled.TrendingUp)
+    val PickBarChart   = AppIconDef(Icons.Filled.BarChart)
+    val PickShowChart       = AppIconDef(Icons.AutoMirrored.Filled.ShowChart)
+    val PickBolt            = AppIconDef(Icons.Filled.Bolt)
+    val PickFavorite        = AppIconDef(Icons.Filled.Favorite)
+    val PickFilter          = AppIconDef(Icons.Filled.FilterAlt)
+    val PickExplore         = AppIconDef(Icons.Filled.Explore)
+    val PickTimeline        = AppIconDef(Icons.Filled.Timeline)
+    val PickMyLocation      = AppIconDef(Icons.Filled.MyLocation)
+    val PickGpsFixed        = AppIconDef(Icons.Filled.GpsFixed)
+    val PickGamepad         = AppIconDef(Icons.Filled.Gamepad)
+    val PickSettings        = AppIconDef(Icons.Filled.Settings)
+    val PickBuild           = AppIconDef(Icons.Filled.Build)
+    val PickExtension       = AppIconDef(Icons.Filled.Extension)
+    val PickWaves           = AppIconDef(Icons.Filled.Waves)
+    val PickLoop            = AppIconDef(Icons.Filled.Loop)
+    val PickFastForward     = AppIconDef(Icons.Filled.FastForward)
+    val PickCenterFocus     = AppIconDef(Icons.Filled.CenterFocusStrong)
+    val PickWhatshot        = AppIconDef(Icons.Filled.Whatshot)
+    val PickDirectionsRun   = AppIconDef(Icons.AutoMirrored.Filled.DirectionsRun)
 }
 
 // ============================================================

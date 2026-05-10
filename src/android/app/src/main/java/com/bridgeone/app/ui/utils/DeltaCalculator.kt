@@ -3,6 +3,7 @@ package com.bridgeone.app.ui.utils
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import com.bridgeone.app.ui.common.CurveNode
 import com.bridgeone.app.ui.components.touchpad.DynamicsAlgorithm
 import com.bridgeone.app.ui.components.touchpad.PointerDynamicsPreset
 import kotlin.math.abs
@@ -305,6 +306,49 @@ object DeltaCalculator {
             }
         }
         return rawDelta * multiplier.coerceIn(1.0f, preset.maxMultiplier)
+    }
+
+    /**
+     * 두 노드 사이를 선형 보간하여 주어진 속도에 해당하는 배율을 반환합니다. (Phase 4.5.16)
+     *
+     * @param curve  정렬된 CurveNode 목록 (velocityDpMs 오름차순)
+     * @param velocityDpMs 현재 손가락 속도 (dp/ms, ≥ 0)
+     * @return 보간된 배율
+     */
+    fun interpolateCurve(curve: List<CurveNode>, velocityDpMs: Float): Float {
+        if (curve.isEmpty()) return 1.0f
+        if (velocityDpMs <= curve.first().velocityDpMs) return curve.first().multiplier
+        if (velocityDpMs >= curve.last().velocityDpMs) return curve.last().multiplier
+        val upper = curve.indexOfFirst { it.velocityDpMs > velocityDpMs }
+        if (upper <= 0) return curve.last().multiplier
+        val lo = curve[upper - 1]
+        val hi = curve[upper]
+        val t = (velocityDpMs - lo.velocityDpMs) / (hi.velocityDpMs - lo.velocityDpMs)
+        return lo.multiplier + t * (hi.multiplier - lo.multiplier)
+    }
+
+    /**
+     * 커스텀 다이나믹스 프리셋의 가속/감속 곡선을 선택하여 배율을 적용합니다. (Phase 4.5.16)
+     *
+     * 현재 속도가 이전 속도보다 빠르면 가속 곡선, 느리거나 같으면 감속 곡선을 사용합니다.
+     *
+     * @param rawDelta           DPI 배율이 적용된 단일 축 델타 (px)
+     * @param velocityDpMs       현재 손가락 속도 (dp/ms)
+     * @param previousVelocityDpMs 이전 프레임 손가락 속도 (dp/ms, 히스테리시스 판단용)
+     * @param accelerationCurve  가속 곡선 노드 목록
+     * @param decelerationCurve  감속 곡선 노드 목록
+     * @return 배율이 적용된 델타 (px, coerceIn 미포함)
+     */
+    fun applyCustomDynamics(
+        rawDelta: Float,
+        velocityDpMs: Float,
+        previousVelocityDpMs: Float,
+        accelerationCurve: List<CurveNode>,
+        decelerationCurve: List<CurveNode>
+    ): Float {
+        val curve = if (velocityDpMs > previousVelocityDpMs) accelerationCurve else decelerationCurve
+        val multiplier = interpolateCurve(curve, velocityDpMs)
+        return rawDelta * multiplier
     }
 
     /**

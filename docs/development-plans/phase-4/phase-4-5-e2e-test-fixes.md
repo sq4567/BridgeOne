@@ -592,9 +592,7 @@ WMI 쿼리 `PNPDeviceID LIKE '%VID_303A&PID_4001%'`이 아무 장치도 반환�
 
 **개발 기간**: 2-3일
 
----
-
-### 개념: 두 가지 곡선
+**개념: 두 가지 곡선**
 
 포인터 다이나믹스 알고리즘은 현재 단일 속도→배율 곡선만 사용합니다. 커스텀 프리셋은 두 개의 독립적인 곡선을 지원합니다:
 
@@ -605,23 +603,18 @@ WMI 쿼리 `PNPDeviceID LIKE '%VID_303A&PID_4001%'`이 아무 장치도 반환�
 
 두 곡선이 다르면 **히스테리시스(이력 현상)** 효과가 생깁니다. 예를 들어 가속 곡선은 가파르게 올리고 감속 곡선은 완만하게 내리면, 손가락이 멈춰도 커서가 잠시 빠른 속도를 유지하다가 천천히 줄어드는 "여운" 효과를 낼 수 있습니다.
 
----
-
-### 데이터 모델
+**데이터 모델**:
 
 - `CurveNode`: X축(손가락 속도 dp/ms), Y축(커서 배율)으로 구성된 꺾임점 데이터 클래스
 - `CustomPointerDynamicsPreset`: id, name, accelerationCurve, decelerationCurve 포함
   - 첫 번째 노드 `(0f, 1.0f)` 및 마지막 노드 velocity는 고정 (삭제 불가)
   - 중간 노드 최대 개수 제한 (`CURVE_MAX_NODES - 2`)
   - 두 노드 사이 배율은 선형 보간
-
 - `PointerDynamicsConstants.kt`에 `CurveEditorConstants` 객체 추가:
   - `CURVE_VELOCITY_MAX`, `CURVE_MULTIPLIER_MAX`, `CURVE_MAX_NODES`
   - `CURVE_MIN_VELOCITY_GAP`, `CURVE_SNAP_THRESHOLD_DP`, `CURVE_ADD_MIN_DP`
 
----
-
-### 커스텀 프리셋 저장/관리
+**커스텀 프리셋 저장/관리**:
 
 - 앱 내부 저장소(`{filesDir}/dynamics_presets.json`)에 JSON으로 직렬화하여 저장
 - `DynamicsPresetPopup`에서 빌트인 프리셋 + 커스텀 프리셋 통합 그리드로 표시: `[빌트인 ...] [커스텀 ...] [+ 추가]`
@@ -629,9 +622,7 @@ WMI 쿼리 `PNPDeviceID LIKE '%VID_303A&PID_4001%'`이 아무 장치도 반환�
 - 커스텀 프리셋: 롱프레스 시 "편집" / "삭제" / "이름 변경" 제공
 - `TouchpadState.dynamicsPresetIndex`는 통합 목록에서의 인덱스
 
----
-
-### 그래프 편집기 UI (`DynamicsCurveEditor`)
+**그래프 편집기 UI (`DynamicsCurveEditor`)**:
 
 **트리거**: `DynamicsPresetPopup`에서 "+" 버튼 탭 (신규 프리셋 생성) 또는 커스텀 프리셋 롱프레스 후 "편집" 선택
 
@@ -660,43 +651,39 @@ WMI 쿼리 `PNPDeviceID LIKE '%VID_303A&PID_4001%'`이 아무 장치도 반환�
 └──────────────────────────────────────────────────────┘
 ```
 
-#### 그래프 캔버스 (Canvas Composable)
+**그래프 캔버스 (Canvas Composable)**:
 
 - 배경: 격자 선 (연한 회색)
 - 곡선: 노드 사이 꺾인 선 연결 (가속=연파랑, 감속=주황, 비활성 탭 곡선은 흐리게 참고 표시)
 - 노드 원: 지름 16dp (드래그 중 24dp로 확대), 고정 노드(양 끝)는 드래그 불가
 - X/Y 축 레이블 표시
 
-#### 터치 인터랙션 (`pointerInput`)
+**터치 인터랙션 (`pointerInput`)**:
 
 - 기존 노드 근처 터치: 드래그(노드 이동) 또는 롱프레스(삭제 확인 다이얼로그)
 - 빈 곳 탭: 노드 추가 (`CURVE_ADD_MIN_DP` 조건 확인 후)
 - 드래그 제약: X 이동은 인접 노드 범위 내로 제한, Y 이동은 `1.0f ~ CURVE_MULTIPLIER_MAX` 클램프, 고정 노드는 X 이동 금지
 - 햅틱: 경계 도달 시 가벼운 진동, 노드 추가/삭제 성공 시 명확한 진동
 
-#### 탭 전환 (가속 / 감속)
+**탭 전환 (가속 / 감속)**:
 
 - 탭 전환 시 두 곡선 모두 그래프에 표시 (비활성 곡선은 흐리게)
 - 감속 탭에 "가속 곡선 복사" 버튼 제공
 
----
-
-### 알고리즘 구현 (`DeltaCalculator.kt` 수정)
+**알고리즘 구현 (`DeltaCalculator.kt` 수정)**:
 
 - `previousVelocityDpMs` 상태 추가 (히스테리시스 계산용)
 - `applyCustomDynamics()`: 현재 속도와 이전 속도를 비교해 가속/감속 곡선 선택 후 배율 적용
 - `interpolateCurve()`: 두 노드 사이 선형 보간으로 배율 계산
 
----
-
-### 신규 파일
+**신규 파일**:
 
 | 파일 | 위치 | 역할 |
 |-----|------|------|
 | `DynamicsCurveEditor.kt` | `ui/components/touchpad/` | 그래프 편집기 전체 Composable (Canvas + 탭 + 상단바) |
 | `CustomPresetsRepository.kt` | `ui/common/` 또는 `data/` | JSON 직렬화/역직렬화, 저장/불러오기, CRUD |
 
-### 수정 파일
+**수정 파일**:
 
 - `src/android/app/src/main/java/com/bridgeone/app/ui/common/PointerDynamicsConstants.kt`
   — `CurveEditorConstants` 상수 객체 추가
@@ -713,17 +700,29 @@ WMI 쿼리 `PNPDeviceID LIKE '%VID_303A&PID_4001%'`이 아무 장치도 반환�
   — `previousVelocityDpMs` 상태 추가 (히스테리시스 계산용)
 
 **검증**:
-- [ ] "+" 버튼으로 새 커스텀 프리셋 생성 및 그래프 편집기 진입 확인
-- [ ] 빈 곳 탭으로 노드 추가, 드래그로 노드 이동, 롱프레스로 노드 삭제 동작 확인
-- [ ] 고정 노드(첫 번째, 마지막)는 X 이동이 불가하고 롱프레스 삭제도 불가함 확인
-- [ ] 가속 곡선 / 감속 곡선 탭 전환 시 각 곡선이 독립적으로 편집됨 확인
-- [ ] "감속 곡선 → 가속 곡선으로 복사" 버튼이 올바르게 동작 확인
-- [ ] 저장 후 앱 종료·재시작 시 커스텀 프리셋이 그대로 복원되는지 확인
-- [ ] 커스텀 프리셋 적용 후 터치패드 사용 시 손가락 가속/감속에 따라 다른 배율 곡선이 적용됨 확인
-- [ ] 빌트인 프리셋 롱프레스 시 편집/삭제 옵션이 나타나지 않음 확인
-- [ ] 커스텀 프리셋이 엣지 스와이프 다이나믹스 순환(Phase 4.5.15)에 통합 목록으로 올바르게 포함됨 확인
-- [ ] 노드 수가 `CURVE_MAX_NODES`에 도달하면 추가 탭이 무시(또는 안내 표시)되는지 확인
-- [ ] 프리셋 이름 최대 12자 제한 및 빈 이름 방지 확인
+- [x] "+" 버튼으로 새 커스텀 프리셋 생성 및 그래프 편집기 진입 확인
+- [x] 빈 곳 탭으로 노드 추가, 드래그로 노드 이동, 롱프레스로 노드 삭제 동작 확인
+- [x] 고정 노드(첫 번째, 마지막)는 X 이동이 불가하고 롱프레스 삭제도 불가함 확인
+- [x] 가속 곡선 / 감속 곡선 탭 전환 시 각 곡선이 독립적으로 편집됨 확인
+- [x] "가속 곡선 복사" 버튼이 올바르게 동작 확인
+- [x] 저장 후 앱 종료·재시작 시 커스텀 프리셋이 그대로 복원되는지 확인
+- [x] 커스텀 프리셋 적용 후 터치패드 사용 시 손가락 가속/감속에 따라 다른 배율 곡선이 적용됨 확인
+- [x] 빌트인 프리셋 롱프레스 시 편집/삭제 옵션이 나타나지 않음 확인
+- [x] 커스텀 프리셋이 엣지 스와이프 다이나믹스 순환(Phase 4.5.15)에 통합 목록으로 올바르게 포함됨 확인
+- [x] 노드 수가 `CURVE_MAX_NODES`에 도달하면 추가 탭이 무시되는지 확인
+- [x] 프리셋 이름 최대 12자 제한 및 빈 이름 방지 확인
+
+> **실제 구현 노트**:
+> - `CustomPresetsRepository.kt` 신규 — `{filesDir}/dynamics_presets.json` JSON 저장. `org.json` 기본 API 사용 (별도 라이브러리 불필요). 파일 미존재 시(최초 실행) `CUSTOM_PRESET_TEMPLATES` 3개를 자동 저장 후 반환.
+> - `DynamicsCurveEditor.kt` 신규 — 전체 화면 오버레이 Composable. Canvas 그래프 + 탭 전환(가속/감속) + 이름 입력 + 설명 입력 + 아이콘 선택 + 템플릿 불러오기 + 조작 안내. `existingPresets` 파라미터로 중복 이름 방지 및 기본 이름 자동 증가("내 설정 1", "내 설정 2" …).
+> - `DynamicsPresetButton.kt` 추가 수정 — `customPresets` 파라미터 추가. 커스텀 인덱스 시 `iconKey` 있으면 아이콘, 없으면 이름 첫 2자 표시, 탭 순환 범위 `totalPresets`로 확장.
+> - `DynamicsPresetPopup.kt` 전면 재작성 — 빌트인+커스텀+"+버튼" 단일 `chunked(3)` 통합 그리드. `PopupPhase` 3단계(GRID → CONFIRM → DELETE_CONFIRM). 롱프레스 삭제 제거 → CONFIRM 화면에서 [적용/취소/편집/삭제] 4개 옵션으로 대체. DELETE_CONFIRM은 별도 팝업이 아닌 3번째 페이지로 구현. `PresetLabel` 11sp→7sp 자동 축소 + 최대 2줄.
+> - `PointerDynamicsConstants.kt` — `CustomPointerDynamicsPreset`에 `description`, `iconKey` 필드 추가. `CUSTOM_PRESET_ICON_OPTIONS`(25개 아이콘), `customPresetIconOrNull()`, `CUSTOM_PRESET_TEMPLATES`(3개 기본 템플릿) 추가.
+> - `AppIcons.kt` — `PickXXX` 25개 아이콘 항목 추가.
+> - `StandardModePage.kt` — `customPresets` 상태 + `CustomPresetsRepository` remember로 관리. Column을 Box로 감싸서 `DynamicsCurveEditor` 전체 화면 오버레이 추가. `DynamicsCurveEditor` 호출 시 `existingPresets = customPresets` 전달.
+> - `applyEdgeModeToggle` — `customPresetsCount` 파라미터 추가, DYNAMICS 순환 범위 `DYNAMICS_PRESETS.size + customPresetsCount`로 확장.
+> - 히스테리시스: `previousVelocityDpMs` mutableFloatStateOf 추가, MOVE/RELEASE 이벤트에서 커스텀 분기 처리 후 갱신.
+> - 빌트인 프리셋 편집/삭제는 팝업에서 `tempIndex >= totalBuiltin` 조건으로 자동 차단.
 
 ---
 

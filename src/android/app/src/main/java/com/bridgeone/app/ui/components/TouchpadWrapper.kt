@@ -70,6 +70,7 @@ import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_STOP_THRESHOLD_MS
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_FRAME_MIN_INTERVAL_MS
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_MAX_FRAMES_PER_EVENT
 import com.bridgeone.app.ui.common.ScrollConstants.SCROLL_UNIT_DISTANCE_DP
+import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
 import com.bridgeone.app.ui.common.ScrollDirectionBoost
 import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
 import com.bridgeone.app.ui.components.touchpad.ClickMode
@@ -146,6 +147,7 @@ fun TouchpadWrapper(
     modifier: Modifier = Modifier,
     bridgeMode: BridgeMode = BridgeMode.ESSENTIAL,
     touchpadState: TouchpadState = TouchpadState(),
+    customPresets: List<CustomPointerDynamicsPreset> = emptyList(),
     onTouchpadStateChange: (TouchpadState) -> Unit = {},
     onDynamicsLongPress: () -> Unit = {},
     onModePresetLongPress: () -> Unit = {},
@@ -164,6 +166,7 @@ fun TouchpadWrapper(
 
     // rememberUpdatedState: pointerInput(Unit) 제스처 루프 재시작 없이 최신 상태 참조
     val latestState by rememberUpdatedState(touchpadState)
+    val latestCustomPresets by rememberUpdatedState(customPresets)
     val latestOnStateChange by rememberUpdatedState(onTouchpadStateChange)
     val latestConfig by rememberUpdatedState(config)
 
@@ -193,6 +196,9 @@ fun TouchpadWrapper(
     // 스크롤 프레임 전송 시간 게이트 (Phase 4.5.7 개선)
     // 이전 프레임 전송 시각을 기억하여 SCROLL_FRAME_MIN_INTERVAL_MS 내 과도한 버스트 방지
     var lastScrollFrameSentMs by remember { mutableLongStateOf(0L) }
+
+    // 포인터 다이나믹스 히스테리시스용 이전 속도 (Phase 4.5.16)
+    var previousVelocityDpMs by remember { mutableFloatStateOf(0f) }
 
     // 가이드라인 자동 숨김 Job
     var guidelineHideJob by remember { mutableStateOf<Job?>(null) }
@@ -597,7 +603,7 @@ fun TouchpadWrapper(
                                         // 모드 버튼 탭
                                         val mode = visibleModes[hitIndex]
                                         pendingEdgeState = applyEdgeModeToggle(
-                                            pendingEdgeState ?: latestState, mode
+                                            pendingEdgeState ?: latestState, mode, latestCustomPresets.size
                                         )
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
@@ -661,7 +667,7 @@ fun TouchpadWrapper(
                                     if (idx < modeCount) {
                                         val mode = visibleModes[idx]
                                         pendingEdgeState = applyEdgeModeToggle(
-                                            pendingEdgeState ?: latestState, mode
+                                            pendingEdgeState ?: latestState, mode, latestCustomPresets.size
                                         )
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
@@ -1049,19 +1055,33 @@ fun TouchpadWrapper(
                                     axisLockedDelta.y * dpiMultiplierMove
                                 )
 
-                                // ── 포인터 다이나믹스 배율 적용 (Phase 4.3.8) ──
-                                val dynamicsPreset = DYNAMICS_PRESETS.getOrNull(latestState.dynamicsPresetIndex)
-                                    ?: DYNAMICS_PRESETS.first()
-                                val dpiDelta = if (dynamicsPreset.algorithm != com.bridgeone.app.ui.components.touchpad.DynamicsAlgorithm.NONE) {
-                                    Offset(
-                                        DeltaCalculator.applyPointerDynamics(dpiDeltaRaw.x, velocityDpMs, dynamicsPreset).coerceIn(-127f, 127f),
-                                        DeltaCalculator.applyPointerDynamics(dpiDeltaRaw.y, velocityDpMs, dynamicsPreset).coerceIn(-127f, 127f)
-                                    )
+                                // ── 포인터 다이나믹스 배율 적용 (Phase 4.3.8 / 4.5.16) ──
+                                val builtinCount = DYNAMICS_PRESETS.size
+                                val dpiDelta = if (latestState.dynamicsPresetIndex >= builtinCount) {
+                                    val customPreset = customPresets.getOrNull(latestState.dynamicsPresetIndex - builtinCount)
+                                    if (customPreset != null) {
+                                        val prevV = previousVelocityDpMs
+                                        previousVelocityDpMs = velocityDpMs
+                                        Offset(
+                                            DeltaCalculator.applyCustomDynamics(dpiDeltaRaw.x, velocityDpMs, prevV, customPreset.accelerationCurve, customPreset.decelerationCurve).coerceIn(-127f, 127f),
+                                            DeltaCalculator.applyCustomDynamics(dpiDeltaRaw.y, velocityDpMs, prevV, customPreset.accelerationCurve, customPreset.decelerationCurve).coerceIn(-127f, 127f)
+                                        )
+                                    } else {
+                                        previousVelocityDpMs = velocityDpMs
+                                        Offset(dpiDeltaRaw.x.coerceIn(-127f, 127f), dpiDeltaRaw.y.coerceIn(-127f, 127f))
+                                    }
                                 } else {
-                                    Offset(
-                                        dpiDeltaRaw.x.coerceIn(-127f, 127f),
-                                        dpiDeltaRaw.y.coerceIn(-127f, 127f)
-                                    )
+                                    val dynamicsPreset = DYNAMICS_PRESETS.getOrNull(latestState.dynamicsPresetIndex)
+                                        ?: DYNAMICS_PRESETS.first()
+                                    previousVelocityDpMs = velocityDpMs
+                                    if (dynamicsPreset.algorithm != com.bridgeone.app.ui.components.touchpad.DynamicsAlgorithm.NONE) {
+                                        Offset(
+                                            DeltaCalculator.applyPointerDynamics(dpiDeltaRaw.x, velocityDpMs, dynamicsPreset).coerceIn(-127f, 127f),
+                                            DeltaCalculator.applyPointerDynamics(dpiDeltaRaw.y, velocityDpMs, dynamicsPreset).coerceIn(-127f, 127f)
+                                        )
+                                    } else {
+                                        Offset(dpiDeltaRaw.x.coerceIn(-127f, 127f), dpiDeltaRaw.y.coerceIn(-127f, 127f))
+                                    }
                                 }
 
                                 compensatedDeltaX.value = dpiDelta.x
@@ -1256,7 +1276,7 @@ fun TouchpadWrapper(
                                 releaseAxisLockedDelta.y * dpiMultiplierRelease
                             )
 
-                            // ── 포인터 다이나믹스 배율 적용 (Phase 4.3.8) ──
+                            // ── 포인터 다이나믹스 배율 적용 (Phase 4.3.8 / 4.5.16) ──
                             val releaseVelocityDpMs = if (cursorVelocitySamples.size >= 2) {
                                 val oldest = cursorVelocitySamples.first()
                                 val newest = cursorVelocitySamples.last()
@@ -1264,18 +1284,32 @@ fun TouchpadWrapper(
                                 val timeSpanMs = (newest.second - oldest.second).toFloat()
                                 if (timeSpanMs > 0f) totalDp / timeSpanMs else 0f
                             } else 0f
-                            val releaseDynamicsPreset = DYNAMICS_PRESETS.getOrNull(latestState.dynamicsPresetIndex)
-                                ?: DYNAMICS_PRESETS.first()
-                            val releaseDpiDelta = if (releaseDynamicsPreset.algorithm != com.bridgeone.app.ui.components.touchpad.DynamicsAlgorithm.NONE) {
-                                Offset(
-                                    DeltaCalculator.applyPointerDynamics(releaseDpiDeltaRaw.x, releaseVelocityDpMs, releaseDynamicsPreset).coerceIn(-127f, 127f),
-                                    DeltaCalculator.applyPointerDynamics(releaseDpiDeltaRaw.y, releaseVelocityDpMs, releaseDynamicsPreset).coerceIn(-127f, 127f)
-                                )
+                            val releaseBuiltinCount = DYNAMICS_PRESETS.size
+                            val releaseDpiDelta = if (latestState.dynamicsPresetIndex >= releaseBuiltinCount) {
+                                val releaseCustomPreset = customPresets.getOrNull(latestState.dynamicsPresetIndex - releaseBuiltinCount)
+                                if (releaseCustomPreset != null) {
+                                    val prevV = previousVelocityDpMs
+                                    previousVelocityDpMs = releaseVelocityDpMs
+                                    Offset(
+                                        DeltaCalculator.applyCustomDynamics(releaseDpiDeltaRaw.x, releaseVelocityDpMs, prevV, releaseCustomPreset.accelerationCurve, releaseCustomPreset.decelerationCurve).coerceIn(-127f, 127f),
+                                        DeltaCalculator.applyCustomDynamics(releaseDpiDeltaRaw.y, releaseVelocityDpMs, prevV, releaseCustomPreset.accelerationCurve, releaseCustomPreset.decelerationCurve).coerceIn(-127f, 127f)
+                                    )
+                                } else {
+                                    previousVelocityDpMs = releaseVelocityDpMs
+                                    Offset(releaseDpiDeltaRaw.x.coerceIn(-127f, 127f), releaseDpiDeltaRaw.y.coerceIn(-127f, 127f))
+                                }
                             } else {
-                                Offset(
-                                    releaseDpiDeltaRaw.x.coerceIn(-127f, 127f),
-                                    releaseDpiDeltaRaw.y.coerceIn(-127f, 127f)
-                                )
+                                val releaseDynamicsPreset = DYNAMICS_PRESETS.getOrNull(latestState.dynamicsPresetIndex)
+                                    ?: DYNAMICS_PRESETS.first()
+                                previousVelocityDpMs = releaseVelocityDpMs
+                                if (releaseDynamicsPreset.algorithm != com.bridgeone.app.ui.components.touchpad.DynamicsAlgorithm.NONE) {
+                                    Offset(
+                                        DeltaCalculator.applyPointerDynamics(releaseDpiDeltaRaw.x, releaseVelocityDpMs, releaseDynamicsPreset).coerceIn(-127f, 127f),
+                                        DeltaCalculator.applyPointerDynamics(releaseDpiDeltaRaw.y, releaseVelocityDpMs, releaseDynamicsPreset).coerceIn(-127f, 127f)
+                                    )
+                                } else {
+                                    Offset(releaseDpiDeltaRaw.x.coerceIn(-127f, 127f), releaseDpiDeltaRaw.y.coerceIn(-127f, 127f))
+                                }
                             }
                             compensatedDeltaX.value = releaseDpiDelta.x
                             compensatedDeltaY.value = releaseDpiDelta.y
@@ -1410,6 +1444,7 @@ fun TouchpadWrapper(
         ) {
             DynamicsPresetButton(
                 touchpadState = touchpadState,
+                customPresets = customPresets,
                 onTouchpadStateChange = onTouchpadStateChange,
                 onLongPress = onDynamicsLongPress,
                 showLabel = showPresetLabel
@@ -1599,7 +1634,7 @@ private fun computeDirectTouchButtonRects(
 /**
  * 엣지 스와이프로 [mode]를 토글한 새로운 [TouchpadState]를 반환합니다.
  */
-private fun applyEdgeModeToggle(state: TouchpadState, mode: EdgeSwipeMode): TouchpadState = when (mode) {
+private fun applyEdgeModeToggle(state: TouchpadState, mode: EdgeSwipeMode, customPresetsCount: Int = 0): TouchpadState = when (mode) {
     EdgeSwipeMode.SCROLL -> when (state.scrollMode) {
         ScrollMode.OFF             -> state.copy(
             scrollMode = ScrollMode.NORMAL_SCROLL,
@@ -1632,7 +1667,7 @@ private fun applyEdgeModeToggle(state: TouchpadState, mode: EdgeSwipeMode): Touc
         scrollSensitivity = state.scrollSensitivity.next()
     )
     EdgeSwipeMode.DYNAMICS -> state.copy(
-        dynamicsPresetIndex = (state.dynamicsPresetIndex + 1) % DYNAMICS_PRESETS.size
+        dynamicsPresetIndex = (state.dynamicsPresetIndex + 1) % (DYNAMICS_PRESETS.size + customPresetsCount)
     )
 }
 

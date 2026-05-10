@@ -31,7 +31,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.bridgeone.app.ui.common.AppIcon
+import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
 import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
+import com.bridgeone.app.ui.common.customPresetIconOrNull
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -58,6 +60,7 @@ private const val LONG_PRESS_DELAY_MS = 500L
 @Composable
 fun DynamicsPresetButton(
     touchpadState: TouchpadState,
+    customPresets: List<CustomPointerDynamicsPreset> = emptyList(),
     onTouchpadStateChange: (TouchpadState) -> Unit,
     onLongPress: () -> Unit,
     showLabel: Boolean = false,
@@ -68,8 +71,11 @@ fun DynamicsPresetButton(
     var longPressJob by remember { mutableStateOf<Job?>(null) }
     val scaleAnim = remember { Animatable(1f) }
 
-    val currentPreset = DYNAMICS_PRESETS.getOrNull(touchpadState.dynamicsPresetIndex)
-        ?: DYNAMICS_PRESETS.first()
+    val totalPresets = DYNAMICS_PRESETS.size + customPresets.size
+    val builtinPreset = DYNAMICS_PRESETS.getOrNull(touchpadState.dynamicsPresetIndex)
+    val customIdx = touchpadState.dynamicsPresetIndex - DYNAMICS_PRESETS.size
+    val customPreset = if (builtinPreset == null) customPresets.getOrNull(customIdx) else null
+    val labelText = builtinPreset?.name ?: customPreset?.name ?: DYNAMICS_PRESETS.first().name
 
     Box(
         modifier = modifier
@@ -116,20 +122,37 @@ fun DynamicsPresetButton(
                     isPressed = false
 
                     if (!longPressTriggered) {
-                        // 탭: 다음 프리셋으로 사이클
-                        val nextIndex = (touchpadState.dynamicsPresetIndex + 1) % DYNAMICS_PRESETS.size
+                        // 탭: 다음 프리셋으로 사이클 (빌트인 + 커스텀 통합)
+                        val nextIndex = (touchpadState.dynamicsPresetIndex + 1) % totalPresets
                         onTouchpadStateChange(touchpadState.copy(dynamicsPresetIndex = nextIndex))
                     }
                 }
             },
         contentAlignment = Alignment.Center
     ) {
-        AppIcon(
-            def = currentPreset.icon,
-            contentDescription = "다이나믹스: ${currentPreset.name}",
-            tint = ButtonIconColor,
-            modifier = Modifier.size(28.dp)
-        )
+        val customIconDef = if (builtinPreset == null) customPresetIconOrNull(customPreset?.iconKey ?: "") else null
+        if (builtinPreset != null) {
+            AppIcon(
+                def = builtinPreset.icon,
+                contentDescription = "다이나믹스: ${builtinPreset.name}",
+                tint = ButtonIconColor,
+                modifier = Modifier.size(28.dp)
+            )
+        } else if (customIconDef != null) {
+            AppIcon(
+                def = customIconDef,
+                contentDescription = "다이나믹스: ${customPreset?.name}",
+                tint = ButtonIconColor,
+                modifier = Modifier.size(28.dp)
+            )
+        } else {
+            Text(
+                text = labelText.take(2),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = ButtonIconColor
+            )
+        }
 
         // 프리셋 탭 라벨 — Popup으로 clip 밖에 버튼 바로 위 가운데 렌더링
         if (showLabel) {
@@ -146,7 +169,7 @@ fun DynamicsPresetButton(
                         .padding(horizontal = 5.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = currentPreset.name,
+                        text = labelText,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
