@@ -919,44 +919,89 @@ JAMO_PENDING + 모음(pendingJasoChar2==' ') → 받침→초성 분리, 새 HAS
 
 ---
 
-### Phase 4.5.18.2: 아이콘 선택 인라인 화면 전환
+### Phase 4.5.18.2: 아이콘 선택 스와이프 피커
 
 > **⚠️ Phase 4.5.18.1 변경사항**: `DynamicsCurveEditor`에 `showKeyboard: Boolean` + `keyboardTarget: String` 상태 추가. 이름/설명 행이 `BasicTextField` 대신 `Text` + `pointerInput` 탭 핸들러로 교체됨.
-> `SwipeKeyboardOverlay`는 전체화면 오버레이가 아니라 그래프 `Column` 내부의 `if/else` 분기로 `CurveGraphCanvas`를 대체함 — `Box(Modifier.fillMaxWidth().weight(1f))`로 감싸 그래프와 동일한 공간 점유.
-> `AnimatedContent(currentScreen)` 도입 시 `SwipeKeyboardOverlay`는 `AnimatedContent` 바깥에 배치해야 이름/설명 탭이 정상 동작함 (오버레이가 화면 전환과 독립적으로 표시되어야 함).
+> `SwipeKeyboardOverlay`는 전체화면 오버레이가 아니라 그래프 `Column` 내부의 `when` 분기로 `CurveGraphCanvas`를 대체함 — `Box(Modifier.fillMaxWidth().weight(1f))`로 감싸 그래프와 동일한 공간 점유.
 > `SwipeKeyboardOverlay` 시그니처에 `onCancel: () -> Unit = {}` 추가됨 — 취소 탭 시 `showKeyboard = false` 호출.
 
-`AlertDialog` 아이콘 선택 팝업 제거. "아이콘" 행 탭 → 편집기 내부가 아이콘 선택 화면으로 `AnimatedContent` 전환.
+`AlertDialog` 아이콘 선택 팝업 제거. "아이콘" 행 탭 → 그래프 영역을 `IconPickerContent`로 대체 (`showIconPicker: Boolean` 상태, `when` 분기). `AnimatedContent` 미사용.
 
 **아이콘 선택 화면 구조**:
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  [← 뒤로]   아이콘 선택                              │
+│ [←] 아이콘 선택      선택 중: {label}    [없음]      │  ← 헤더 (탭 전용)
 ├──────────────────────────────────────────────────────┤
-│  [없음] (이름 2자 표시)                              │
+│  [○] [○] [○] [○] [○]                                  │
+│  [○] [○] [○] [○] [○]   ← 5×6 아이콘 그리드           │
+│  [○] [○] [○] [○] [○]      (30개, 균등 셀)            │
+│  [○] [○] [○] [○] [○]                                  │
+│  [○] [○] [○] [○] [○]                                  │
+│  [○] [○] [○] [○] [○]                                  │
 ├──────────────────────────────────────────────────────┤
-│  [○] [○] [○] [○] [○]                               │
-│  [○] [○] [○] [○] [○]   ← 아이콘 그리드              │
-│  [○] [○] [○] [○] [○]   (5열, 스크롤 가능)           │
-│  ...                                                 │
+│  ↔ 드래그하여 선택  |  ⊙ 탭하면 확정                  │
+│  ↑ 위로 스와이프하면 뒤로·없음 선택 가능              │
 └──────────────────────────────────────────────────────┘
 ```
 
-- 현재 선택 아이콘은 `ACCENT_BLUE` 테두리 강조
-- 탭으로 즉시 선택 + 이전 화면 복귀
+**인터랙션 모델**:
+- 1단계: 손가락 down→move→up → `selectedCell` 이동, `awaitingConfirm = true`
+- 2단계: 탭 (이동 없는 down→up, 10dp 미만) → 현재 `selectedCell` 확정 + `onSelect(key)` 호출
+- Row 0에서 위로 스와이프: 헤더 영역 진입. 좌측 35% = Back(`onClose()`), 우측 65% = None(`onSelect("")`)
+- 셀 전환 시마다 `CLOCK_TICK` 햅틱
+
+**시각 상태**:
+
+| 상태 | 배경 | 테두리 |
+|------|------|--------|
+| idle | `White.copy(0.06f)` | 없음 |
+| current (저장된 iconKey 셀) | `ACCENT_BLUE.copy(0.12f)` | `1dp ACCENT_BLUE.copy(0.5f)` |
+| selected (손가락 위치) | `ACCENT_BLUE.copy(0.28f)` | `1.5dp ACCENT_BLUE` |
+| selected + awaitingConfirm | `ACCENT_BLUE.copy(0.38f)` | `2dp White.copy(0.9f)` |
+| current + selected | `ACCENT_BLUE.copy(0.30f)` | `2dp ACCENT_BLUE` |
+
+헤더 Back/None도 동일한 3단계 강조 (idle / hovered / awaitingConfirm) 적용.
+
+**신규 타입 (file-private)**:
+```kotlin
+private data class IconCell(val key: String, val def: AppIconDef)
+private data class IconRow(val cells: List<IconCell>)
+private data class IconCellPos(val row: Int, val col: Int)
+private enum class HeaderZone { BACK, NONE }
+```
+
+**신규 헬퍼 함수 (file-private)**:
+- `buildIconLayout()` — `CUSTOM_PRESET_ICON_OPTIONS.chunked(5)` → 6행 × 5열
+- `findInitialCell(selectedIconKey, layout)` — 키 매칭, fallback `(0,0)`
+- `resolveIconCell(target, layout)` — 행/열 범위 클램프
+- `computeFracX(cell, layout)` — 균등 weight 전제 셀 중심 분수 위치
+- `findColAtFracX(fracX, row)` — 균등 weight 전제 컬럼 인덱스 반환
+
+**`CUSTOM_PRESET_ICON_OPTIONS` 확장**: 25개 → 30개 (추가: `mouse`, `touch`, `timer`, `autorenew`, `vibration`)
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
-  — `showIconPicker` AlertDialog 제거
-  — `currentScreen` 상태 추가 (`MAIN | ICON_PICKER`)
-  — `AnimatedContent(currentScreen)` 분기로 본 화면 / 아이콘 선택 화면 전환
+  — `showIconPicker: Boolean` 상태 추가 (AlertDialog 대체)
+  — `when { showKeyboard / showIconPicker / else }` 분기로 그래프 영역 전환
+  — `IconPickerContent` private Composable 신규 추가
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/PointerDynamicsConstants.kt`
+  — `CUSTOM_PRESET_ICON_OPTIONS` 25→30개 확장
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/AppIcons.kt`
+  — `PickMouse`, `PickTouchApp`, `PickTimer`, `PickAutorenew`, `PickVibration` 추가
 
 **검증**:
-- [ ] 아이콘 행 탭 → 아이콘 선택 화면으로 전환 확인
-- [ ] 아이콘 탭 → 즉시 선택 + 본 화면 복귀 확인
-- [ ] "없음" 선택 → 이름 2자 표시 방식으로 복귀 확인
-- [ ] 전환 애니메이션이 BridgeOne 스타일과 어울리는지 확인
+- [x] 아이콘 행 탭 → 그래프 영역이 아이콘 선택 화면으로 교체 확인
+- [x] 드래그 → `selectedCell` 이동, 헤더 "선택 중: {label}" 실시간 업데이트 확인
+- [x] 드래그 후 release → `awaitingConfirm = true`, 셀 흰 테두리 강조 확인
+- [x] 두 번째 탭 → 해당 아이콘 선택 + 그래프로 복귀 확인
+- [x] Row 0에서 위로 스와이프 → 헤더 영역 진입, Back/None 강조 확인
+- [x] 헤더 Back 영역에서 탭 → `onClose()` 호출 (아이콘 변경 없음) 확인
+- [x] 헤더 None 영역에서 탭 → `onSelect("")` 호출 확인
+- [x] 헤더 바의 [←] / [없음] 버튼 탭 → 즉시 동작 확인
+- [x] 진입 시 기존 `selectedIconKey`에 해당 셀 `current` 강조 표시 확인
+- [x] 셀 전환 시마다 CLOCK_TICK 햅틱 확인
+- [x] 30개 아이콘 + Back + None 모두 도달 가능 확인
 
 ---
 
@@ -968,11 +1013,11 @@ JAMO_PENDING + 모음(pendingJasoChar2==' ') → 받침→초성 분리, 새 HAS
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  (반투명 배경)                                        │
+│  (반투명 배경)                                       │
 │                                                      │
 │  ┌────────────────────────────────────┐              │
-│  │  [템플릿 아이콘]                    │              │
-│  │  템플릿 이름                         │              │
+│  │  [템플릿 아이콘]                   │              │
+│  │  템플릿 이름                       │              │
 │  │  템플릿 설명                         │              │
 │  │                                    │              │
 │  │  적용    취소                        │  ← 스와이프  │

@@ -30,6 +30,10 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material.icons.outlined.Mouse
@@ -118,6 +122,11 @@ object AppIcons {
     val PickCenterFocus     = AppIconDef(Icons.Filled.CenterFocusStrong)
     val PickWhatshot        = AppIconDef(Icons.Filled.Whatshot)
     val PickDirectionsRun   = AppIconDef(Icons.AutoMirrored.Filled.DirectionsRun)
+    val PickMouse           = AppIconDef(Icons.Filled.Mouse)
+    val PickTouchApp        = AppIconDef(Icons.Filled.TouchApp)
+    val PickTimer           = AppIconDef(Icons.Filled.Timer)
+    val PickAutorenew       = AppIconDef(Icons.Filled.Autorenew)
+    val PickVibration       = AppIconDef(Icons.Filled.Vibration)
 }
 
 // ============================================================

@@ -50,6 +50,11 @@ val CUSTOM_PRESET_ICON_OPTIONS: List<Pair<String, AppIconDef>> = listOf(
     "extension"      to AppIcons.PickExtension,
     "settings"       to AppIcons.PickSettings,
     "build"          to AppIcons.PickBuild,
+    "mouse"          to AppIcons.PickMouse,
+    "touch"          to AppIcons.PickTouchApp,
+    "timer"          to AppIcons.PickTimer,
+    "autorenew"      to AppIcons.PickAutorenew,
+    "vibration"      to AppIcons.PickVibration,
 )
 
 /** iconKey → AppIconDef 변환 (없으면 null → 이름 2자 텍스트 표시) */
