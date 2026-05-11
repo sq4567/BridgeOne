@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -59,6 +58,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import com.bridgeone.app.ui.components.SwipeKeyboardOverlay
 import com.bridgeone.app.ui.common.AppIcon
 import com.bridgeone.app.ui.common.CUSTOM_PRESET_ICON_OPTIONS
 import com.bridgeone.app.ui.common.CUSTOM_PRESET_TEMPLATES
@@ -122,6 +122,8 @@ fun DynamicsCurveEditor(
     var deleteTargetIndex by remember { mutableIntStateOf(-1) }
     var showTemplatePicker by remember { mutableStateOf(false) }
     var showIconPicker by remember { mutableStateOf(false) }
+    var showKeyboard by remember { mutableStateOf(false) }
+    var keyboardTarget by remember { mutableStateOf("name") } // "name" | "desc"
 
     val activeCurve = if (activeTab == 0) accelCurve else decelCurve
     fun setActiveCurve(c: List<CurveNode>) {
@@ -181,17 +183,26 @@ fun DynamicsCurveEditor(
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp)
                     .background(SURFACE, RoundedCornerShape(8.dp))
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            val ev = awaitPointerEvent()
+                            if (ev.type == PointerEventType.Release) {
+                                keyboardTarget = "name"
+                                showKeyboard = true
+                            }
+                        }
+                    }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("이름:", color = LABEL_COLOR, fontSize = 13.sp)
                 Spacer(Modifier.width(8.dp))
-                BasicTextField(
-                    value = name,
-                    onValueChange = { if (it.length <= NAME_MAX_LEN) name = it },
-                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
+                Text(
+                    text = if (name.isEmpty()) "탭하여 입력" else name,
+                    color = if (name.isEmpty()) LABEL_COLOR else Color.White,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f)
                 )
                 if (name.length >= NAME_MAX_LEN) {
                     Text("${name.length}/$NAME_MAX_LEN", color = LABEL_COLOR, fontSize = 11.sp)
@@ -214,17 +225,26 @@ fun DynamicsCurveEditor(
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp)
                     .background(SURFACE, RoundedCornerShape(8.dp))
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            val ev = awaitPointerEvent()
+                            if (ev.type == PointerEventType.Release) {
+                                keyboardTarget = "desc"
+                                showKeyboard = true
+                            }
+                        }
+                    }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 Text("설명:", color = LABEL_COLOR, fontSize = 13.sp, modifier = Modifier.padding(top = 1.dp))
                 Spacer(Modifier.width(8.dp))
-                BasicTextField(
-                    value = description,
-                    onValueChange = { if (it.length <= DESC_MAX_LEN) description = it },
-                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                    modifier = Modifier.weight(1f),
-                    maxLines = 2
+                Text(
+                    text = if (description.isEmpty()) "탭하여 입력" else description,
+                    color = if (description.isEmpty()) LABEL_COLOR else Color.White,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f)
                 )
                 if (description.length >= DESC_MAX_LEN - 10) {
                     Text("${description.length}/$DESC_MAX_LEN", color = LABEL_COLOR, fontSize = 11.sp, modifier = Modifier.padding(top = 1.dp))
@@ -310,39 +330,58 @@ fun DynamicsCurveEditor(
                 Spacer(Modifier.height(4.dp))
             }
 
-            // ── 그래프 캔버스 ──
-            CurveGraphCanvas(
-                activeCurve = activeCurve,
-                inactiveCurve = if (activeTab == 0) decelCurve else accelCurve,
-                activeColor = if (activeTab == 0) ACCENT_BLUE else ACCENT_ORANGE,
-                inactiveColor = if (activeTab == 0) ACCENT_ORANGE else ACCENT_BLUE,
-                onCurveChanged = { setActiveCurve(it) },
-                onDeleteRequest = { idx -> deleteTargetIndex = idx },
-                onHaptic = { constant ->
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        view.performHapticFeedback(constant)
-                    } else {
-                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 12.dp)
-            )
+            // ── 그래프 캔버스 or 키보드 ──
+            if (showKeyboard) {
+                val (initialText, maxLen) = if (keyboardTarget == "name")
+                    name to NAME_MAX_LEN
+                else
+                    description to DESC_MAX_LEN
+                Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    SwipeKeyboardOverlay(
+                        initialText = initialText,
+                        maxLength = maxLen,
+                        onCancel = { showKeyboard = false },
+                        onDone = { result ->
+                            if (keyboardTarget == "name") name = result
+                            else description = result
+                            showKeyboard = false
+                        }
+                    )
+                }
+            } else {
+                CurveGraphCanvas(
+                    activeCurve = activeCurve,
+                    inactiveCurve = if (activeTab == 0) decelCurve else accelCurve,
+                    activeColor = if (activeTab == 0) ACCENT_BLUE else ACCENT_ORANGE,
+                    inactiveColor = if (activeTab == 0) ACCENT_ORANGE else ACCENT_BLUE,
+                    onCurveChanged = { setActiveCurve(it) },
+                    onDeleteRequest = { idx -> deleteTargetIndex = idx },
+                    onHaptic = { constant ->
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            view.performHapticFeedback(constant)
+                        } else {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 12.dp)
+                )
 
-            // ── 조작 안내 ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .background(SURFACE, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                Text("빈 곳 탭 = 노드 추가", color = LABEL_COLOR, fontSize = 11.sp)
-                Text("|", color = LABEL_COLOR, fontSize = 11.sp)
-                Text("노드 롱프레스 = 삭제", color = LABEL_COLOR, fontSize = 11.sp)
+                // ── 조작 안내 ──
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .background(SURFACE, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Text("빈 곳 탭 = 노드 추가", color = LABEL_COLOR, fontSize = 11.sp)
+                    Text("|", color = LABEL_COLOR, fontSize = 11.sp)
+                    Text("노드 롱프레스 = 삭제", color = LABEL_COLOR, fontSize = 11.sp)
+                }
             }
         }
     }
@@ -472,6 +511,7 @@ fun DynamicsCurveEditor(
             containerColor = Color(0xFF222222)
         )
     }
+
 }
 
 // ─────────────────────────────────────────────────────────────

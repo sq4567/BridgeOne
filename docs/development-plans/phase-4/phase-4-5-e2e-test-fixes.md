@@ -799,76 +799,132 @@ outer while (velocity > MIN):
 
 ### Phase 4.5.18.1: 스와이프 키보드 오버레이 (`SwipeKeyboardOverlay`)
 
-이름/설명 필드 탭 시 전체 화면 키보드 오버레이 등장. `BasicTextField` + 시스템 키보드 방식 제거.
+이름/설명 필드 탭 시 그래프 영역을 대체하며 키보드 등장. `BasicTextField` + 시스템 키보드 방식 제거.
 
 **화면 구조**:
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  내 설정 1▮                                          │  ← 입력 결과 (조합 중 글자 강조)
+│  내 설정 1▮                                    6/12  │  ← 입력 결과 (조합 중 글자 ACCENT 강조, 캐럿 깜빡임)
 ├──────────────────────────────────────────────────────┤
-│                                                      │
-│              ◀  [  ㄴ  ]  ▶                         │  ← 현재 선택 자모 (크게, DpiAdjustPopup 방식)
-│                                                      │
-│         스와이프로 이동 · 탭하여 입력                 │
-│                                                      │
+│  ㅂ  ㅈ  ㄷ  ㄱ  ㅅ  ㅛ  ㅕ  ㅑ  ㅐ  ㅔ           │  ← Row0 (10키)
+│  ㅁ  ㄴ  ㅇ  ㄹ  ㅎ  ㅗ  ㅓ  ㅏ  ㅣ              │  ← Row1 (9키)
+│  ⇧  ㅋ  ㅌ  ㅊ  ㅍ  ㅠ  ㅜ  ㅡ  ⌫              │  ← Row2 (9키, ⇧·⌫ 1.6× 폭)
+│  한글  ?123  ───⎵───  취소  완료                  │  ← Row3 (5키, ⎵ 2× 폭, 정중앙)
 ├──────────────────────────────────────────────────────┤
-│  ← 지우기     자음↔모음     스페이스     완료          │  ← 하단 액션 (스와이프로 선택, 탭으로 실행)
+│  ↔ 드래그 → 손가락을 밀어 키 선택                    │
+│  ⊙ 손 떼기 → 선택된 키 입력                         │  ← 조작 안내 (아이콘+액션+설명, 구분선)
+│  ⇧ Shift → 쌍자음·대문자 (1회 후 복귀)              │
+│  ⇄ 모드 → 한·A·123 순으로 전환                      │
 └──────────────────────────────────────────────────────┘
 ```
 
-**입력 모드**:
+**키보드 모드**:
 
-| 모드 | 목록 |
-|-----|------|
-| 한글 자음 | ㄱ ㄴ ㄷ ㄹ ㅁ ㅂ ㅅ ㅇ ㅈ ㅊ ㅋ ㅌ ㅍ ㅎ |
-| 한글 모음 | ㅏ ㅐ ㅑ ㅒ ㅓ ㅔ ㅕ ㅖ ㅗ ㅘ ㅙ ㅚ ㅛ ㅜ ㅝ ㅞ ㅟ ㅠ ㅡ ㅢ ㅣ |
-| 영문/숫자 | a–z A–Z 0–9 (space) . - _ |
+| 모드 | Row0 (10) | Row1 (9) | Row2 (9) |
+|------|-----------|----------|----------|
+| 한글 | ㅂㅈㄷㄱㅅㅛㅕㅑㅐㅔ | ㅁㄴㅇㄹㅎㅗㅓㅏㅣ | ⇧ ㅋㅌㅊㅍㅠㅜㅡ ⌫ |
+| 한글+Shift | ㅃㅉㄸㄲㅆㅛㅕㅑㅒㅖ | 동일 | ⇧(강조) ㅋㅌㅊㅍㅠㅜㅡ ⌫ |
+| 영문 | qwertyuiop | asdfghjkl | ⇧ zxcvbnm ⌫ |
+| 영문+Shift | QWERTYUIOP | ASDFGHJKL | ⇧(강조) ZXCVBNM ⌫ |
+| 기호 | 1234567890 | -/:;()$&@ | .,?!'"_ ⌫ |
 
-**한글 자모 조합 상태 머신 (`HangulComposer`)**:
+Row3 (공통): `한글/영문(현재모드표시)` `?123/한글` `⎵(2×)` `취소` `완료`
+
+**상태 타입**:
+
+```kotlin
+enum class KeyboardMode { HANGUL, ENGLISH, SYMBOL }
+enum class ShiftMode { OFF, ON }   // one-shot: 자모 1회 입력 후 자동 OFF
+enum class ComposePhase { IDLE, JASO_ONLY, HAS_VOWEL, JAMO_PENDING }
+sealed class GridCell { Jamo(char), Special(key), Empty }
+enum class SpecialKey { SP, BACKSPACE, SHIFT, LANG_TOGGLE, SYMBOL_TOGGLE, ERASE, CANCEL, DONE }
+data class CellPos(val row: Int, val col: Int)
+data class KeyRow(val cells: List<GridCell>)
+data class ComposerState(committed, phase, choIdx, jungIdx, pendingJasoChar, pendingJasoChar2)
+```
+
+**한글 조합 상태 머신**:
 
 ```
-IDLE          → 자음 탭 → JASO_ONLY
-IDLE          → 모음 탭 → 단독 모음 확정, IDLE
-JASO_ONLY     → 모음 탭 → 초성+모음 조합, HAS_VOWEL; 자동으로 모음 모드 전환
-JASO_ONLY     → 자음 탭 → 이전 자음 단독 확정, 새 JASO_ONLY
-HAS_VOWEL     → 자음 탭 → 임시 받침 저장, JAMO_PENDING; 자동으로 자음 모드 전환
-HAS_VOWEL     → 모음 탭 → 현재 글자 확정, 단독 모음 확정, IDLE
-JAMO_PENDING  → 모음 탭 → 임시 받침이 다음 글자 초성, 새 초성+모음 조합, HAS_VOWEL
-JAMO_PENDING  → 자음 탭 → 임시 받침 확정, 이전 글자 완성; 새 자음 JASO_ONLY
-any           → 스페이스 탭 → 조합 중 글자 확정 + 공백 추가, IDLE
-any           → 지우기 탭 → 마지막 자모 역순 제거 (받침 → 모음 → 초성 순)
-any           → 완료 탭 → 조합 중 글자 확정, 오버레이 닫기
+IDLE         + 자음 → JASO_ONLY (pendingJasoChar=c)
+IDLE         + 모음 → committed += c
+JASO_ONLY    + 모음 → HAS_VOWEL (초성+중성 조합)
+JASO_ONLY    + 자음 → commitCurrent(), 새 JASO_ONLY
+HAS_VOWEL    + 자음(종성가능) → JAMO_PENDING (pendingJasoChar=c)
+HAS_VOWEL    + 자음(종성불가) → commitCurrent(), 새 JASO_ONLY
+HAS_VOWEL    + 모음 → commitCurrent(), committed += 모음
+JAMO_PENDING + 자음(이중받침가능, pendingJasoChar2==' ') → pendingJasoChar2=c (이중 받침)
+JAMO_PENDING + 자음(이중받침불가 or pendingJasoChar2!=' ') → commitCurrent(), 새 JASO_ONLY
+JAMO_PENDING + 모음(pendingJasoChar2!=' ') → 첫받침 jong으로 확정, 둘째받침→초성, 새 HAS_VOWEL
+JAMO_PENDING + 모음(pendingJasoChar2==' ') → 받침→초성 분리, 새 HAS_VOWEL
 ```
 
-- 이중 받침(ㄳ ㄵ ㄶ ㄺ ㄻ ㄼ ㄽ ㄾ ㄿ ㅀ ㅄ)은 1차 구현에서 제외 (단순화)
-- 자모 전환은 초성 탭 후 자동으로 모음 모드로, 모음 탭·받침 대기 후 자동으로 자음 모드로 전환. 수동 전환 버튼도 유지
+이중 받침 지원(ㄳ ㄵ ㄶ ㄺ ㄻ ㄼ ㄽ ㄾ ㄿ ㅀ ㅄ): `pendingJasoChar2` 필드로 관리.
+자동 모드 전환(`tryAutoSwitchMode`) 없음 — 한 화면에 자음·모음 모두 표시.
 
-**하단 액션 바**: DpiAdjustPopup 방식과 동일하게 스와이프로 4개 액션 이동, 탭으로 실행. 현재 선택 액션은 강조 표시.
+**스와이프 계산 (가변 행 폭)**:
+
+손가락 down 시 `startCell: CellPos` + `startPos: Offset` 기록. move마다:
+- `rowDelta = (dy / rowH).roundToInt()` → `newRow` 결정
+- `startFracX = (startCell.col + 0.5f) / startRowCols`
+- `newFracX = startFracX + dx / totalW` → `newCol = (newFracX * newRowCols).toInt()`
+- `resolveToValidCell`로 Empty 셀 보정 (같은 행 좌·우 → 인접 행 동일 분수 위치)
+- 10dp 미만 이동 후 up → tap으로 처리 (현재 선택 셀 활성화)
+
+**특수 키 동작**:
+
+| 키 | 동작 |
+|----|------|
+| SHIFT | ShiftMode 토글. ON 시 ACCENT 강조. 자모/영문 입력 1회 후 자동 OFF |
+| LANG_TOGGLE | HANGUL↔ENGLISH 토글 (SYMBOL에서 탭하면 HANGUL로). 선택 위치 유지 |
+| SYMBOL_TOGGLE | SYMBOL↔HANGUL 토글. 선택 위치 유지. 라벨: SYMBOL일 때 "한글", 아닐 때 "?123" |
+| SP | commitCurrent() + 공백 추가 |
+| BACKSPACE | commitCurrent() → dropLast(1). committed 비면 mode=HANGUL |
+| ERASE | 전체 초기화 + mode=HANGUL + shift=OFF + selectedCell=(0,0) |
+| CANCEL | onCancel() 호출 (그래프 화면으로 복귀) |
+| DONE | onDone(committed) 호출 |
+
+**키 폭 가중치**:
+- 일반 자모/기호 키: `weight(1f)`
+- SHIFT, BACKSPACE: `weight(1.6f)`
+- SP: `weight(2f)` — Row3에서 좌 2f + 우 2f로 정중앙 배치
+
+**LANG_TOGGLE 라벨**: 현재 모드 표시 (한글→"한글", 영문→"영문", 기호→"한/영")
 
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/SwipeKeyboardOverlay.kt`
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
-  — 이름/설명 `BasicTextField` 탭 핸들러 추가: `showKeyboard = true` + `keyboardTarget = NAME | DESC`
-  — `SwipeKeyboardOverlay` 조건부 렌더링 추가
+  — 이름/설명 행: `BasicTextField` 제거, `Text` + `pointerInput` 탭 핸들러로 교체
+  — 그래프 영역 `Column` 내부를 `if (showKeyboard) SwipeKeyboardOverlay(...) else CurveGraphCanvas(...)` 분기로 교체
+  — `SwipeKeyboardOverlay` 시그니처: `(initialText, maxLength, onCancel, onDone)`
 
 **검증**:
-- [ ] 이름 필드 탭 → 스와이프 키보드 오버레이 등장 확인
-- [ ] 스와이프로 자모 이동, 탭으로 입력 동작 확인
-- [ ] 초성 탭 후 자동으로 모음 모드 전환 확인
-- [ ] 자음+모음 조합으로 한글 완성형 생성 확인 (예: ㄴ + ㅏ = 나)
-- [ ] 받침 있는 글자 조합 확인 (예: ㄴ + ㅏ + ㅇ = 낭)
-- [ ] 받침 자음이 다음 초성으로 이동하는 연음 동작 확인 (예: 나 + ㅇ + ㅏ = 나아 아님, ㄴ+ㅏ+ㅇ = 낭, 낭+ㅏ = 나가)
-- [ ] 지우기: 받침 → 모음 → 초성 순으로 역삭제 확인
-- [ ] 영문/숫자 모드 전환 후 a-z 입력 확인
-- [ ] 완료 탭 → 조합 중 글자 확정 후 오버레이 닫힘 확인
-- [ ] 12자 이름 제한 초과 시 입력 차단 확인
+- [x] 이름/설명 필드 탭 → 그래프 영역에 스와이프 키보드 표시
+- [x] 한글 모드: Row0=10키, Row1=9키, Row2=9키, Row3=5키
+- [x] 자음+모음 조합 (예: ㄴ+ㅏ=나, ㄴ+ㅏ+ㅇ=낭)
+- [x] 이중 받침 조합 (예: ㄷ+ㅏ+ㄹ+ㄱ=닭, 닭+ㅏ=다가)
+- [x] ⇧ 1회 탭 → 쌍자음(ㅃㅉㄸㄲㅆ) 노출, 입력 후 자동 복귀
+- [x] 한/영 탭 → HANGUL↔ENGLISH 토글, 선택 위치 유지
+- [x] ?123 탭 → 기호 모드 진입/복귀, 선택 위치 유지
+- [x] 기호 모드 Row2 여백 없음 (7자+⌫=8셀)
+- [x] ⎵ 키 Row3 정중앙 배치 (좌 2f=한글+?123, 우 2f=취소+완료)
+- [x] 캐럿 깜빡임, 조합 중 글자 ACCENT 강조
+- [x] 취소 탭 → 그래프 화면 복귀
+- [x] 완료 탭 → committed 텍스트 전달 후 복귀
+- [x] maxLength 초과 시 입력 차단
+- [x] 조작 안내 섹션 (아이콘+액션+설명, 구분선) 키보드 하단 표시
 
 ---
 
 ### Phase 4.5.18.2: 아이콘 선택 인라인 화면 전환
+
+> **⚠️ Phase 4.5.18.1 변경사항**: `DynamicsCurveEditor`에 `showKeyboard: Boolean` + `keyboardTarget: String` 상태 추가. 이름/설명 행이 `BasicTextField` 대신 `Text` + `pointerInput` 탭 핸들러로 교체됨.
+> `SwipeKeyboardOverlay`는 전체화면 오버레이가 아니라 그래프 `Column` 내부의 `if/else` 분기로 `CurveGraphCanvas`를 대체함 — `Box(Modifier.fillMaxWidth().weight(1f))`로 감싸 그래프와 동일한 공간 점유.
+> `AnimatedContent(currentScreen)` 도입 시 `SwipeKeyboardOverlay`는 `AnimatedContent` 바깥에 배치해야 이름/설명 탭이 정상 동작함 (오버레이가 화면 전환과 독립적으로 표시되어야 함).
+> `SwipeKeyboardOverlay` 시그니처에 `onCancel: () -> Unit = {}` 추가됨 — 취소 탭 시 `showKeyboard = false` 호출.
 
 `AlertDialog` 아이콘 선택 팝업 제거. "아이콘" 행 탭 → 편집기 내부가 아이콘 선택 화면으로 `AnimatedContent` 전환.
 
