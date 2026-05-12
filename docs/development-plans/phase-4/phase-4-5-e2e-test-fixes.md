@@ -1106,42 +1106,134 @@ idle 배경 = tint α0.18, selected 배경 = tint α0.45, selected 테두리 = 2
 
 ---
 
-### Phase 4.5.18.4: 상단 바 및 전체 레이아웃 스타일 통일
+### Phase 4.5.18.4: 편집 화면 레이아웃 재구성 + 글로벌 드래그-호버 액션 그리드
 
-> **⚠️ Phase 4.5.18.3 완료 상태**: `showKeyboard`, `showIconPicker`, `showTemplatePicker` Boolean 3개 상태로 4분기 `when` 블록 운영 중.
-> "템플릿" 진입은 상단 바 `TextButton("템플릿")` → `showTemplatePicker = true` 방식 그대로 유지.
-> 이번 Phase에서 이 3개를 `currentScreen` enum으로 통합하거나, `TextButton("템플릿")` 행 이동 후 `showTemplatePicker`를 그대로 유지하는 방식 모두 가능.
-> `DynamicsCurveEditor.kt`에 `HintLine(symbol, text, accentColor)` file-private composable이 추가됨 — 하단 안내 바 인라인 확인 UI 구현 시 재사용 가능.
+**개발 기간**: 4~5일
 
-상단 바의 Material 버튼을 제거하고 BridgeOne 스타일로 정리. 삭제 확인 AlertDialog 제거.
+**개요**: 편집 화면의 상단 바·이름·설명·아이콘·탭·복사 버튼 등 모든 좌표 직접 클릭 진입점을 제거하고, 화면을 3단 구조(컨텍스트 헤더 + 그래프 풀영역 + 하단 고정 액션 그리드)로 재구성. 화면 어디서든 손가락을 끌면 가장 가까운 액션 버튼이 하이라이트되고 손을 떼면 실행되는 글로벌 드래그-호버 방식으로 조작. 손 이동 반경이 좁은 사용자도 화면 임의 위치에서 모든 동작에 접근 가능.
 
-**상단 바 변경**:
-- `TextButton("템플릿")` 제거 → 이름 입력 행 아래 별도 "템플릿" 항목 행으로 이동 (아이콘 선택 행과 동일한 방식)
-- 저장 `IconButton` → `Text("저장")` 대형 텍스트 (비활성 시 Color.Gray)
-- 취소 `IconButton(Close)` 유지 (크기 및 여백 조정)
+**레이아웃**:
+```
+┌──────────────────────────────────┐
+│ ◆ 마우스1 · 가속 · 저장 가능     │ ← 컨텍스트 헤더 (~28dp)
+├──[BLUE 외곽선]───────────────────┤
+│                                  │
+│         (그래프 weight 1f)       │ ← 표시 전용
+│                                  │
+├──────────────────────────────────┤
+│ [저장][취소][이름][설명][아이콘]   │ ← 액션 그리드 (2×5, ~100dp)
+│ [템플][가속][감속][복사][   ]      │
+└──────────────────────────────────┘
+```
 
-**삭제 확인 AlertDialog 제거**:
-- 노드 롱프레스 → AlertDialog 대신 인라인 확인: 하단 안내 바가 "삭제 확인: 탭 · 취소: 다른 곳 터치"로 교체
-- 500ms 롱프레스 후 안내 바 전환, 다음 탭으로 삭제 실행
+**인터랙션**:
+- `currentScreen == Graph` 상태에서 화면 어디서든 down → move 시 손가락 좌표에서 가장 가까운 액션 버튼 자동 하이라이트(TICK 햅틱). 손 떼면 해당 항목 실행.
+- 비활성 항목 위에서 떼면 REJECT 햅틱, 아무 동작 없음.
+- 키보드·아이콘 피커·템플릿 피커 표시 중에는 글로벌 드래그-호버 비활성.
 
-**수정 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
-  — 상단 바 레이아웃 수정
-  — `showTemplatePicker` 상태 → `currentScreen = TEMPLATE_PICKER` 방식으로 통합
-  — `deleteTargetIndex` AlertDialog 제거, 하단 안내 바 인라인 확인 방식으로 교체
+**컨텍스트 헤더** (신규, 표시 전용, ~28dp):
+- 좌측: 아이콘(16dp) + 프리셋 이름
+- 중앙: 활성 탭 표기 (`가속` / `감속`)
+- 우측: 저장 가능 여부 인디케이터 (녹색 점 = 가능, 회색 점 = 불가)
+
+**액션 그리드 항목** (2×5, 10번째 슬롯은 4.5.18.5 예약):
+
+| 슬롯 | 라벨 | 동작 | 비활성 조건 |
+|---|---|---|---|
+| 0 | 저장 | `onSave(...)` | `!nameValid` |
+| 1 | 취소 | `onDismiss()` | — |
+| 2 | 이름 편집 | `currentScreen = Keyboard("name")` | — |
+| 3 | 설명 편집 | `currentScreen = Keyboard("desc")` | — |
+| 4 | 아이콘 | `currentScreen = IconPicker` | — |
+| 5 | 템플릿 | `currentScreen = TemplatePicker` | — |
+| 6 | 가속 탭 | `activeTab = 0` | `activeTab==0` (현재 강조) |
+| 7 | 감속 탭 | `activeTab = 1` | `activeTab==1` (현재 강조) |
+| 8 | 가속곡선 복사 | `decelCurve = accelCurve.toList()` | `activeTab != 1` |
+| 9 | (예약) | — | 항상 비활성 |
+
+현재 상태 버튼(`isCurrent=true`)은 ACCENT 톤 외곽선 강조.
+
+**그래프 영역**:
+- `CurveGraphCanvas` `weight(1f)` 풀영역. 외곽선 색 = 활성 탭 색(가속=BLUE, 감속=ORANGE).
+- `pointerInput` 완전 제거(빈 곳 탭/드래그/롱프레스 모두). 캔버스는 순수 렌더 전용.
+- 노드 삭제 `AlertDialog` 제거.
+
+**신규 상태**: 기존 `showKeyboard`/`showIconPicker`/`showTemplatePicker` Boolean을 `EditorScreen` enum(Graph / Keyboard / IconPicker / TemplatePicker) 하나로 통합.
 
 **검증**:
-- [ ] 상단 바에 Material 버튼 없이 BridgeOne 스타일로 렌더링 확인
-- [ ] 노드 롱프레스 후 하단 안내 바가 삭제 확인으로 전환 확인
-- [ ] 확인 탭 → 노드 삭제 + 안내 바 복귀 확인
-- [ ] 다른 곳 터치 → 삭제 취소 + 안내 바 복귀 확인
-- [ ] 저장 비활성(이름 비어있음/중복) 시 저장 텍스트 회색 표시 + 탭 무시 확인
+- [ ] 컨텍스트 헤더에 이름·활성 탭·저장 가능 여부 실시간 반영
+- [ ] 이름 변경 후 헤더 텍스트 즉시 갱신
+- [ ] 가속/감속 탭 전환 시 헤더 표기 + 그래프 외곽선 색 동시 변경
+- [ ] 그래프 영역 어디를 탭/드래그/롱프레스해도 노드 무변동
+- [ ] 노드 삭제 다이얼로그 더 이상 등장하지 않음
+- [ ] 그래프 영역에서 드래그 시작 → 가장 가까운 그리드 버튼 자동 하이라이트
+- [ ] 드래그 중 다른 버튼으로 이동 시 호버 갱신 + TICK 햅틱
+- [ ] 손을 떼면 현재 호버 항목 실행 (정상 항목 → CONFIRM 햅틱 + 동작)
+- [ ] 비활성 항목 위에서 떼면 REJECT 햅틱, 무동작
+- [ ] `nameValid=false`일 때 "저장" 비활성 + REJECT 햅틱
+- [ ] 감속 탭에서만 "가속곡선 복사" 활성
+- [ ] 이름/설명/아이콘/템플릿 화면 진입 후 자체 취소 → 그래프 복귀
+- [ ] 키보드/피커 화면에서는 글로벌 드래그-호버 비활성
+- [ ] `currentScreen` enum 단일 상태로 4가지 화면 분기 정상 동작
 
-**신규 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/SwipeKeyboardOverlay.kt`
+---
 
-**수정 파일 종합**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
+### Phase 4.5.18.5: 노드 편집 액션 그리드 + 스텝 조작화
+
+> **⚠️ Phase 4.5.18.4 전제**: `currentScreen` enum(Graph/Keyboard/IconPicker/TemplatePicker), `EditorActionGrid`(2×5 하단 고정 그리드), 글로벌 드래그-호버 제스처 존재. 그래프는 표시 전용(직접 조작 없음). 액션 그리드 슬롯 9번(마지막)은 예약 상태.
+
+**개발 기간**: 3~4일
+
+**개요**: 액션 그리드 슬롯 9번에 "노드 편집" 진입 버튼을 추가하고, 선택 시 그리드 항목이 노드 편집 세트(이전/다음 노드 · X/Y 스텝 · 추가/삭제)로 교체. 글로벌 드래그-호버 제스처는 그대로 사용.
+
+**인터랙션**:
+- 메인 그리드에서 "노드 편집" 선택 → 그리드가 노드 편집 세트로 전환(`gridContext = NodeEdit`). 첫 슬롯 "← 뒤로" 선택 시 메인 그리드 복귀.
+- X−/X+/Y−/Y+ 슬롯 위에서 드래그를 0.4s 이상 유지하면 100ms 간격 키 리피트 발동. 손이 해당 슬롯을 벗어나거나 떼면 즉시 중단.
+
+**노드 편집 그리드 항목** (메인 그리드 교체):
+
+| 슬롯 | 라벨 | 동작 | 비활성 조건 |
+|---|---|---|---|
+| 0 | ← 뒤로 | `gridContext = Main` | — |
+| 1 | 이전 노드 | `selectedNodeIndex = (i-1).coerceAtLeast(0)` | `i==0` |
+| 2 | 다음 노드 | `selectedNodeIndex = (i+1).coerceAtMost(last)` | `i==last` |
+| 3 | X − | `stepNodeX(curve, i, -STEP_V)` | 양 끝 노드 / 인접 gap < MIN_GAP |
+| 4 | X + | `stepNodeX(curve, i, +STEP_V)` | 양 끝 노드 / 인접 gap < MIN_GAP |
+| 5 | Y − | `stepNodeY(curve, i, -STEP_M)` | `multiplier <= 0` |
+| 6 | Y + | `stepNodeY(curve, i, +STEP_M)` | `multiplier >= 6` |
+| 7 | 노드 추가 | 선택 노드 다음 중간 위치에 삽입 | `size >= 7` / 인접 gap < 2×MIN_GAP / 마지막 노드 |
+| 8 | 노드 삭제 | 선택 노드 제거, `selectedNodeIndex = (i-1).coerceAtLeast(0)` | 양 끝 노드 |
+| 9 | 가속↔감속 | `activeTab` 토글, `selectedNodeIndex = 0` | — |
+
+**스텝 크기**:
+- `STEP_V = 0.3f` (`CURVE_MIN_VELOCITY_GAP`과 동일 → 항상 안전한 한 스텝). 기본값: 0.3f
+- `STEP_M = 0.25f` (Y축 격자 1/4 칸, 풀 스윙 24 스텝). 기본값: 0.25f
+
+**제약**:
+- 양 끝 노드(0 / last): X 고정, 삭제 불가 → 해당 항목 자동 비활성
+- 비활성 항목 위에서 떼면 REJECT 햅틱
+- 스텝 헬퍼는 제약 위반 시 `null` 반환 → 호출부에서 REJECT
+
+**선택 노드 시각 강조** (`CurveGraphCanvas`에 `selectedNodeIndex: Int` 파라미터 추가):
+- 일반 노드: 반지름 8dp
+- 선택 노드: 반지름 12dp + 흰색 1.5dp 테두리 링
+- 좌표 라벨: 선택 노드 옆에 `(velocity, multiplier×)` 표시 (예: `(2.4, 1.50×)`)
+
+**신규 상태**: `selectedNodeIndex`(현재 선택된 노드)와 `gridContext`(Main / NodeEdit) 상태 추가. 탭 전환 시 `selectedNodeIndex = 0` 리셋.
+
+**검증**:
+- [ ] 메인 그리드에서 "노드 편집" 선택 시 노드 편집 그리드로 전환
+- [ ] "← 뒤로" 선택 시 메인 그리드 복귀
+- [ ] 선택 노드가 12dp + 흰 테두리로 강조되고 좌표 라벨 표시
+- [ ] 이전/다음 노드로 모든 노드 순회 가능
+- [ ] 양 끝 노드 선택 시 X−/X+/노드 삭제 자동 비활성 + REJECT 햅틱
+- [ ] X+ 시 인접 노드 gap < MIN_GAP이면 진행 차단
+- [ ] Y는 0~6 클램프
+- [ ] `CURVE_MAX_NODES=7`에서 노드 추가 비활성
+- [ ] 가속↔감속 전환 시 `selectedNodeIndex = 0` 리셋
+- [ ] X−/X+/Y−/Y+ 위에서 0.4s 유지 후 100ms 간격 키 리피트 발동
+- [ ] 손이 슬롯을 벗어나거나 떼면 키 리피트 즉시 중단
+- [ ] 스텝 조작 결과가 곡선 렌더링에 즉시 반영
 
 ---
 
