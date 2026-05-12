@@ -1500,7 +1500,7 @@ fun TouchpadWrapper(
             )
         }
 
-        // 엣지 스와이프 팝업 오버레이 (Phase 4.3.12) — 최상단 레이어
+        // 엣지 스와이프 메뉴 오버레이 (Phase 4.3.12) — 최상단 레이어
         EdgeSwipeOverlay(
             visible = showEdgePopup,
             pendingState = pendingEdgeState ?: touchpadState,

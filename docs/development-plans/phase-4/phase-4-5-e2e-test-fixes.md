@@ -565,7 +565,7 @@ WMI 쿼리 `PNPDeviceID LIKE '%VID_303A&PID_4001%'`이 아무 장치도 반환�
   — 스크롤 이벤트 처리(일반·무한)에서 `scrollSpeedLevel` 배율 적용
 
 **검증**:
-- [x] 엣지 스와이프 팝업에 DPI·스크롤 속도·다이나믹스 항목이 표시됨 확인
+- [x] 엣지 스와이프 메뉴에 DPI·스크롤 속도·다이나믹스 항목이 표시됨 확인
 - [x] 각 항목에 현재 값이 보조 라벨로 표시됨 확인
 - [x] DPI 항목 선택 시 `LOW→NORMAL→HIGH→LOW` 순환 확인
 - [x] DPI 변경 후 터치패드 이동 시 PC 커서 속도 차이 확인
@@ -1005,44 +1005,70 @@ private enum class HeaderZone { BACK, NONE }
 
 ---
 
-### Phase 4.5.18.3: 템플릿 선택 스와이프 오버레이
+### Phase 4.5.18.3: 템플릿 선택 스와이프 피커
 
-`AlertDialog` 템플릿 선택 팝업 제거. 템플릿 항목을 스와이프로 순환, 탭으로 적용.
+> **⚠️ Phase 4.5.18.2 변경사항**: `DynamicsCurveEditor`의 그래프 영역이 `when { showKeyboard / showIconPicker / else }` 3분기 구조로 이미 전환됨.
+> 이번 Phase는 이 분기에 `showTemplatePicker` 조건을 추가해 4분기로 확장.
 
-**오버레이 구조 (DynamicsPresetPopup CONFIRM 단계 참고)**:
+`AlertDialog` 템플릿 선택 팝업 제거. "템플릿" 행 탭 → 그래프 영역을 `TemplatePickerContent`로 대체 (`showTemplatePicker: Boolean` 상태, `when` 분기). 4.5.18.2 아이콘 피커와 동일한 진입·확정 방식.
+
+**화면 구조**:
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  (반투명 배경)                                       │
+│ [←] 템플릿 선택           {index+1}/{total}          │  ← 헤더 (탭 전용)
+├──────────────────────────────────────────────────────┤
 │                                                      │
-│  ┌────────────────────────────────────┐              │
-│  │  [템플릿 아이콘]                   │              │
-│  │  템플릿 이름                       │              │
-│  │  템플릿 설명                         │              │
-│  │                                    │              │
-│  │  적용    취소                        │  ← 스와이프  │
-│  └────────────────────────────────────┘              │
-│  ◀▶ 스와이프로 템플릿 이동                           │
+│  [아이콘]  템플릿 이름                               │
+│            템플릿 설명 (2~3줄)                       │  ← 현재 선택 항목 카드
+│                                                      │
+│  ● ○ ○ ○ ○  (선택 위치 표시 점)                     │
+│                                                      │
+├──────────────────────────────────────────────────────┤
+│  ↔ 드래그하여 이동  |  ⊙ 탭하면 적용                 │
+│  ↑ 위로 스와이프하면 뒤로                             │
 └──────────────────────────────────────────────────────┘
 ```
 
-- 좌우 스와이프로 템플릿 목록 순환
-- 탭으로 "적용" / "취소" 확정
+**인터랙션 모델 (4.5.18.2와 동일한 2단계 확정)**:
+- 1단계: 손가락 down→move→up → `selectedIndex` 이동 (`dx / totalW * itemCount` → `indexDelta`), `awaitingConfirm = true`
+- 2단계: 탭 (이동 없는 down→up, 10dp 미만) → 현재 `selectedIndex` 확정 + `onSelect(template)` 호출
+- 카드 상단 영역에서 위로 스와이프: 헤더 영역 진입 → 탭 시 `onClose()` 호출
+- 항목 전환 시마다 `CLOCK_TICK` 햅틱
+
+**시각 상태 (4.5.18.2와 동일한 3단계)**:
+
+| 상태 | 카드 배경 | 테두리 |
+|------|-----------|--------|
+| idle | `White.copy(0.06f)` | 없음 |
+| selected | `ACCENT_BLUE.copy(0.28f)` | `1.5dp ACCENT_BLUE` |
+| selected + awaitingConfirm | `ACCENT_BLUE.copy(0.38f)` | `2dp White.copy(0.9f)` |
+
+헤더 Back 영역도 동일한 3단계 강조 (idle / hovered / awaitingConfirm) 적용.
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
+  — `showTemplatePicker: Boolean` 상태 추가
+  — `when { showKeyboard / showIconPicker / showTemplatePicker / else }` 4분기로 확장
+  — `TemplatePickerContent` private Composable 신규 추가 (`TemplatePickerOverlay` 대체)
   — `showTemplatePicker` AlertDialog 제거
-  — `TemplatePickerOverlay` private Composable 신규 추가
 
 **검증**:
-- [ ] 템플릿 선택 진입 시 스와이프 오버레이 등장 확인
-- [ ] 좌우 스와이프로 템플릿 순환 확인
-- [ ] 적용 탭 → 가속/감속 곡선 교체 확인
-- [ ] 취소 탭 → 곡선 변경 없이 오버레이 닫힘 확인
+- [x] "템플릿" 행 탭 → 그래프 영역이 템플릿 피커로 교체 확인
+- [x] 드래그 → `selectedIndex` 이동, 카드 내용·위치 점 업데이트 확인
+- [x] 드래그 후 release → `awaitingConfirm = true`, 흰 테두리 강조 확인
+- [x] 두 번째 탭 → 해당 템플릿 적용 + 그래프 복귀 확인
+- [x] 카드 상단에서 위로 스와이프 → 헤더 진입, 탭으로 `onClose()` 호출 확인
+- [x] 항목 전환 시마다 CLOCK_TICK 햅틱 확인
+- [x] 전체 템플릿 항목 도달 가능 확인
 
 ---
 
 ### Phase 4.5.18.4: 상단 바 및 전체 레이아웃 스타일 통일
+
+> **⚠️ Phase 4.5.18.3 현재 상태**: 현재 `showKeyboard`, `showIconPicker`, `showTemplatePicker` Boolean 3개 상태로 4분기 `when` 블록 운영 중.
+> "템플릿" 진입은 여전히 상단 바 `TextButton("템플릿")` → `showTemplatePicker = true` 방식.
+> 이번 Phase에서 이 3개를 `currentScreen` enum으로 통합하거나, `TextButton("템플릿")` 행 이동 후 `showTemplatePicker`를 그대로 유지하는 방식 모두 가능.
 
 상단 바의 Material 버튼을 제거하고 BridgeOne 스타일로 정리. 삭제 확인 AlertDialog 제거.
 
