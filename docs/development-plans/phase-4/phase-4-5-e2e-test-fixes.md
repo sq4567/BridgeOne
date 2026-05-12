@@ -1010,65 +1010,108 @@ private enum class HeaderZone { BACK, NONE }
 > **⚠️ Phase 4.5.18.2 변경사항**: `DynamicsCurveEditor`의 그래프 영역이 `when { showKeyboard / showIconPicker / else }` 3분기 구조로 이미 전환됨.
 > 이번 Phase는 이 분기에 `showTemplatePicker` 조건을 추가해 4분기로 확장.
 
-`AlertDialog` 템플릿 선택 팝업 제거. "템플릿" 행 탭 → 그래프 영역을 `TemplatePickerContent`로 대체 (`showTemplatePicker: Boolean` 상태, `when` 분기). 4.5.18.2 아이콘 피커와 동일한 진입·확정 방식.
+`AlertDialog` 템플릿 선택 팝업 제거. "템플릿" 행 탭 → 그래프 영역을 `TemplatePickerContent`로 대체.
 
-**화면 구조**:
+**구현된 화면 구조**:
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ [←] 템플릿 선택           {index+1}/{total}          │  ← 헤더 (탭 전용)
+│ [←] 템플릿 선택                                      │  ← 헤더 (뒤로가기 박스 선택 시 흰 테두리 강조)
 ├──────────────────────────────────────────────────────┤
 │                                                      │
-│  [아이콘]  템플릿 이름                               │
-│            템플릿 설명 (2~3줄)                       │  ← 현재 선택 항목 카드
+│        ┌──────┐  ┌──────┐                            │
+│        │  ⚙   │  │  ⊙   │   ← 정사각형 아이콘 박스   │
+│        └──────┘  └──────┘     (템플릿별 고유 색상)   │
+│         균형      정밀 우선  ← 라벨 (카드 외부 하단)  │
 │                                                      │
-│  ● ○ ○ ○ ○  (선택 위치 표시 점)                     │
+│        ┌──────┐  ┌──────┐                            │
+│        │  ⚡  │  │  ⊕   │                            │
+│        └──────┘  └──────┘                            │
+│         빠른이동  손떨림방지                          │
 │                                                      │
 ├──────────────────────────────────────────────────────┤
-│  ↔ 드래그하여 이동  |  ⊙ 탭하면 적용                 │
-│  ↑ 위로 스와이프하면 뒤로                             │
+│  ↔  좌우 스와이프로 카드 선택                        │  ← 안내 박스 (라운드 반투명 컨테이너)
+│  ↑  맨 윗줄에서 위로 스와이프해 뒤로 가기 선택       │
+│  ⊙  탭하면 확정 화면으로 이동                        │
 └──────────────────────────────────────────────────────┘
 ```
 
-**인터랙션 모델 (4.5.18.2와 동일한 2단계 확정)**:
-- 1단계: 손가락 down→move→up → `selectedIndex` 이동 (`dx / totalW * itemCount` → `indexDelta`), `awaitingConfirm = true`
-- 2단계: 탭 (이동 없는 down→up, 10dp 미만) → 현재 `selectedIndex` 확정 + `onSelect(template)` 호출
-- 카드 상단 영역에서 위로 스와이프: 헤더 영역 진입 → 탭 시 `onClose()` 호출
-- 항목 전환 시마다 `CLOCK_TICK` 햅틱
+카드 탭 시 확정 화면(CONFIRM phase)으로 전환:
 
-**시각 상태 (4.5.18.2와 동일한 3단계)**:
+```
+┌──────────────────────────────────────────────────────┐
+│ [←] 템플릿 선택                                      │
+├──────────────────────────────────────────────────────┤
+│                                                      │
+│              ┌──────────┐                            │
+│              │    ⚙     │  ← 80dp 아이콘 박스 (선택  │
+│              └──────────┘    템플릿 고유 색상)        │
+│               균 형                                  │
+│          가속·감속 모두 완만하게...                  │
+│                                                      │
+│              취소   확정                             │  ← 좌우 스와이프 선택 + 탭 확정
+│                                                      │
+├──────────────────────────────────────────────────────┤
+│  ◀▶  좌우 스와이프로 옵션 선택                       │
+│  ⊙   탭하면 현재 옵션 적용                           │
+└──────────────────────────────────────────────────────┘
+```
 
-| 상태 | 카드 배경 | 테두리 |
-|------|-----------|--------|
-| idle | `White.copy(0.06f)` | 없음 |
-| selected | `ACCENT_BLUE.copy(0.28f)` | `1.5dp ACCENT_BLUE` |
-| selected + awaitingConfirm | `ACCENT_BLUE.copy(0.38f)` | `2dp White.copy(0.9f)` |
+**인터랙션 모델**:
 
-헤더 Back 영역도 동일한 3단계 강조 (idle / hovered / awaitingConfirm) 적용.
+GRID phase:
+- 좌우/상하 스와이프 (60dp step) → `selectedIndex` 이동 (2×2 그리드 내 행·열 이동)
+- 첫 번째 행에서 위 스와이프 → `selectedIndex = -1` (back state): 헤더 뒤로가기 박스 selected 강조, 카드 전부 idle
+- back state에서 탭 → `onClose()`
+- back state에서 아래 스와이프 → idx 0(좌상단 카드) 복귀
+- 카드 탭(10dp 미만) → CONFIRM phase 전환 + 선택 카드 위치에서 scaleIn 모핑 애니메이션
+- 스텝 이동마다 `CLOCK_TICK` 햅틱
+
+CONFIRM phase:
+- 좌우 스와이프 (30dp step) → 취소(0) / 확정(1) 토글
+- 범위 초과 시 `REJECT` 햅틱 (API R+)
+- 탭: 취소 선택 시 GRID 복귀, 확정 선택 시 `onSelect(template)` + `CONFIRM` 햅틱
+
+**템플릿 색상**:
+
+| 템플릿 id | 색상 |
+|---|---|
+| `template_balanced` | `#4F8EF7` (블루) |
+| `template_precision` | `#4CAF50` (그린) |
+| `template_fast` | `#FF9800` (오렌지) |
+| `template_stable` | `#26A69A` (티얼) |
+
+idle 배경 = tint α0.18, selected 배경 = tint α0.45, selected 테두리 = 2dp tint
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
-  — `showTemplatePicker: Boolean` 상태 추가
-  — `when { showKeyboard / showIconPicker / showTemplatePicker / else }` 4분기로 확장
-  — `TemplatePickerContent` private Composable 신규 추가 (`TemplatePickerOverlay` 대체)
-  — `showTemplatePicker` AlertDialog 제거
+  — `TemplatePhase { GRID, CONFIRM }` enum + `TemplateAccent` data class + `TEMPLATE_ACCENTS` map 추가
+  — `TemplatePickerContent` 전면 재작성 (2×2 그리드 + CONFIRM phase + 위 스와이프 뒤로가기)
+  — `TemplateSquareCard` composable (정사각 아이콘 박스 형태)
+  — `HintLine` composable (안내 박스 내 줄 단위 항목)
+  — 그리드 동적화: 템플릿 수 증가 시 자동으로 행 추가 (`templates.chunked(2)`)
 
 **검증**:
-- [x] "템플릿" 행 탭 → 그래프 영역이 템플릿 피커로 교체 확인
-- [x] 드래그 → `selectedIndex` 이동, 카드 내용·위치 점 업데이트 확인
-- [x] 드래그 후 release → `awaitingConfirm = true`, 흰 테두리 강조 확인
-- [x] 두 번째 탭 → 해당 템플릿 적용 + 그래프 복귀 확인
-- [x] 카드 상단에서 위로 스와이프 → 헤더 진입, 탭으로 `onClose()` 호출 확인
-- [x] 항목 전환 시마다 CLOCK_TICK 햅틱 확인
-- [x] 전체 템플릿 항목 도달 가능 확인
+- [x] "템플릿" 행 탭 → 그래프 영역이 2×2 카드 그리드로 교체 확인
+- [x] 좌우/상하 스와이프로 카드 선택 이동 + CLOCK_TICK 햅틱 확인
+- [x] 카드 탭 → CONFIRM phase 전환 (선택 카드 위치에서 scaleIn 애니메이션) 확인
+- [x] CONFIRM: 좌우 스와이프로 취소/확정 토글 + 범위 초과 REJECT 햅틱 확인
+- [x] CONFIRM: 확정 탭 → 템플릿 적용 + 그래프 복귀 확인
+- [x] CONFIRM: 취소 탭 → GRID 복귀 확인
+- [x] 첫 번째 행에서 위 스와이프 → back state (헤더 박스 강조, 카드 idle) 확인
+- [x] back state 탭 → onClose() 확인
+- [x] back state 아래 스와이프 → 좌상단 카드 복귀 확인
+- [x] 안내 박스: 라운드 반투명 컨테이너 안에 GRID 3줄 / CONFIRM 2줄 표시 확인
+- [x] 4가지 템플릿 색상(블루/그린/오렌지/티얼) 정상 표시 확인
 
 ---
 
 ### Phase 4.5.18.4: 상단 바 및 전체 레이아웃 스타일 통일
 
-> **⚠️ Phase 4.5.18.3 현재 상태**: 현재 `showKeyboard`, `showIconPicker`, `showTemplatePicker` Boolean 3개 상태로 4분기 `when` 블록 운영 중.
-> "템플릿" 진입은 여전히 상단 바 `TextButton("템플릿")` → `showTemplatePicker = true` 방식.
+> **⚠️ Phase 4.5.18.3 완료 상태**: `showKeyboard`, `showIconPicker`, `showTemplatePicker` Boolean 3개 상태로 4분기 `when` 블록 운영 중.
+> "템플릿" 진입은 상단 바 `TextButton("템플릿")` → `showTemplatePicker = true` 방식 그대로 유지.
 > 이번 Phase에서 이 3개를 `currentScreen` enum으로 통합하거나, `TextButton("템플릿")` 행 이동 후 `showTemplatePicker`를 그대로 유지하는 방식 모두 가능.
+> `DynamicsCurveEditor.kt`에 `HintLine(symbol, text, accentColor)` file-private composable이 추가됨 — 하단 안내 바 인라인 확인 UI 구현 시 재사용 가능.
 
 상단 바의 Material 버튼을 제거하고 BridgeOne 스타일로 정리. 삭제 확인 AlertDialog 제거.
 
@@ -1093,8 +1136,6 @@ private enum class HeaderZone { BACK, NONE }
 - [ ] 확인 탭 → 노드 삭제 + 안내 바 복귀 확인
 - [ ] 다른 곳 터치 → 삭제 취소 + 안내 바 복귀 확인
 - [ ] 저장 비활성(이름 비어있음/중복) 시 저장 텍스트 회색 표시 + 탭 무시 확인
-
----
 
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/SwipeKeyboardOverlay.kt`

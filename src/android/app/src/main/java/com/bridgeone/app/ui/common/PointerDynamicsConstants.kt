@@ -77,6 +77,8 @@ object CurveEditorConstants {
     const val CURVE_SNAP_THRESHOLD_DP = 12f
     /** 노드 추가 시 인접 노드와의 최소 거리 (dp). 기본값: 8f */
     const val CURVE_ADD_MIN_DP = 8f
+    /** 템플릿 피커에서 항목 한 칸 이동에 필요한 스와이프 거리 (dp). 기본값: 60f */
+    const val TEMPLATE_PICKER_SWIPE_STEP_DP = 60f
 }
 
 /** 기본 커브: 배율 1.0 직선 (기존 코드 호환용) */
@@ -146,9 +148,27 @@ const val DEFAULT_PRESET_INDEX = 0
 
 val CUSTOM_PRESET_TEMPLATES: List<CustomPointerDynamicsPreset> = listOf(
     CustomPointerDynamicsPreset(
+        id = "template_balanced",
+        name = "균형",
+        description = "가속·감속 모두 완만하게 올라가는 범용 커브. 특별한 니즈 없을 때 기본으로 추천.",
+        iconKey = "tune",
+        accelerationCurve = listOf(
+            CurveNode(0f, 1.0f),
+            CurveNode(2f, 1.8f),
+            CurveNode(4f, 3.0f),
+            CurveNode(6f, 4.5f)
+        ),
+        decelerationCurve = listOf(
+            CurveNode(0f, 1.0f),
+            CurveNode(3f, 2.0f),
+            CurveNode(6f, 3.0f)
+        )
+    ),
+    CustomPointerDynamicsPreset(
         id = "template_precision",
         name = "정밀 우선",
         description = "느리게 움직일 때는 배율 낮게 유지해 정밀 조작에 유리. 빠르게 움직일 때만 커서가 빨라짐.",
+        iconKey = "gps_fixed",
         accelerationCurve = listOf(
             CurveNode(0f, 1.0f),
             CurveNode(1f, 1.0f),
@@ -164,6 +184,7 @@ val CUSTOM_PRESET_TEMPLATES: List<CustomPointerDynamicsPreset> = listOf(
         id = "template_fast",
         name = "빠른 이동",
         description = "중간 속도부터 배율이 급격히 올라가 넓은 화면을 빠르게 가로지르기 좋음. 정밀 조작은 어려움.",
+        iconKey = "bolt",
         accelerationCurve = listOf(
             CurveNode(0f, 1.0f),
             CurveNode(2f, 2.0f),
@@ -181,6 +202,7 @@ val CUSTOM_PRESET_TEMPLATES: List<CustomPointerDynamicsPreset> = listOf(
         id = "template_stable",
         name = "손 떨림 방지",
         description = "감속 배율을 낮게 설정해 손가락이 멈출 때 커서가 튀지 않고 안정적으로 정착함.",
+        iconKey = "center_focus",
         accelerationCurve = listOf(
             CurveNode(0f, 1.0f),
             CurveNode(1.5f, 1.0f),
