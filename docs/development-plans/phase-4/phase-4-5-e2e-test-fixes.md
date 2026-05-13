@@ -1110,71 +1110,96 @@ idle 배경 = tint α0.18, selected 배경 = tint α0.45, selected 테두리 = 2
 
 **개발 기간**: 4~5일
 
-**개요**: 편집 화면의 상단 바·이름·설명·아이콘·탭·복사 버튼 등 모든 좌표 직접 클릭 진입점을 제거하고, 화면을 3단 구조(컨텍스트 헤더 + 그래프 풀영역 + 하단 고정 액션 그리드)로 재구성. 화면 어디서든 손가락을 끌면 가장 가까운 액션 버튼이 하이라이트되고 손을 떼면 실행되는 글로벌 드래그-호버 방식으로 조작. 손 이동 반경이 좁은 사용자도 화면 임의 위치에서 모든 동작에 접근 가능.
+**개요**: 편집 화면의 모든 좌표 직접 클릭 진입점을 제거하고, 화면을 3단 구조(MetaCard + 그래프 + 하단 고정 액션 그리드)로 재구성. 화면 어디서든 손가락을 끌면 가장 가까운 액션 버튼이 하이라이트되고 손을 떼면 실행되는 글로벌 드래그-호버 방식으로 조작. 손 이동 반경이 좁은 사용자도 화면 임의 위치에서 모든 동작에 접근 가능.
 
 **레이아웃**:
 ```
-┌──────────────────────────────────┐
-│ ◆ 마우스1 · 가속 · 저장 가능     │ ← 컨텍스트 헤더 (~28dp)
-├──[BLUE 외곽선]───────────────────┤
-│                                  │
-│         (그래프 weight 1f)       │ ← 표시 전용
-│                                  │
-├──────────────────────────────────┤
-│ [저장][취소][이름][설명][아이콘]   │ ← 액션 그리드 (2×5, ~100dp)
-│ [템플][가속][감속][복사][   ]      │
-└──────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│ [◆아이콘] │ 이름         │ [템플릿▣]    │ ← MetaCard (56dp)
+│           │──────────────│              │   좌·우 슬롯은 전체 높이 차지
+│           │ 설명 추가... │              │
+├────[8dp 좌우 패딩]───────────────────────┤
+│                                          │
+│              (그래프 weight 1f)          │ ← 탭 전환 시 수평 슬라이드 애니메이션
+│                                          │
+├──────────────────────────────────────────┤
+│  [ 가속 ]  │  [→감속복사]  │  [ 감속 ]  │ ← CurveCard
+├──────────────────────────────────────────┤
+│         [ 취소 ]      [ 저장 ]           │ ← ActionCard
+└──────────────────────────────────────────┘
 ```
 
-**인터랙션**:
-- `currentScreen == Graph` 상태에서 화면 어디서든 down → move 시 손가락 좌표에서 가장 가까운 액션 버튼 자동 하이라이트(TICK 햅틱). 손 떼면 해당 항목 실행.
-- 비활성 항목 위에서 떼면 REJECT 햅틱, 아무 동작 없음.
-- 키보드·아이콘 피커·템플릿 피커 표시 중에는 글로벌 드래그-호버 비활성.
+슬롯 간 구분선: MetaCard 아이콘↔이름, 이름↔설명(가로선), 이름↔템플릿 / CurveCard 각 슬롯 사이.
 
-**컨텍스트 헤더** (신규, 표시 전용, ~28dp):
-- 좌측: 아이콘(16dp) + 프리셋 이름
-- 중앙: 활성 탭 표기 (`가속` / `감속`)
-- 우측: 저장 가능 여부 인디케이터 (녹색 점 = 가능, 회색 점 = 불가)
-
-**액션 그리드 항목** (2×5, 10번째 슬롯은 4.5.18.5 예약):
+**슬롯 인덱스 및 `ACTION_ROW_SLOTS` 매핑**:
 
 | 슬롯 | 라벨 | 동작 | 비활성 조건 |
 |---|---|---|---|
-| 0 | 저장 | `onSave(...)` | `!nameValid` |
-| 1 | 취소 | `onDismiss()` | — |
-| 2 | 이름 편집 | `currentScreen = Keyboard("name")` | — |
-| 3 | 설명 편집 | `currentScreen = Keyboard("desc")` | — |
-| 4 | 아이콘 | `currentScreen = IconPicker` | — |
-| 5 | 템플릿 | `currentScreen = TemplatePicker` | — |
-| 6 | 가속 탭 | `activeTab = 0` | `activeTab==0` (현재 강조) |
-| 7 | 감속 탭 | `activeTab = 1` | `activeTab==1` (현재 강조) |
-| 8 | 가속곡선 복사 | `decelCurve = accelCurve.toList()` | `activeTab != 1` |
-| 9 | (예약) | — | 항상 비활성 |
+| 0 | 아이콘 | `currentScreen = IconPicker` | — |
+| 1 | 이름 | `currentScreen = Keyboard("name")` | — |
+| 2 | 설명 | `currentScreen = Keyboard("desc")` | — |
+| 3 | 템플릿 | `currentScreen = TemplatePicker` | — |
+| 4 | 가속 | `activeTab = 0` | `activeTab==0` (현재 강조) |
+| 5 | 감속 | `activeTab = 1` | `activeTab==1` (현재 강조) |
+| 6 | →감속복사 | `decelCurve = accelCurve.toList(); activeTab = 1` | `activeTab != 0` |
+| 7 | 취소 | `onDismiss()` | — |
+| 8 | 저장 | `onSave(...)` | `!nameValid` |
 
-현재 상태 버튼(`isCurrent=true`)은 ACCENT 톤 외곽선 강조.
+```kotlin
+private val ACTION_ROW_SLOTS = listOf(
+    listOf(0, 1, 3),   // Row 0: MetaCard 상단 (아이콘·이름·템플릿)
+    listOf(2, 3),      // Row 1: MetaCard 하단 (설명·템플릿)
+    listOf(4, 6, 5),   // Row 2: CurveCard (가속·복사·감속) — 기준 행
+    listOf(7, 8)       // Row 3: ActionCard (취소·저장)
+)
+```
+
+`resolveSlot()`: CurveCard(row 2)를 기준 행으로, `stepPx`(= `ACTION_GRID_SWIPE_STEP_DP`) 단위 dx/dy로 인덱스 계산.
+
+**인터랙션**:
+- `currentScreen == Graph` 상태에서 화면 어디서든 down → move 시 `resolveSlot()` 으로 가장 가까운 슬롯 자동 하이라이트(TICK 햅틱). 손 떼면 `awaitingConfirm = true`.
+- `awaitingConfirm` 상태에서 탭 → 해당 슬롯 실행 (CONFIRM / REJECT 햅틱).
+- 비활성 항목 위에서 떼면 REJECT 햅틱, 아무 동작 없음.
+- 서브메뉴(키보드·아이콘 피커·템플릿 피커) 표시 중에는 글로벌 드래그-호버 비활성 (`isGraphScreen` 게이트).
+
+**탭 전환 애니메이션**: 가속↔감속 전환 시 `AnimatedContent` + `slideInHorizontally` / `slideOutHorizontally` (250ms). 가속→감속 복사 버튼 실행 시 자동으로 감속 탭으로 전환.
 
 **그래프 영역**:
-- `CurveGraphCanvas` `weight(1f)` 풀영역. 외곽선 색 = 활성 탭 색(가속=BLUE, 감속=ORANGE).
-- `pointerInput` 완전 제거(빈 곳 탭/드래그/롱프레스 모두). 캔버스는 순수 렌더 전용.
-- 노드 삭제 `AlertDialog` 제거.
+- `CurveGraphCanvas` `weight(1f)`. 좌우 컨테이너 패딩 8dp.
+- `pointerInput` 없음. 순수 렌더 전용.
 
-**신규 상태**: 기존 `showKeyboard`/`showIconPicker`/`showTemplatePicker` Boolean을 `EditorScreen` enum(Graph / Keyboard / IconPicker / TemplatePicker) 하나로 통합.
+**서브메뉴 풀스크린 오버레이 + 외부 카드 비활성 표시**:
+- 서브메뉴 진입 시 `Column`(MetaCard + 그래프 + ActionGrid) 위에 `Box.fillMaxSize()` 오버레이로 서브메뉴 렌더. z-order 상위 → 화면 어디서든 스와이프 가능.
+- 서브메뉴 활성 시 MetaCard·EditorActionGrid에 `Modifier.alpha(0.35f)` 적용해 비활성 시각화.
+- IconPicker·TemplatePicker 내부 SURFACE 컬럼에 `padding(top=64.dp, bottom=98.dp)` 적용해 시각 영역은 그래프 슬롯 위치에 집중, 외곽은 투명 유지.
+- `SwipeKeyboardOverlay`는 자체 풀스크린 불투명 배경 유지.
+
+**서브메뉴 상태 유지**:
+- `savedIconCell: IconCellPos?`, `savedTemplateIndex: Int` 를 `DynamicsCurveEditor` 수준에서 관리.
+- 서브메뉴 재진입 시 마지막 커서 위치 복원.
+- 서브메뉴 종료(확정·취소 모두) 시 해당 슬롯을 `awaitingConfirm = true` 상태로 복귀.
+
+**초기 상태**: 편집기 진입 시 `hoveredSlot = 0`, `awaitingConfirm = true` (아이콘 슬롯 선택 상태로 시작).
+
+**신규 상태**: 기존 `showKeyboard`/`showIconPicker`/`showTemplatePicker` Boolean을 `EditorScreen` sealed class(Graph / Keyboard / IconPicker / TemplatePicker) 하나로 통합.
 
 **검증**:
-- [ ] 컨텍스트 헤더에 이름·활성 탭·저장 가능 여부 실시간 반영
-- [ ] 이름 변경 후 헤더 텍스트 즉시 갱신
-- [ ] 가속/감속 탭 전환 시 헤더 표기 + 그래프 외곽선 색 동시 변경
-- [ ] 그래프 영역 어디를 탭/드래그/롱프레스해도 노드 무변동
-- [ ] 노드 삭제 다이얼로그 더 이상 등장하지 않음
-- [ ] 그래프 영역에서 드래그 시작 → 가장 가까운 그리드 버튼 자동 하이라이트
-- [ ] 드래그 중 다른 버튼으로 이동 시 호버 갱신 + TICK 햅틱
-- [ ] 손을 떼면 현재 호버 항목 실행 (정상 항목 → CONFIRM 햅틱 + 동작)
-- [ ] 비활성 항목 위에서 떼면 REJECT 햅틱, 무동작
-- [ ] `nameValid=false`일 때 "저장" 비활성 + REJECT 햅틱
-- [ ] 감속 탭에서만 "가속곡선 복사" 활성
-- [ ] 이름/설명/아이콘/템플릿 화면 진입 후 자체 취소 → 그래프 복귀
-- [ ] 키보드/피커 화면에서는 글로벌 드래그-호버 비활성
-- [ ] `currentScreen` enum 단일 상태로 4가지 화면 분기 정상 동작
+- [x] MetaCard: 아이콘·이름·설명·템플릿 슬롯 3열 레이아웃, 좌·우 슬롯 전체 높이 차지
+- [x] MetaCard 및 CurveCard 슬롯 간 구분선 표시
+- [x] 가속/감속 탭 전환 시 그래프 수평 슬라이드 애니메이션
+- [x] 가속→감속 복사 실행 시 자동으로 감속 탭 전환
+- [x] 그래프 영역 어디를 탭/드래그해도 노드 무변동
+- [x] 화면 어디서든 드래그 시작 → `resolveSlot()` 으로 슬롯 자동 하이라이트
+- [x] 드래그 중 다른 슬롯으로 이동 시 호버 갱신 + TICK 햅틱
+- [x] 손 떼면 `awaitingConfirm = true`, 이후 탭으로 실행
+- [x] 비활성 항목 실행 시 REJECT 햅틱, 무동작
+- [x] `nameValid=false`일 때 "저장" 비활성
+- [x] 서브메뉴 진입 시 MetaCard·ActionGrid alpha 0.35 적용
+- [x] 서브메뉴 활성 중 화면 어디서든 스와이프로 해당 메뉴 조작
+- [x] 서브메뉴 재진입 시 이전 커서 위치 복원
+- [x] 서브메뉴 종료 후 해당 슬롯 `awaitingConfirm` 강조 상태 복귀
+- [x] 편집기 최초 진입 시 아이콘 슬롯(0) 선택 상태로 시작
+- [x] `currentScreen` sealed class 단일 상태로 4가지 화면 분기 정상 동작
 
 ---
 

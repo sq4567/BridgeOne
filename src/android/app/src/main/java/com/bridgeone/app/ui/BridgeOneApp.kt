@@ -102,6 +102,7 @@ fun BridgeOneApp() {
 
     // [DEV] 임시 모드 전환 상태 (USB 연결 없이 UI 테스트용)
     var devMode by remember { mutableStateOf<BridgeMode>(BridgeMode.STANDARD) }
+    var isCurveEditorVisible by remember { mutableStateOf(false) }
 
     // Splash 완료 콜백
     val onSplashFinished = remember {
@@ -273,12 +274,14 @@ fun BridgeOneApp() {
                     ) {
                         when (state.bridgeMode) {
                             BridgeMode.ESSENTIAL -> EssentialModePage()
-                            BridgeMode.STANDARD -> StandardModePage()
+                            BridgeMode.STANDARD -> StandardModePage(
+                                onCurveEditorVisibleChange = { isCurveEditorVisible = it }
+                            )
                         }
                     }
 
-                    // [DEV] 임시 모드 전환 버튼 (좌상단 고정)
-                    if (DEV_SKIP_CONNECTION) {
+                    // [DEV] 임시 모드 전환 버튼 (좌상단 고정, 편집기 열려있으면 숨김)
+                    if (DEV_SKIP_CONNECTION && !isCurveEditorVisible) {
                         val nextMode = if (state.bridgeMode == BridgeMode.ESSENTIAL) BridgeMode.STANDARD else BridgeMode.ESSENTIAL
                         val btnColor = if (state.bridgeMode == BridgeMode.ESSENTIAL) Color(0xFF1565C0) else Color(0xFF6A1B9A)
                         Button(

@@ -8,19 +8,20 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,15 +32,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -56,6 +53,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -64,6 +62,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.components.SwipeKeyboardOverlay
@@ -92,6 +91,44 @@ private val LABEL_COLOR = Color(0xFF888888)
 
 private const val NAME_MAX_LEN = 12
 private const val DESC_MAX_LEN = 50
+
+// ─────────────────────────────────────────────────────────────
+// 화면 상태 (Phase 4.5.18.4: Boolean 3개 → sealed class 1개)
+// ─────────────────────────────────────────────────────────────
+
+private sealed class EditorScreen {
+    object Graph : EditorScreen()
+    data class Keyboard(val target: String) : EditorScreen() // "name" | "desc"
+    object IconPicker : EditorScreen()
+    object TemplatePicker : EditorScreen()
+}
+
+// ─────────────────────────────────────────────────────────────
+// 액션 그리드 슬롯 모델
+// ─────────────────────────────────────────────────────────────
+
+private enum class SlotStyle { NORMAL, PRIMARY, SECONDARY, SEGMENT_LEFT, SEGMENT_RIGHT }
+
+private data class ActionSlot(
+    val label: String,
+    val enabled: Boolean,
+    val isCurrent: Boolean = false,
+    val previewText: String = "",
+    val iconKey: String = "",
+    val style: SlotStyle = SlotStyle.NORMAL
+)
+
+// 슬롯 인덱스 → row 매핑. 시각적 위치와 스와이프 방향 일치.
+// Row 0 (MetaCard 상단): 0=아이콘, 1=이름, 3=템플릿
+// Row 1 (MetaCard 하단): 2=설명, 3=템플릿
+// Row 2 (CurveCard, 기준): 4=가속, 6=→복사, 5=감속
+// Row 3 (ActionCard): 7=취소, 8=저장
+private val ACTION_ROW_SLOTS = listOf(
+    listOf(0, 1, 3),
+    listOf(2, 3),
+    listOf(4, 6, 5),
+    listOf(7, 8)
+)
 
 // ─────────────────────────────────────────────────────────────
 // 아이콘 선택 — 셀 모델
@@ -139,7 +176,28 @@ private fun findColAtFracX(fracX: Float, row: IconRow): Int =
     (fracX * row.cells.size).toInt().coerceIn(0, row.cells.lastIndex)
 
 /**
- * 커스텀 포인터 다이나믹스 프리셋 그래프 편집기 (Phase 4.5.16)
+ * 3행 가변 슬롯 매핑. 고정 stepPx 단위 이동량 기반.
+ * 수평·수직 모두 stepPx 이동 시 인접 슬롯 한 칸 이동.
+ * 시작 기준: row=1(커브), 각 행의 왼쪽 중심 열((cols-1)/2).
+ * 위 스와이프 → 메타 카드(row 0), 아래 스와이프 → 액션 카드(row 2).
+ */
+private fun resolveSlot(
+    fingerPos: Offset,
+    startPos: Offset,
+    stepPx: Float
+): Int {
+    val dx = fingerPos.x - startPos.x
+    val dy = fingerPos.y - startPos.y
+    val startRow = 2  // CurveCard = 기준 행
+    val row = (startRow + (dy / stepPx).roundToInt()).coerceIn(0, ACTION_ROW_SLOTS.lastIndex)
+    val cols = ACTION_ROW_SLOTS[row].size
+    val startCol = (cols - 1) / 2  // 3열→1(이름/감속), 1열→0(설명), 2열→0(취소)
+    val col = (startCol + (dx / stepPx).roundToInt()).coerceIn(0, cols - 1)
+    return ACTION_ROW_SLOTS[row][col]
+}
+
+/**
+ * 커스텀 포인터 다이나믹스 프리셋 그래프 편집기
  *
  * 전체 화면 오버레이 Composable. null preset = 신규 생성, non-null = 편집.
  *
@@ -173,334 +231,622 @@ fun DynamicsCurveEditor(
         mutableStateOf(initialPreset?.decelerationCurve ?: defaultDecelerationCurve())
     }
     var activeTab by remember { mutableIntStateOf(0) } // 0=가속, 1=감속
-
     var selectedIconKey by remember { mutableStateOf(initialPreset?.iconKey ?: "") }
-    var deleteTargetIndex by remember { mutableIntStateOf(-1) }
-    var showTemplatePicker by remember { mutableStateOf(false) }
-    var showIconPicker by remember { mutableStateOf(false) }
-    var showKeyboard by remember { mutableStateOf(false) }
-    var keyboardTarget by remember { mutableStateOf("name") } // "name" | "desc"
 
-    val activeCurve = if (activeTab == 0) accelCurve else decelCurve
-    fun setActiveCurve(c: List<CurveNode>) {
-        if (activeTab == 0) accelCurve = c else decelCurve = c
+    var currentScreen by remember { mutableStateOf<EditorScreen>(EditorScreen.Graph) }
+    var hoveredSlot by remember { mutableIntStateOf(0) }
+    var awaitingConfirm by remember { mutableStateOf(true) }
+
+    // 서브메뉴 재진입 시 위치 유지
+    val iconLayout = remember { buildIconLayout() }
+    var savedIconCell by remember { mutableStateOf<IconCellPos?>(null) }
+    var savedTemplateIndex by remember { mutableIntStateOf(0) }
+
+    val isDuplicate = name.isNotBlank() &&
+            existingPresets.any { it.name == name && it.id != (initialPreset?.id ?: "") }
+    val nameValid = name.isNotBlank() && !isDuplicate
+
+    // 슬롯 인덱스: 0=아이콘, 1=이름, 2=설명, 3=템플릿
+    //              4=가속, 5=감속, 6=→감속복사
+    //              7=취소, 8=저장
+    val actionSlots = listOf(
+        ActionSlot("아이콘", enabled = true,
+            iconKey = selectedIconKey, style = SlotStyle.NORMAL),
+        ActionSlot("이름", enabled = true,
+            previewText = name, style = SlotStyle.NORMAL),
+        ActionSlot("설명", enabled = true,
+            previewText = description, style = SlotStyle.NORMAL),
+        ActionSlot("템플릿", enabled = true, style = SlotStyle.NORMAL),
+        ActionSlot("가속", enabled = activeTab != 0, isCurrent = activeTab == 0,
+            style = SlotStyle.SEGMENT_LEFT),
+        ActionSlot("감속", enabled = activeTab != 1, isCurrent = activeTab == 1,
+            style = SlotStyle.SEGMENT_RIGHT),
+        ActionSlot("→감속\n복사", enabled = activeTab == 0, style = SlotStyle.NORMAL),
+        ActionSlot("취소", enabled = true, style = SlotStyle.SECONDARY),
+        ActionSlot("저장", enabled = nameValid, style = SlotStyle.PRIMARY)
+    )
+
+    fun executeSlot(index: Int) {
+        val id = initialPreset?.id ?: UUID.randomUUID().toString()
+        when (index) {
+            0 -> currentScreen = EditorScreen.IconPicker
+            1 -> currentScreen = EditorScreen.Keyboard("name")
+            2 -> currentScreen = EditorScreen.Keyboard("desc")
+            3 -> currentScreen = EditorScreen.TemplatePicker
+            4 -> activeTab = 0
+            5 -> activeTab = 1
+            6 -> if (activeTab == 0) { decelCurve = accelCurve.toList(); activeTab = 1 }
+            7 -> onDismiss()
+            8 -> if (nameValid) onSave(
+                CustomPointerDynamicsPreset(id, name, accelCurve, decelCurve,
+                    description = description, iconKey = selectedIconKey)
+            )
+        }
     }
 
-    val isDuplicate = name.isNotBlank() && existingPresets.any { it.name == name && it.id != (initialPreset?.id ?: "") }
-    val nameValid = name.isNotBlank() && !isDuplicate
+    val isGraphScreen = currentScreen is EditorScreen.Graph
+
+    LaunchedEffect(isGraphScreen) {
+        if (!isGraphScreen) {
+            hoveredSlot = -1
+            awaitingConfirm = false
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(BG)
+            .pointerInput(isGraphScreen, nameValid, activeTab) {
+                if (!isGraphScreen) return@pointerInput
+                val tapThreshPx = 10.dp.toPx()
+                val stepPx = CurveEditorConstants.ACTION_GRID_SWIPE_STEP_DP.dp.toPx()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val startPos = down.position
+                    var hasMoved = false
+
+                    var ev = awaitPointerEvent()
+                    while (ev.type != PointerEventType.Release) {
+                        if (ev.type == PointerEventType.Move) {
+                            ev.changes.forEach { it.consume() }
+                            val pos = ev.changes.first().position
+                            val dx = pos.x - startPos.x
+                            val dy = pos.y - startPos.y
+                            if (!hasMoved && sqrt(dx * dx + dy * dy) > tapThreshPx) {
+                                hasMoved = true
+                                awaitingConfirm = false
+                            }
+                            if (hasMoved) {
+                                val newSlot = resolveSlot(pos, startPos, stepPx)
+                                if (newSlot != hoveredSlot) {
+                                    hoveredSlot = newSlot
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                            }
+                        }
+                        ev = awaitPointerEvent()
+                    }
+
+                    if (hasMoved) {
+                        awaitingConfirm = true
+                    } else if (awaitingConfirm && hoveredSlot >= 0) {
+                        val item = actionSlots.getOrNull(hoveredSlot)
+                        if (item != null && item.enabled) {
+                            executeSlot(hoveredSlot)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            } else {
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            }
+                        } else {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+                            } else {
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            }
+                        }
+                        hoveredSlot = -1
+                        awaitingConfirm = false
+                    }
+                }
+            }
     ) {
+        // ── 베이스 레이어: 항상 렌더 (서브메뉴 활성 시 외부 카드 dim) ──
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // ── 상단 바 ──
-            Row(
+            MetaCard(
+                slots = actionSlots,
+                hoveredSlot = hoveredSlot,
+                awaitingConfirm = awaitingConfirm,
+                selectedIconKey = selectedIconKey,
+                name = name,
+                description = description,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "취소", tint = Color.White)
-                }
-                Text(
-                    text = "커스텀 프리셋 편집",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { showTemplatePicker = true }) {
-                    Text("템플릿", color = ACCENT_BLUE, fontSize = 13.sp)
-                }
-                IconButton(
-                    onClick = {
-                        if (!nameValid) return@IconButton
-                        val id = initialPreset?.id ?: UUID.randomUUID().toString()
-                        onSave(CustomPointerDynamicsPreset(id, name, accelCurve, decelCurve, description = description, iconKey = selectedIconKey))
-                    },
-                    enabled = nameValid
-                ) {
-                    Icon(
-                        Icons.Filled.Check,
-                        contentDescription = "저장",
-                        tint = if (nameValid) ACCENT_BLUE else Color.Gray
-                    )
-                }
-            }
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .alpha(if (isGraphScreen) 1f else 0.35f)
+            )
 
-            // ── 이름 입력 ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .background(SURFACE, RoundedCornerShape(8.dp))
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            val ev = awaitPointerEvent()
-                            if (ev.type == PointerEventType.Release) {
-                                keyboardTarget = "name"
-                                showKeyboard = true
-                                showIconPicker = false
-                                showTemplatePicker = false
-                            }
-                        }
-                    }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("이름:", color = LABEL_COLOR, fontSize = 13.sp)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = if (name.isEmpty()) "탭하여 입력" else name,
-                    color = if (name.isEmpty()) LABEL_COLOR else Color.White,
-                    fontSize = 13.sp,
-                    modifier = Modifier.weight(1f)
-                )
-                if (name.length >= NAME_MAX_LEN) {
-                    Text("${name.length}/$NAME_MAX_LEN", color = LABEL_COLOR, fontSize = 11.sp)
-                }
-            }
-            if (isDuplicate) {
-                Text(
-                    text = "이미 같은 이름의 프리셋이 있습니다.",
-                    color = Color(0xFFFF5252),
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-                )
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            // ── 설명 입력 ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .background(SURFACE, RoundedCornerShape(8.dp))
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            val ev = awaitPointerEvent()
-                            if (ev.type == PointerEventType.Release) {
-                                keyboardTarget = "desc"
-                                showKeyboard = true
-                                showIconPicker = false
-                                showTemplatePicker = false
-                            }
-                        }
-                    }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                Text("설명:", color = LABEL_COLOR, fontSize = 13.sp, modifier = Modifier.padding(top = 1.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = if (description.isEmpty()) "탭하여 입력" else description,
-                    color = if (description.isEmpty()) LABEL_COLOR else Color.White,
-                    fontSize = 13.sp,
-                    modifier = Modifier.weight(1f)
-                )
-                if (description.length >= DESC_MAX_LEN - 10) {
-                    Text("${description.length}/$DESC_MAX_LEN", color = LABEL_COLOR, fontSize = 11.sp, modifier = Modifier.padding(top = 1.dp))
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            // ── 아이콘 선택 ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .background(SURFACE, RoundedCornerShape(8.dp))
-                    .clickable {
-                        showIconPicker = true
-                        showKeyboard = false
-                        showTemplatePicker = false
-                    }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("아이콘:", color = LABEL_COLOR, fontSize = 13.sp)
-                val iconDef = customPresetIconOrNull(selectedIconKey)
-                if (iconDef != null) {
-                    AppIcon(def = iconDef, contentDescription = null, tint = ACCENT_BLUE, modifier = Modifier.size(22.dp))
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("AB", color = LABEL_COLOR, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-                Text(
-                    text = if (selectedIconKey.isEmpty()) "없음 (이름 2자 표시)" else CUSTOM_PRESET_ICON_OPTIONS.firstOrNull { it.first == selectedIconKey }?.first ?: "",
-                    color = if (selectedIconKey.isEmpty()) LABEL_COLOR else Color.White,
-                    fontSize = 12.sp,
-                    modifier = Modifier.weight(1f)
-                )
-                Text("변경 ›", color = ACCENT_BLUE, fontSize = 12.sp)
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            // ── 탭 전환 ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TabButton(
-                    label = "가속 곡선",
-                    color = ACCENT_BLUE,
-                    selected = activeTab == 0,
-                    onClick = { activeTab = 0 },
-                    modifier = Modifier.weight(1f)
-                )
-                TabButton(
-                    label = "감속 곡선",
-                    color = ACCENT_ORANGE,
-                    selected = activeTab == 1,
-                    onClick = { activeTab = 1 },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            // 감속 탭에서만 "가속 곡선 복사" 버튼
-            if (activeTab == 1) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = { decelCurve = accelCurve.toList() }) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = ACCENT_BLUE, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("가속 곡선 복사", color = ACCENT_BLUE, fontSize = 12.sp)
-                    }
-                }
-            } else {
-                Spacer(Modifier.height(4.dp))
-            }
-
-            // ── 그래프 캔버스 / 키보드 / 아이콘 선택 ──
-            when {
-                showKeyboard -> {
-                    val (initialText, maxLen) = if (keyboardTarget == "name")
-                        name to NAME_MAX_LEN
-                    else
-                        description to DESC_MAX_LEN
-                    Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                        SwipeKeyboardOverlay(
-                            initialText = initialText,
-                            maxLength = maxLen,
-                            onCancel = { showKeyboard = false },
-                            onDone = { result ->
-                                if (keyboardTarget == "name") name = result
-                                else description = result
-                                showKeyboard = false
-                            }
-                        )
-                    }
-                }
-                showIconPicker -> {
-                    Box(modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp)) {
-                        IconPickerContent(
-                            selectedIconKey = selectedIconKey,
-                            onClose = { showIconPicker = false },
-                            onSelect = { key ->
-                                selectedIconKey = key
-                                showIconPicker = false
-                            }
-                        )
-                    }
-                }
-                showTemplatePicker -> {
-                    Box(modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp)) {
-                        TemplatePickerContent(
-                            templates = CUSTOM_PRESET_TEMPLATES,
-                            onClose = { showTemplatePicker = false },
-                            onSelect = { template ->
-                                accelCurve = template.accelerationCurve
-                                decelCurve = template.decelerationCurve
-                                showTemplatePicker = false
-                            }
-                        )
-                    }
-                }
-                else -> {
-                    CurveGraphCanvas(
-                        activeCurve = activeCurve,
-                        inactiveCurve = if (activeTab == 0) decelCurve else accelCurve,
-                        activeColor = if (activeTab == 0) ACCENT_BLUE else ACCENT_ORANGE,
-                        inactiveColor = if (activeTab == 0) ACCENT_ORANGE else ACCENT_BLUE,
-                        onCurveChanged = { setActiveCurve(it) },
-                        onDeleteRequest = { idx -> deleteTargetIndex = idx },
-                        onHaptic = { constant ->
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                view.performHapticFeedback(constant)
-                            } else {
-                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                            }
+            // 그래프 화면일 때만 Canvas 렌더. 서브메뉴는 아래 오버레이 레이어에서 렌더.
+            Box(modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp)) {
+                if (isGraphScreen) {
+                    AnimatedContent(
+                        targetState = activeTab,
+                        transitionSpec = {
+                            val dir = if (targetState > initialState) 1 else -1
+                            (slideInHorizontally(tween(250)) { it * dir } + fadeIn(tween(200))) togetherWith
+                            (slideOutHorizontally(tween(200)) { -it * dir } + fadeOut(tween(150)))
                         },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .padding(horizontal = 12.dp)
-                    )
-
-                    // ── 조작 안내 ──
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .background(SURFACE, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        Text("빈 곳 탭 = 노드 추가", color = LABEL_COLOR, fontSize = 11.sp)
-                        Text("|", color = LABEL_COLOR, fontSize = 11.sp)
-                        Text("노드 롱프레스 = 삭제", color = LABEL_COLOR, fontSize = 11.sp)
+                        label = "tabTransition"
+                    ) { tab ->
+                        CurveGraphCanvas(
+                            activeCurve = if (tab == 0) accelCurve else decelCurve,
+                            inactiveCurve = if (tab == 0) decelCurve else accelCurve,
+                            activeColor = if (tab == 0) ACCENT_BLUE else ACCENT_ORANGE,
+                            inactiveColor = if (tab == 0) ACCENT_ORANGE else ACCENT_BLUE,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                 }
+            }
+
+            EditorActionGrid(
+                slots = actionSlots,
+                hoveredSlot = hoveredSlot,
+                awaitingConfirm = awaitingConfirm,
+                activeTab = activeTab,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(if (isGraphScreen) 1f else 0.35f)
+            )
+        }
+
+        // ── 오버레이 레이어: 서브메뉴 활성 시 풀스크린으로 렌더 ──
+        // Box 의 두 번째 자식 → z-order 상위. 제스처가 화면 어디서든 흡수됨.
+        when (val screen = currentScreen) {
+            is EditorScreen.Keyboard -> {
+                val (initialText, maxLen) = if (screen.target == "name")
+                    name to NAME_MAX_LEN
+                else
+                    description to DESC_MAX_LEN
+                val targetSlot = if (screen.target == "name") 1 else 2
+                SwipeKeyboardOverlay(
+                    initialText = initialText,
+                    maxLength = maxLen,
+                    onCancel = {
+                        hoveredSlot = targetSlot; awaitingConfirm = true
+                        currentScreen = EditorScreen.Graph
+                    },
+                    onDone = { result ->
+                        if (screen.target == "name") name = result
+                        else description = result
+                        hoveredSlot = targetSlot; awaitingConfirm = true
+                        currentScreen = EditorScreen.Graph
+                    }
+                )
+            }
+            is EditorScreen.IconPicker -> {
+                IconPickerContent(
+                    selectedIconKey = selectedIconKey,
+                    initialCell = savedIconCell ?: findInitialCell(selectedIconKey, iconLayout),
+                    onCellChange = { savedIconCell = it },
+                    onClose = {
+                        hoveredSlot = 0; awaitingConfirm = true
+                        currentScreen = EditorScreen.Graph
+                    },
+                    onSelect = { key ->
+                        selectedIconKey = key
+                        hoveredSlot = 0; awaitingConfirm = true
+                        currentScreen = EditorScreen.Graph
+                    }
+                )
+            }
+            is EditorScreen.TemplatePicker -> {
+                TemplatePickerContent(
+                    templates = CUSTOM_PRESET_TEMPLATES,
+                    initialSelectedIndex = savedTemplateIndex,
+                    onIndexChange = { savedTemplateIndex = it },
+                    onClose = {
+                        hoveredSlot = 3; awaitingConfirm = true
+                        currentScreen = EditorScreen.Graph
+                    },
+                    onSelect = { template ->
+                        accelCurve = template.accelerationCurve
+                        decelCurve = template.decelerationCurve
+                        hoveredSlot = 3; awaitingConfirm = true
+                        currentScreen = EditorScreen.Graph
+                    }
+                )
+            }
+            is EditorScreen.Graph -> {}
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 액션 그리드 (커브 카드 + 액션 카드)
+// ─────────────────────────────────────────────────────────────
+
+private fun cellBgColor(
+    isHovered: Boolean, isAwaitingConfirm: Boolean, enabled: Boolean, isCurrent: Boolean = false
+): Color = when {
+    isAwaitingConfirm && enabled -> ACCENT_BLUE.copy(alpha = 0.55f)
+    isAwaitingConfirm            -> Color.White.copy(alpha = 0.12f)
+    isHovered && enabled         -> ACCENT_BLUE.copy(alpha = 0.38f)
+    isHovered                    -> Color.White.copy(alpha = 0.06f)
+    isCurrent                    -> ACCENT_BLUE.copy(alpha = 0.18f)
+    else                         -> Color.Transparent
+}
+
+private fun Modifier.cellBorder(
+    isHovered: Boolean, isAwaitingConfirm: Boolean, enabled: Boolean,
+    isCurrent: Boolean = false, shape: RoundedCornerShape = RoundedCornerShape(6.dp)
+): Modifier = this.then(when {
+    isAwaitingConfirm && enabled -> Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), shape)
+    isAwaitingConfirm            -> Modifier.border(2.dp, Color.White.copy(alpha = 0.4f), shape)
+    isHovered && enabled         -> Modifier.border(1.5.dp, ACCENT_BLUE, shape)
+    isCurrent                    -> Modifier.border(1.dp, ACCENT_BLUE, shape)
+    else                         -> Modifier
+})
+
+@Composable
+private fun EditorActionGrid(
+    slots: List<ActionSlot>,
+    hoveredSlot: Int,
+    awaitingConfirm: Boolean,
+    activeTab: Int,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        CurveCard(
+            slots = slots, hoveredSlot = hoveredSlot,
+            awaitingConfirm = awaitingConfirm, activeTab = activeTab
+        )
+        ActionCard(slots = slots, hoveredSlot = hoveredSlot, awaitingConfirm = awaitingConfirm)
+    }
+}
+
+/** 메타 카드: 아이콘(0) / 이름(1)+설명(2) / 템플릿(3) — 양 끝이 전체 높이 차지 */
+@Composable
+private fun MetaCard(
+    slots: List<ActionSlot>,
+    hoveredSlot: Int,
+    awaitingConfirm: Boolean,
+    selectedIconKey: String,
+    name: String,
+    description: String,
+    modifier: Modifier = Modifier
+) {
+    val cardShape = RoundedCornerShape(10.dp)
+    val cellShape = RoundedCornerShape(7.dp)
+    val dividerColor = Color.White.copy(alpha = 0.09f)
+    Row(
+        modifier = modifier
+            .height(56.dp)
+            .background(SURFACE, cardShape)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        // 슬롯 0: 아이콘 (좌측, 전체 높이 정사각형)
+        val hovIcon = hoveredSlot == 0
+        val awIcon = awaitingConfirm && hovIcon
+        val enIcon = slots.getOrNull(0)?.enabled ?: true
+        Box(
+            modifier = Modifier
+                .aspectRatio(1f).fillMaxHeight()
+                .background(cellBgColor(hovIcon, awIcon, enIcon), cellShape)
+                .cellBorder(hovIcon, awIcon, enIcon, shape = cellShape),
+            contentAlignment = Alignment.Center
+        ) {
+            val iconDef = customPresetIconOrNull(selectedIconKey)
+            if (iconDef != null) {
+                AppIcon(
+                    def = iconDef, contentDescription = null,
+                    tint = if (hovIcon || awIcon) ACCENT_BLUE else Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.size(26.dp)
+                )
+            } else {
+                Text("+", color = LABEL_COLOR, fontSize = 36.sp, fontWeight = FontWeight.Light)
+            }
+        }
+
+        Box(Modifier.width(1.dp).fillMaxHeight().background(dividerColor))
+
+        // 중앙: 이름(1, 상단) + 설명(2, 하단)
+        Column(
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            // 슬롯 1: 이름
+            val hovName = hoveredSlot == 1
+            val awName = awaitingConfirm && hovName
+            val enName = slots.getOrNull(1)?.enabled ?: true
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth()
+                    .background(cellBgColor(hovName, awName, enName), cellShape)
+                    .cellBorder(hovName, awName, enName, shape = cellShape)
+                    .padding(horizontal = 7.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = name.ifBlank { "이름 없음" },
+                    color = when {
+                        (hovName || awName) && enName -> Color.White
+                        name.isBlank()                -> LABEL_COLOR
+                        else                          -> Color.White.copy(alpha = 0.85f)
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = if ((hovName || awName) && enName) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Box(Modifier.fillMaxWidth().height(1.dp).background(dividerColor))
+
+            // 슬롯 2: 설명
+            val hovDesc = hoveredSlot == 2
+            val awDesc = awaitingConfirm && hovDesc
+            val enDesc = slots.getOrNull(2)?.enabled ?: true
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth()
+                    .background(cellBgColor(hovDesc, awDesc, enDesc), cellShape)
+                    .cellBorder(hovDesc, awDesc, enDesc, shape = cellShape)
+                    .padding(horizontal = 7.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = if (description.isBlank()) "설명 추가하기..." else description,
+                    color = when {
+                        (hovDesc || awDesc) && enDesc -> Color.White
+                        description.isBlank()         -> LABEL_COLOR.copy(alpha = 0.6f)
+                        else                          -> Color.White.copy(alpha = 0.55f)
+                    },
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        Box(Modifier.width(1.dp).fillMaxHeight().background(dividerColor))
+
+        // 슬롯 3: 템플릿 (우측, 전체 높이)
+        val hovTmpl = hoveredSlot == 3
+        val awTmpl = awaitingConfirm && hovTmpl
+        val enTmpl = slots.getOrNull(3)?.enabled ?: true
+        val tmplColor = when {
+            (hovTmpl || awTmpl) && enTmpl -> ACCENT_BLUE
+            else                           -> LABEL_COLOR
+        }
+        Box(
+            modifier = Modifier.width(52.dp).fillMaxHeight()
+                .background(cellBgColor(hovTmpl, awTmpl, enTmpl), cellShape)
+                .cellBorder(hovTmpl, awTmpl, enTmpl, shape = cellShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("▤", color = tmplColor, fontSize = 18.sp)
+                Text("템플릿", color = tmplColor, fontSize = 9.sp)
             }
         }
     }
+}
 
-    // ── 노드 삭제 확인 다이얼로그 ──
-    if (deleteTargetIndex >= 0) {
-        AlertDialog(
-            onDismissRequest = { deleteTargetIndex = -1 },
-            title = { Text("노드 삭제", color = Color.White) },
-            text = { Text("이 노드를 삭제하시겠습니까?", color = LABEL_COLOR) },
-            confirmButton = {
-                TextButton(onClick = {
-                    val mutable = activeCurve.toMutableList()
-                    mutable.removeAt(deleteTargetIndex)
-                    setActiveCurve(mutable)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                    }
-                    deleteTargetIndex = -1
-                }) { Text("삭제", color = Color(0xFFFF5252)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteTargetIndex = -1 }) {
-                    Text("취소", color = Color.White)
-                }
-            },
-            containerColor = Color(0xFF222222)
-        )
+/** 커브 카드: [가속(4)] [→복사(6)] [감속(5)] — 단일 행 세그먼트 */
+@Composable
+private fun CurveCard(
+    slots: List<ActionSlot>,
+    hoveredSlot: Int,
+    awaitingConfirm: Boolean,
+    activeTab: Int
+) {
+    val cardShape = RoundedCornerShape(10.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(38.dp)
+            .background(SURFACE, cardShape)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        // 슬롯 4: 가속 (segment left)
+        val hovAccel = hoveredSlot == 4
+        val awAccel = awaitingConfirm && hovAccel
+        val enAccel = slots.getOrNull(4)?.enabled ?: true
+        val accelCurrent = activeTab == 0
+        val accelShape = RoundedCornerShape(topStart = 7.dp, bottomStart = 7.dp)
+        val accelBg = when {
+            awAccel && enAccel  -> ACCENT_BLUE.copy(alpha = 0.55f)
+            awAccel             -> Color.White.copy(alpha = 0.12f)
+            hovAccel && enAccel -> ACCENT_BLUE.copy(alpha = 0.38f)
+            hovAccel            -> Color.White.copy(alpha = 0.06f)
+            accelCurrent        -> ACCENT_BLUE.copy(alpha = 0.20f)
+            else                -> Color.Transparent
+        }
+        val accelBorder: Modifier = when {
+            awAccel && enAccel  -> Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), accelShape)
+            hovAccel && enAccel -> Modifier.border(1.5.dp, ACCENT_BLUE, accelShape)
+            accelCurrent        -> Modifier.border(1.dp, ACCENT_BLUE, accelShape)
+            else                -> Modifier
+        }
+        Box(
+            modifier = Modifier.weight(1f).fillMaxHeight()
+                .background(accelBg, accelShape).then(accelBorder),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "가속",
+                color = when {
+                    (hovAccel || awAccel) && enAccel -> Color.White
+                    accelCurrent                     -> ACCENT_BLUE
+                    enAccel                          -> Color.White.copy(alpha = 0.7f)
+                    else                             -> Color.White.copy(alpha = 0.3f)
+                },
+                fontSize = 12.sp,
+                fontWeight = if (accelCurrent || (hovAccel && enAccel) || awAccel) FontWeight.Bold else FontWeight.Normal
+            )
+        }
+
+        Box(Modifier.width(1.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.09f)))
+
+        // 슬롯 6: →복사 (segment middle, 좁은 폭)
+        val hovCopy = hoveredSlot == 6
+        val awCopy = awaitingConfirm && hovCopy
+        val enCopy = slots.getOrNull(6)?.enabled ?: false
+        val copyColor = when {
+            (hovCopy || awCopy) && enCopy -> Color.White
+            enCopy                        -> Color.White.copy(alpha = 0.55f)
+            else                          -> Color.White.copy(alpha = 0.18f)
+        }
+        val copyShape = RoundedCornerShape(0.dp)
+        val copyBg = when {
+            awCopy && enCopy  -> ACCENT_BLUE.copy(alpha = 0.40f)
+            awCopy            -> Color.White.copy(alpha = 0.08f)
+            hovCopy && enCopy -> ACCENT_BLUE.copy(alpha = 0.22f)
+            hovCopy           -> Color.White.copy(alpha = 0.04f)
+            else              -> Color.Transparent
+        }
+        val copyBorder: Modifier = when {
+            awCopy && enCopy  -> Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), copyShape)
+            hovCopy && enCopy -> Modifier.border(1.5.dp, ACCENT_BLUE, copyShape)
+            else              -> Modifier
+        }
+        Box(
+            modifier = Modifier.width(44.dp).fillMaxHeight()
+                .background(copyBg, copyShape).then(copyBorder),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = null,
+                    tint = copyColor,
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = "→",
+                    color = copyColor,
+                    fontSize = 10.sp
+                )
+            }
+        }
+
+        Box(Modifier.width(1.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.09f)))
+
+        // 슬롯 5: 감속 (segment right)
+        val hovDecel = hoveredSlot == 5
+        val awDecel = awaitingConfirm && hovDecel
+        val enDecel = slots.getOrNull(5)?.enabled ?: true
+        val decelCurrent = activeTab == 1
+        val decelShape = RoundedCornerShape(topEnd = 7.dp, bottomEnd = 7.dp)
+        val decelBg = when {
+            awDecel && enDecel  -> ACCENT_ORANGE.copy(alpha = 0.55f)
+            awDecel             -> Color.White.copy(alpha = 0.12f)
+            hovDecel && enDecel -> ACCENT_ORANGE.copy(alpha = 0.38f)
+            hovDecel            -> Color.White.copy(alpha = 0.06f)
+            decelCurrent        -> ACCENT_ORANGE.copy(alpha = 0.20f)
+            else                -> Color.Transparent
+        }
+        val decelBorder: Modifier = when {
+            awDecel && enDecel  -> Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), decelShape)
+            hovDecel && enDecel -> Modifier.border(1.5.dp, ACCENT_ORANGE, decelShape)
+            decelCurrent        -> Modifier.border(1.dp, ACCENT_ORANGE, decelShape)
+            else                -> Modifier
+        }
+        Box(
+            modifier = Modifier.weight(1f).fillMaxHeight()
+                .background(decelBg, decelShape).then(decelBorder),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "감속",
+                color = when {
+                    (hovDecel || awDecel) && enDecel -> Color.White
+                    decelCurrent                     -> ACCENT_ORANGE
+                    enDecel                          -> Color.White.copy(alpha = 0.7f)
+                    else                             -> Color.White.copy(alpha = 0.3f)
+                },
+                fontSize = 12.sp,
+                fontWeight = if (decelCurrent || (hovDecel && enDecel) || awDecel) FontWeight.Bold else FontWeight.Normal
+            )
+        }
+    }
+}
+
+/** 액션 카드: 취소(7) / 저장(8) */
+@Composable
+private fun ActionCard(
+    slots: List<ActionSlot>,
+    hoveredSlot: Int,
+    awaitingConfirm: Boolean
+) {
+    val shape = RoundedCornerShape(10.dp)
+    Row(
+        modifier = Modifier.fillMaxWidth().height(46.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        // 슬롯 7: 취소 (secondary)
+        val hovCancel = hoveredSlot == 7
+        val awCancel = awaitingConfirm && hovCancel
+        val enCancel = slots.getOrNull(7)?.enabled ?: true
+        val cancelBg = when {
+            awCancel && enCancel  -> Color.White.copy(alpha = 0.18f)
+            hovCancel && enCancel -> Color.White.copy(alpha = 0.10f)
+            else                  -> Color.Transparent
+        }
+        val cancelBorder: Modifier = when {
+            awCancel && enCancel  -> Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), shape)
+            hovCancel && enCancel -> Modifier.border(1.5.dp, Color.White.copy(alpha = 0.6f), shape)
+            else                  -> Modifier.border(1.dp, Color.White.copy(alpha = 0.25f), shape)
+        }
+        Box(
+            modifier = Modifier.weight(1f).fillMaxHeight()
+                .background(cancelBg, shape).then(cancelBorder),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "취소",
+                color = if ((hovCancel || awCancel) && enCancel) Color.White else Color.White.copy(alpha = 0.6f),
+                fontSize = 13.sp,
+                fontWeight = if (awCancel || (hovCancel && enCancel)) FontWeight.Bold else FontWeight.Normal
+            )
+        }
+
+        // 슬롯 8: 저장 (primary)
+        val hovSave = hoveredSlot == 8
+        val awSave = awaitingConfirm && hovSave
+        val enSave = slots.getOrNull(8)?.enabled ?: false
+        val saveBg = when {
+            awSave && enSave  -> ACCENT_BLUE
+            hovSave && enSave -> ACCENT_BLUE.copy(alpha = 0.85f)
+            enSave            -> ACCENT_BLUE.copy(alpha = 0.55f)
+            else              -> SURFACE
+        }
+        val saveBorder: Modifier = when {
+            awSave && enSave -> Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), shape)
+            !enSave          -> Modifier.border(1.dp, Color.White.copy(alpha = 0.12f), shape)
+            else             -> Modifier
+        }
+        Box(
+            modifier = Modifier.weight(2f).fillMaxHeight()
+                .background(saveBg, shape).then(saveBorder),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "저장",
+                color = if (enSave) Color.White else Color.White.copy(alpha = 0.25f),
+                fontSize = 14.sp,
+                fontWeight = if (enSave) FontWeight.Bold else FontWeight.Normal
+            )
+        }
     }
 }
 
@@ -511,15 +857,17 @@ fun DynamicsCurveEditor(
 @Composable
 private fun IconPickerContent(
     selectedIconKey: String,
+    initialCell: IconCellPos,
+    onCellChange: (IconCellPos) -> Unit,
     onClose: () -> Unit,
     onSelect: (String) -> Unit
 ) {
     val view = LocalView.current
     val layout = remember { buildIconLayout() }
     val currentCell = remember(selectedIconKey) { findInitialCell(selectedIconKey, layout) }
-    var selectedCell by remember(selectedIconKey) { mutableStateOf(currentCell) }
-    var headerZone by remember(selectedIconKey) { mutableStateOf<HeaderZone?>(null) }
-    var awaitingConfirm by remember(selectedIconKey) { mutableStateOf(false) }
+    var selectedCell by remember { mutableStateOf(initialCell) }
+    var headerZone by remember { mutableStateOf<HeaderZone?>(null) }
+    var awaitingConfirm by remember { mutableStateOf(false) }
     var gridWidthPx by remember { mutableIntStateOf(0) }
     var gridHeightPx by remember { mutableIntStateOf(0) }
 
@@ -529,9 +877,76 @@ private fun IconPickerContent(
         null -> layout[selectedCell.row].cells[selectedCell.col].key
     }
 
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(layout) {
+                val tapThreshPx = 10.dp.toPx()
+                awaitEachGesture {
+                    val totalRows = layout.size
+                    val rowH = if (gridHeightPx > 0) gridHeightPx.toFloat() / totalRows
+                               else size.height.toFloat() / totalRows
+                    val totalW = if (gridWidthPx > 0) gridWidthPx.toFloat() else size.width.toFloat()
+
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val startPos = down.position
+                    val startCell = selectedCell
+                    var moved = false
+
+                    var ev = awaitPointerEvent()
+                    while (ev.type != PointerEventType.Release) {
+                        if (ev.type == PointerEventType.Move) {
+                            ev.changes.forEach { it.consume() }
+                            val pos = ev.changes.first().position
+                            val dx = pos.x - startPos.x
+                            val dy = pos.y - startPos.y
+                            if (sqrt(dx * dx + dy * dy) > tapThreshPx) moved = true
+
+                            val rowDelta = (dy / rowH).roundToInt()
+                            val rawNewRow = startCell.row + rowDelta
+                            val startFracX = computeFracX(startCell, layout)
+                            val newFracX = (startFracX + dx / totalW).coerceIn(0f, 1f)
+
+                            if (rawNewRow < 0) {
+                                val newZone = if (newFracX < 0.35f) HeaderZone.BACK else HeaderZone.NONE
+                                if (headerZone != newZone) {
+                                    headerZone = newZone
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                            } else {
+                                val newRow = rawNewRow.coerceIn(0, totalRows - 1)
+                                val newCol = findColAtFracX(newFracX, layout[newRow])
+                                val resolved = resolveIconCell(IconCellPos(newRow, newCol), layout)
+                                if (headerZone != null) {
+                                    headerZone = null
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                                if (resolved != selectedCell) {
+                                    selectedCell = resolved
+                                    onCellChange(resolved)
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                            }
+                        }
+                        ev = awaitPointerEvent()
+                    }
+
+                    if (!moved && awaitingConfirm) {
+                        when (headerZone) {
+                            HeaderZone.BACK -> onClose()
+                            HeaderZone.NONE -> onSelect("")
+                            null -> onSelect(layout[selectedCell.row].cells[selectedCell.col].key)
+                        }
+                    } else {
+                        awaitingConfirm = true
+                    }
+                }
+            }
+    ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .padding(top = 64.dp, bottom = 98.dp)
             .background(SURFACE, RoundedCornerShape(8.dp))
     ) {
         // ── 헤더: 뒤로 | 제목 | 선택 중 | 없음 chip ──
@@ -541,7 +956,6 @@ private fun IconPickerContent(
                 .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 뒤로 버튼
             val backActive = headerZone == HeaderZone.BACK
             Box(
                 modifier = Modifier
@@ -583,14 +997,12 @@ private fun IconPickerContent(
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.weight(1f))
-            // 선택 중 라벨
             Text(
                 text = hoveredLabel,
                 color = ACCENT_BLUE.copy(alpha = 0.8f),
                 fontSize = 11.sp
             )
             Spacer(Modifier.width(8.dp))
-            // 없음 chip
             val noneIsActive = selectedIconKey.isEmpty()
             val noneHovered = headerZone == HeaderZone.NONE
             Box(
@@ -648,68 +1060,6 @@ private fun IconPickerContent(
                 .fillMaxWidth()
                 .weight(1f)
                 .onSizeChanged { gridWidthPx = it.width; gridHeightPx = it.height }
-                .pointerInput(layout) {
-                    val tapThreshPx = 10.dp.toPx()
-                    awaitEachGesture {
-                        val totalRows = layout.size
-                        val rowH = if (gridHeightPx > 0) gridHeightPx.toFloat() / totalRows
-                                   else size.height.toFloat() / totalRows
-                        val totalW = if (gridWidthPx > 0) gridWidthPx.toFloat() else size.width.toFloat()
-
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val startPos = down.position
-                        val startCell = selectedCell
-                        var moved = false
-
-                        var ev = awaitPointerEvent()
-                        while (ev.type != PointerEventType.Release) {
-                            if (ev.type == PointerEventType.Move) {
-                                ev.changes.forEach { it.consume() }
-                                val pos = ev.changes.first().position
-                                val dx = pos.x - startPos.x
-                                val dy = pos.y - startPos.y
-                                if (sqrt(dx * dx + dy * dy) > tapThreshPx) moved = true
-
-                                val rowDelta = (dy / rowH).roundToInt()
-                                val rawNewRow = startCell.row + rowDelta
-                                val startFracX = computeFracX(startCell, layout)
-                                val newFracX = (startFracX + dx / totalW).coerceIn(0f, 1f)
-
-                                if (rawNewRow < 0) {
-                                    // 헤더 영역: 좌측 35% = 뒤로, 우측 65% = 없음
-                                    val newZone = if (newFracX < 0.35f) HeaderZone.BACK else HeaderZone.NONE
-                                    if (headerZone != newZone) {
-                                        headerZone = newZone
-                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                    }
-                                } else {
-                                    val newRow = rawNewRow.coerceIn(0, totalRows - 1)
-                                    val newCol = findColAtFracX(newFracX, layout[newRow])
-                                    val resolved = resolveIconCell(IconCellPos(newRow, newCol), layout)
-                                    if (headerZone != null) {
-                                        headerZone = null
-                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                    }
-                                    if (resolved != selectedCell) {
-                                        selectedCell = resolved
-                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                    }
-                                }
-                            }
-                            ev = awaitPointerEvent()
-                        }
-
-                        if (!moved && awaitingConfirm) {
-                            when (headerZone) {
-                                HeaderZone.BACK -> onClose()
-                                HeaderZone.NONE -> onSelect("")
-                                null -> onSelect(layout[selectedCell.row].cells[selectedCell.col].key)
-                            }
-                        } else {
-                            awaitingConfirm = true
-                        }
-                    }
-                }
         ) {
             Column(
                 modifier = Modifier
@@ -789,6 +1139,7 @@ private fun IconPickerContent(
             )
         }
     }
+    } // end outer Box
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -816,19 +1167,139 @@ private fun templateAccent(id: String): TemplateAccent =
 @Composable
 private fun TemplatePickerContent(
     templates: List<CustomPointerDynamicsPreset>,
+    initialSelectedIndex: Int,
+    onIndexChange: (Int) -> Unit,
     onClose: () -> Unit,
     onSelect: (CustomPointerDynamicsPreset) -> Unit
 ) {
     val view = LocalView.current
     var phase by remember { mutableStateOf(TemplatePhase.GRID) }
-    var selectedIndex by remember { mutableIntStateOf(0) }
+    var selectedIndex by remember { mutableIntStateOf(initialSelectedIndex) }
     var confirmOptionIndex by remember { mutableIntStateOf(1) }
 
     val backHighlighted = phase == TemplatePhase.GRID && selectedIndex < 0
 
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(templates, phase, selectedIndex) {
+                val tapThreshPx = 10.dp.toPx()
+                when (phase) {
+                    TemplatePhase.GRID -> {
+                        val stepPx = TEMPLATE_PICKER_SWIPE_STEP_DP.dp.toPx()
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val startPos = down.position
+                            val startIndex = selectedIndex
+                            var moved = false
+
+                            var ev = awaitPointerEvent()
+                            while (ev.type != PointerEventType.Release) {
+                                if (ev.type == PointerEventType.Move) {
+                                    ev.changes.forEach { it.consume() }
+                                    val pos = ev.changes.first().position
+                                    val dx = pos.x - startPos.x
+                                    val dy = pos.y - startPos.y
+                                    if (sqrt(dx * dx + dy * dy) > tapThreshPx) moved = true
+
+                                    val cols = 2
+                                    val rows = (templates.size + cols - 1) / cols
+                                    val startRow = if (startIndex < 0) -1 else startIndex / cols
+                                    val startCol = if (startIndex < 0) 0 else startIndex % cols
+                                    val rawNewRow = startRow + (dy / stepPx).roundToInt()
+                                    val newRow = rawNewRow.coerceIn(-1, rows - 1)
+                                    val newIndex = if (newRow < 0) {
+                                        -1
+                                    } else {
+                                        val newCol = (startCol + (dx / stepPx).roundToInt()).coerceIn(0, cols - 1)
+                                        newRow * cols + newCol
+                                    }
+                                    if (newIndex != selectedIndex) {
+                                        selectedIndex = newIndex
+                                        if (newIndex >= 0) onIndexChange(newIndex)
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                }
+                                ev = awaitPointerEvent()
+                            }
+
+                            if (!moved) {
+                                if (selectedIndex < 0) {
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    onClose()
+                                } else {
+                                    phase = TemplatePhase.CONFIRM
+                                    confirmOptionIndex = 1
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                            }
+                        }
+                    }
+                    TemplatePhase.CONFIRM -> {
+                        val confirmStepPx = 30.dp.toPx()
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val startX = down.position.x
+                            var lastX = startX
+                            var accumDrag = 0f
+                            var hasDragged = false
+
+                            var ev = awaitPointerEvent()
+                            while (ev.type != PointerEventType.Release) {
+                                if (ev.type == PointerEventType.Move) {
+                                    ev.changes.forEach { it.consume() }
+                                    val pos = ev.changes.first().position
+                                    if (abs(pos.x - startX) > tapThreshPx) hasDragged = true
+
+                                    val dx = pos.x - lastX
+                                    lastX = pos.x
+                                    accumDrag += dx
+
+                                    val steps = (accumDrag / confirmStepPx).toInt()
+                                    if (steps != 0) {
+                                        accumDrag -= steps * confirmStepPx
+                                        val proposed = confirmOptionIndex + steps
+                                        if (proposed in 0..1) {
+                                            confirmOptionIndex = proposed
+                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                        } else {
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                                view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+                                            } else {
+                                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                            }
+                                            accumDrag = 0f
+                                        }
+                                    }
+                                }
+                                ev = awaitPointerEvent()
+                            }
+
+                            if (!hasDragged) {
+                                when (confirmOptionIndex) {
+                                    0 -> {
+                                        phase = TemplatePhase.GRID
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                    1 -> {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        } else {
+                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                        }
+                                        onSelect(templates[selectedIndex])
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+    ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .padding(top = 64.dp, bottom = 98.dp)
             .background(SURFACE, RoundedCornerShape(8.dp))
     ) {
         // ── 헤더 ──
@@ -878,12 +1349,11 @@ private fun TemplatePickerContent(
             )
         }
 
-        // ── 콘텐츠: GRID ↔ CONFIRM 전환 ──
-        // GRID→CONFIRM: 선택 카드 위치(TransformOrigin)에서 scaleIn, 그리드는 scaleOut 확장
-        // CONFIRM→GRID: 부드럽게 축소 복귀
         AnimatedContent(
             targetState = phase,
-            modifier = Modifier.fillMaxWidth().weight(1f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
             transitionSpec = {
                 if (targetState == TemplatePhase.CONFIRM) {
                     val origin = when (selectedIndex) {
@@ -914,89 +1384,35 @@ private fun TemplatePickerContent(
         ) { currentPhase ->
             when (currentPhase) {
                 TemplatePhase.GRID -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(templates) {
-                                val tapThreshPx = 10.dp.toPx()
-                                val stepPx = TEMPLATE_PICKER_SWIPE_STEP_DP.dp.toPx()
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    val startPos = down.position
-                                    val startIndex = selectedIndex
-                                    var moved = false
-
-                                    var ev = awaitPointerEvent()
-                                    while (ev.type != PointerEventType.Release) {
-                                        if (ev.type == PointerEventType.Move) {
-                                            ev.changes.forEach { it.consume() }
-                                            val pos = ev.changes.first().position
-                                            val dx = pos.x - startPos.x
-                                            val dy = pos.y - startPos.y
-                                            if (sqrt(dx * dx + dy * dy) > tapThreshPx) moved = true
-
-                                            val cols = 2
-                                            val rows = (templates.size + cols - 1) / cols
-                                            val startRow = if (startIndex < 0) -1 else startIndex / cols
-                                            val startCol = if (startIndex < 0) 0 else startIndex % cols
-                                            val rawNewRow = startRow + (dy / stepPx).roundToInt()
-                                            val newRow = rawNewRow.coerceIn(-1, rows - 1)
-                                            val newIndex = if (newRow < 0) {
-                                                -1
-                                            } else {
-                                                val newCol = (startCol + (dx / stepPx).roundToInt()).coerceIn(0, cols - 1)
-                                                newRow * cols + newCol
-                                            }
-                                            if (newIndex != selectedIndex) {
-                                                selectedIndex = newIndex
-                                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                            }
-                                        }
-                                        ev = awaitPointerEvent()
-                                    }
-
-                                    if (!moved) {
-                                        if (selectedIndex < 0) {
-                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                            onClose()
-                                        } else {
-                                            phase = TemplatePhase.CONFIRM
-                                            confirmOptionIndex = 1
-                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                        }
-                                    }
-                                }
-                            }
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
                         Column(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             val cols = 2
-                            val rows = (templates.size + cols - 1) / cols
                             Column(
                                 modifier = Modifier.fillMaxWidth(0.72f),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                            templates.chunked(cols).forEachIndexed { rowIdx, rowTemplates ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    rowTemplates.forEachIndexed { colIdx, template ->
-                                        val idx = rowIdx * cols + colIdx
-                                        TemplateSquareCard(
-                                            template = template,
-                                            isSelected = selectedIndex == idx,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                    repeat(cols - rowTemplates.size) {
-                                        Spacer(Modifier.weight(1f))
+                                templates.chunked(cols).forEachIndexed { rowIdx, rowTemplates ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        rowTemplates.forEachIndexed { colIdx, template ->
+                                            val idx = rowIdx * cols + colIdx
+                                            TemplateSquareCard(
+                                                template = template,
+                                                isSelected = selectedIndex == idx,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                        repeat(cols - rowTemplates.size) {
+                                            Spacer(Modifier.weight(1f))
+                                        }
                                     }
                                 }
-                            }
                             }
                         }
                     }
@@ -1007,67 +1423,7 @@ private fun TemplatePickerContent(
                     val accent = templateAccent(template.id)
 
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(template.id) {
-                                val tapThreshPx = 10.dp.toPx()
-                                val confirmStepPx = 30.dp.toPx()
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    val startX = down.position.x
-                                    var lastX = startX
-                                    var accumDrag = 0f
-                                    var hasDragged = false
-
-                                    var ev = awaitPointerEvent()
-                                    while (ev.type != PointerEventType.Release) {
-                                        if (ev.type == PointerEventType.Move) {
-                                            ev.changes.forEach { it.consume() }
-                                            val pos = ev.changes.first().position
-                                            if (abs(pos.x - startX) > tapThreshPx) hasDragged = true
-
-                                            val dx = pos.x - lastX
-                                            lastX = pos.x
-                                            accumDrag += dx
-
-                                            val steps = (accumDrag / confirmStepPx).toInt()
-                                            if (steps != 0) {
-                                                accumDrag -= steps * confirmStepPx
-                                                val proposed = confirmOptionIndex + steps
-                                                if (proposed in 0..1) {
-                                                    confirmOptionIndex = proposed
-                                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                                } else {
-                                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                                        view.performHapticFeedback(HapticFeedbackConstants.REJECT)
-                                                    } else {
-                                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                                    }
-                                                    accumDrag = 0f
-                                                }
-                                            }
-                                        }
-                                        ev = awaitPointerEvent()
-                                    }
-
-                                    if (!hasDragged) {
-                                        when (confirmOptionIndex) {
-                                            0 -> {
-                                                phase = TemplatePhase.GRID
-                                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                            }
-                                            1 -> {
-                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                                                } else {
-                                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                                }
-                                                onSelect(templates[selectedIndex])
-                                            }
-                                        }
-                                    }
-                                }
-                            },
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
@@ -1075,7 +1431,6 @@ private fun TemplatePickerContent(
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier.padding(horizontal = 24.dp)
                         ) {
-                            // 80dp 정사각 아이콘 박스
                             Box(
                                 modifier = Modifier
                                     .size(80.dp)
@@ -1153,6 +1508,7 @@ private fun TemplatePickerContent(
             }
         }
     }
+    } // end outer Box
 }
 
 @Composable
@@ -1220,45 +1576,7 @@ private fun TemplateSquareCard(
 }
 
 // ─────────────────────────────────────────────────────────────
-// 탭 버튼
-// ─────────────────────────────────────────────────────────────
-
-@Composable
-private fun TabButton(
-    label: String,
-    color: Color,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .background(
-                if (selected) color.copy(alpha = 0.18f) else SURFACE,
-                RoundedCornerShape(8.dp)
-            )
-            .then(if (selected) Modifier.border(1.dp, color, RoundedCornerShape(8.dp)) else Modifier)
-            .padding(vertical = 6.dp)
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    val up = awaitPointerEvent()
-                    if (up.type == PointerEventType.Release) onClick()
-                }
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = label,
-            color = if (selected) color else LABEL_COLOR,
-            fontSize = 13.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-        )
-    }
-}
-
-// ─────────────────────────────────────────────────────────────
-// 그래프 캔버스 (Canvas + pointerInput)
+// 그래프 캔버스 (순수 렌더 전용, Phase 4.5.18.4: pointerInput 제거)
 // ─────────────────────────────────────────────────────────────
 
 @Composable
@@ -1267,28 +1585,15 @@ private fun CurveGraphCanvas(
     inactiveCurve: List<CurveNode>,
     activeColor: Color,
     inactiveColor: Color,
-    onCurveChanged: (List<CurveNode>) -> Unit,
-    onDeleteRequest: (Int) -> Unit,
-    onHaptic: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
-    val snapThresholdPx = with(density) { CurveEditorConstants.CURVE_SNAP_THRESHOLD_DP.dp.toPx() }
-    val addMinPx = with(density) { CurveEditorConstants.CURVE_ADD_MIN_DP.dp.toPx() }
-    val nodeDragRadius = with(density) { 8.dp.toPx() }       // 일반 노드 반지름
-    val nodeDragRadiusActive = with(density) { 12.dp.toPx() } // 드래그 중 확대 반지름
     val textMeasurer = rememberTextMeasurer()
 
-    // 드래그 상태
-    var draggingIndex by remember { mutableIntStateOf(-1) }
-    var canvasWidth by remember { mutableFloatStateOf(1f) }
-    var canvasHeight by remember { mutableFloatStateOf(1f) }
-
-    // 좌표 변환 헬퍼 (내부 padding 포함)
-    val padLeft = with(density) { 32.dp.toPx() }
-    val padBottom = with(density) { 24.dp.toPx() }
-    val padTop = with(density) { 12.dp.toPx() }
-    val padRight = with(density) { 12.dp.toPx() }
+    val padLeft = with(density) { 36.dp.toPx() }
+    val padBottom = with(density) { 32.dp.toPx() }
+    val padTop = with(density) { 32.dp.toPx() }
+    val padRight = with(density) { 36.dp.toPx() }
 
     fun plotWidth(w: Float) = w - padLeft - padRight
     fun plotHeight(h: Float) = h - padTop - padBottom
@@ -1301,159 +1606,39 @@ private fun CurveGraphCanvas(
     fun multiplierToY(m: Float, h: Float) =
         padTop + (1f - (m - CurveEditorConstants.CURVE_MULTIPLIER_MIN) / multRange) * plotHeight(h)
 
-    fun xToVelocity(x: Float, w: Float) =
-        ((x - padLeft) / plotWidth(w) * CurveEditorConstants.CURVE_VELOCITY_MAX)
-            .coerceIn(0f, CurveEditorConstants.CURVE_VELOCITY_MAX)
-
-    fun yToMultiplier(y: Float, h: Float) =
-        (CurveEditorConstants.CURVE_MULTIPLIER_MIN + (1f - (y - padTop) / plotHeight(h)) * multRange)
-            .coerceIn(CurveEditorConstants.CURVE_MULTIPLIER_MIN, CurveEditorConstants.CURVE_MULTIPLIER_MAX)
-
     fun nodeCanvasOffset(node: CurveNode, w: Float, h: Float) =
         Offset(velocityToX(node.velocityDpMs, w), multiplierToY(node.multiplier, h))
 
-    fun findNearestNode(pos: Offset, curve: List<CurveNode>, w: Float, h: Float): Int {
-        var bestIdx = -1
-        var bestDist = snapThresholdPx
-        curve.forEachIndexed { i, node ->
-            val p = nodeCanvasOffset(node, w, h)
-            val dist = sqrt((pos.x - p.x).let { it * it } + (pos.y - p.y).let { it * it })
-            if (dist < bestDist) { bestDist = dist; bestIdx = i }
-        }
-        return bestIdx
-    }
+    val nodeRadius = with(density) { 8.dp.toPx() }
 
     Canvas(
         modifier = modifier
             .background(SURFACE, RoundedCornerShape(8.dp))
-            .pointerInput(activeCurve) {
-                val w = size.width.toFloat()
-                val h = size.height.toFloat()
-
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    val pos = down.position
-                    val nearIdx = findNearestNode(pos, activeCurve, w, h)
-
-                    if (nearIdx >= 0) {
-                        // 기존 노드 근처: 드래그 또는 롱프레스
-                        draggingIndex = nearIdx
-                        var longPressTriggered = false
-                        var movedSinceDown = false
-
-                        // 롱프레스 임계값: 500ms
-                        val longPressThresholdMs = 500L
-                        val downTime = System.currentTimeMillis()
-
-                        var ev = awaitPointerEvent()
-                        while (ev.type != PointerEventType.Release) {
-                            if (ev.type == PointerEventType.Move) {
-                                ev.changes.forEach { it.consume() }
-                                val newPos = ev.changes.first().position
-                                val dist = sqrt((newPos.x - pos.x).let { it * it } + (newPos.y - pos.y).let { it * it })
-                                if (dist > 4f) movedSinceDown = true
-
-                                if (movedSinceDown && !longPressTriggered) {
-                                    // 드래그: 양 끝 노드는 X 이동 불가
-                                    val isFixed = nearIdx == 0 || nearIdx == activeCurve.lastIndex
-                                    val newV = if (isFixed) activeCurve[nearIdx].velocityDpMs
-                                    else {
-                                        val rawV = xToVelocity(newPos.x, w)
-                                        val prevV = activeCurve.getOrNull(nearIdx - 1)?.velocityDpMs ?: 0f
-                                        val nextV = activeCurve.getOrNull(nearIdx + 1)?.velocityDpMs
-                                            ?: CurveEditorConstants.CURVE_VELOCITY_MAX
-                                        rawV.coerceIn(
-                                            prevV + CurveEditorConstants.CURVE_MIN_VELOCITY_GAP,
-                                            nextV - CurveEditorConstants.CURVE_MIN_VELOCITY_GAP
-                                        )
-                                    }
-                                    val newM = yToMultiplier(newPos.y, h)
-                                    val mutable = activeCurve.toMutableList()
-                                    mutable[nearIdx] = CurveNode(newV, newM)
-                                    onCurveChanged(mutable)
-                                }
-                            }
-
-                            // 롱프레스 판정 (고정 노드 제외)
-                            val elapsed = System.currentTimeMillis() - downTime
-                            val isFixed = nearIdx == 0 || nearIdx == activeCurve.lastIndex
-                            if (!movedSinceDown && !isFixed && elapsed >= longPressThresholdMs && !longPressTriggered) {
-                                longPressTriggered = true
-                                onHaptic(HapticFeedbackConstants.LONG_PRESS)
-                                onDeleteRequest(nearIdx)
-                            }
-
-                            ev = awaitPointerEvent()
-                        }
-                        draggingIndex = -1
-                    } else {
-                        // 빈 곳 탭: 노드 추가
-                        var hasMoved = false
-                        var ev = awaitPointerEvent()
-                        while (ev.type != PointerEventType.Release) {
-                            if (ev.type == PointerEventType.Move) {
-                                ev.changes.forEach { it.consume() }
-                                val newPos = ev.changes.first().position
-                                val dist = sqrt((newPos.x - pos.x).let { it * it } + (newPos.y - pos.y).let { it * it })
-                                if (dist > 4f) hasMoved = true
-                            }
-                            ev = awaitPointerEvent()
-                        }
-
-                        if (!hasMoved) {
-                            // 탭: 최대 노드 수 미만이고 인접 노드와 충분한 거리 시 추가
-                            if (activeCurve.size < CurveEditorConstants.CURVE_MAX_NODES) {
-                                val newV = xToVelocity(pos.x, w)
-                                val newM = yToMultiplier(pos.y, h)
-                                val tooClose = activeCurve.any { node ->
-                                    abs(velocityToX(node.velocityDpMs, w) - pos.x) < addMinPx
-                                }
-                                if (!tooClose) {
-                                    val mutable = (activeCurve + CurveNode(newV, newM))
-                                        .sortedBy { it.velocityDpMs }
-                                    onCurveChanged(mutable)
-                                    onHaptic(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            .border(1.5.dp, activeColor, RoundedCornerShape(8.dp))
     ) {
-        canvasWidth = size.width
-        canvasHeight = size.height
         val w = size.width
         val h = size.height
 
-        // ── 격자 ──
         drawGrid(w, h, padLeft, padRight, padTop, padBottom)
 
-        // ── 비활성 곡선 (흐리게) ──
-        drawCurve(inactiveCurve, w, h, inactiveColor.copy(alpha = 0.25f),
-            ::velocityToX, ::multiplierToY)
+        drawCurve(inactiveCurve, w, h, inactiveColor.copy(alpha = 0.25f), ::velocityToX, ::multiplierToY)
+        drawCurve(activeCurve, w, h, activeColor, ::velocityToX, ::multiplierToY)
 
-        // ── 활성 곡선 ──
-        drawCurve(activeCurve, w, h, activeColor,
-            ::velocityToX, ::multiplierToY)
-
-        // ── 노드 원 ──
         activeCurve.forEachIndexed { i, node ->
             val p = nodeCanvasOffset(node, w, h)
-            val r = if (i == draggingIndex) nodeDragRadiusActive else nodeDragRadius
             val isFixed = i == 0 || i == activeCurve.lastIndex
             drawCircle(
                 color = if (isFixed) LABEL_COLOR else activeColor,
-                radius = r,
+                radius = nodeRadius,
                 center = p
             )
             drawCircle(
                 color = BG,
-                radius = r - with(density) { 2.dp.toPx() },
+                radius = nodeRadius - with(density) { 2.dp.toPx() },
                 center = p
             )
         }
 
-        // ── 축 레이블 ──
         drawAxisLabels(w, h, padLeft, padRight, padTop, padBottom, textMeasurer)
     }
 }
@@ -1467,12 +1652,10 @@ private fun DrawScope.drawGrid(
     val gridCols = 6
     val gridRows = 5
 
-    // 수직선
     for (i in 0..gridCols) {
         val x = padL + i * plotW / gridCols
         drawLine(GRID_COLOR, Offset(x, padT), Offset(x, h - padB), strokeWidth = 1f)
     }
-    // 수평선
     for (i in 0..gridRows) {
         val y = padT + i * plotH / gridRows
         drawLine(GRID_COLOR, Offset(padL, y), Offset(w - padR, y), strokeWidth = 1f)
@@ -1505,20 +1688,18 @@ private fun DrawScope.drawAxisLabels(
     val plotH = h - padT - padB
     val style = TextStyle(color = LABEL_COLOR, fontSize = 9.sp)
 
-    // X축 (속도 dp/ms): 0, 1, 2, 3, 4, 5, 6
     for (i in 0..6) {
         val x = padL + i * plotW / 6
         val measured = textMeasurer.measure("$i", style)
         drawText(measured, topLeft = Offset(x - measured.size.width / 2f, h - padB + 4f))
     }
 
-    // Y축 (배율 ×): 0×, 1×, 2×, 3×, 4×, 5×, 6×
     val multRange = CurveEditorConstants.CURVE_MULTIPLIER_MAX - CurveEditorConstants.CURVE_MULTIPLIER_MIN
     for (i in 0..6) {
         val m = CurveEditorConstants.CURVE_MULTIPLIER_MIN + i * multRange / 6
         val y = padT + (1f - i / 6f) * plotH
         val label = "%.0f×".format(m)
         val measured = textMeasurer.measure(label, style)
-        drawText(measured, topLeft = Offset(2f, y - measured.size.height / 2f))
+        drawText(measured, topLeft = Offset(18f, y - measured.size.height / 2f))
     }
 }

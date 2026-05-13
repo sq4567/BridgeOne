@@ -94,7 +94,7 @@ import kotlin.math.abs
  * - 하단 페이지 인디케이터 (닷 4개)
  */
 @Composable
-fun StandardModePage() {
+fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     val pagerState = rememberPagerState(pageCount = { 4 })
     val context = LocalContext.current
 
@@ -115,6 +115,7 @@ fun StandardModePage() {
     // Phase 4.5.16: 그래프 편집기 상태
     var curveEditorVisible by remember { mutableStateOf(false) }
     var editingPreset by remember { mutableStateOf<CustomPointerDynamicsPreset?>(null) }
+    LaunchedEffect(curveEditorVisible) { onCurveEditorVisibleChange(curveEditorVisible) }
 
     // Phase 4.3.6: DPI 세밀 조절 팝업 상태
     var dpiAdjustPopupVisible by remember { mutableStateOf(false) }

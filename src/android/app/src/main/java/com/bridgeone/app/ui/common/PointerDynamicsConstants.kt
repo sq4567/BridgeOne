@@ -79,6 +79,8 @@ object CurveEditorConstants {
     const val CURVE_ADD_MIN_DP = 8f
     /** 템플릿 피커에서 항목 한 칸 이동에 필요한 스와이프 거리 (dp). 기본값: 60f */
     const val TEMPLATE_PICKER_SWIPE_STEP_DP = 60f
+    /** 액션 그리드에서 인접 슬롯 한 칸 이동에 필요한 스와이프 거리 (dp). 기본값: 44f */
+    const val ACTION_GRID_SWIPE_STEP_DP = 44f
 }
 
 /** 기본 커브: 배율 1.0 직선 (기존 코드 호환용) */
