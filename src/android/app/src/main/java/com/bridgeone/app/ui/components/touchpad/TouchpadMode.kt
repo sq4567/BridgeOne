@@ -181,7 +181,9 @@ data class TouchpadState(
     /** 현재 포인터 다이나믹스 프리셋 인덱스 (DYNAMICS_PRESETS 기준). 기본값: 0 = Off */
     val dynamicsPresetIndex: Int = 0,
     /** 현재 모드 프리셋 인덱스 (MODE_PRESETS 기준). 기본값: 0 = Standard */
-    val modePresetIndex: Int = 0
+    val modePresetIndex: Int = 0,
+    /** 엣지 조작 방식 (Phase 4.6.1). 기본값: LEGACY_POPUP */
+    val edgeInteractionMode: EdgeInteractionMode = EdgeInteractionMode.LEGACY_POPUP
 ) {
     /** 실제 적용되는 DPI 배율 (커스텀 우선, 없으면 레벨 배율) */
     val effectiveDpiMultiplier: Float

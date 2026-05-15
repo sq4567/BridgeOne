@@ -17,7 +17,7 @@ updated: "2026-04-03"
 
 | 하위 Phase | 내용 | 상태 |
 |-----------|------|------|
-| 4.6.1 | 임시 환경 설정 페이지 (조작 방식 전환) | 미시작 |
+| 4.6.1 | 임시 환경 설정 페이지 (조작 방식 전환) | 완료 |
 | 4.6.2 | 엣지 존(Zone) 분할 방식 | 완료 |
 | 4.6.3 | 파이 메뉴(Radial Menu) 방식 | 미시작 |
 | 4.6.4 | 방향 플릭(Flick) 방식 | 미시작 |
@@ -40,15 +40,15 @@ updated: "2026-04-03"
 
 **개발 기간**: 0.5일
 
-**쉬운 설명**: 다음 Phase들에서 구현할 조작 방식들을 실제로 테스트하려면, 어떤 방식을 쓸지 전환할 수 있는 설정 화면이 먼저 있어야 합니다. 이 Phase에서는 앱 어딘가에서 접근할 수 있는 간단한 설정 화면을 만들어서, `EdgeInteractionMode`를 선택할 수 있게 합니다.
-
 ### 핵심 설계
 
-`TouchpadState.edgeInteractionMode` 필드와 `EdgeInteractionMode` enum은 이미 존재 (Phase 4.5.18에서 추가됨). 설정 화면에서 이 값만 변경하면 됨.
+`TouchpadState.edgeInteractionMode` 필드와 `EdgeInteractionMode` enum은 이미 존재 (Phase 4.5.18에서 추가됨). 설정 페이지에서 이 값만 변경하면 됨.
 
-**진입 방법**: 터치패드 화면 어딘가에 설정 아이콘(⚙️) 버튼 배치 → 탭 시 설정 다이얼로그 또는 하단 시트 오픈.
+**진입 방법**: `StandardModePage`의 `HorizontalPager`를 5페이지로 확장. 기존 4개 페이지(터치패드, 절대좌표, 키보드, 마인크래프트) 뒤에 설정 페이지를 추가. 1페이지에서 우측 스와이프, 또는 4페이지에서 좌측 스와이프로 진입.
 
-**설정 다이얼로그 구성**:
+**원형(circular) 스와이프**: 1페이지 ↔ 5페이지 간 양방향 wrap-around 지원. `HorizontalPager`의 `pageCount`를 `Int.MAX_VALUE`로 설정하고 초기 페이지를 `PAGE_COUNT(5)`의 배수로 지정, 실제 콘텐츠는 `page % 5`로 매핑.
+
+**설정 페이지 구성**:
 - 섹션: "엣지 조작 방식"
 - 항목: `EdgeInteractionMode` 각 값에 대한 라디오 버튼 목록
   - LEGACY_POPUP: "기존 팝업 방식 (5단계)"
@@ -57,22 +57,35 @@ updated: "2026-04-03"
 - 선택 즉시 적용, 앱 재시작 없이 반영
 - SharedPreferences에 영속화
 
-**구현 방식**: 정식 설정 화면이 아닌 임시 다이얼로그 형태로 구현. 나중에 4.6.7 이후 정식 설정 화면으로 대체 가능.
-
 ### 구현 파일
 
 | 파일 | 변경 |
 |------|------|
-| `SettingsDialog.kt` (신규) | 설정 다이얼로그 Composable (EdgeInteractionMode 선택 UI) |
-| `SettingsRepository.kt` (신규) | SharedPreferences 기반 설정 영속화 |
-| `TouchpadViewModel.kt` (또는 해당 ViewModel) | edgeInteractionMode 상태 읽기/쓰기 연결 |
-| `BridgeOneApp.kt` 또는 `TouchpadWrapper.kt` | 설정 진입 버튼 추가 |
+| `SettingsDialog.kt` (신규) | EdgeInteractionMode 선택 UI (현재 미사용, 참조용으로 보존) |
+| `StandardModePage.kt` | `HorizontalPager` 5페이지 확장, circular 스크롤 구현, `Page5Settings` / `SettingsEdgeInteractionModeSection` composable 추가, `PageIndicator` 파라미터 변경 |
+
+### 구현 노트
+
+> **⚠️ Phase 4.6.1 구현 변경사항**
+>
+> - `EdgeInteractionMode` enum 추가 (`LEGACY_POPUP`, `ZONE`) → `EdgeSwipeOverlay.kt`
+> - `TouchpadState.edgeInteractionMode` 필드 추가 (기본값: `LEGACY_POPUP`) → `TouchpadMode.kt`
+> - `HorizontalPager` pageCount: 5 → `Int.MAX_VALUE` (circular), `PAGER_INITIAL_PAGE` = `Int.MAX_VALUE / 2`를 5의 배수로 내림
+> - 콘텐츠 매핑: `when (page % PAGE_COUNT)` — 논리 페이지 0~4
+> - `Page5Settings` composable 추가 (`StandardModePage.kt` 내) — "환경 설정" 제목 + `SettingsEdgeInteractionModeSection`
+> - `SettingsEdgeInteractionModeSection` composable 추가 — `EdgeInteractionMode.entries` 순회하여 RadioButton 목록 렌더링
+> - `PageIndicator` 파라미터 변경: `pagerState: PagerState` → `currentPage: Int, offsetFraction: Float` — wrap-around 전환(0→4, 4→0) 시 `offsetFraction = 0`으로 고정하여 worm이 화면 밖으로 튀는 현상 방지
+> - SharedPreferences 저장/로드: `StandardModePage.kt`에 `loadEdgeInteractionMode` / `saveEdgeInteractionMode` 추가 (기존 `PREF_NAME` 재사용)
+> - `SettingsRepository.kt`는 별도 파일 미생성 — 기존 DPI 저장 패턴(private 함수)으로 통합
+>
+> **후속 Phase 영향**: Phase 4.6.3~4.6.6 구현 시 `EdgeInteractionMode`에 `PIE_MENU`, `FLICK`, `GESTURE_DRAWING`, `SWIPE_CAROUSEL` 값 추가 후 `SettingsEdgeInteractionModeSection`의 `when(mode)` 분기에 해당 레이블 추가 필요.
 
 ### 검증
 
-- [ ] 설정 버튼 탭 시 다이얼로그 오픈 확인
-- [ ] LEGACY_POPUP / ZONE 선택 즉시 적용 확인
-- [ ] 앱 재시작 후에도 선택한 방식이 유지되는지 확인
+- [x] 1페이지에서 우측 스와이프 시 설정 페이지(5페이지)로 이동 확인
+- [x] 5페이지에서 좌측 스와이프 시 1페이지로 wrap-around 확인
+- [x] LEGACY_POPUP / ZONE 선택 즉시 적용 확인
+- [x] 앱 재시작 후에도 선택한 방식이 유지되는지 확인
 
 ---
 
@@ -167,6 +180,10 @@ sealed class EdgeZoneAction {
 
 ## Phase 4.6.3: 파이 메뉴(Radial Menu) 방식
 
+> **⚠️ Phase 4.6.1 변경사항**: `EdgeInteractionMode` enum이 `EdgeSwipeOverlay.kt`에 `LEGACY_POPUP`, `ZONE` 두 값으로 이미 정의됨.
+> `PIE_MENU` 값을 `EdgeSwipeOverlay.kt`의 `EdgeInteractionMode` enum에 추가하고,
+> `StandardModePage.kt`의 `SettingsEdgeInteractionModeSection` 내 `when(mode)` 분기에 `EdgeInteractionMode.PIE_MENU -> "파이 메뉴 방식"` 추가 필요.
+>
 > **⚠️ Phase 4.5.18 변경사항**: `EdgeInteractionMode` enum에 `PIE_MENU` 값 추가 필요 (`EdgeSwipeOverlay.kt`).
 > `TouchpadWrapper.kt`의 trigger 분기에 `EdgeInteractionMode.PIE_MENU` 케이스 추가.
 
@@ -244,6 +261,9 @@ sealed class PieMenuAction {
 
 ## Phase 4.6.4: 방향 플릭(Flick) 방식
 
+> **⚠️ Phase 4.6.1 변경사항**: `FLICK` 값을 `EdgeSwipeOverlay.kt`의 `EdgeInteractionMode` enum에 추가하고,
+> `StandardModePage.kt`의 `SettingsEdgeInteractionModeSection` 내 `when(mode)` 분기에 `EdgeInteractionMode.FLICK -> "방향 플릭 방식"` 추가 필요.
+>
 > **⚠️ Phase 4.5.18 변경사항**: `EdgeInteractionMode` enum에 `FLICK` 값 추가 필요 (`EdgeSwipeOverlay.kt`).
 > `TouchpadWrapper.kt`의 trigger 분기에 `EdgeInteractionMode.FLICK` 케이스 추가.
 

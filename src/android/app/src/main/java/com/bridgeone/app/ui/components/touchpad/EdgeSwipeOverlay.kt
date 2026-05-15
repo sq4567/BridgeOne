@@ -65,6 +65,9 @@ import kotlinx.coroutines.launch
 /** 엣지 스와이프 메뉴 조작 방식 */
 enum class EdgePopupMode { SWIPE, DIRECT_TOUCH }
 
+/** 엣지 조작 방식 (Phase 4.6.1) */
+enum class EdgeInteractionMode { LEGACY_POPUP, ZONE }
+
 /** 엣지 스와이프가 시작된 터치패드 가장자리 방향 */
 enum class EntryEdge { TOP, BOTTOM, LEFT, RIGHT }
 

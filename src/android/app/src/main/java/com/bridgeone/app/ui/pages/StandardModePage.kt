@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,6 +66,7 @@ import com.bridgeone.app.ui.components.KeyboardKeyButton
 import com.bridgeone.app.ui.components.ShortcutButton
 import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
+import com.bridgeone.app.ui.components.touchpad.EdgeInteractionMode
 import com.bridgeone.app.ui.components.touchpad.DpiAdjustPopup
 import com.bridgeone.app.ui.components.touchpad.DpiLevel
 import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
@@ -93,18 +95,34 @@ import kotlin.math.abs
  * - Page 3: 마인크래프트 (Phase 4.6에서 구현)
  * - 하단 페이지 인디케이터 (닷 4개)
  */
+private const val PAGE_COUNT = 5
+// Int.MAX_VALUE / 2를 PAGE_COUNT의 배수로 내림 → 논리 페이지 0에서 시작, 양방향 무한 스크롤 가능
+private val PAGER_INITIAL_PAGE = (Int.MAX_VALUE / 2).let { mid -> mid - (mid % PAGE_COUNT) }
+
 @Composable
 fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
-    val pagerState = rememberPagerState(pageCount = { 4 })
+    val pagerState = rememberPagerState(initialPage = PAGER_INITIAL_PAGE, pageCount = { Int.MAX_VALUE })
     val context = LocalContext.current
 
     // Phase 4.3.3: 터치패드 상태를 페이지 레벨로 호이스팅
-    // DpiLevel은 SharedPreferences에서 복원 (Phase 4.3.6)
-    var touchpadState by remember { mutableStateOf(TouchpadState(dpiLevel = loadDpiLevel(context))) }
+    // DpiLevel과 EdgeInteractionMode는 SharedPreferences에서 복원 (Phase 4.3.6, 4.6.1)
+    var touchpadState by remember {
+        mutableStateOf(
+            TouchpadState(
+                dpiLevel = loadDpiLevel(context),
+                edgeInteractionMode = loadEdgeInteractionMode(context)
+            )
+        )
+    }
 
     // DPI 레벨(사전 정의 값)이 변경될 때 SharedPreferences에 저장
     LaunchedEffect(touchpadState.dpiLevel) {
         saveDpiLevel(context, touchpadState.dpiLevel)
+    }
+
+    // 엣지 조작 방식이 변경될 때 SharedPreferences에 저장 (Phase 4.6.1)
+    LaunchedEffect(touchpadState.edgeInteractionMode) {
+        saveEdgeInteractionMode(context, touchpadState.edgeInteractionMode)
     }
 
     // Phase 4.5.16: 커스텀 다이나믹스 프리셋 상태
@@ -173,7 +191,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                     .fillMaxSize()
                     .padding(horizontal = 4.dp, vertical = 8.dp)
             ) { page ->
-                when (page) {
+                when (page % PAGE_COUNT) {
                     0 -> Page1TouchpadActions(
                         touchpadState = touchpadState,
                         customPresets = customPresets,
@@ -235,14 +253,27 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                     1 -> Page2AbsolutePointingPlaceholder()
                     2 -> Page3KeyboardPlaceholder()
                     3 -> Page4MinecraftPlaceholder()
+                    4 -> Page5Settings(
+                        touchpadState = touchpadState,
+                        onTouchpadStateChange = { touchpadState = it }
+                    )
                 }
             }
         }
 
-        // ── 페이지 인디케이터 (닷 3개) ──
+        // ── 페이지 인디케이터 ──
+        // wrap-around 전환(0→4, 4→0) 시 worm이 화면 밖으로 튀지 않도록 offset 고정
+        val logicalPage = pagerState.currentPage % PAGE_COUNT
+        val rawOffset = pagerState.currentPageOffsetFraction
+        val indicatorOffset = when {
+            logicalPage == 0 && rawOffset < 0 -> 0f  // 0→4 wrap
+            logicalPage == PAGE_COUNT - 1 && rawOffset > 0 -> 0f  // 4→0 wrap
+            else -> rawOffset
+        }
         PageIndicator(
-            pagerState = pagerState,
-            pageCount = 4,
+            currentPage = logicalPage,
+            offsetFraction = indicatorOffset,
+            pageCount = PAGE_COUNT,
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
                 .padding(bottom = 16.dp)
@@ -286,7 +317,8 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
 
 @Composable
 private fun PageIndicator(
-    pagerState: PagerState,
+    currentPage: Int,
+    offsetFraction: Float,
     pageCount: Int,
     modifier: Modifier = Modifier
 ) {
@@ -298,10 +330,6 @@ private fun PageIndicator(
     val dotSizePx = with(density) { dotSizeDp.toPx() }
     val dotSpacingPx = with(density) { dotSpacingDp.toPx() }
     val dotStepPx = dotSizePx + dotSpacingPx  // 한 닷에서 다음 닷까지 거리
-
-    // 실시간 스와이프 오프셋 (드래그하는 동안 연속적으로 변함)
-    val currentPage = pagerState.currentPage
-    val offsetFraction = pagerState.currentPageOffsetFraction  // -1.0 ~ 1.0
 
     val absOffset = kotlin.math.abs(offsetFraction)
     val direction = if (offsetFraction > 0) 1f else -1f
@@ -499,6 +527,7 @@ private fun Page1TouchpadActions(
                         .fillMaxSize()
                         .clip(RoundedCornerShape(12.dp))
                 )
+
             }
 
             // ── 우측: Actions 패널 (36% / 40%) ──
@@ -857,6 +886,92 @@ private fun Page4MinecraftPlaceholder() {
 }
 
 // ============================================================
+// Page 5: 설정
+// ============================================================
+
+@Composable
+private fun Page5Settings(
+    touchpadState: TouchpadState,
+    onTouchpadStateChange: (TouchpadState) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1E1E1E), RoundedCornerShape(12.dp))
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+    ) {
+        androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                Text(
+                    text = "환경 설정",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFFFFFFF)
+                )
+            }
+
+            item {
+                Text(
+                    text = "엣지 조작 방식",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFAAAAAA),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            item {
+                SettingsEdgeInteractionModeSection(
+                    currentMode = touchpadState.edgeInteractionMode,
+                    onModeSelected = { mode ->
+                        onTouchpadStateChange(touchpadState.copy(edgeInteractionMode = mode))
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsEdgeInteractionModeSection(
+    currentMode: EdgeInteractionMode,
+    onModeSelected: (EdgeInteractionMode) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        EdgeInteractionMode.entries.forEach { mode ->
+            val isSelected = currentMode == mode
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isSelected) Color(0xFF2A2A2A) else Color.Transparent,
+                        RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                RadioButton(
+                    selected = isSelected,
+                    onClick = { onModeSelected(mode) }
+                )
+                Text(
+                    text = when (mode) {
+                        EdgeInteractionMode.LEGACY_POPUP -> "기존 팝업 방식 (5단계)"
+                        EdgeInteractionMode.ZONE -> "엣지 존 방식"
+                    },
+                    fontSize = 14.sp,
+                    color = Color(0xFFEEEEEE)
+                )
+            }
+        }
+    }
+}
+
+// ============================================================
 // DPI 레벨 SharedPreferences 저장/복원 (Phase 4.3.6)
 // ============================================================
 
@@ -873,5 +988,25 @@ private fun saveDpiLevel(context: Context, level: DpiLevel) {
     context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         .edit()
         .putString(KEY_DPI_LEVEL, level.name)
+        .apply()
+}
+
+// ============================================================
+// 엣지 조작 방식 SharedPreferences 저장/복원 (Phase 4.6.1)
+// ============================================================
+
+private const val KEY_EDGE_INTERACTION_MODE = "edge_interaction_mode"
+
+private fun loadEdgeInteractionMode(context: Context): EdgeInteractionMode {
+    val name = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        .getString(KEY_EDGE_INTERACTION_MODE, EdgeInteractionMode.LEGACY_POPUP.name)
+        ?: EdgeInteractionMode.LEGACY_POPUP.name
+    return EdgeInteractionMode.entries.firstOrNull { it.name == name } ?: EdgeInteractionMode.LEGACY_POPUP
+}
+
+private fun saveEdgeInteractionMode(context: Context, mode: EdgeInteractionMode) {
+    context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_EDGE_INTERACTION_MODE, mode.name)
         .apply()
 }
