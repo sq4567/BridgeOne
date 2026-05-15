@@ -1203,62 +1203,208 @@ private val ACTION_ROW_SLOTS = listOf(
 
 ---
 
-### Phase 4.5.18.5: 노드 편집 액션 그리드 + 스텝 조작화
+### Phase 4.5.18.5: 노드 편집 시스템 (선택/조작 모드 · 스텝 정밀도 · 저장 확인)
 
-> **⚠️ Phase 4.5.18.4 전제**: `currentScreen` enum(Graph/Keyboard/IconPicker/TemplatePicker), `EditorActionGrid`(2×5 하단 고정 그리드), 글로벌 드래그-호버 제스처 존재. 그래프는 표시 전용(직접 조작 없음). 액션 그리드 슬롯 9번(마지막)은 예약 상태.
+> **⚠️ Phase 4.5.18.4 전제**: `currentScreen` sealed class(Graph/Keyboard/IconPicker/TemplatePicker), `EditorActionGrid`(4행 가변 슬롯 레이아웃, `ACTION_ROW_SLOTS` 기준), 글로벌 드래그-호버 제스처 존재. 그래프는 표시 전용(직접 조작 없음). 현재 슬롯은 0~8(총 9개). 슬롯 9 "노드 편집"은 이 Phase에서 추가.
 
-**개발 기간**: 3~4일
+**개발 기간**: 4~5일
 
-**개요**: 액션 그리드 슬롯 9번에 "노드 편집" 진입 버튼을 추가하고, 선택 시 그리드 항목이 노드 편집 세트(이전/다음 노드 · X/Y 스텝 · 추가/삭제)로 교체. 글로벌 드래그-호버 제스처는 그대로 사용.
+**개요**: 메인 그리드에 슬롯 9 "노드 편집" 진입 버튼을 추가하고, 선택 시 그래프 위 좌우 스와이프로 노드를 고른 뒤(Select 모드) 탭으로 확정해 십자 패드 + CRUD 카드로 조작(Manipulate 모드)하는 2단계 노드 편집 시스템을 구현. 스텝 정밀도 피커로 이동량을 5단계 조절. 저장(슬롯 8) 시 즉시 저장 대신 자연어 요약 확인 오버레이를 표시. 모든 스와이프 제스처는 드래그 시작점 기준 상대 이동량으로 슬롯을 결정한다 (화면 절대 좌표 무관).
 
-**인터랙션**:
-- 메인 그리드에서 "노드 편집" 선택 → 그리드가 노드 편집 세트로 전환(`gridContext = NodeEdit`). 첫 슬롯 "← 뒤로" 선택 시 메인 그리드 복귀.
-- X−/X+/Y−/Y+ 슬롯 위에서 드래그를 0.4s 이상 유지하면 100ms 간격 키 리피트 발동. 손이 해당 슬롯을 벗어나거나 떼면 즉시 중단.
+**`GridContext` sealed class** (신규):
 
-**노드 편집 그리드 항목** (메인 그리드 교체):
+```kotlin
+private sealed class GridContext {
+    object Main : GridContext()
+    sealed class NodeEdit : GridContext() {
+        object Select : NodeEdit()      // 그래프 위 좌우 스와이프로 노드 선택
+        object Manipulate : NodeEdit()  // X±/Y±/CRUD 십자 패드 조작
+    }
+    object SaveConfirm : GridContext()
+}
+```
+
+**메인 그리드 `ACTION_ROW_SLOTS` 변경**:
+
+슬롯 9 "노드 편집"을 그래프 컨테이너 하단(CurveCard 위)에 단독 배치. ActionCard는 취소·저장 2열로 축소. `MAIN_START_ROW = 3`:
+```kotlin
+private val ACTION_ROW_SLOTS = listOf(
+    listOf(0, 1, 3),   // Row 0: MetaCard 상단 (아이콘·이름·템플릿)
+    listOf(2, 3),      // Row 1: MetaCard 하단 (설명·템플릿)
+    listOf(9),         // Row 2: 노드 편집 (그래프 컨테이너 하단, 단독)
+    listOf(4, 6, 5),   // Row 3: CurveCard (가속·복사·감속) — 기준 행 (MAIN_START_ROW=3)
+    listOf(7, 8)       // Row 4: ActionCard (취소·저장)
+)
+```
+
+**NodeEdit.Manipulate 그리드 `NODE_EDIT_MANIPULATE_ROW_SLOTS`** (십자 패드 구조, `NODE_EDIT_START_ROW = 4`):
+
+```kotlin
+private val NODE_EDIT_MANIPULATE_ROW_SLOTS = listOf(
+    listOf(0),         // Row 0: 헤더 — 뒤로만
+    listOf(9),         // Row 1: 탭 전환 (가속↔감속)
+    listOf(11),        // Row 2: 노드 선택 모드 재진입
+    listOf(6),         // Row 3: Y+ (패드 상단)
+    listOf(3, 10, 4),  // Row 4 (기준 행): X− / 스텝 정밀도(중앙) / X+
+    listOf(5),         // Row 5: Y− (패드 하단)
+    listOf(7, 8)       // Row 6: 추가 / 삭제
+)
+```
+
+**NodeEdit.Select 그리드 `NODE_EDIT_SELECT_ROW_SLOTS`** (헤더만):
+
+```kotlin
+private val NODE_EDIT_SELECT_ROW_SLOTS = listOf(
+    listOf(0)          // Row 0: 헤더만 (탭 토글은 그래프 내부 ActiveTabLabel)
+)
+```
+
+**저장 확인 오버레이 `SAVE_CONFIRM_ROW_SLOTS`** (`SAVE_CONFIRM_START_ROW = 0`):
+
+```kotlin
+private val SAVE_CONFIRM_ROW_SLOTS = listOf(
+    listOf(0, 1)  // Row 0: 편집 계속(0) / 이대로 저장(1)
+)
+```
+
+`resolveSlot()` 시그니처를 상대 좌표(드래그 델타) + 기준 행 파라미터 기반으로 변경:
+```kotlin
+private fun resolveSlot(
+    dragDelta: Offset,          // fingerPos − startPos (드래그 시작점 기준 상대 이동량)
+    stepPx: Float,
+    rowSlots: List<List<Int>>,  // ACTION_ROW_SLOTS / NODE_EDIT_MANIPULATE_ROW_SLOTS 등
+    startRow: Int               // MAIN_START_ROW / NODE_EDIT_START_ROW / SAVE_CONFIRM_START_ROW
+): Int
+```
+
+**인터랙션 플로우**:
+- 메인 그리드 슬롯 9 "노드 편집" 선택 → `GridContext.NodeEdit.Select` 진입. 그리드 카드 본문 숨김, 헤더만 표시
+- Select 모드: 그래프 위 좌우 스와이프(48dp 한 칸) → 선택 노드 ring 이동(CLOCK_TICK 햅틱). 끝 노드에서 추가 스와이프 → 멈춤
+- Select 모드: 그래프 탭 → `GridContext.NodeEdit.Manipulate` 진입(CONFIRM 햅틱). 십자 패드+CRUD 카드 등장
+- Manipulate 모드: 슬롯 11 "노드 선택" → `NodeEdit.Select` 복귀
+- Manipulate/Select 공통: 슬롯 0 "← 뒤로" → `GridContext.Main`, `hoveredSlot = 9`, `awaitingConfirm = true`
+- Manipulate 모드: 슬롯 9 탭 전환(가속↔감속) → `activeTab` 토글, `selectedNodeIndex = 0`
+- Manipulate 모드: 슬롯 10 → 스텝 정밀도 피커 표시(`stepPickerVisible = true`)
+- X−/X+/Y−/Y+ 슬롯 위에서 드래그를 0.4s 이상 유지 → 100ms 간격 키 리피트 발동. 손이 벗어나거나 떼면 즉시 중단
+- 메인 그리드 슬롯 4(가속)/5(감속) 실행 시: `selectedNodeIndex = 0` 리셋 (커브가 달라지므로)
+- 메인 그리드 슬롯 8(저장) 선택 → 즉시 저장 대신 `GridContext.SaveConfirm` 진입, 오버레이 표시
+
+**NodeEdit.Manipulate 슬롯 동작**:
 
 | 슬롯 | 라벨 | 동작 | 비활성 조건 |
 |---|---|---|---|
-| 0 | ← 뒤로 | `gridContext = Main` | — |
-| 1 | 이전 노드 | `selectedNodeIndex = (i-1).coerceAtLeast(0)` | `i==0` |
-| 2 | 다음 노드 | `selectedNodeIndex = (i+1).coerceAtMost(last)` | `i==last` |
-| 3 | X − | `stepNodeX(curve, i, -STEP_V)` | 양 끝 노드 / 인접 gap < MIN_GAP |
-| 4 | X + | `stepNodeX(curve, i, +STEP_V)` | 양 끝 노드 / 인접 gap < MIN_GAP |
-| 5 | Y − | `stepNodeY(curve, i, -STEP_M)` | `multiplier <= 0` |
-| 6 | Y + | `stepNodeY(curve, i, +STEP_M)` | `multiplier >= 6` |
+| 0 | ← 뒤로 | `gridContext = Main`, `hoveredSlot = 9`, `awaitingConfirm = true` | — |
+| 3 | X − | `stepNodeX(curve, i, -STEP_V × scale)` | 양 끝 노드 / 인접 gap < MIN_GAP |
+| 4 | X + | `stepNodeX(curve, i, +STEP_V × scale)` | 양 끝 노드 / 인접 gap < MIN_GAP |
+| 5 | Y − | `stepNodeY(curve, i, -STEP_M × scale)` | multiplier 하한 도달 |
+| 6 | Y + | `stepNodeY(curve, i, +STEP_M × scale)` | multiplier 상한 도달 |
 | 7 | 노드 추가 | 선택 노드 다음 중간 위치에 삽입 | `size >= 7` / 인접 gap < 2×MIN_GAP / 마지막 노드 |
 | 8 | 노드 삭제 | 선택 노드 제거, `selectedNodeIndex = (i-1).coerceAtLeast(0)` | 양 끝 노드 |
-| 9 | 가속↔감속 | `activeTab` 토글, `selectedNodeIndex = 0` | — |
+| 9 | 탭 전환 | `activeTab` 토글, `selectedNodeIndex = 0` | — |
+| 10 | 스텝 정밀도 | `stepPickerVisible = true` | — |
+| 11 | ◀▶ 노드 선택 N/M | `gridContext = NodeEdit.Select` | — |
 
-**스텝 크기**:
-- `STEP_V = 0.3f` (`CURVE_MIN_VELOCITY_GAP`과 동일 → 항상 안전한 한 스텝). 기본값: 0.3f
-- `STEP_M = 0.25f` (Y축 격자 1/4 칸, 풀 스윙 24 스텝). 기본값: 0.25f
-
-**제약**:
-- 양 끝 노드(0 / last): X 고정, 삭제 불가 → 해당 항목 자동 비활성
+- 양 끝 노드(0 / last): X 고정, 삭제 불가 → 자동 비활성
 - 비활성 항목 위에서 떼면 REJECT 햅틱
 - 스텝 헬퍼는 제약 위반 시 `null` 반환 → 호출부에서 REJECT
 
-**선택 노드 시각 강조** (`CurveGraphCanvas`에 `selectedNodeIndex: Int` 파라미터 추가):
-- 일반 노드: 반지름 8dp
-- 선택 노드: 반지름 12dp + 흰색 1.5dp 테두리 링
-- 좌표 라벨: 선택 노드 옆에 `(velocity, multiplier×)` 표시 (예: `(2.4, 1.50×)`)
+**스텝 크기**:
+- `CURVE_STEP_VELOCITY = 0.3f`, `CURVE_STEP_MULTIPLIER = 0.25f`
+- `nodeStepScale = NODE_STEP_SCALES[nodeStepIndex]`로 곱함
 
-**신규 상태**: `selectedNodeIndex`(현재 선택된 노드)와 `gridContext`(Main / NodeEdit) 상태 추가. 탭 전환 시 `selectedNodeIndex = 0` 리셋.
+**스텝 정밀도 피커** (`stepPickerVisible` state):
+- `NODE_STEP_SCALES = [0.2f, 0.5f, 1f, 2f, 5f]`
+- `NODE_STEP_SCALE_LABELS = ["미세", "천천", "기본", "빠름", "매우빠름"]`
+- 기본 인덱스 `NODE_STEP_DEFAULT_INDEX = 2`(×1)
+- 피커 한 칸 스와이프: `NODE_STEP_PICKER_SWIPE_STEP_DP = 60f`
+- 위쪽 스와이프 취소 임계: `NODE_STEP_PICKER_CANCEL_DP = 40f`
+
+**키 리피트 구현** (`LaunchedEffect` 별도 코루틴):
+
+```kotlin
+val repeatableSlots = setOf(3, 4, 5, 6)  // X−/X+/Y−/Y+
+
+LaunchedEffect(hoveredSlot, awaitingConfirm, gridContext) {
+    if (gridContext !is GridContext.NodeEdit.Manipulate) return@LaunchedEffect
+    if (awaitingConfirm) return@LaunchedEffect
+    if (hoveredSlot !in repeatableSlots) return@LaunchedEffect
+    delay(400)
+    while (hoveredSlot in repeatableSlots && !awaitingConfirm) {
+        executeNodeEditSlot(hoveredSlot)
+        delay(100)
+    }
+}
+```
+
+**저장 확인 오버레이** (`SaveConfirmOverlay`):
+- 슬롯 8(저장) 탭 시 `GridContext.SaveConfirm`으로 전환, 오버레이 표시
+- 오버레이에 자연어 요약(한두 문장) + 저/중/고속 배율 수치 + 비대칭 레이블 표시
+- 슬롯 0(편집 계속): 오버레이 닫힘, 편집기 복귀
+- 슬롯 1(이대로 저장): 저장 완료 + 편집기 닫힘
+- 자연어 요약 생성: `describeCurves(accel, decel): CurveDescription` (`SUMMARY_LOW_VEL=0.5f`, `SUMMARY_MID_VEL=3.0f`, `SUMMARY_HIGH_VEL=6.0f` 기준)
+
+**선택 노드 시각 강조** (`CurveGraphCanvas`에 `selectedNodeIndex: Int`, `isSelectMode: Boolean` 파라미터 추가):
+- 일반 노드: 반지름 8dp
+- 선택 노드 (Manipulate): 반지름 12dp + 흰색 1.5dp 테두리 링
+- 선택 노드 (Select): 반지름 14dp + 2.5dp stroke
+- 좌표 라벨: 선택 노드 옆에 `(velocity, multiplier×)` 표시
+
+**신규 상태**: `gridContext`, `selectedNodeIndex`, `nodeStepIndex`, `stepPickerVisible`, `presetId`(remember 분리).
+
+**구현 결과**:
+- `PointerDynamicsConstants.kt`:
+  - `CurveEditorConstants`: `CURVE_STEP_VELOCITY`(0.3f), `CURVE_STEP_MULTIPLIER`(0.25f), `NODE_STEP_SCALES`, `NODE_STEP_SCALE_LABELS`, `NODE_STEP_DEFAULT_INDEX`(2), `NODE_STEP_PICKER_SWIPE_STEP_DP`(60f), `NODE_STEP_PICKER_CANCEL_DP`(40f), `NODE_SELECT_SWIPE_STEP_DP`(48f), `SUMMARY_LOW_VEL`(0.5f), `SUMMARY_MID_VEL`(3.0f), `SUMMARY_HIGH_VEL`(6.0f) 추가
+  - `stepNodeX` / `stepNodeY` / `addNodeAfter` / `deleteNodeAt` 헬퍼 추가
+  - `CurveDescription` data class 신규
+  - `describeCurves(accel, decel): CurveDescription` 신규
+- `DynamicsCurveEditor.kt`:
+  - `GridContext` sealed class (Main / NodeEdit.Select / NodeEdit.Manipulate / SaveConfirm)
+  - `ACTION_ROW_SLOTS` 5행 확장(슬롯 9 추가), `MAIN_START_ROW = 3`
+  - `NODE_EDIT_MANIPULATE_ROW_SLOTS`(7행 십자 패드), `NODE_EDIT_SELECT_ROW_SLOTS`(1행), `NODE_EDIT_START_ROW = 4`
+  - `SAVE_CONFIRM_ROW_SLOTS`, `SAVE_CONFIRM_START_ROW = 0`
+  - `resolveSlot()` — `startRow` 파라미터 추가, dragDelta 기반
+  - `gridContext` / `selectedNodeIndex` / `nodeStepIndex` / `stepPickerVisible` / `presetId` 상태
+  - `isNodeEditSlotEnabled()` / `executeNodeEditSlot()` / `buildPresetSnapshot()` 함수
+  - 키 리피트 `LaunchedEffect`
+  - NodeEdit.Select: 그래프 Box에 전용 스와이프+탭 제스처 (`currentCurve.size` key)
+  - `AnimatedCellBox` 공통 셀 애니메이션 Composable
+  - `Slot9Card` Composable (그래프 컨테이너 하단 노드 편집 버튼)
+  - `NodeEditHeader` Composable (isSelectMode 파라미터, "◀▶ 선택 중"/"✎ 조작 중" 모드 칩, 높이 54dp)
+  - `NodeEditGrid` Composable (isSelectMode 파라미터, 십자 패드 레이아웃, 슬롯 10 스텝 정밀도 버튼)
+  - `SaveConfirmOverlay` Composable (자체 hoveredSlot/awaitingConfirm 상태, AnimatedVisibility)
+  - MetaCard 숨김 + NodeEditHeader 표시 in NodeEdit 모드
+  - `executeSlot(8)`: SaveConfirm 진입, `executeSlot(9)`: NodeEdit.Select 진입
 
 **검증**:
-- [ ] 메인 그리드에서 "노드 편집" 선택 시 노드 편집 그리드로 전환
-- [ ] "← 뒤로" 선택 시 메인 그리드 복귀
-- [ ] 선택 노드가 12dp + 흰 테두리로 강조되고 좌표 라벨 표시
-- [ ] 이전/다음 노드로 모든 노드 순회 가능
-- [ ] 양 끝 노드 선택 시 X−/X+/노드 삭제 자동 비활성 + REJECT 햅틱
-- [ ] X+ 시 인접 노드 gap < MIN_GAP이면 진행 차단
-- [ ] Y는 0~6 클램프
-- [ ] `CURVE_MAX_NODES=7`에서 노드 추가 비활성
-- [ ] 가속↔감속 전환 시 `selectedNodeIndex = 0` 리셋
-- [ ] X−/X+/Y−/Y+ 위에서 0.4s 유지 후 100ms 간격 키 리피트 발동
-- [ ] 손이 슬롯을 벗어나거나 떼면 키 리피트 즉시 중단
-- [ ] 스텝 조작 결과가 곡선 렌더링에 즉시 반영
+- [x] 메인 그리드 ActionCard가 취소·저장 2열로 표시
+- [x] 노드 편집 버튼이 그래프 컨테이너 내 하단(CurveCard 바로 위)에 단독 표시
+- [x] 화면 아무 위치에서 스와이프 시작 시 이동 거리(상대 좌표)로 슬롯 결정 — 시작 위치와 무관하게 동일 거리 이동 시 동일 슬롯 도달
+- [x] CurveCard 행(기준 행)에서 위로 한 stepPx 이동 시 노드 편집 슬롯 도달
+- [x] 메인 그리드에서 "노드 편집" 선택 → Select 모드 진입, 그리드 카드 본문 숨겨지고 헤더만 남음
+- [x] 그래프 위 좌우 스와이프 → 선택 노드 ring 이동, CLOCK_TICK 햅틱
+- [x] 끝 노드에서 추가 스와이프 → 멈춤
+- [x] 그래프 탭 → Manipulate 모드 진입, CONFIRM 햅틱, 십자 패드+CRUD 카드 등장
+- [x] 헤더 readout에 "◀▶ 선택 중"/"✎ 조작 중" 모드 칩 표시
+- [x] 슬롯 11 "노드 선택" 탭 → Select 모드 복귀, 카드 본문 숨김
+- [x] 헤더 "← 뒤로"를 두 모드 어디서든 그래프(Main)로 즉시 복귀
+- [x] Select 모드에서 선택 노드 ring이 더 크고 두꺼움 (14dp, 2.5dp stroke)
+- [x] Manipulate 모드에서 선택 노드 12dp + 흰 테두리로 강조되고 좌표 라벨 표시
+- [x] 양 끝 노드 선택 시 X−/X+/노드 삭제 자동 비활성 + REJECT 햅틱
+- [x] X+ 시 인접 노드 gap < MIN_GAP이면 진행 차단
+- [x] Y는 0~6 클램프
+- [x] 마지막 노드 선택 시 노드 추가 비활성
+- [x] `CURVE_MAX_NODES=7`에서 노드 추가 비활성
+- [x] Manipulate 슬롯 9(탭 전환) 실행 시 `selectedNodeIndex = 0` 리셋
+- [x] 메인 그리드 슬롯 4(가속)/5(감속) 전환 시에도 `selectedNodeIndex = 0` 리셋
+- [x] X−/X+/Y−/Y+ 위에서 0.4s 유지 후 100ms 간격 키 리피트 발동
+- [x] 손이 슬롯을 벗어나거나 떼면 키 리피트 즉시 중단
+- [x] 스텝 조작 결과가 곡선 렌더링에 즉시 반영
+- [x] 슬롯 10(스텝 정밀도) 탭 → 정밀도 피커 표시, 5단계 선택 가능
+- [x] 커스텀 프리셋 편집 → 슬롯 8(저장) 탭 → 즉시 저장되지 않고 확인 오버레이 표시
+- [x] 오버레이에 자연어 요약(한두 문장) + 저/중/고속 수치 + 비대칭 레이블 표시
+- [x] 슬롯 1(이대로 저장) 탭 → 저장 완료 + 편집기 닫힘
+- [x] 슬롯 0(편집 계속) 탭 → 오버레이 닫힘, 편집기 복귀, 곡선 데이터 보존
+- [x] 빌드 성공 (BUILD SUCCESSFUL)
 
 ---
 
