@@ -17,16 +17,17 @@ updated: "2026-04-03"
 
 | 하위 Phase | 내용 | 상태 |
 |-----------|------|------|
-| 4.6.1 | 엣지 존(Zone) 분할 방식 | 미시작 |
-| 4.6.2 | 파이 메뉴(Radial Menu) 방식 | 미시작 |
-| 4.6.3 | 방향 플릭(Flick) 방식 | 미시작 |
-| 4.6.4 | 제스처 드로잉 인식 방식 | 미시작 |
-| 4.6.5 | 엣지 스트립 스와이프 캐러셀 방식 | 미시작 |
-| 4.6.6 | 비교 테스트 및 최종 선정 | 미시작 |
+| 4.6.1 | 임시 환경 설정 페이지 (조작 방식 전환) | 미시작 |
+| 4.6.2 | 엣지 존(Zone) 분할 방식 | 완료 |
+| 4.6.3 | 파이 메뉴(Radial Menu) 방식 | 미시작 |
+| 4.6.4 | 방향 플릭(Flick) 방식 | 미시작 |
+| 4.6.5 | 제스처 드로잉 인식 방식 | 미시작 |
+| 4.6.6 | 엣지 스트립 스와이프 캐러셀 방식 | 미시작 |
+| 4.6.7 | 비교 테스트 및 최종 선정 | 미시작 |
 
 **선행 조건**: Phase 4.5 (E2E 테스트 수정사항) 완료
 
-**에뮬레이터 호환성**: 모든 하위 Phase 에뮬레이터에서 개발 가능. 최종 비교 테스트(4.6.5)는 실기기 권장.
+**에뮬레이터 호환성**: 모든 하위 Phase 에뮬레이터에서 개발 가능. 최종 비교 테스트(4.6.7)는 실기기 권장.
 
 **공통 전제**:
 - 기존 엣지 스와이프 인프라(산봉우리 시각화, 엣지 감지, `EdgeSwipeConstants`)를 최대한 재사용
@@ -35,7 +36,47 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.6.1: 엣지 존(Zone) 분할 방식
+## Phase 4.6.1: 임시 환경 설정 페이지 (조작 방식 전환)
+
+**개발 기간**: 0.5일
+
+**쉬운 설명**: 다음 Phase들에서 구현할 조작 방식들을 실제로 테스트하려면, 어떤 방식을 쓸지 전환할 수 있는 설정 화면이 먼저 있어야 합니다. 이 Phase에서는 앱 어딘가에서 접근할 수 있는 간단한 설정 화면을 만들어서, `EdgeInteractionMode`를 선택할 수 있게 합니다.
+
+### 핵심 설계
+
+`TouchpadState.edgeInteractionMode` 필드와 `EdgeInteractionMode` enum은 이미 존재 (Phase 4.5.18에서 추가됨). 설정 화면에서 이 값만 변경하면 됨.
+
+**진입 방법**: 터치패드 화면 어딘가에 설정 아이콘(⚙️) 버튼 배치 → 탭 시 설정 다이얼로그 또는 하단 시트 오픈.
+
+**설정 다이얼로그 구성**:
+- 섹션: "엣지 조작 방식"
+- 항목: `EdgeInteractionMode` 각 값에 대한 라디오 버튼 목록
+  - LEGACY_POPUP: "기존 팝업 방식 (5단계)"
+  - ZONE: "엣지 존 방식"
+  - (이후 Phase들에서 PIE_MENU, FLICK 등 항목 추가)
+- 선택 즉시 적용, 앱 재시작 없이 반영
+- SharedPreferences에 영속화
+
+**구현 방식**: 정식 설정 화면이 아닌 임시 다이얼로그 형태로 구현. 나중에 4.6.7 이후 정식 설정 화면으로 대체 가능.
+
+### 구현 파일
+
+| 파일 | 변경 |
+|------|------|
+| `SettingsDialog.kt` (신규) | 설정 다이얼로그 Composable (EdgeInteractionMode 선택 UI) |
+| `SettingsRepository.kt` (신규) | SharedPreferences 기반 설정 영속화 |
+| `TouchpadViewModel.kt` (또는 해당 ViewModel) | edgeInteractionMode 상태 읽기/쓰기 연결 |
+| `BridgeOneApp.kt` 또는 `TouchpadWrapper.kt` | 설정 진입 버튼 추가 |
+
+### 검증
+
+- [ ] 설정 버튼 탭 시 다이얼로그 오픈 확인
+- [ ] LEGACY_POPUP / ZONE 선택 즉시 적용 확인
+- [ ] 앱 재시작 후에도 선택한 방식이 유지되는지 확인
+
+---
+
+## Phase 4.6.2: 엣지 존(Zone) 분할 방식
 
 **개발 기간**: 1일
 
@@ -84,7 +125,7 @@ sealed class EdgeZoneAction {
 - 활성 존의 라벨과 아이콘이 산봉우리 위에 표시
 - 존 간 경계 이동 시 햅틱 피드백 (가벼운 틱)
 
-**커스터마이징 UI** (Phase 4.6.1에서는 기본 프리셋만 구현, 커스텀은 Phase 4.6.5 이후):
+**커스터마이징 UI** (Phase 4.6.2에서는 기본 프리셋만 구현, 커스텀은 Phase 4.6.7 이후):
 - 존 개수, 크기 비율, 할당 동작을 사용자가 편집 가능
 - 같은 엣지에 최대 4개 존까지 분할 가능
 - 설정 데이터는 SharedPreferences에 JSON으로 영속화
@@ -99,18 +140,35 @@ sealed class EdgeZoneAction {
 | `TouchpadWrapper.kt` | 엣지 감지 로직에 존 판별 분기 추가 |
 | `EdgeSwipeConstants.kt` | 존 관련 상수 추가 |
 
+### 구현 노트
+
+> **⚠️ Phase 4.5.18 구현 변경사항**
+>
+> - `EdgeSwipeMode`에 `MODE_PRESET` 추가 (EdgeSwipeOverlay.kt)
+> - `EdgeInteractionMode` enum 추가 (EdgeSwipeOverlay.kt — `LEGACY_POPUP`, `ZONE`)
+> - `TouchpadState.edgeInteractionMode` 필드 추가 (기본값: `LEGACY_POPUP` → 기존 동작 유지)
+> - `EdgeZone.kt`, `EdgeZoneDetector.kt`, `EdgeZoneOverlay.kt` 신규 파일 생성
+> - `applyEdgeModeToggle()`에 `MODE_PRESET` 브랜치 추가 (다음 프리셋 사이클 + 전체 설정 적용)
+> - `OpenSettings(DPI)` 액션은 DPI 사이클로 처리 (미니 팝업 미구현)
+> - 존 경계를 넘어갈 때 햅틱 피드백 미구현 (산봉우리 진입 시 CLOCK_TICK + 트리거 시 LONG_PRESS)
+> - `EdgeSwipeMode.MODE_PRESET`은 Phase 4.6.6의 LEGACY_POPUP 방식에서도 표시됨
+>
+> **존 모드 활성화 방법**: `touchpadState.copy(edgeInteractionMode = EdgeInteractionMode.ZONE)` — 설정 UI는 Phase 4.6.1에서 구현됨
+
 ### 검증
 
 - [ ] 왼쪽 상단 존에서 안쪽으로 밀면 클릭 모드 토글 확인
 - [ ] 왼쪽 하단 존에서 안쪽으로 밀면 스크롤 모드 토글 확인
-- [ ] 존 경계를 넘어갈 때 라벨이 변경되고 햅틱 피드백 발생 확인
 - [ ] 산봉우리 위에 현재 존의 아이콘/라벨 표시 확인
-- [ ] DPI 설정 존에서 밀면 미니 팝업 등장 확인
-- [ ] idle 상태에서 존 경계선 숨김 확인
+- [ ] DPI 설정 존에서 밀면 DPI 사이클 확인
+- [ ] idle 상태에서 존 경계선 표시 확인 (약한 흰색 선)
 
 ---
 
-## Phase 4.6.2: 파이 메뉴(Radial Menu) 방식
+## Phase 4.6.3: 파이 메뉴(Radial Menu) 방식
+
+> **⚠️ Phase 4.5.18 변경사항**: `EdgeInteractionMode` enum에 `PIE_MENU` 값 추가 필요 (`EdgeSwipeOverlay.kt`).
+> `TouchpadWrapper.kt`의 trigger 분기에 `EdgeInteractionMode.PIE_MENU` 케이스 추가.
 
 **개발 기간**: 1일
 
@@ -184,7 +242,10 @@ sealed class PieMenuAction {
 
 ---
 
-## Phase 4.6.3: 방향 플릭(Flick) 방식
+## Phase 4.6.4: 방향 플릭(Flick) 방식
+
+> **⚠️ Phase 4.5.18 변경사항**: `EdgeInteractionMode` enum에 `FLICK` 값 추가 필요 (`EdgeSwipeOverlay.kt`).
+> `TouchpadWrapper.kt`의 trigger 분기에 `EdgeInteractionMode.FLICK` 케이스 추가.
 
 **개발 기간**: 0.5일
 
@@ -247,7 +308,7 @@ data class FlickResult(
 
 ---
 
-## Phase 4.6.4: 제스처 드로잉 인식 방식
+## Phase 4.6.5: 제스처 드로잉 인식 방식
 
 **개발 기간**: 1.5일
 
@@ -332,7 +393,7 @@ class DollarOneRecognizer {
 
 ---
 
-## Phase 4.6.5: 엣지 스트립 스와이프 캐러셀 방식
+## Phase 4.6.6: 엣지 스트립 스와이프 캐러셀 방식
 
 **개발 기간**: 0.5일
 
@@ -404,7 +465,7 @@ const val CAROUSEL_MIN_SWIPE_DP = 40f  // 기본값: 40f
 
 ---
 
-## Phase 4.6.6: 비교 테스트 및 최종 선정
+## Phase 4.6.7: 비교 테스트 및 최종 선정
 
 **개발 기간**: 0.5일
 
@@ -412,18 +473,9 @@ const val CAROUSEL_MIN_SWIPE_DP = 40f  // 기본값: 40f
 
 ### 테스트 항목
 
-**방식 전환 설정 UI**:
-- 설정에서 `EdgeInteractionMode` 선택 가능:
-  ```kotlin
-  enum class EdgeInteractionMode {
-      LEGACY_POPUP,    // 기존 5단계 팝업 (Phase 4.4 방식)
-      ZONE,            // Phase 4.6.1
-      PIE_MENU,        // Phase 4.6.2
-      FLICK,           // Phase 4.6.3
-      GESTURE_DRAWING, // Phase 4.6.4
-      SWIPE_CAROUSEL   // Phase 4.6.5
-  }
-  ```
+> **⚠️ Phase 4.5.18 변경사항**: `EdgeInteractionMode` enum은 이미 `EdgeSwipeOverlay.kt`에 `LEGACY_POPUP, ZONE` 두 값으로 정의됨.
+> Phase 4.6.3~4.6.6 구현 시 `PIE_MENU`, `FLICK`, `GESTURE_DRAWING`, `SWIPE_CAROUSEL` 값을 추가하면 됨.
+> `TouchpadState.edgeInteractionMode` 필드도 이미 존재. 설정 UI는 Phase 4.6.1에서 구현됨.
 
 **비교 기준**:
 
@@ -451,6 +503,6 @@ const val CAROUSEL_MIN_SWIPE_DP = 40f  // 기본값: 40f
 
 ### 검증
 
-- [ ] 모든 방식(ZONE, PIE_MENU, FLICK, GESTURE_DRAWING, SWIPE_CAROUSEL) 간 전환이 설정에서 정상 동작 확인
+- [ ] 모든 방식(ZONE, PIE_MENU, FLICK, GESTURE_DRAWING, SWIPE_CAROUSEL) 간 전환이 Phase 4.6.1 설정에서 정상 동작 확인
 - [ ] 각 방식으로 5가지 시나리오 모두 수행 가능 확인
 - [ ] 최종 선정 방식 결정 및 기본값 설정
