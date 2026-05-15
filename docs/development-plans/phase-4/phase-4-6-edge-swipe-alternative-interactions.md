@@ -4,12 +4,12 @@ description: "BridgeOne 프로젝트 Phase 4.6 - 터치패드 모드/옵션 전�
 tags: ["android", "edge-swipe", "gesture", "ux", "interaction", "pie-menu", "flick", "zone", "drawing", "swipe-carousel"]
 version: "v1.0"
 owner: "Chatterbones"
-updated: "2026-04-03"
+updated: "2026-05-16"
 ---
 
 # BridgeOne Phase 4.6: 엣지 스와이프 대안 조작 방식 탐색
 
-**개발 기간**: 4-5일 (각 방식 0.5~1일)
+**개발 기간**: 5.5~6.5일 (4.6.2 커스터마이징 포함으로 확장)
 
 **목표**: 현재 엣지 스와이프 메뉴의 사용성 한계(5단계 조작)를 극복하기 위해, **여러 대안 조작 방식을 모두 구현**한 뒤 실제 사용 비교 테스트를 통해 최적의 방식을 선정합니다.
 
@@ -18,7 +18,7 @@ updated: "2026-04-03"
 | 하위 Phase | 내용 | 상태 |
 |-----------|------|------|
 | 4.6.1 | 임시 환경 설정 페이지 (조작 방식 전환) | 완료 |
-| 4.6.2 | 엣지 존(Zone) 분할 방식 | 완료 |
+| 4.6.2 | 엣지 존(Zone) 분할 방식 + 커스터마이징 | 미시작 |
 | 4.6.3 | 파이 메뉴(Radial Menu) 방식 | 미시작 |
 | 4.6.4 | 방향 플릭(Flick) 방식 | 미시작 |
 | 4.6.5 | 제스처 드로잉 인식 방식 | 미시작 |
@@ -89,92 +89,180 @@ updated: "2026-04-03"
 
 ---
 
-## Phase 4.6.2: 엣지 존(Zone) 분할 방식
+## Phase 4.6.2: 엣지 존(Zone) 분할 방식 + 커스터마이징
 
-**개발 기간**: 1일
+**개발 기간**: 2~2.5일
 
-**쉬운 설명**: 터치패드 가장자리를 여러 구역으로 나눠서, 각 구역에서 손가락을 안쪽으로 밀면 해당 구역에 배정된 모드가 바로 토글되거나, 상세 설정 팝업이 뜨는 방식입니다. 예를 들어 왼쪽 위 모서리에서 밀면 우클릭 전환, 왼쪽 아래에서 밀면 스크롤 토글 같은 식입니다.
+### 개요
+
+**존(Zone)이란**: 터치패드 4개 엣지(TOP/BOTTOM/LEFT/RIGHT) 각각을 따라 설정된 위치 구간 단위. 각 존은 독립적인 액션을 보유하며, 손가락이 해당 구간에서 안쪽으로 진입·트리거하면 그 액션이 즉시 실행된다. 하나의 엣지는 여러 존으로 분할될 수 있다.
+
+**기존 LEGACY_POPUP과의 차이**: LEGACY_POPUP은 엣지 진입 후 팝업을 열고 메뉴에서 선택하는 5단계 과정이다. 존 방식은 팝업 없이 "엣지의 어느 위치에서 진입했느냐"가 곧 액션을 결정하므로 1단계로 완료된다. 메뉴 탐색 비용이 없고, 위치 기억만으로 반복 조작이 가능하다.
+
+**커스터마이징의 필요성**: 사용자마다 손이 닿기 편한 위치(가동 범위)와 자주 쓰는 기능이 다르다. 특히 근육장애 사용자는 엣지 구간별 도달 가능 여부의 개인차가 크므로, 존의 위치·크기·할당 액션을 개인화할 수 있어야 한다.
+
+### 존 구성 요소
+
+**엣지(Edge)**: 터치패드의 4개 측면(TOP/BOTTOM/LEFT/RIGHT). 각 엣지는 독립적인 존 목록을 가진다. 존이 없는 엣지 구간은 LEGACY_POPUP 방식의 산봉우리만 표시하고 액션을 실행하지 않는다.
+
+**모서리 버튼 제약**: 터치패드에 모드 변경 버튼이 특정 모서리에 배치된 경우, 해당 모서리에 인접한 두 엣지의 끝 구간은 존으로 사용할 수 없다. 예를 들어 LEFT-TOP 모서리에 버튼이 있으면, LEFT 엣지의 상단(0.0~`CORNER_BUTTON_BLOCKED_RATIO`) 구간과 TOP 엣지의 좌측(0.0~`CORNER_BUTTON_BLOCKED_RATIO`) 구간은 존 배정이 불가하며 자동으로 `Unassigned`로 고정된다. `EdgeZoneConfig.default()` 생성 시에도 이 제약이 적용되어, 버튼 위치 설정에 따라 기본 프리셋의 존 구성이 달라진다.
+
+**비율(Ratio)**: 엣지 위에서 존이 차지하는 구간 (0.0~1.0). TOP/BOTTOM은 좌→우, LEFT/RIGHT는 위→아래 방향으로 증가한다. 같은 엣지의 모든 존 비율 합은 반드시 1.0이다. 최소 비율은 `MIN_ZONE_RATIO`로 제한한다.
+
+**액션(Action)**: 존 트리거 시 실행되는 동작의 종류:
+- **ToggleMode**: ON/OFF 두 상태가 있는 모드를 전환. 현재 상태에서 반대 상태로 즉시 이동 (예: 좌클릭 ↔ 우클릭, 스크롤 OFF ↔ ON)
+- **CyclePreset**: 3개 이상의 값을 순환하는 설정을 한 단계 전진 (예: 다이나믹스 프리셋, 모드 프리셋). 끝에서 처음으로 순환
+- **OpenSettings**: DPI·스크롤 속도처럼 수치형 설정을 미리 정의된 단계 순으로 사이클 변경. 트리거만으로 다음 단계로 이동하며 별도 팝업을 열지 않는다
+- **Unassigned**: 아무 동작 없음. 엣지 구간을 명시적으로 비워두거나 아직 액션을 배정하지 않은 존
+
+**라벨(Label)과 아이콘(IconKey)**: 존 트리거 준비 중 산봉우리 위에 표시하는 식별자. 유저가 어떤 존에 진입했는지 시각적으로 확인할 수 있다.
+
+**설정 컨테이너 (EdgeZoneConfig)**: 4개 엣지의 존 목록 전체를 하나의 단위로 묶어 저장·복원·기본값 리셋하는 역할. 앱 재시작 시 SharedPreferences에서 JSON으로 로드한다.
 
 ### 핵심 설계
 
 **존 정의 구조**:
 ```kotlin
+@Serializable
 data class EdgeZone(
-    val edge: EntryEdge,           // TOP, BOTTOM, LEFT, RIGHT
-    val startRatio: Float,         // 엣지 시작 비율 (0.0~1.0)
-    val endRatio: Float,           // 엣지 끝 비율 (0.0~1.0)
-    val action: EdgeZoneAction,    // 이 존에서 트리거할 동작
-    val label: String,             // 사용자에게 보여줄 라벨
-    val icon: ImageVector          // 시각적 아이콘
+    val edge: EntryEdge,        // TOP, BOTTOM, LEFT, RIGHT
+    val startRatio: Float,      // 엣지 시작 비율 (0.0~1.0)
+    val endRatio: Float,        // 엣지 끝 비율 (startRatio < endRatio)
+    val action: EdgeZoneAction,
+    val label: String,
+    val iconKey: String         // ImageVector 직렬화 불가 → String 키 사용, IconRegistry에서 변환
 )
 
+@Serializable
 sealed class EdgeZoneAction {
-    data class ToggleMode(val mode: EdgeSwipeMode) : EdgeZoneAction()     // 즉시 토글
-    data class OpenSettings(val settingsType: SettingsType) : EdgeZoneAction()  // 상세 설정 팝업
+    @Serializable data class ToggleMode(val mode: EdgeSwipeMode) : EdgeZoneAction()
+    @Serializable data class CyclePreset(val presetType: PresetType) : EdgeZoneAction()
+    @Serializable data class OpenSettings(val settingsType: SettingsType) : EdgeZoneAction()
+    @Serializable object Unassigned : EdgeZoneAction()
+}
+
+enum class PresetType { DYNAMICS, MODE }
+enum class SettingsType { DPI, SCROLL_SPEED }
+
+@Serializable
+data class EdgeZoneConfig(
+    val topZones: List<EdgeZone>,
+    val bottomZones: List<EdgeZone>,
+    val leftZones: List<EdgeZone>,
+    val rightZones: List<EdgeZone>
+) {
+    companion object {
+        fun default(): EdgeZoneConfig = /* 아래 기본 프리셋 표의 값으로 생성 */
+    }
 }
 ```
 
-**기본 존 프리셋** (사용자 커스터마이징 가능):
+`TouchpadState`에 `edgeZoneConfig: EdgeZoneConfig = EdgeZoneConfig.default()` 필드 추가.
+
+**기본 존 프리셋** (`EdgeZoneConfig.default()` 초기값):
 
 | 엣지 | 구간 | 동작 | 시각적 힌트 |
 |------|------|------|------------|
 | LEFT 상단 (0.0~0.5) | 클릭 모드 토글 | 좌↔우 | 마우스 아이콘 |
 | LEFT 하단 (0.5~1.0) | 스크롤 모드 토글 | ON↔OFF | 스크롤 아이콘 |
 | RIGHT 상단 (0.0~0.5) | 이동 모드 토글 | 자유↔직각 | 화살표 아이콘 |
-| RIGHT 하단 (0.5~1.0) | DPI 설정 팝업 | 팝업 | 속도 아이콘 |
+| RIGHT 하단 (0.5~1.0) | DPI 사이클 | 순환 | 속도 아이콘 |
 | TOP 좌측 (0.0~0.5) | 다이나믹스 프리셋 사이클 | 순환 | 곡선 아이콘 |
 | TOP 우측 (0.5~1.0) | 모드 프리셋 사이클 | 순환 | 프리셋 아이콘 |
-| BOTTOM | (사용자 커스텀 영역) | 미할당 | — |
+| BOTTOM (0.0~1.0) | 미할당 | — | — |
 
 **동작 흐름**:
 1. 엣지에서 안쪽으로 드래그 시작 → 산봉우리 등장 + 해당 존의 라벨/아이콘 표시
 2. `TRIGGER_DISTANCE_DP` 도달 → 햅틱 피드백 + 동작 실행:
-   - `ToggleMode`: 즉시 토글 후 산봉우리 수축 (총 1동작)
-   - `OpenSettings`: 해당 설정의 미니 팝업 등장 (총 2동작: 꺼내기 + 선택)
+   - `ToggleMode` / `CyclePreset`: 즉시 실행 후 산봉우리 수축 (총 1동작)
+   - `OpenSettings`: DPI/스크롤 속도 사이클로 처리 (미니 팝업 없음)
+   - `Unassigned`: 아무 동작 없이 수축
 3. 손 떼면 산봉우리 수축 애니메이션
 
 **시각적 가이드**:
-- 엣지 근처에 손가락이 닿으면 해당 존의 경계를 미세한 선으로 표시 (idle 시 숨김)
+- idle 시 존 경계를 미세한 선으로 표시 (`EDGE_ZONE_HINT_BASE_ALPHA` 재사용)
 - 활성 존의 라벨과 아이콘이 산봉우리 위에 표시
-- 존 간 경계 이동 시 햅틱 피드백 (가벼운 틱)
+- 존 경계 진입 시 햅틱 틱 (가벼운 `CLOCK_TICK`)
 
-**커스터마이징 UI** (Phase 4.6.2에서는 기본 프리셋만 구현, 커스텀은 Phase 4.6.7 이후):
-- 존 개수, 크기 비율, 할당 동작을 사용자가 편집 가능
-- 같은 엣지에 최대 4개 존까지 분할 가능
-- 설정 데이터는 SharedPreferences에 JSON으로 영속화
+**영속화**: `EdgeZoneConfig`를 kotlinx.serialization JSON으로 직렬화 → `SharedPreferences`의 `KEY_EDGE_ZONE_CONFIG` 키에 저장. 저장/복원 함수는 `StandardModePage.kt`의 기존 패턴(line 994~1012)을 따름.
+
+**제약 상수** (`EdgeSwipeConstants`에 신규 추가):
+- `MIN_ZONE_RATIO = 0.10f` — 존 최소 크기, 기본값: 0.10f
+- `MAX_ZONES_PER_EDGE = 4` — 엣지당 최대 존 수, 기본값: 4
+- `ZONE_BOUNDARY_DRAG_HIT_DP = 24f` — 편집기 경계선 드래그 히트박스, 기본값: 24f
+- `ZONE_PREVIEW_ASPECT_RATIO = 0.6f` — 편집기 미리보기 가로:세로 비율, 기본값: 0.6f
+- `CORNER_BUTTON_BLOCKED_RATIO = 0.15f` — 모서리에 모드 변경 버튼이 있을 때 해당 엣지 끝에서 차단되는 비율, 기본값: 0.15f
+
+### 커스터마이징 UI
+
+**편집기의 역할**: 유저가 4개 엣지 각각의 존 구성을 직접 변경하는 화면. 유저가 결정하는 항목은 (1) 각 엣지를 몇 개의 존으로 나눌지, (2) 각 존이 엣지의 어느 구간을 차지할지(비율), (3) 각 존에 어떤 액션을 배정할지, (4) 각 존의 식별 라벨·아이콘이다. 변경 결과는 [저장] 전까지 임시 상태로 유지되며 언제든 기본값으로 리셋 가능하다.
+
+**진입 경로**:
+- `Page5Settings`에서 `edgeInteractionMode == ZONE`일 때만 "엣지 존 편집" 항목 표시
+- 항목: 라벨 "엣지 존 편집" + 보조 텍스트 "{총 존 개수}개 존 설정됨" + 우측 chevron
+- 탭 시 풀스크린 편집기로 진입 (Dialog 또는 별도 Composable 라우트)
+
+**풀스크린 편집기 (`EdgeZoneEditorScreen.kt`) 레이아웃**:
+```
+┌─ TopAppBar: ← 뒤로 | "엣지 존 편집" | [기본값] [저장]
+├─ 미리보기 (화면 약 60%, Canvas 기반):
+│   - 터치패드 모형 + 4엣지 띠 렌더링
+│   - 각 존을 색상 블록으로 표시, 라벨 오버레이
+│   - 경계선 드래그 → 인접 두 존의 비율 실시간 변경
+│   - 존 탭 → 선택 상태 (테두리 강조)
+│   - 빈 영역 길게 누름 → 해당 엣지에 새 존 추가
+├─ 선택된 존 패널 (선택 시에만):
+│   - 라벨 입력 필드
+│   - 아이콘 선택 그리드 (IconRegistry 항목)
+│   - 액션 라디오: ToggleMode | CyclePreset | OpenSettings | Unassigned
+│     + 각 분기별 보조 선택자 (EdgeSwipeMode / PresetType / SettingsType)
+│   - 비율 정밀 슬라이더
+│   - [삭제] 버튼
+└─ 하단 액션 바: [TOP +] [BOTTOM +] [LEFT +] [RIGHT +] (MAX_ZONES_PER_EDGE 미만일 때만 활성)
+```
+
+**편집기 상호작용 규칙**:
+- 경계선 드래그 시 인접 두 존의 비율 동시 변경, `MIN_ZONE_RATIO` 하한 보장
+- 존 삭제 시 인접 존이 빈 공간을 균등 분할로 흡수
+- 존 추가 시 해당 엣지의 가장 큰 존을 절반 분할, 새 존은 `Unassigned`
+- 변경은 임시 상태에 보관, [저장] 클릭 시에만 SharedPreferences 반영
+- [기본값] 클릭 시 확인 다이얼로그 → `EdgeZoneConfig.default()`로 리셋
+- 모서리에 모드 변경 버튼이 있는 경우, 해당 모서리에 인접한 엣지 끝 구간(`CORNER_BUTTON_BLOCKED_RATIO`)은 회색으로 비활성화 표시하며 드래그로 조정 불가. 해당 구간에 존 추가도 불가
 
 ### 구현 파일
 
 | 파일 | 변경 |
 |------|------|
-| `EdgeZone.kt` (신규) | 존 데이터 클래스, 기본 프리셋 정의 |
-| `EdgeZoneDetector.kt` (신규) | 터치 위치 → 활성 존 판별 로직 |
-| `EdgeZoneOverlay.kt` (신규) | 존 경계, 라벨, 아이콘 시각화 Composable |
-| `TouchpadWrapper.kt` | 엣지 감지 로직에 존 판별 분기 추가 |
-| `EdgeSwipeConstants.kt` | 존 관련 상수 추가 |
+| `EdgeZone.kt` (신규) | `EdgeZone`, `EdgeZoneAction`, `EdgeZoneConfig`, `PresetType`, `SettingsType`, `EdgeZoneConfig.default()` |
+| `IconRegistry.kt` (신규) | iconKey ↔ ImageVector 양방향 매핑 |
+| `EdgeZoneDetector.kt` (신규) | (entryEdge, alongEdgeRatio) → 활성 `EdgeZone?` 판별 |
+| `EdgeZoneOverlay.kt` (신규) | idle 경계선, 활성 존 라벨·아이콘 시각화 Composable |
+| `EdgeZoneActionHandler.kt` (신규) | `EdgeZoneAction` → `TouchpadState` 변경 실행 |
+| `EdgeZoneEditorScreen.kt` (신규) | 풀스크린 편집기 Composable |
+| `EdgeZoneEditorPreviewCanvas.kt` (신규) | 미리보기 Canvas + 드래그 처리 |
+| `TouchpadWrapper.kt` | 엣지 트리거 분기에 `ZONE` 케이스 추가 |
+| `TouchpadMode.kt` | `TouchpadState.edgeZoneConfig` 필드 추가 |
+| `StandardModePage.kt` | Page5에 편집기 진입 항목, `loadEdgeZoneConfig`/`saveEdgeZoneConfig`, 편집기 호스팅 |
+| `ScrollConstants.kt` (`EdgeSwipeConstants`) | 신규 상수 4개 |
 
-### 구현 노트
+재사용 자산: `EdgeSwipeMode`(EdgeSwipeOverlay.kt:82), `EntryEdge`(EdgeSwipeOverlay.kt:72), `applyEdgeModeToggle()` 로직, `EDGE_ZONE_HINT_*` alpha 상수(ScrollConstants.kt:168), 햅틱 패턴(`LONG_PRESS`/`CLOCK_TICK`), SharedPreferences 패턴(StandardModePage.kt:978~1012).
 
-> **⚠️ Phase 4.5.18 구현 변경사항**
->
-> - `EdgeSwipeMode`에 `MODE_PRESET` 추가 (EdgeSwipeOverlay.kt)
-> - `EdgeInteractionMode` enum 추가 (EdgeSwipeOverlay.kt — `LEGACY_POPUP`, `ZONE`)
-> - `TouchpadState.edgeInteractionMode` 필드 추가 (기본값: `LEGACY_POPUP` → 기존 동작 유지)
-> - `EdgeZone.kt`, `EdgeZoneDetector.kt`, `EdgeZoneOverlay.kt` 신규 파일 생성
-> - `applyEdgeModeToggle()`에 `MODE_PRESET` 브랜치 추가 (다음 프리셋 사이클 + 전체 설정 적용)
-> - `OpenSettings(DPI)` 액션은 DPI 사이클로 처리 (미니 팝업 미구현)
-> - 존 경계를 넘어갈 때 햅틱 피드백 미구현 (산봉우리 진입 시 CLOCK_TICK + 트리거 시 LONG_PRESS)
-> - `EdgeSwipeMode.MODE_PRESET`은 Phase 4.6.6의 LEGACY_POPUP 방식에서도 표시됨
->
-> **존 모드 활성화 방법**: `touchpadState.copy(edgeInteractionMode = EdgeInteractionMode.ZONE)` — 설정 UI는 Phase 4.6.1에서 구현됨
+> **후속 Phase 참고**: `EdgeZoneAction` sealed class와 `EdgeZoneConfig`는 다른 인터랙션 방식(PIE_MENU, FLICK 등)에서도 액션 매핑 체계로 재사용 가능 → Phase 4.6.3~4.6.6 설계 시 검토. `IconRegistry`도 재사용 가능.
 
 ### 검증
 
-- [ ] 왼쪽 상단 존에서 안쪽으로 밀면 클릭 모드 토글 확인
-- [ ] 왼쪽 하단 존에서 안쪽으로 밀면 스크롤 모드 토글 확인
-- [ ] 산봉우리 위에 현재 존의 아이콘/라벨 표시 확인
-- [ ] DPI 설정 존에서 밀면 DPI 사이클 확인
-- [ ] idle 상태에서 존 경계선 표시 확인 (약한 흰색 선)
+- [ ] 기본 프리셋: 각 엣지 존에서 안쪽으로 밀면 정의된 동작 실행 (왼쪽 상단 클릭 토글, 왼쪽 하단 스크롤 토글 등)
+- [ ] 산봉우리 위에 활성 존의 라벨·아이콘 표시 확인
+- [ ] idle 상태에서 약한 흰색 경계선 표시 확인
+- [ ] Page 5 → "엣지 존 편집" 항목이 ZONE 모드일 때만 표시 확인
+- [ ] 편집기 진입 → 미리보기에서 경계선 드래그로 비율 조정 가능, `MIN_ZONE_RATIO` 보장
+- [ ] 존 탭 → 패널에서 라벨/아이콘/액션 변경 가능
+- [ ] 존 추가/삭제 동작 + `MAX_ZONES_PER_EDGE` 제한 확인
+- [ ] [저장] 후 앱 재시작 시 커스텀 구성 유지 확인
+- [ ] [기본값] 리셋 정상 동작 확인
+- [ ] `LEGACY_POPUP` 선택 시 기존 팝업 동작 유지 (회귀 없음)
+- [ ] 모서리에 모드 변경 버튼이 있는 경우, 해당 모서리 인접 엣지 구간이 편집기에서 회색 비활성화로 표시되고 존 추가/드래그 불가 확인
+- [ ] 모서리 버튼 없는 경우 해당 제약 미적용 확인
 
 ---
 
@@ -189,7 +277,15 @@ sealed class EdgeZoneAction {
 
 **개발 기간**: 1일
 
-**쉬운 설명**: 터치패드 가장자리에서 손가락을 안쪽으로 밀면, 손가락 위치를 중심으로 부채꼴 모양의 원형 메뉴가 펼쳐집니다. 손가락을 떼지 않고 원하는 방향으로 밀면 해당 모드가 선택됩니다. 한 번의 드래그로 모든 게 끝납니다.
+### 개요
+
+**파이 메뉴(방사형 메뉴)란**: 엣지 트리거 이후 손가락 위치를 중심으로 원형 섹터들이 펼쳐지는 방식. 손가락을 뗄 때의 드래그 방향이 선택 기준이 된다. 진입 위치가 아닌 이후 방향으로 항목을 구별하므로, 어느 엣지에서 진입하든 동일한 메뉴 구성을 제공할 수 있다.
+
+**존 방식과의 차이**: 존 방식은 "어디서 진입했느냐"가 액션을 결정하고 별도의 추가 입력이 없다. 파이 메뉴는 진입 후 한 번 더 드래그 방향을 입력해야 하므로 2단계이지만, 진입 위치 암기 부담이 없다. 또한 메뉴가 시각적으로 명시적으로 표시되어 있어 학습 비용이 낮다.
+
+**데드존의 역할**: 메뉴 중심에서 일정 반경 이내(`PIE_DEAD_ZONE_DP`)는 아무것도 선택되지 않는다. 이 영역이 곧 취소 경로로, 실수로 진입했을 때 아무 변경 없이 빠져나올 수 있는 탈출구다.
+
+**섹터 분할 원리**: 방향각도로 항목을 나눠 공간적 기억에 의존한다. "우클릭은 오른쪽 방향"처럼 방향-액션 연결이 직관적이면 학습 속도가 빠르다.
 
 ### 핵심 설계
 
@@ -269,7 +365,15 @@ sealed class PieMenuAction {
 
 **개발 기간**: 0.5일
 
-**쉬운 설명**: 터치패드 가장자리에서 산봉우리를 꺼낸 뒤, 특정 방향으로 빠르게 튕기면(플릭) 해당 방향에 매핑된 모드가 바로 토글됩니다. 메뉴 없이 한 번의 제스처로 끝나는 가장 빠른 방식입니다.
+### 개요
+
+**플릭이란**: 엣지에서 산봉우리를 꺼낸 직후 특정 방향으로 빠르게 이동(플릭)하면 그 방향에 매핑된 액션이 즉시 실행되는 방식. "방향 = 액션"의 직접 매핑이므로 메뉴나 추가 선택 단계가 없다.
+
+**속도 조건의 역할**: 느린 드래그와 의도적인 플릭을 속도로 구별한다. 산봉우리를 꺼내고 천천히 움직이는 것은 플릭으로 인식하지 않으므로 오조작을 억제한다. 존 방식과 달리 진입 위치가 아닌 진입 이후의 이동 패턴으로 액션을 결정한다.
+
+**파이 메뉴와의 차이**: 파이 메뉴는 손을 뗄 때 방향을 인식하고 시각적 선택 UI가 표시된다. 플릭은 시각적 메뉴 없이 속도+방향만으로 즉시 처리되어 최소한의 조작 시간을 갖지만, 방향 정확도와 속도 임계값을 모두 충족해야 한다.
+
+**커버리지 제약**: 4방향 플릭만 구별 가능하므로 최대 4개 액션만 배정할 수 있다.
 
 ### 핵심 설계
 
@@ -332,7 +436,15 @@ data class FlickResult(
 
 **개발 기간**: 1.5일
 
-**쉬운 설명**: 터치패드 가장자리에서 산봉우리를 꺼내면 "그리기 모드"로 들어갑니다. 이 상태에서 터치패드에 특정 모양(동그라미, S자, L자 등)을 그리면, 그 모양을 인식해서 해당 설정 화면을 띄워줍니다. 마치 마우스 제스처처럼 동작합니다.
+### 개요
+
+**드로잉 제스처란**: 엣지 트리거 이후 터치패드 화면에 미리 등록된 모양(원, L자, S자 등)을 직접 그리면 해당 액션이 실행되는 방식. 마우스 제스처와 동일한 개념을 터치 입력에 적용한 것이다.
+
+**다른 방식과의 차이점**: 존/플릭/파이 메뉴는 방향이나 위치 구간 수만큼만 액션을 배정할 수 있다. 드로잉 제스처는 구별 가능한 모양의 수가 더 많으므로 더 많은 액션을 단일 상호작용 모드 안에 담을 수 있다. 단 패턴 학습 비용이 있고 인식 실패 가능성이 존재한다.
+
+**$1 Recognizer의 역할**: 터치 포인트 궤적을 크기·회전·위치에 무관하게 정규화한 뒤 사전 등록된 템플릿과 비교한다. "크게 그리든 작게 그리든", "각도가 달라도" 같은 모양으로 인식되므로 입력 일관성 요구가 낮다. 라이브러리 의존 없이 직접 구현한다.
+
+**인식 실패 경로**: 유사도가 임계값(`GESTURE_MATCH_THRESHOLD`) 미만이면 어떤 템플릿과도 매칭하지 않는다. 시각적으로 실패를 명확히 표시하여 유저가 재시도할 수 있어야 한다.
 
 ### 핵심 설계
 
@@ -417,7 +529,13 @@ class DollarOneRecognizer {
 
 **개발 기간**: 0.5일
 
-**쉬운 설명**: 터치패드 좌우 엣지 존(현재 산봉우리를 꺼내는 영역)에서 손가락을 안쪽으로 당기는 대신, 엣지를 따라 가로로 스와이프하면 마치 앱 서랍 페이지를 넘기듯 모드가 순서대로 전환됩니다. 손 동작 한 번으로 다음/이전 모드로 이동합니다.
+### 개요
+
+**캐러셀 방식이란**: 엣지에 손가락을 대고 안쪽(수직 방향)이 아닌 엣지 방향(수평/수직)으로 슬라이드하면 모드 목록이 순서대로 순환하는 방식. 기존 산봉우리 진입 제스처와 동일한 시작점을 사용하지만 이동 방향으로 두 기능을 분기한다.
+
+**순서 기반 탐색의 특성**: 모드들이 고정된 순서로 나열되어 있어 "다음"/"이전"으로만 이동한다. 원하는 모드로 직접 건너뛸 수 없으므로 모드 수가 많으면 여러 번 스와이프가 필요하다. 반면 순서 자체가 예측 가능하고, 인디케이터 도트로 현재 위치를 시각적으로 확인할 수 있다.
+
+**제스처 방향 분기 설계 이유**: 안쪽/옆쪽 이동을 같은 엣지 진입에서 분기하므로 별도의 트리거 영역이 필요하지 않다. 단 두 방향이 명확히 구별되도록 `CAROUSEL_AXIS_RATIO` 임계값으로 판별한다. 대각선 이동은 명확한 방향이 확정될 때까지 판정을 유예한다.
 
 ### 핵심 설계
 
@@ -489,7 +607,13 @@ const val CAROUSEL_MIN_SWIPE_DP = 40f  // 기본값: 40f
 
 **개발 기간**: 0.5일
 
-**쉬운 설명**: 앞서 구현한 5가지 방식을 모두 실제로 써보면서, 어떤 방식이 가장 빠르고 직관적인지 비교합니다.
+### 개요
+
+**이 Phase의 목적**: 4.6.2~4.6.6에서 구현한 5가지 방식을 동일한 조건에서 직접 사용해보고 최적 방식을 선정한다. 각 방식은 서로 다른 입력 특성(위치 기반/방향 기반/패턴 기반/순서 기반)과 트레이드오프를 가지므로, 이론적 분석만으로는 우열을 판단하기 어렵다.
+
+**선정 기준**: BridgeOne의 핵심 사용자층(근육장애로 인한 정밀 조작 제약)에게 실제로 더 편리한 방식이어야 한다. 조작 단계 수와 오조작 빈도가 가장 중요한 기준이며, 곁눈 사용성(화면을 안 봐도 조작 가능한지)과 학습 부담도 고려한다.
+
+**미선정 방식 처리**: 선정되지 않은 방식의 코드는 제거하지 않는다. 사용자마다 선호가 다를 수 있고 Phase 4.6.1 설정 페이지에서 이미 방식 전환이 가능하므로, 모든 구현을 옵션으로 유지한다.
 
 ### 테스트 항목
 
