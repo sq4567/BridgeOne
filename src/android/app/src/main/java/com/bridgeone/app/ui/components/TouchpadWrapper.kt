@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
+import com.bridgeone.app.ui.common.TouchpadButtonVisibility
+import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignment
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_MIN_VELOCITY_DP_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_TIME_CONSTANT_MS
@@ -74,6 +77,7 @@ import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
 import com.bridgeone.app.ui.common.ScrollDirectionBoost
 import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
 import com.bridgeone.app.ui.components.touchpad.ClickMode
+import com.bridgeone.app.ui.components.touchpad.CornerOverlap
 import com.bridgeone.app.ui.components.touchpad.ControlButtonConfig
 import com.bridgeone.app.ui.components.touchpad.CursorMode
 import com.bridgeone.app.ui.components.touchpad.DpiLevel
@@ -81,9 +85,15 @@ import com.bridgeone.app.ui.components.touchpad.ScrollSensitivity
 import com.bridgeone.app.ui.components.touchpad.DynamicsPresetButton
 import com.bridgeone.app.ui.components.touchpad.ModePresetButton
 import com.bridgeone.app.ui.components.touchpad.EdgeBumpOverlay
+import com.bridgeone.app.ui.components.touchpad.EdgeInteractionMode
 import com.bridgeone.app.ui.components.touchpad.EdgePopupMode
 import com.bridgeone.app.ui.components.touchpad.EdgeSwipeMode
 import com.bridgeone.app.ui.components.touchpad.EdgeSwipeOverlay
+import com.bridgeone.app.ui.components.touchpad.EdgeZoneAction
+import com.bridgeone.app.ui.components.touchpad.EdgeZoneActionHandler
+import com.bridgeone.app.ui.components.touchpad.EdgeZoneDetector
+import com.bridgeone.app.ui.components.touchpad.EdgeZoneOverlay
+import com.bridgeone.app.ui.components.touchpad.EdgeZoneTrigger
 import com.bridgeone.app.ui.components.touchpad.EntryEdge
 import com.bridgeone.app.ui.components.touchpad.NormalScrollButtons
 import com.bridgeone.app.ui.components.touchpad.RightAngleGuideline
@@ -144,14 +154,17 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TouchpadWrapper(
+    touchpadId: String,
     modifier: Modifier = Modifier,
     bridgeMode: BridgeMode = BridgeMode.ESSENTIAL,
     touchpadState: TouchpadState = TouchpadState(),
+    edgeZoneAssignment: TouchpadEdgeZoneAssignment = TouchpadEdgeZoneAssignment.default(),
+    onEdgeZoneAssignmentChange: (TouchpadEdgeZoneAssignment) -> Unit = {},
     customPresets: List<CustomPointerDynamicsPreset> = emptyList(),
     onTouchpadStateChange: (TouchpadState) -> Unit = {},
     onDynamicsLongPress: () -> Unit = {},
     onModePresetLongPress: () -> Unit = {},
-    config: ControlButtonConfig = ControlButtonConfig(),
+    buttonVisibility: TouchpadButtonVisibility = TouchpadButtonVisibility(),
     onTouchEvent: (
         eventType: PointerEventType,
         currentPosition: Offset,
@@ -166,9 +179,10 @@ fun TouchpadWrapper(
 
     // rememberUpdatedState: pointerInput(Unit) 제스처 루프 재시작 없이 최신 상태 참조
     val latestState by rememberUpdatedState(touchpadState)
+    val latestAssignment by rememberUpdatedState(edgeZoneAssignment)
     val latestCustomPresets by rememberUpdatedState(customPresets)
     val latestOnStateChange by rememberUpdatedState(onTouchpadStateChange)
-    val latestConfig by rememberUpdatedState(config)
+    val latestConfig by rememberUpdatedState(buttonVisibility.controlButtonConfig)
 
     // ── 커서 모드 상태 (기존) ──
     val currentTouchPosition = remember { mutableStateOf(Offset.Zero) }
@@ -235,6 +249,10 @@ fun TouchpadWrapper(
     val bumpShrinkAnimatable = remember { Animatable(0f) }
     var isBumpShrinking by remember { mutableStateOf(false) }
     var edgeSwipeHapticFired by remember { mutableStateOf(false) }
+    // ZONE 모드 전용: 임계값 도달 후 손가락을 떼야 실행 (true = 발사 대기 중)
+    var isZoneArmed by remember { mutableStateOf(false) }
+    var rotationJob by remember { mutableStateOf<Job?>(null) }
+    var rotationIndex by remember { mutableIntStateOf(0) }
     // 대기 상태: 팝업 열릴 때 현재 상태로 초기화, 탭 토글로 변경, 확인 탭 시 적용
     var pendingEdgeState by remember { mutableStateOf<TouchpadState?>(null) }
     // 현재 선택(하이라이트)된 항목 인덱스 (null = 없음)
@@ -699,12 +717,14 @@ fun TouchpadWrapper(
                             pos = downPos,
                             width = size.width.toFloat(),
                             height = size.height.toFloat(),
-                            edgeWidthPx = edgeHitWidthPx
+                            edgeWidthPx = edgeHitWidthPx,
+                            cornerPriority = latestAssignment.config.cornerPriority
                         )
                     }
                     isEdgeCandidate = detectedEntryEdge != null
                     entryEdge = detectedEntryEdge
                     edgeSwipeHapticFired = false
+                    isZoneArmed = false
                     // 산봉우리 등장 시 햅틱 피드백 (Phase 4.5.10)
                     if (detectedEntryEdge != null) {
                         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -716,6 +736,9 @@ fun TouchpadWrapper(
                         getAlongEdgePosition(downPos, detectedEntryEdge)
                     else 0f
                     entryAlongEdgePx = edgeStartAlongPx
+
+                    // 로테이션 존 추적용 (각 제스처마다 초기화)
+                    var armedZoneKey: Pair<Float, Float>? = null
 
                     // 스크롤 모드 전용 로컬 상태 (각 제스처마다 초기화)
                     var scrollAxis = ScrollAxis.UNDECIDED
@@ -787,7 +810,61 @@ fun TouchpadWrapper(
                                 if (!showEdgePopup && !isModeSelecting) {
                                     when {
                                         inwardMoved >= triggerDistancePx -> {
-                                            // 모드 선택 단계 진입: 관성 중단 후 모드 선택 UI 표시
+                                            val interactionMode = latestState.edgeInteractionMode
+                                            if (interactionMode == EdgeInteractionMode.ZONE) {
+                                                // ZONE 방식: 임계값 도달 → armed 상태 (손가락을 떼야 실행)
+                                                val zoneEdgeLen = when (entryEdge) {
+                                                    EntryEdge.LEFT, EntryEdge.RIGHT -> size.height.toFloat()
+                                                    EntryEdge.TOP, EntryEdge.BOTTOM -> size.width.toFloat()
+                                                    null -> 1f
+                                                }
+                                                val zoneAlongRatio = if (zoneEdgeLen > 0f) fingerAlongEdgePx / zoneEdgeLen else 0f
+                                                val curZone = if (entryEdge != null && !(entryEdge == EntryEdge.TOP && latestConfig.hasControlButtons))
+                                                    EdgeZoneDetector.findActiveZone(latestAssignment.config, entryEdge!!, zoneAlongRatio)
+                                                else null
+                                                val curZoneKey = curZone?.let { it.startRatio to it.endRatio }
+
+                                                if (!isZoneArmed) {
+                                                    isZoneArmed = true
+                                                    // 임계값 도달 햅틱 (발사 대기 신호)
+                                                    if (!edgeSwipeHapticFired) {
+                                                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                                        edgeSwipeHapticFired = true
+                                                    }
+                                                    // 로테이션 존이면 회전 코루틴 시작
+                                                    val rotTrigger = curZone?.trigger as? EdgeZoneTrigger.Rotation
+                                                    if (rotTrigger != null && rotTrigger.candidates.size >= com.bridgeone.app.ui.common.EdgeSwipeConstants.EDGE_ZONE_ROTATION_MIN_CANDIDATES) {
+                                                        rotationIndex = 0
+                                                        rotationJob?.cancel()
+                                                        rotationJob = coroutineScope.launch {
+                                                            while (true) {
+                                                                delay(rotTrigger.intervalMs.toLong())
+                                                                rotationIndex = (rotationIndex + 1) % rotTrigger.candidates.size
+                                                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                                            }
+                                                        }
+                                                    }
+                                                    armedZoneKey = curZoneKey
+                                                } else if (curZoneKey != armedZoneKey) {
+                                                    // 이미 armed 상태에서 다른 존으로 이동 → 회전 재시작
+                                                    armedZoneKey = curZoneKey
+                                                    rotationJob?.cancel()
+                                                    rotationJob = null
+                                                    rotationIndex = 0
+                                                    val rotTrigger = curZone?.trigger as? EdgeZoneTrigger.Rotation
+                                                    if (rotTrigger != null && rotTrigger.candidates.size >= com.bridgeone.app.ui.common.EdgeSwipeConstants.EDGE_ZONE_ROTATION_MIN_CANDIDATES) {
+                                                        rotationJob = coroutineScope.launch {
+                                                            while (true) {
+                                                                delay(rotTrigger.intervalMs.toLong())
+                                                                rotationIndex = (rotationIndex + 1) % rotTrigger.candidates.size
+                                                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                // isEdgeCandidate 유지 — 산봉우리 시각화 지속
+                                            } else {
+                                            // LEGACY_POPUP 방식: 모드 선택 단계 진입
                                             inertiaWasActiveOnDown = inertiaJob?.isActive == true
                                             inertiaJob?.cancel()
                                             inertiaJob = null
@@ -798,10 +875,25 @@ fun TouchpadWrapper(
                                                 view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                                                 edgeSwipeHapticFired = true
                                             }
+                                            } // else LEGACY_POPUP
+                                        }
+                                        isZoneArmed && inwardMoved < triggerDistancePx -> {
+                                            // 임계값 아래로 후퇴 → disarm (재진입 시 재발동 가능)
+                                            isZoneArmed = false
+                                            edgeSwipeHapticFired = false
+                                            rotationJob?.cancel()
+                                            rotationJob = null
+                                            rotationIndex = 0
+                                            armedZoneKey = null
                                         }
                                         inwardMoved < 0f -> {
                                             // 시작점보다 엣지 방향으로 되돌아감 → 후보 취소
+                                            isZoneArmed = false
                                             isEdgeCandidate = false
+                                            rotationJob?.cancel()
+                                            rotationJob = null
+                                            rotationIndex = 0
+                                            armedZoneKey = null
                                         }
                                         perpMoved >= triggerDistancePx && inwardDistancePx < bumpAppearThresholdPx -> {
                                             // 산봉우리가 나오기 전에 엣지 방향으로 충분히 이동 → 일반 커서로 처리
@@ -1123,7 +1215,42 @@ fun TouchpadWrapper(
                         previousTouchPosition.value = currentTouchPosition.value
                         currentTouchPosition.value = moveEvent.changes.first().position
 
-                        if (isModeSelecting && !isPopupPinned) {
+                        if (isZoneArmed) {
+                            // ZONE 방식: armed 상태에서 손가락을 뗌 → 액션 실행
+                            val edgeLen = when (entryEdge) {
+                                EntryEdge.LEFT, EntryEdge.RIGHT -> size.height.toFloat()
+                                EntryEdge.TOP, EntryEdge.BOTTOM -> size.width.toFloat()
+                                null -> 1f
+                            }
+                            val alongRatio = if (edgeLen > 0f) fingerAlongEdgePx / edgeLen else 0f
+                            val activeZone = if (entryEdge != null && !(entryEdge == EntryEdge.TOP && latestConfig.hasControlButtons))
+                                EdgeZoneDetector.findActiveZone(latestAssignment.config, entryEdge!!, alongRatio)
+                            else null
+                            if (activeZone != null) {
+                                val actionToApply: EdgeZoneAction? = when (val t = activeZone.trigger) {
+                                    is EdgeZoneTrigger.SingleAction ->
+                                        t.action.takeIf { it !is EdgeZoneAction.Unassigned }
+                                    is EdgeZoneTrigger.Rotation ->
+                                        t.candidates.getOrNull(rotationIndex)?.action
+                                            ?.takeIf { it !is EdgeZoneAction.Unassigned }
+                                }
+                                if (actionToApply != null) {
+                                    val newState = EdgeZoneActionHandler.applyZoneAction(
+                                        latestState, actionToApply, latestCustomPresets.size
+                                    )
+                                    latestOnStateChange(newState)
+                                }
+                            }
+                            rotationJob?.cancel()
+                            rotationJob = null
+                            rotationIndex = 0
+                            armedZoneKey = null
+                            isZoneArmed = false
+                            isEdgeCandidate = false
+                            fingerAlongEdgePx = 0f
+                            entryAlongEdgePx = 0f
+                            inwardDistancePx = 0f
+                        } else if (isModeSelecting && !isPopupPinned) {
                             // 손 뗌 → 팝업 고정 (Phase 4.5.9: 2단계 방식으로 고정)
                             isPopupPinned = true
                             // isModeSelecting은 유지 — 다음 제스처에서 핀 상태로 처리
@@ -1424,9 +1551,9 @@ fun TouchpadWrapper(
             }
         }
 
-        // 일반 스크롤 버튼 (NORMAL_SCROLL 모드에서만 표시)
+        // 일반 스크롤 버튼 (NORMAL_SCROLL 모드 + 표시 설정 ON일 때만 표시)
         AnimatedVisibility(
-            visible = touchpadState.scrollMode == ScrollMode.NORMAL_SCROLL,
+            visible = touchpadState.scrollMode == ScrollMode.NORMAL_SCROLL && buttonVisibility.showScrollButtons,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(200)),
             modifier = Modifier
@@ -1436,9 +1563,10 @@ fun TouchpadWrapper(
             NormalScrollButtons()
         }
 
-        // 다이나믹스 프리셋 버튼 (커서 이동 모드 + Standard 모드에서만 표시, Phase 4.3.8)
+        // 다이나믹스 프리셋 버튼 (커서 이동 모드 + Standard 모드 + 표시 설정 ON일 때만 표시, Phase 4.3.8)
         AnimatedVisibility(
-            visible = touchpadState.scrollMode == ScrollMode.OFF &&
+            visible = buttonVisibility.showDynamicsButton &&
+                touchpadState.scrollMode == ScrollMode.OFF &&
                 bridgeMode != BridgeMode.ESSENTIAL,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(200)),
@@ -1455,8 +1583,8 @@ fun TouchpadWrapper(
             )
         }
 
-        // 모드 프리셋 버튼 (Standard 모드에서 항상 표시, Phase 4.4.8)
-        if (bridgeMode != BridgeMode.ESSENTIAL) {
+        // 모드 프리셋 버튼 (Standard 모드 + 표시 설정 ON일 때 표시, Phase 4.4.8)
+        if (buttonVisibility.showModePresetButton && bridgeMode != BridgeMode.ESSENTIAL) {
             ModePresetButton(
                 touchpadState = touchpadState,
                 onTouchpadStateChange = onTouchpadStateChange,
@@ -1500,11 +1628,32 @@ fun TouchpadWrapper(
             )
         }
 
+        // 엣지 존 오버레이 (Phase 4.6.2) — ZONE 모드 시 경계선 + 활성 존 라벨/아이콘
+        if (bridgeMode != BridgeMode.ESSENTIAL &&
+            touchpadState.edgeInteractionMode == EdgeInteractionMode.ZONE) {
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val wPx = with(density) { maxWidth.toPx() }
+                val hPx = with(density) { maxHeight.toPx() }
+                EdgeZoneOverlay(
+                    config = edgeZoneAssignment.config,
+                    isEdgeCandidate = isEdgeCandidate,
+                    entryEdge = entryEdge,
+                    fingerAlongEdgePx = fingerAlongEdgePx,
+                    inwardDistancePx = inwardDistancePx,
+                    touchpadWidthPx = wPx,
+                    touchpadHeightPx = hPx,
+                    isZoneArmed = isZoneArmed,
+                    rotationIndex = rotationIndex,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
         // 엣지 스와이프 메뉴 오버레이 (Phase 4.3.12) — 최상단 레이어
         EdgeSwipeOverlay(
             visible = showEdgePopup,
             pendingState = pendingEdgeState ?: touchpadState,
-            config = config,
+            config = buttonVisibility.controlButtonConfig,
             selectedIndex = selectedItemIndex,
             popupAnchorPx = popupAnchorPx,
             isModeSelecting = isModeSelecting,
@@ -1529,19 +1678,30 @@ fun TouchpadWrapper(
 
 /**
  * 터치 시작점([pos])이 어느 가장자리 영역에 속하는지 반환합니다.
- * 코너는 LEFT 우선(순서상 첫 번째 매칭)으로 처리됩니다.
+ * 코너 겹침 영역은 [cornerPriority] 설정을 따르며, 기본값은 수평 엣지(TOP/BOTTOM) 우선입니다.
  */
 private fun detectEntryEdge(
     pos: androidx.compose.ui.geometry.Offset,
     width: Float,
     height: Float,
-    edgeWidthPx: Float
-): EntryEdge? = when {
-    pos.x < edgeWidthPx          -> EntryEdge.LEFT
-    pos.x > width - edgeWidthPx  -> EntryEdge.RIGHT
-    pos.y < edgeWidthPx          -> EntryEdge.TOP
-    pos.y > height - edgeWidthPx -> EntryEdge.BOTTOM
-    else                         -> null
+    edgeWidthPx: Float,
+    cornerPriority: Map<CornerOverlap, EntryEdge> = emptyMap()
+): EntryEdge? {
+    val inLeft   = pos.x < edgeWidthPx
+    val inRight  = pos.x > width - edgeWidthPx
+    val inTop    = pos.y < edgeWidthPx
+    val inBottom = pos.y > height - edgeWidthPx
+    return when {
+        inLeft && inTop     -> cornerPriority.getOrDefault(CornerOverlap.TOP_LEFT,     EntryEdge.TOP)
+        inRight && inTop    -> cornerPriority.getOrDefault(CornerOverlap.TOP_RIGHT,    EntryEdge.TOP)
+        inLeft && inBottom  -> cornerPriority.getOrDefault(CornerOverlap.BOTTOM_LEFT,  EntryEdge.BOTTOM)
+        inRight && inBottom -> cornerPriority.getOrDefault(CornerOverlap.BOTTOM_RIGHT, EntryEdge.BOTTOM)
+        inLeft   -> EntryEdge.LEFT
+        inRight  -> EntryEdge.RIGHT
+        inTop    -> EntryEdge.TOP
+        inBottom -> EntryEdge.BOTTOM
+        else     -> null
+    }
 }
 
 /**
@@ -1687,6 +1847,7 @@ private fun applyEdgeModeToggle(state: TouchpadState, mode: EdgeSwipeMode, custo
 @Composable
 fun TouchpadWrapperPreview() {
     TouchpadWrapper(
+        touchpadId = "preview",
         modifier = Modifier
             .size(160.dp, 320.dp)
             .background(Color(0xFF0D0D0D))

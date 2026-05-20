@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,13 +28,16 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.offset
@@ -65,6 +70,7 @@ import com.bridgeone.app.ui.components.DEFAULT_SHORTCUTS
 import com.bridgeone.app.ui.components.KeyboardKeyButton
 import com.bridgeone.app.ui.components.ShortcutButton
 import com.bridgeone.app.ui.components.TouchpadWrapper
+import com.bridgeone.app.ui.components.touchpad.ControlButtonConfig
 import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
 import com.bridgeone.app.ui.components.touchpad.EdgeInteractionMode
 import com.bridgeone.app.ui.components.touchpad.DpiAdjustPopup
@@ -72,9 +78,16 @@ import com.bridgeone.app.ui.components.touchpad.DpiLevel
 import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
 import com.bridgeone.app.ui.common.CustomPresetsRepository
 import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
+import com.bridgeone.app.ui.common.EdgeZonePresetsRepository
 import com.bridgeone.app.ui.common.MODE_PRESETS
+import com.bridgeone.app.ui.common.TouchpadButtonVisibility
+import com.bridgeone.app.ui.common.TouchpadButtonVisibilityRepository
+import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignment
+import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignmentRepository
+import com.bridgeone.app.ui.common.TouchpadIds
 import com.bridgeone.app.ui.components.touchpad.DynamicsCurveEditor
 import com.bridgeone.app.ui.components.touchpad.DynamicsPresetPopup
+import com.bridgeone.app.ui.components.touchpad.EdgeZonePresetPopup
 import com.bridgeone.app.ui.components.touchpad.ModePresetPopup
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
@@ -102,10 +115,11 @@ private val PAGER_INITIAL_PAGE = (Int.MAX_VALUE / 2).let { mid -> mid - (mid % P
 @Composable
 fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     val pagerState = rememberPagerState(initialPage = PAGER_INITIAL_PAGE, pageCount = { Int.MAX_VALUE })
+    val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
     // Phase 4.3.3: 터치패드 상태를 페이지 레벨로 호이스팅
-    // DpiLevel과 EdgeInteractionMode는 SharedPreferences에서 복원 (Phase 4.3.6, 4.6.1)
+    // DpiLevel, EdgeInteractionMode는 SharedPreferences에서 복원
     var touchpadState by remember {
         mutableStateOf(
             TouchpadState(
@@ -113,6 +127,27 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                 edgeInteractionMode = loadEdgeInteractionMode(context)
             )
         )
+    }
+
+    // 터치패드별 엣지 존 할당 (Phase 4.6.2+)
+    val assignmentRepo = remember {
+        TouchpadEdgeZoneAssignmentRepository(context).also {
+            it.migrateLegacyIfNeeded(context)
+            it.migrateStandardPrimaryKeyIfNeeded()
+        }
+    }
+    // 페이지 인덱스(0-based)를 터치패드 ID로 사용. 터치패드가 있는 페이지만 포함.
+    val standardTouchpadPages = remember { listOf(0, 1) }
+    var standardAssignments by remember {
+        mutableStateOf(standardTouchpadPages.associateWith { assignmentRepo.load(TouchpadIds.standardPage(it)) })
+    }
+    // Page 5 설정에서 현재 선택된 페이지 인덱스 (엣지 존 + 버튼 표시 공유)
+    var selectedZonePage by remember { mutableStateOf(0) }
+
+    // 터치패드별 버튼 표시 설정
+    val buttonVisibilityRepo = remember { TouchpadButtonVisibilityRepository(context) }
+    var standardButtonVisibility by remember {
+        mutableStateOf(standardTouchpadPages.associateWith { buttonVisibilityRepo.load(TouchpadIds.standardPage(it)) })
     }
 
     // DPI 레벨(사전 정의 값)이 변경될 때 SharedPreferences에 저장
@@ -124,6 +159,29 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     LaunchedEffect(touchpadState.edgeInteractionMode) {
         saveEdgeInteractionMode(context, touchpadState.edgeInteractionMode)
     }
+
+    // 엣지 존 할당이 변경될 때 파일에 저장 (Phase 4.6.2+)
+    LaunchedEffect(standardAssignments) {
+        standardAssignments.forEach { (pageIdx, assignment) ->
+            assignmentRepo.save(TouchpadIds.standardPage(pageIdx), assignment)
+        }
+    }
+
+    // 버튼 표시 설정이 변경될 때 파일에 저장
+    LaunchedEffect(standardButtonVisibility) {
+        standardButtonVisibility.forEach { (pageIdx, visibility) ->
+            buttonVisibilityRepo.save(TouchpadIds.standardPage(pageIdx), visibility)
+        }
+    }
+
+    // Phase 4.6.3: 엣지 존 프리셋 저장소
+    val edgeZonePresetsRepo = remember { EdgeZonePresetsRepository(context) }
+
+    // 존 편집기 표시 상태 (Phase 4.6.2)
+    var showZoneEditor by remember { mutableStateOf(false) }
+
+    // 존 프리셋 팝업 표시 상태 (Phase 4.6.3)
+    var showZonePresetPopup by remember { mutableStateOf(false) }
 
     // Phase 4.5.16: 커스텀 다이나믹스 프리셋 상태
     val customPresetsRepo = remember { CustomPresetsRepository(context) }
@@ -194,8 +252,12 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                 when (page % PAGE_COUNT) {
                     0 -> Page1TouchpadActions(
                         touchpadState = touchpadState,
+                        edgeZoneAssignment = standardAssignments[0] ?: TouchpadEdgeZoneAssignment.default(),
+                        onEdgeZoneAssignmentChange = { updated -> standardAssignments = standardAssignments + (0 to updated) },
                         customPresets = customPresets,
                         onTouchpadStateChange = { touchpadState = it },
+                        buttonVisibility = standardButtonVisibility[0] ?: TouchpadButtonVisibility.default(),
+                        onButtonVisibilityChange = { updated -> standardButtonVisibility = standardButtonVisibility + (0 to updated) },
                         dpiAdjustPopupVisible = dpiAdjustPopupVisible,
                         dynamicsPresetPopupVisible = dynamicsPresetPopupVisible,
                         modePresetPopupVisible = modePresetPopupVisible,
@@ -250,12 +312,29 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         },
                         onModePresetDismiss = { modePresetPopupVisible = false }
                     )
-                    1 -> Page2AbsolutePointingPlaceholder()
+                    1 -> Page2TestTouchpad(
+                        touchpadState = touchpadState,
+                        edgeZoneAssignment = standardAssignments[1] ?: TouchpadEdgeZoneAssignment.default(),
+                        onEdgeZoneAssignmentChange = { updated -> standardAssignments = standardAssignments + (1 to updated) },
+                        customPresets = customPresets,
+                        onTouchpadStateChange = { touchpadState = it },
+                        buttonVisibility = standardButtonVisibility[1] ?: TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(1)),
+                        onDpiLongPress = { dpiAdjustPopupVisible = true }
+                    )
                     2 -> Page3KeyboardPlaceholder()
                     3 -> Page4MinecraftPlaceholder()
                     4 -> Page5Settings(
                         touchpadState = touchpadState,
-                        onTouchpadStateChange = { touchpadState = it }
+                        onTouchpadStateChange = { touchpadState = it },
+                        standardAssignments = standardAssignments,
+                        selectedZonePage = selectedZonePage,
+                        onSelectedZonePageChange = { selectedZonePage = it },
+                        onOpenZoneEditor = { showZoneEditor = true },
+                        onOpenZonePresetPopup = { showZonePresetPopup = true },
+                        standardButtonVisibility = standardButtonVisibility,
+                        onButtonVisibilityChange = { pageIdx, updated ->
+                            standardButtonVisibility = standardButtonVisibility + (pageIdx to updated)
+                        }
                     )
                 }
             }
@@ -274,9 +353,47 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
             currentPage = logicalPage,
             offsetFraction = indicatorOffset,
             pageCount = PAGE_COUNT,
+            onPageClick = { targetLogicalPage ->
+                val targetPage = pagerState.currentPage - (pagerState.currentPage % PAGE_COUNT) + targetLogicalPage
+                coroutineScope.launch { pagerState.animateScrollToPage(targetPage) }
+            },
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
                 .padding(bottom = 16.dp)
+        )
+    }
+
+    // ── Phase 4.6.2: 존 편집기 오버레이 ──
+    if (showZoneEditor) {
+        val targetAssignment = standardAssignments[selectedZonePage] ?: TouchpadEdgeZoneAssignment.default()
+        val zoneEditorDisabledEdges: Map<com.bridgeone.app.ui.components.touchpad.EntryEdge, String> =
+            if (selectedZonePage == 0) mapOf(com.bridgeone.app.ui.components.touchpad.EntryEdge.TOP to "제어 버튼")
+            else emptyMap()
+        com.bridgeone.app.ui.components.touchpad.EdgeZoneEditorScreen(
+            initialConfig = targetAssignment.config,
+            initialPresetId = targetAssignment.presetId,
+            presetsRepo = edgeZonePresetsRepo,
+            disabledEdges = zoneEditorDisabledEdges,
+            onSave = { newConfig, presetId ->
+                standardAssignments = standardAssignments + (selectedZonePage to TouchpadEdgeZoneAssignment(newConfig, presetId))
+                showZoneEditor = false
+            },
+            onBack = { showZoneEditor = false }
+        )
+    }
+
+    // ── Phase 4.6.3: 존 프리셋 팝업 ──
+    if (showZonePresetPopup) {
+        val targetAssignment = standardAssignments[selectedZonePage] ?: TouchpadEdgeZoneAssignment.default()
+        EdgeZonePresetPopup(
+            currentPresetId = targetAssignment.presetId,
+            currentConfig = targetAssignment.config,
+            presetsRepo = edgeZonePresetsRepo,
+            onApply = { preset ->
+                standardAssignments = standardAssignments + (selectedZonePage to TouchpadEdgeZoneAssignment(preset.config, preset.id))
+                showZonePresetPopup = false
+            },
+            onDismiss = { showZonePresetPopup = false }
         )
     }
 
@@ -320,6 +437,7 @@ private fun PageIndicator(
     currentPage: Int,
     offsetFraction: Float,
     pageCount: Int,
+    onPageClick: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val dotSizeDp = 8.dp
@@ -363,11 +481,12 @@ private fun PageIndicator(
             horizontalArrangement = Arrangement.spacedBy(dotSpacingDp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            repeat(pageCount) {
+            repeat(pageCount) { index ->
                 Box(
                     modifier = Modifier
                         .size(dotSizeDp)
                         .background(Color(0xFFC2C2C2), CircleShape)
+                        .clickable { onPageClick(index) }
                 )
             }
         }
@@ -399,8 +518,12 @@ private fun PageIndicator(
 @Composable
 private fun Page1TouchpadActions(
     touchpadState: TouchpadState,
+    edgeZoneAssignment: TouchpadEdgeZoneAssignment = TouchpadEdgeZoneAssignment.default(),
+    onEdgeZoneAssignmentChange: (TouchpadEdgeZoneAssignment) -> Unit = {},
     customPresets: List<CustomPointerDynamicsPreset> = emptyList(),
     onTouchpadStateChange: (TouchpadState) -> Unit,
+    buttonVisibility: TouchpadButtonVisibility = TouchpadButtonVisibility.default(),
+    onButtonVisibilityChange: (TouchpadButtonVisibility) -> Unit = {},
     dpiAdjustPopupVisible: Boolean = false,
     dynamicsPresetPopupVisible: Boolean = false,
     modePresetPopupVisible: Boolean = false,
@@ -462,12 +585,16 @@ private fun Page1TouchpadActions(
                         .blur(blurRadius)
                 ) {
                     TouchpadWrapper(
+                        touchpadId = TouchpadIds.standardPage(0),
                         bridgeMode = BridgeMode.STANDARD,
                         touchpadState = touchpadState,
+                        edgeZoneAssignment = edgeZoneAssignment,
+                        onEdgeZoneAssignmentChange = onEdgeZoneAssignmentChange,
                         customPresets = customPresets,
                         onTouchpadStateChange = onTouchpadStateChange,
                         onDynamicsLongPress = onDynamicsLongPress,
                         onModePresetLongPress = onModePresetLongPress,
+                        buttonVisibility = buttonVisibility,
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
@@ -476,15 +603,18 @@ private fun Page1TouchpadActions(
                             )
                     )
 
-                    // Phase 4.3.1: ControlButtonContainer 오버레이 (상단 15%)
-                    ControlButtonContainer(
-                        touchpadState = touchpadState,
-                        onStateChange = onTouchpadStateChange,
-                        onDpiLongPress = onDpiLongPress,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .align(Alignment.TopCenter)
-                    )
+                    // Phase 4.3.1: ControlButtonContainer 오버레이 (상단 15%, 마스터 ON일 때만)
+                    if (buttonVisibility.showControlButtons) {
+                        ControlButtonContainer(
+                            touchpadState = touchpadState,
+                            onStateChange = onTouchpadStateChange,
+                            onDpiLongPress = onDpiLongPress,
+                            config = buttonVisibility.controlButtonConfig,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .align(Alignment.TopCenter)
+                        )
+                    }
                 }
 
                 // Phase 4.3.6: DPI 세밀 조절 팝업 오버레이
@@ -775,37 +905,45 @@ private fun MacrosPlaceholder() {
 }
 
 // ============================================================
-// Page 2: 절대좌표 패드 (Placeholder - AbsolutePointingPad)
+// Page 2: 테스트 터치패드 (제어 버튼 없는 풀스크린 터치패드)
 // ============================================================
 
 @Composable
-private fun Page2AbsolutePointingPlaceholder() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF1E1E1E), RoundedCornerShape(12.dp)),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "Page 2",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFFE91E63)
-            )
-            Text(
-                text = "절대좌표 패드",
-                fontSize = 14.sp,
-                color = Color(0xFFC2C2C2)
-            )
-            Text(
-                text = "(Phase 4.4에서 구현 예정)",
-                fontSize = 12.sp,
-                color = Color(0xFF888888),
-                fontWeight = FontWeight.Light
+private fun Page2TestTouchpad(
+    touchpadState: TouchpadState,
+    edgeZoneAssignment: TouchpadEdgeZoneAssignment = TouchpadEdgeZoneAssignment.default(),
+    onEdgeZoneAssignmentChange: (TouchpadEdgeZoneAssignment) -> Unit = {},
+    customPresets: List<CustomPointerDynamicsPreset> = emptyList(),
+    onTouchpadStateChange: (TouchpadState) -> Unit = {},
+    buttonVisibility: TouchpadButtonVisibility = TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(1)),
+    onDpiLongPress: () -> Unit = {}
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        TouchpadWrapper(
+            touchpadId = TouchpadIds.standardPage(1),
+            bridgeMode = BridgeMode.STANDARD,
+            touchpadState = touchpadState,
+            edgeZoneAssignment = edgeZoneAssignment,
+            onEdgeZoneAssignmentChange = onEdgeZoneAssignmentChange,
+            customPresets = customPresets,
+            onTouchpadStateChange = onTouchpadStateChange,
+            buttonVisibility = buttonVisibility,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    color = Color(0xFF1A1A1A),
+                    shape = RoundedCornerShape(12.dp)
+                )
+        )
+        if (buttonVisibility.showControlButtons) {
+            ControlButtonContainer(
+                touchpadState = touchpadState,
+                onStateChange = onTouchpadStateChange,
+                onDpiLongPress = onDpiLongPress,
+                config = buttonVisibility.controlButtonConfig,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .align(Alignment.TopCenter)
             )
         }
     }
@@ -892,8 +1030,19 @@ private fun Page4MinecraftPlaceholder() {
 @Composable
 private fun Page5Settings(
     touchpadState: TouchpadState,
-    onTouchpadStateChange: (TouchpadState) -> Unit
+    onTouchpadStateChange: (TouchpadState) -> Unit,
+    standardAssignments: Map<Int, TouchpadEdgeZoneAssignment> = emptyMap(),
+    selectedZonePage: Int = 0,
+    onSelectedZonePageChange: (Int) -> Unit = {},
+    onOpenZoneEditor: () -> Unit = {},
+    onOpenZonePresetPopup: () -> Unit = {},
+    standardButtonVisibility: Map<Int, TouchpadButtonVisibility> = emptyMap(),
+    onButtonVisibilityChange: (Int, TouchpadButtonVisibility) -> Unit = { _, _ -> }
 ) {
+    val sortedPages = standardAssignments.keys.sorted()
+    val currentAssignment = standardAssignments[selectedZonePage] ?: TouchpadEdgeZoneAssignment.default()
+    val currentVisibility = standardButtonVisibility[selectedZonePage] ?: TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(selectedZonePage))
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -928,6 +1077,85 @@ private fun Page5Settings(
                     currentMode = touchpadState.edgeInteractionMode,
                     onModeSelected = { mode ->
                         onTouchpadStateChange(touchpadState.copy(edgeInteractionMode = mode))
+                    }
+                )
+            }
+
+            // 터치패드 페이지 셀렉터 (페이지가 2개 이상일 때만 표시, 엣지 존 + 버튼 표시 두 섹션이 공유)
+            if (sortedPages.size > 1) {
+                item {
+                    Text(
+                        text = "터치패드",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFAAAAAA)
+                    )
+                }
+                item {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        sortedPages.forEach { pageIdx ->
+                            val isSelected = pageIdx == selectedZonePage
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Color(0xFF2979FF).copy(alpha = 0.2f) else Color(0xFF2A2A2A))
+                                    .border(
+                                        width = if (isSelected) 1.5.dp else 0.5.dp,
+                                        color = if (isSelected) Color(0xFF2979FF) else Color(0xFF444444),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { onSelectedZonePageChange(pageIdx) }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "페이지 ${pageIdx + 1}",
+                                    fontSize = 13.sp,
+                                    color = if (isSelected) Color(0xFF2979FF) else Color(0xFFCCCCCC)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 존 프리셋 + 편집기 진입 항목 (ZONE 모드 선택 시에만 표시)
+            if (touchpadState.edgeInteractionMode == EdgeInteractionMode.ZONE) {
+                item {
+                    ZonePresetSelectorRow(
+                        currentPresetId = currentAssignment.presetId,
+                        onClick = onOpenZonePresetPopup
+                    )
+                }
+                item {
+                    val zoneCount = currentAssignment.config.run {
+                        topZones.size + bottomZones.size + leftZones.size + rightZones.size
+                    }
+                    ZoneEditorEntryRow(
+                        zoneCount = zoneCount,
+                        onClick = onOpenZoneEditor
+                    )
+                }
+            }
+
+            // 버튼 표시 섹션
+            item {
+                Text(
+                    text = "버튼 표시",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFAAAAAA),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            item {
+                SettingsButtonVisibilitySection(
+                    visibility = currentVisibility,
+                    onVisibilityChange = { updated ->
+                        onButtonVisibilityChange(selectedZonePage, updated)
                     }
                 )
             }
@@ -1009,4 +1237,186 @@ private fun saveEdgeInteractionMode(context: Context, mode: EdgeInteractionMode)
         .edit()
         .putString(KEY_EDGE_INTERACTION_MODE, mode.name)
         .apply()
+}
+
+
+// ============================================================
+// 존 프리셋 선택 행 (Phase 4.6.3)
+// ============================================================
+
+@Composable
+private fun ZonePresetSelectorRow(
+    currentPresetId: String?,
+    onClick: () -> Unit
+) {
+    val presetLabel = if (currentPresetId == null) {
+        "사용자 정의 (직접 편집)"
+    } else {
+        val preset = com.bridgeone.app.ui.common.BUILT_IN_EDGE_ZONE_PRESETS.find { it.id == currentPresetId }
+        if (preset != null) preset.name else "커스텀"
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF2A2A2A), RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text("엣지 존 프리셋", fontSize = 14.sp, color = Color(0xFFEEEEEE))
+            Text(presetLabel, fontSize = 12.sp, color = Color(0xFF888888))
+        }
+        Icon(
+            imageVector = Icons.Filled.PlayArrow,
+            contentDescription = null,
+            tint = Color(0xFF888888),
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+// ============================================================
+// 존 편집기 진입 행 (Phase 4.6.2)
+// ============================================================
+
+@Composable
+private fun ZoneEditorEntryRow(
+    zoneCount: Int,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF2A2A2A), RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text("엣지 존 편집", fontSize = 14.sp, color = Color(0xFFEEEEEE))
+            Text("${zoneCount}개 존 설정됨", fontSize = 12.sp, color = Color(0xFF888888))
+        }
+        Icon(
+            imageVector = Icons.Filled.PlayArrow,
+            contentDescription = null,
+            tint = Color(0xFF888888),
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+// ============================================================
+// 버튼 표시 설정 섹션
+// ============================================================
+
+@Composable
+private fun SettingsButtonVisibilitySection(
+    visibility: TouchpadButtonVisibility,
+    onVisibilityChange: (TouchpadButtonVisibility) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF2A2A2A), RoundedCornerShape(8.dp))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        // 제어 버튼 마스터 토글
+        SettingsToggleRow(
+            label = "제어 버튼",
+            checked = visibility.showControlButtons,
+            onCheckedChange = { onVisibilityChange(visibility.copy(showControlButtons = it)) }
+        )
+        // 제어 버튼 마스터 ON일 때만 개별 토글 노출
+        if (visibility.showControlButtons) {
+            val config = visibility.controlButtonConfig
+            SettingsToggleRow(
+                label = "  클릭 모드 버튼",
+                checked = config.showClickMode,
+                onCheckedChange = {
+                    onVisibilityChange(visibility.copy(controlButtonConfig = config.copy(showClickMode = it)))
+                }
+            )
+            SettingsToggleRow(
+                label = "  이동 모드 버튼",
+                checked = config.showMoveMode,
+                onCheckedChange = {
+                    onVisibilityChange(visibility.copy(controlButtonConfig = config.copy(showMoveMode = it)))
+                }
+            )
+            SettingsToggleRow(
+                label = "  스크롤 모드 버튼",
+                checked = config.showScrollMode,
+                onCheckedChange = {
+                    onVisibilityChange(visibility.copy(controlButtonConfig = config.copy(showScrollMode = it)))
+                }
+            )
+            SettingsToggleRow(
+                label = "  커서 모드 버튼",
+                checked = config.showCursorMode,
+                onCheckedChange = {
+                    onVisibilityChange(visibility.copy(controlButtonConfig = config.copy(showCursorMode = it)))
+                }
+            )
+            SettingsToggleRow(
+                label = "  DPI 버튼",
+                checked = config.showDpi,
+                onCheckedChange = {
+                    onVisibilityChange(visibility.copy(controlButtonConfig = config.copy(showDpi = it)))
+                }
+            )
+            SettingsToggleRow(
+                label = "  스크롤 감도 버튼",
+                checked = config.showScrollSensitivity,
+                onCheckedChange = {
+                    onVisibilityChange(visibility.copy(controlButtonConfig = config.copy(showScrollSensitivity = it)))
+                }
+            )
+        }
+        // 기타 버튼 토글
+        SettingsToggleRow(
+            label = "포인트 다이나믹스 버튼",
+            checked = visibility.showDynamicsButton,
+            onCheckedChange = { onVisibilityChange(visibility.copy(showDynamicsButton = it)) }
+        )
+        SettingsToggleRow(
+            label = "모드 프리셋 버튼",
+            checked = visibility.showModePresetButton,
+            onCheckedChange = { onVisibilityChange(visibility.copy(showModePresetButton = it)) }
+        )
+        SettingsToggleRow(
+            label = "스크롤 위/아래 버튼",
+            checked = visibility.showScrollButtons,
+            onCheckedChange = { onVisibilityChange(visibility.copy(showScrollButtons = it)) }
+        )
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            color = Color(0xFFEEEEEE)
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
 }
