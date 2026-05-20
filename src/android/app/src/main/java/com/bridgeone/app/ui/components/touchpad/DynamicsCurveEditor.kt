@@ -23,6 +23,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -153,20 +154,20 @@ private data class ActionSlot(
     val style: SlotStyle = SlotStyle.NORMAL
 )
 
-// ── 메인 그리드 슬롯 배치 (Phase 4.5.18.5: 슬롯 9 추가, 5행으로 확장)
-// Row 0 (MetaCard 상단): 0=아이콘, 1=이름, 3=템플릿
-// Row 1 (MetaCard 하단): 2=설명, 3=템플릿
-// Row 2 (노드 편집, 단독): 9=노드 편집
-// Row 3 (CurveCard, 기준 행): 4=가속, 6=→복사, 5=감속
-// Row 4 (ActionCard): 7=취소, 8=저장
+// ── 메인 그리드 슬롯 배치
+// Row 0 (Header): 7=취소, 8=저장
+// Row 1 (MetaCard 상단): 0=아이콘, 1=이름, 3=템플릿
+// Row 2 (MetaCard 하단): 2=설명, 3=템플릿
+// Row 3 (노드 편집, 단독): 9=노드 편집
+// Row 4 (CurveCard, 기준 행): 4=가속, 6=→복사, 5=감속
 private val ACTION_ROW_SLOTS = listOf(
-    listOf(0, 1, 3),   // Row 0: MetaCard 상단
-    listOf(2, 3),      // Row 1: MetaCard 하단
-    listOf(9),         // Row 2: 노드 편집 (단독)
-    listOf(4, 6, 5),   // Row 3: CurveCard (기준 행)
-    listOf(7, 8)       // Row 4: ActionCard
+    listOf(7, 8),      // Row 0: Header (취소, 저장)
+    listOf(0, 1, 3),   // Row 1: MetaCard 상단
+    listOf(2, 3),      // Row 2: MetaCard 하단
+    listOf(9),         // Row 3: 노드 편집 (단독)
+    listOf(4, 6, 5),   // Row 4: CurveCard (기준 행)
 )
-private const val MAIN_START_ROW = 3  // CurveCard = 기준 행
+private const val MAIN_START_ROW = 4  // CurveCard = 기준 행
 
 // ── 노드 편집 그리드 슬롯 배치 (Phase 4.5.18.9: 탭 토글 그래프 라벨로 이동)
 // Row 0 (헤더): 0=← 뒤로
@@ -254,12 +255,28 @@ private fun resolveSlot(
     dragDelta: Offset,
     stepPx: Float,
     rowSlots: List<List<Int>>,
-    startRow: Int
+    startRow: Int,
+    startCol: Int? = null
 ): Int {
+    val sourceCols = rowSlots[startRow].size
+    val resolvedStartCol = startCol ?: (sourceCols - 1) / 2
     val row = (startRow + (dragDelta.y / stepPx).roundToInt()).coerceIn(0, rowSlots.lastIndex)
-    val cols = rowSlots[row].size
-    val startCol = (cols - 1) / 2
-    val col = (startCol + (dragDelta.x / stepPx).roundToInt()).coerceIn(0, cols - 1)
+    val targetCols = rowSlots[row].size
+    val mappedStartCol = when {
+        row == startRow || startCol == null -> resolvedStartCol
+        sourceCols <= 1 -> (targetCols - 1) / 2
+        targetCols > sourceCols -> {
+            // 좁은 행 → 넓은 행: 오른쪽 편향 (+0.5 후 반올림)
+            ((resolvedStartCol.toFloat() / (sourceCols - 1)) * (targetCols - 1) + 0.5f)
+                .roundToInt().coerceIn(0, targetCols - 1)
+        }
+        else -> {
+            // 넓은 행 → 좁은 행: 왼쪽 편향 (내림)
+            ((resolvedStartCol.toFloat() / (sourceCols - 1)) * (targetCols - 1))
+                .toInt().coerceIn(0, targetCols - 1)
+        }
+    }
+    val col = (mappedStartCol + (dragDelta.x / stepPx).roundToInt()).coerceIn(0, targetCols - 1)
     return rowSlots[row][col]
 }
 
@@ -478,6 +495,7 @@ fun DynamicsCurveEditor(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val startPos = down.position
                     var hasMoved = false
+                    val gestureStartSlot = hoveredSlot
 
                     var ev = awaitPointerEvent()
                     while (ev.type != PointerEventType.Release) {
@@ -490,11 +508,17 @@ fun DynamicsCurveEditor(
                                 awaitingConfirm = false
                             }
                             if (hasMoved) {
-                                val (rowSlots, startRow) = if (gridContext is GridContext.NodeEdit.Manipulate)
+                                val (rowSlots, defaultStartRow) = if (gridContext is GridContext.NodeEdit.Manipulate)
                                     NODE_EDIT_MANIPULATE_ROW_SLOTS to NODE_EDIT_START_ROW
                                 else
                                     ACTION_ROW_SLOTS to MAIN_START_ROW
-                                val newSlot = resolveSlot(dragDelta, stepPx, rowSlots, startRow)
+                                var gestureStartRow = defaultStartRow
+                                var gestureStartCol: Int? = null
+                                for ((r, rowList) in rowSlots.withIndex()) {
+                                    val c = rowList.indexOf(gestureStartSlot)
+                                    if (c >= 0) { gestureStartRow = r; gestureStartCol = c; break }
+                                }
+                                val newSlot = resolveSlot(dragDelta, stepPx, rowSlots, gestureStartRow, gestureStartCol)
                                 if (newSlot != hoveredSlot) {
                                     hoveredSlot = newSlot
                                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -533,6 +557,18 @@ fun DynamicsCurveEditor(
     ) {
         // ── 베이스 레이어: 항상 렌더 (서브메뉴 활성 시 외부 카드 dim) ──
         Column(modifier = Modifier.fillMaxSize()) {
+
+            EditorHeader(
+                nameValid = nameValid,
+                hoveredSlot = hoveredSlot,
+                awaitingConfirm = awaitingConfirm,
+                onDismiss = onDismiss,
+                onSave = {
+                    gridContext = GridContext.SaveConfirm
+                    hoveredSlot = 1
+                    awaitingConfirm = true
+                }
+            )
 
             // NodeEdit 모드: MetaCard 대신 NodeEditHeader (헤더 strip)
             // C3: gridContext 전환 시 fade 트랜지션
@@ -640,51 +676,75 @@ fun DynamicsCurveEditor(
                         }
                     }
             ) {
-                if (isGraphScreen) {
-                    val isNodeEdit = gridContext is GridContext.NodeEdit
-                    AnimatedContent(
-                        targetState = activeTab,
-                        transitionSpec = {
-                            val dir = if (targetState > initialState) 1 else -1
-                            (slideInHorizontally(tween(250)) { it * dir } + fadeIn(tween(200))) togetherWith
-                            (slideOutHorizontally(tween(200)) { -it * dir } + fadeOut(tween(150)))
-                        },
-                        label = "tabTransition"
-                    ) { tab ->
-                        CurveGraphCanvas(
-                            activeCurve = if (tab == 0) accelCurve else decelCurve,
-                            inactiveCurve = if (tab == 0) decelCurve else accelCurve,
-                            activeColor = if (tab == 0) ACCENT_BLUE else ACCENT_ORANGE,
-                            inactiveColor = if (tab == 0) ACCENT_ORANGE else ACCENT_BLUE,
-                            selectedNodeIndex = if (isNodeEdit) selectedNodeIndex else -1,
-                            isSelectMode = gridContext is GridContext.NodeEdit.Select,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    // 슬롯 9 "노드 편집" — 그래프 컨테이너 내 하단 오버레이 (Main 모드만)
-                    if (gridContext is GridContext.Main) {
-                        Slot9Card(
-                            hoveredSlot = hoveredSlot,
-                            awaitingConfirm = awaitingConfirm,
+                when (val screen = currentScreen) {
+                    is EditorScreen.Graph -> {
+                        val isNodeEdit = gridContext is GridContext.NodeEdit
+                        AnimatedContent(
+                            targetState = activeTab,
+                            transitionSpec = {
+                                val dir = if (targetState > initialState) 1 else -1
+                                (slideInHorizontally(tween(250)) { it * dir } + fadeIn(tween(200))) togetherWith
+                                (slideOutHorizontally(tween(200)) { -it * dir } + fadeOut(tween(150)))
+                            },
+                            label = "tabTransition"
+                        ) { tab ->
+                            CurveGraphCanvas(
+                                activeCurve = if (tab == 0) accelCurve else decelCurve,
+                                inactiveCurve = if (tab == 0) decelCurve else accelCurve,
+                                activeColor = if (tab == 0) ACCENT_BLUE else ACCENT_ORANGE,
+                                inactiveColor = if (tab == 0) ACCENT_ORANGE else ACCENT_BLUE,
+                                selectedNodeIndex = if (isNodeEdit) selectedNodeIndex else -1,
+                                isSelectMode = gridContext is GridContext.NodeEdit.Select,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        // 슬롯 9 "노드 편집" — 그래프 컨테이너 내 하단 오버레이 (Main 모드만)
+                        if (gridContext is GridContext.Main) {
+                            Slot9Card(
+                                hoveredSlot = hoveredSlot,
+                                awaitingConfirm = awaitingConfirm,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth(0.30f)
+                                    .padding(bottom = 36.dp)
+                            )
+                        }
+                        // 활성 탭 라벨 — 우상단 오버레이 (NodeEdit 모드만)
+                        if (gridContext is GridContext.NodeEdit) ActiveTabLabel(
+                            activeTab = activeTab,
+                            isHovered = tabLabelHovered || (hoveredSlot == 9 && gridContext is GridContext.NodeEdit.Manipulate),
+                            onToggle = {
+                                activeTab = 1 - activeTab
+                                selectedNodeIndex = 0
+                                hapticConfirm()
+                            },
                             modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth(0.30f)
-                                .padding(bottom = 36.dp)
+                                .align(Alignment.TopEnd)
+                                .padding(end = 10.dp, top = 6.dp)
                         )
                     }
-                    // 활성 탭 라벨 — 우상단 오버레이 (NodeEdit 모드만)
-                    if (gridContext is GridContext.NodeEdit) ActiveTabLabel(
-                        activeTab = activeTab,
-                        isHovered = tabLabelHovered || (hoveredSlot == 9 && gridContext is GridContext.NodeEdit.Manipulate),
-                        onToggle = {
-                            activeTab = 1 - activeTab
-                            selectedNodeIndex = 0
-                            hapticConfirm()
-                        },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(end = 10.dp, top = 6.dp)
-                    )
+                    is EditorScreen.Keyboard -> {
+                        val (initialText, maxLen) = if (screen.target == "name")
+                            name to NAME_MAX_LEN
+                        else
+                            description to DESC_MAX_LEN
+                        val targetSlot = if (screen.target == "name") 1 else 2
+                        SwipeKeyboardOverlay(
+                            initialText = initialText,
+                            maxLength = maxLen,
+                            onCancel = {
+                                hoveredSlot = targetSlot; awaitingConfirm = true
+                                currentScreen = EditorScreen.Graph
+                            },
+                            onDone = { result ->
+                                if (screen.target == "name") name = result
+                                else description = result
+                                hoveredSlot = targetSlot; awaitingConfirm = true
+                                currentScreen = EditorScreen.Graph
+                            }
+                        )
+                    }
+                    else -> {}
                 }
             }
 
@@ -736,28 +796,7 @@ fun DynamicsCurveEditor(
 
         // ── 오버레이 레이어: 서브메뉴 활성 시 풀스크린으로 렌더 ──
         // Box 의 두 번째 자식 → z-order 상위. 제스처가 화면 어디서든 흡수됨.
-        when (val screen = currentScreen) {
-            is EditorScreen.Keyboard -> {
-                val (initialText, maxLen) = if (screen.target == "name")
-                    name to NAME_MAX_LEN
-                else
-                    description to DESC_MAX_LEN
-                val targetSlot = if (screen.target == "name") 1 else 2
-                SwipeKeyboardOverlay(
-                    initialText = initialText,
-                    maxLength = maxLen,
-                    onCancel = {
-                        hoveredSlot = targetSlot; awaitingConfirm = true
-                        currentScreen = EditorScreen.Graph
-                    },
-                    onDone = { result ->
-                        if (screen.target == "name") name = result
-                        else description = result
-                        hoveredSlot = targetSlot; awaitingConfirm = true
-                        currentScreen = EditorScreen.Graph
-                    }
-                )
-            }
+        when (currentScreen) {
             is EditorScreen.IconPicker -> {
                 IconPickerContent(
                     selectedIconKey = selectedIconKey,
@@ -791,7 +830,7 @@ fun DynamicsCurveEditor(
                     }
                 )
             }
-            is EditorScreen.Graph -> {}
+            is EditorScreen.Graph, is EditorScreen.Keyboard -> {}
         }
 
         // ── 스텝 정밀도 피커 오버레이 (C5: AnimatedVisibility 페이드+스케일) ──
@@ -913,16 +952,13 @@ private fun EditorActionGrid(
     activeTab: Int,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        CurveCard(
-            slots = slots, hoveredSlot = hoveredSlot,
-            awaitingConfirm = awaitingConfirm, activeTab = activeTab
-        )
-        ActionCard(slots = slots, hoveredSlot = hoveredSlot, awaitingConfirm = awaitingConfirm)
-    }
+    CurveCard(
+        slots = slots,
+        hoveredSlot = hoveredSlot,
+        awaitingConfirm = awaitingConfirm,
+        activeTab = activeTab,
+        modifier = modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+    )
 }
 
 /** 슬롯 9: 노드 편집 진입 버튼 (그래프 컨테이너 내 하단 오버레이) */
@@ -1388,11 +1424,12 @@ private fun CurveCard(
     slots: List<ActionSlot>,
     hoveredSlot: Int,
     awaitingConfirm: Boolean,
-    activeTab: Int
+    activeTab: Int,
+    modifier: Modifier = Modifier
 ) {
     val cardShape = RoundedCornerShape(10.dp)
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(38.dp)
             .background(SURFACE, cardShape)
@@ -1590,6 +1627,101 @@ private fun ActionCard(
                 color = if (enSave) Color.White else Color.White.copy(alpha = 0.25f),
                 fontSize = 14.sp,
                 fontWeight = if (enSave) FontWeight.Bold else FontWeight.Normal
+            )
+        }
+    }
+}
+
+/** 편집기 상단 헤더: 뒤로 가기(취소) / 저장 */
+@Composable
+private fun EditorHeader(
+    nameValid: Boolean,
+    hoveredSlot: Int,
+    awaitingConfirm: Boolean,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 슬롯 7: 취소 (뒤로 가기)
+        val hovCancel = hoveredSlot == 7
+        val awCancel = awaitingConfirm && hovCancel
+        val btnShape = RoundedCornerShape(8.dp)
+        val cancelBg = when {
+            awCancel  -> Color.White.copy(alpha = 0.18f)
+            hovCancel -> Color.White.copy(alpha = 0.10f)
+            else      -> Color.Transparent
+        }
+        val cancelBorderMod: Modifier = when {
+            awCancel  -> Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), btnShape)
+            hovCancel -> Modifier.border(1.5.dp, Color.White.copy(alpha = 0.6f), btnShape)
+            else      -> Modifier.border(1.dp, Color.White.copy(alpha = 0.25f), btnShape)
+        }
+        Box(
+            modifier = Modifier
+                .size(width = 60.dp, height = 36.dp)
+                .clip(btnShape)
+                .background(cancelBg, btnShape)
+                .then(cancelBorderMod)
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = null,
+                tint = if (hovCancel) Color.White else Color.White.copy(alpha = 0.85f),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        Box(
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "커스텀 프리셋",
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        // 슬롯 8: 저장
+        val hovSave = hoveredSlot == 8
+        val awSave = awaitingConfirm && hovSave
+        val saveBg = when {
+            awSave && nameValid  -> ACCENT_BLUE
+            hovSave && nameValid -> ACCENT_BLUE.copy(alpha = 0.85f)
+            nameValid            -> ACCENT_BLUE.copy(alpha = 0.55f)
+            else                 -> SURFACE
+        }
+        val saveBorderMod: Modifier = when {
+            awSave && nameValid -> Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), btnShape)
+            !nameValid          -> Modifier.border(1.dp, Color.White.copy(alpha = 0.12f), btnShape)
+            else                -> Modifier
+        }
+        Box(
+            modifier = Modifier
+                .size(width = 60.dp, height = 36.dp)
+                .clip(btnShape)
+                .background(saveBg, btnShape)
+                .then(saveBorderMod)
+                .clickable(enabled = nameValid, onClick = onSave),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "저장",
+                color = if (nameValid) Color.White else Color.White.copy(alpha = 0.3f),
+                fontSize = 14.sp,
+                fontWeight = if (nameValid) FontWeight.Bold else FontWeight.Normal
             )
         }
     }
