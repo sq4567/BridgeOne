@@ -172,4 +172,75 @@ object EdgeSwipeConstants {
 
     /** 엣지 존 힌트 알파 전환 애니메이션 시간 (ms). 기본값: 150 */
     const val EDGE_ZONE_HINT_ANIM_MS = 150
+
+    // ── 존 분할 방식 (Phase 4.6.2) ──
+
+    /** 존 최소 크기 비율. 기본값: 0.10f */
+    const val MIN_ZONE_RATIO = 0.10f
+
+    /** 엣지당 최대 존 수. 기본값: 4 */
+    const val MAX_ZONES_PER_EDGE = 4f
+
+    /** 편집기 경계선 드래그 히트박스 (dp). 기본값: 24f */
+    const val ZONE_BOUNDARY_DRAG_HIT_DP = 24f
+
+    /** 모서리에 모드 변경 버튼이 있을 때 해당 엣지 끝에서 차단되는 비율. 기본값: 0.15f */
+    const val CORNER_BUTTON_BLOCKED_RATIO = 0.15f
+
+    /** 스트립 에디터에서 코너 오버랩 차단 구간 근사 비율 (실제 값 = edgePx/엣지길이이며 기기마다 다름). 기본값: 0.06f */
+    const val EDGE_CORNER_OVERLAP_RATIO = 0.06f
+
+    // ── 존 편집기 시각 (UI/UX 리디자인) ──
+
+    /** 경계 드래그 핸들 반지름 (dp). 기본값: 6f */
+    const val ZONE_DRAG_HANDLE_RADIUS_DP = 6f
+
+    /** 캔버스 내 존 라벨 폰트 크기 (sp). 기본값: 9f */
+    const val ZONE_LABEL_FONT_SIZE_SP = 9f
+
+    // ── 엣지 스트립 에디터 (Phase 4.6.2+) ──
+
+    /** 엣지 스트립 에디터 높이 (dp). 기본값: 48f */
+    const val EDGE_STRIP_HEIGHT_DP = 48f
+
+    /** 엣지 스트립 경계 핸들 시각 폭 (dp). 기본값: 3f */
+    const val EDGE_STRIP_HANDLE_WIDTH_DP = 3f
+
+    /** 엣지 스트립 경계 핸들 터치 히트 폭 (dp). 기본값: 28f */
+    const val EDGE_STRIP_HANDLE_HIT_DP = 28f
+
+    /** 엣지 스트립 탭 vs 드래그 구분 임계값 (dp). 기본값: 6f */
+    const val EDGE_STRIP_TAP_THRESHOLD_DP = 6f
+
+    // ── 로테이션 트리거 (Phase 4.6.2+) ──
+
+    /** 로테이션 존 후보 1개당 기본 머무는 시간 (ms). 기본값: 800 */
+    const val EDGE_ZONE_ROTATION_INTERVAL_DEFAULT_MS = 800
+
+    /** 로테이션 간격 최솟값 (ms). 기본값: 300 */
+    const val EDGE_ZONE_ROTATION_INTERVAL_MIN_MS = 300
+
+    /** 로테이션 간격 최댓값 (ms). 기본값: 2000 */
+    const val EDGE_ZONE_ROTATION_INTERVAL_MAX_MS = 2000
+
+    /** 로테이션 존 최소 후보 수. 기본값: 2 */
+    const val EDGE_ZONE_ROTATION_MIN_CANDIDATES = 2
+
+    // ── 데포르메 비활성 오브젝트 (편집기 캔버스) ──
+
+    /** 편집기 캔버스 내 코너 버튼 미니어처 크기 (dp). 기본값: 30f */
+    const val DEFORMED_BUTTON_SIDE_DP = 30f
+
+    /** 편집기 캔버스 내 코너 버튼 미니어처 모서리 반지름 (dp). 기본값: 6f */
+    const val DEFORMED_BUTTON_CORNER_DP = 6f
+
+    /** 미니어처 버튼 아이콘이 버튼 사이드에서 차지하는 비율. 기본값: 0.62f */
+    const val DEFORMED_BUTTON_ICON_RATIO = 0.62f
+
+    /** 제어버튼 묶음 블록의 높이 배율 (edgePx 대비). 기본값: 1.5f */
+    const val DEFORMED_CONTROL_BLOCK_HEIGHT_RATIO = 1.5f
+    /** 엣지 존 라벨 최대 길이. 기본값: 12 */
+    const val EDGE_ZONE_LABEL_MAX_LEN = 12
+    /** 엣지 존 라벨 고정 추천어. 기본값: 아래 목록 */
+    val EDGE_ZONE_LABEL_SUGGESTIONS = listOf("복사", "붙여넣기", "실행 취소", "뒤로")
 }

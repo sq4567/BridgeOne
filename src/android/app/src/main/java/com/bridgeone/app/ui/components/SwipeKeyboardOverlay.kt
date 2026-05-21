@@ -1,11 +1,5 @@
 package com.bridgeone.app.ui.components
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -27,7 +21,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,14 +45,15 @@ private val KB_LABEL = Color(0xFF888888)
 
 // ── 키보드 모드 / 상태 타입 ──
 
-private enum class KeyboardMode { HANGUL, ENGLISH, SYMBOL }
+enum class KeyboardMode { HANGUL, ENGLISH, SYMBOL }
 private enum class ShiftMode { OFF, ON }
 private enum class ComposePhase { IDLE, JASO_ONLY, HAS_VOWEL, JAMO_PENDING }
-private enum class SpecialKey { SP, BACKSPACE, SHIFT, LANG_TOGGLE, SYMBOL_TOGGLE, ERASE, CANCEL, DONE }
+private enum class SpecialKey { SP, BACKSPACE, SHIFT, LANG_TOGGLE, SYMBOL_TOGGLE, ERASE, CANCEL, DONE, NEXT, PREV }
 
 private sealed class GridCell {
     data class Jamo(val char: Char) : GridCell()
     data class Special(val key: SpecialKey) : GridCell()
+    data class Suggestion(val text: String) : GridCell()
     object Empty : GridCell()
 }
 
@@ -156,16 +153,14 @@ private val SYMBOL_ROW0_CHARS  = "1234567890".toList()
 private val SYMBOL_ROW1_CHARS  = listOf('-', '/', ':', ';', '(', ')', '$', '&', '@')
 private val SYMBOL_ROW2_CHARS  = listOf('.', ',', '?', '!', '\'', '"', '_')  // + Empty + ⌫
 
-private val SPECIAL_ROW3 = KeyRow(listOf(
-    GridCell.Special(SpecialKey.LANG_TOGGLE),
-    GridCell.Special(SpecialKey.SYMBOL_TOGGLE),
-    GridCell.Special(SpecialKey.SP),
-    GridCell.Special(SpecialKey.CANCEL),
-    GridCell.Special(SpecialKey.DONE)
-))
-
-/** 모드 + shift 상태에 맞는 레이아웃 생성. Row0~Row2는 모드별 자모/기호, Row3는 공통 특수 키 행. */
-private fun buildLayout(mode: KeyboardMode, shift: ShiftMode): List<KeyRow> {
+/** 모드 + shift 상태에 맞는 레이아웃 생성. Row0~Row2는 모드별 자모/기호, Row3는 동적 특수 키 행. */
+private fun buildLayout(
+    mode: KeyboardMode,
+    shift: ShiftMode,
+    hasPrev: Boolean = false,
+    hasNext: Boolean = false,
+    suggestions: List<String> = emptyList()
+): List<KeyRow> {
     val row0: List<GridCell>
     val row1: List<GridCell>
     val row2: List<GridCell>
@@ -200,7 +195,20 @@ private fun buildLayout(mode: KeyboardMode, shift: ShiftMode): List<KeyRow> {
         }
     }
 
-    return listOf(KeyRow(row0), KeyRow(row1), KeyRow(row2), SPECIAL_ROW3)
+    val row3cells = mutableListOf(
+        GridCell.Special(SpecialKey.LANG_TOGGLE),
+        GridCell.Special(SpecialKey.SYMBOL_TOGGLE),
+        GridCell.Special(SpecialKey.SP)
+    )
+    if (hasPrev) row3cells.add(GridCell.Special(SpecialKey.PREV))
+    row3cells.add(GridCell.Special(SpecialKey.CANCEL))
+    row3cells.add(GridCell.Special(if (hasNext) SpecialKey.NEXT else SpecialKey.DONE))
+
+    val rows = mutableListOf(KeyRow(row0), KeyRow(row1), KeyRow(row2), KeyRow(row3cells))
+    if (suggestions.isNotEmpty()) {
+        rows.add(0, KeyRow(suggestions.take(4).map { GridCell.Suggestion(it) }))
+    }
+    return rows
 }
 
 /** 특수 키 라벨. MODE_TOGGLE은 현재 모드를 표시 (탭하면 다음 모드로 전환). */
@@ -217,6 +225,8 @@ private fun specialLabel(key: SpecialKey, mode: KeyboardMode): String = when (ke
     SpecialKey.ERASE -> "초기화"
     SpecialKey.CANCEL -> "취소"
     SpecialKey.DONE -> "완료"
+    SpecialKey.NEXT -> "다음"
+    SpecialKey.PREV -> "이전"
 }
 
 /**
@@ -273,15 +283,31 @@ private fun resolveToValidCell(target: CellPos, layout: List<KeyRow>): CellPos {
 fun SwipeKeyboardOverlay(
     initialText: String,
     maxLength: Int,
+    onTextChange: ((String) -> Unit)? = null,
     onCancel: () -> Unit = {},
-    onDone: (String) -> Unit
+    onDone: (String) -> Unit,
+    showScrim: Boolean = true,
+    initialMode: KeyboardMode = KeyboardMode.HANGUL,
+    suggestions: List<String> = emptyList(),
+    onNext: ((String) -> Unit)? = null,
+    onPrev: ((String) -> Unit)? = null,
+    revertOnCancel: Boolean = true
 ) {
+    val original = remember { initialText }
     var composer by remember { mutableStateOf(ComposerState(committed = initialText)) }
-    var mode by remember { mutableStateOf(KeyboardMode.HANGUL) }
+    var mode by remember { mutableStateOf(initialMode) }
     var shift by remember { mutableStateOf(ShiftMode.OFF) }
-    var selectedCell by remember { mutableStateOf(CellPos(0, 0)) }
+    val firstInputRow = if (suggestions.isEmpty()) 0 else 1
+    var selectedCell by remember { mutableStateOf(CellPos(firstInputRow, 0)) }
 
-    val layout = remember(mode, shift) { buildLayout(mode, shift) }
+    val hasPrev = onPrev != null
+    val hasNext = onNext != null
+    val layout = remember(mode, shift) { buildLayout(mode, shift, hasPrev, hasNext, suggestions) }
+
+    val currentOnTextChange by rememberUpdatedState(onTextChange)
+    LaunchedEffect(composer) {
+        currentOnTextChange?.invoke(composer.display)
+    }
 
     fun inputJamo(c: Char) {
         val jungI = JUNG_IDX[c]
@@ -401,7 +427,7 @@ fun SwipeKeyboardOverlay(
                 else base
                 composer = next
                 if (next.committed.isEmpty()) {
-                    mode = KeyboardMode.HANGUL
+                    mode = initialMode
                 }
             }
             SpecialKey.SHIFT -> {
@@ -420,15 +446,28 @@ fun SwipeKeyboardOverlay(
             }
             SpecialKey.ERASE -> {
                 composer = ComposerState()
-                mode = KeyboardMode.HANGUL
-                selectedCell = CellPos(0, 0)
+                mode = initialMode
+                selectedCell = CellPos(firstInputRow, 0)
                 shift = ShiftMode.OFF
             }
             SpecialKey.CANCEL -> {
+                if (revertOnCancel) onTextChange?.invoke(original)
                 onCancel()
             }
             SpecialKey.DONE -> {
                 onDone(composer.commitCurrent().committed)
+            }
+            SpecialKey.NEXT -> {
+                val committed = composer.commitCurrent()
+                composer = committed
+                onTextChange?.invoke(committed.committed)
+                onNext?.invoke(committed.committed)
+            }
+            SpecialKey.PREV -> {
+                val committed = composer.commitCurrent()
+                composer = committed
+                onTextChange?.invoke(committed.committed)
+                onPrev?.invoke(committed.committed)
             }
         }
     }
@@ -436,6 +475,10 @@ fun SwipeKeyboardOverlay(
     fun activateCell(cell: GridCell) {
         when (cell) {
             is GridCell.Empty -> {}
+            is GridCell.Suggestion -> {
+                val base = composer.commitCurrent()
+                composer = ComposerState(committed = (base.committed + cell.text).take(maxLength))
+            }
             is GridCell.Jamo -> {
                 // cell.char에 이미 shift 적용됨 (buildLayout에서 결정)
                 if (mode == KeyboardMode.HANGUL) inputJamo(cell.char)
@@ -450,19 +493,10 @@ fun SwipeKeyboardOverlay(
     var gridWidthPx by remember { mutableIntStateOf(0) }
     var gridHeightPx by remember { mutableIntStateOf(0) }
 
-    val caretAlpha by rememberInfiniteTransition(label = "caret").animateFloat(
-        initialValue = 1f, targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(500, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "caretAlpha"
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(KB_BG)
+            .background(if (showScrim) Color.Black.copy(alpha = 0.5f) else Color.Transparent)
             .pointerInput(layout) {
                 awaitEachGesture {
                     val totalRows = layout.size
@@ -505,46 +539,19 @@ fun SwipeKeyboardOverlay(
                     if (!moved) activateCell(layout[selectedCell.row].cells[selectedCell.col])
                 }
             },
-        contentAlignment = Alignment.Center
+        contentAlignment = if (showScrim) Alignment.BottomCenter else Alignment.TopCenter
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    KB_BG,
+                    if (showScrim) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                    else RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
+                )
+                .padding(top = 12.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-
-            // ── 입력 결과 표시 ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(KB_SURFACE)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val isComposing = composer.phase != ComposePhase.IDLE
-                if (composer.committed.isEmpty() && !isComposing) {
-                    Text("입력...", color = KB_LABEL, fontSize = 18.sp)
-                    Text("|", color = Color.White.copy(alpha = caretAlpha), fontSize = 18.sp)
-                } else {
-                    if (composer.committed.isNotEmpty()) {
-                        Text(composer.committed, color = Color.White, fontSize = 18.sp)
-                    }
-                    if (isComposing) {
-                        Text(
-                            text = composer.composingChar,
-                            color = KB_ACCENT,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Text("|", color = Color.White.copy(alpha = caretAlpha), fontSize = 18.sp)
-                }
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "${composer.display.length}/$maxLength",
-                    color = KB_LABEL,
-                    fontSize = 11.sp
-                )
-            }
 
             // ── 키보드 그리드 ──
             Box(
@@ -559,23 +566,25 @@ fun SwipeKeyboardOverlay(
                         .padding(horizontal = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    layout.forEachIndexed { rowIdx, row ->
+                    // ── 추천어 스트립 컨테이너 ──
+                    if (suggestions.isNotEmpty()) {
+                        val sugRow = layout[0]
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(KB_ACCENT.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            row.cells.forEachIndexed { colIdx, cell ->
-                                val isSelected = selectedCell == CellPos(rowIdx, colIdx)
-
-                                when (cell) {
-                                    is GridCell.Empty -> Spacer(Modifier.weight(1f))
-
-                                    is GridCell.Jamo -> Box(
+                            sugRow.cells.forEachIndexed { colIdx, cell ->
+                                val isSelected = selectedCell == CellPos(0, colIdx)
+                                if (cell is GridCell.Suggestion) {
+                                    Box(
                                         modifier = Modifier
                                             .weight(1f)
                                             .background(
                                                 if (isSelected) KB_ACCENT.copy(alpha = 0.22f)
-                                                else KB_SURFACE,
+                                                else KB_ACCENT.copy(alpha = 0.10f),
                                                 RoundedCornerShape(6.dp)
                                             )
                                             .then(
@@ -586,49 +595,99 @@ fun SwipeKeyboardOverlay(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = cell.char.toString(),
-                                            color = if (isSelected) KB_ACCENT else Color.White,
-                                            fontSize = 16.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            modifier = Modifier.padding(vertical = 8.dp)
+                                            text = cell.text,
+                                            color = if (isSelected) KB_ACCENT
+                                                    else KB_ACCENT.copy(alpha = 0.8f),
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold
+                                                         else FontWeight.Normal,
+                                            modifier = Modifier.padding(vertical = 8.dp),
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 1
                                         )
                                     }
+                                }
+                            }
+                        }
+                    }
 
-                                    is GridCell.Special -> {
-                                        val isShiftActive = cell.key == SpecialKey.SHIFT &&
-                                            shift == ShiftMode.ON
-                                        val bgColor = when {
-                                            isShiftActive && !isSelected -> KB_ACCENT.copy(alpha = 0.35f)
-                                            isSelected -> KB_ACCENT.copy(alpha = 0.22f)
-                                            else -> KB_SURFACE
-                                        }
-                                        val borderMod = if (isSelected || isShiftActive)
-                                            Modifier.border(1.dp, KB_ACCENT, RoundedCornerShape(6.dp))
-                                        else Modifier
-                                        val labelColor = if (isSelected || isShiftActive) KB_ACCENT
-                                                         else KB_LABEL
-                                        val keyWeight = when (cell.key) {
-                                            SpecialKey.SHIFT, SpecialKey.BACKSPACE -> 1.6f
-                                            SpecialKey.SP -> 2f
-                                            else -> 1f
-                                        }
-
-                                        Box(
+                    // ── 키보드 키 컨테이너 ──
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(KB_SURFACE, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 6.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (rowIdx in firstInputRow until layout.size) {
+                            val row = layout[rowIdx]
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                row.cells.forEachIndexed { colIdx, cell ->
+                                    val isSelected = selectedCell == CellPos(rowIdx, colIdx)
+                                    when (cell) {
+                                        is GridCell.Empty -> Spacer(Modifier.weight(1f))
+                                        is GridCell.Suggestion -> {}
+                                        is GridCell.Jamo -> Box(
                                             modifier = Modifier
-                                                .weight(keyWeight)
-                                                .background(bgColor, RoundedCornerShape(6.dp))
-                                                .then(borderMod),
+                                                .weight(1f)
+                                                .background(
+                                                    if (isSelected) KB_ACCENT.copy(alpha = 0.22f)
+                                                    else KB_BG,
+                                                    RoundedCornerShape(6.dp)
+                                                )
+                                                .then(
+                                                    if (isSelected) Modifier.border(
+                                                        1.dp, KB_ACCENT, RoundedCornerShape(6.dp)
+                                                    ) else Modifier
+                                                ),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                text = specialLabel(cell.key, mode),
-                                                color = labelColor,
-                                                fontSize = 12.sp,
-                                                fontWeight = if (isSelected || isShiftActive)
-                                                    FontWeight.Bold else FontWeight.Normal,
-                                                modifier = Modifier.padding(vertical = 8.dp),
-                                                textAlign = TextAlign.Center
+                                                text = cell.char.toString(),
+                                                color = if (isSelected) KB_ACCENT else Color.White,
+                                                fontSize = 16.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                modifier = Modifier.padding(vertical = 8.dp)
                                             )
+                                        }
+                                        is GridCell.Special -> {
+                                            val isShiftActive = cell.key == SpecialKey.SHIFT &&
+                                                shift == ShiftMode.ON
+                                            val bgColor = when {
+                                                isShiftActive && !isSelected -> KB_ACCENT.copy(alpha = 0.35f)
+                                                isSelected -> KB_ACCENT.copy(alpha = 0.22f)
+                                                else -> KB_BG
+                                            }
+                                            val borderMod = if (isSelected || isShiftActive)
+                                                Modifier.border(1.dp, KB_ACCENT, RoundedCornerShape(6.dp))
+                                            else Modifier
+                                            val labelColor = if (isSelected || isShiftActive) KB_ACCENT
+                                                             else KB_LABEL
+                                            val keyWeight = when (cell.key) {
+                                                SpecialKey.SHIFT, SpecialKey.BACKSPACE -> 1.6f
+                                                SpecialKey.SP -> 2f
+                                                else -> 1f
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(keyWeight)
+                                                    .background(bgColor, RoundedCornerShape(6.dp))
+                                                    .then(borderMod),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = specialLabel(cell.key, mode),
+                                                    color = labelColor,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSelected || isShiftActive)
+                                                        FontWeight.Bold else FontWeight.Normal,
+                                                    modifier = Modifier.padding(vertical = 8.dp),
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
                                         }
                                     }
                                 }

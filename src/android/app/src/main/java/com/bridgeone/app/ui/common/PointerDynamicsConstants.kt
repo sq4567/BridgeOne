@@ -103,6 +103,10 @@ object CurveEditorConstants {
     const val SUMMARY_MID_VEL = 3.0f
     /** 저장 확인 요약: 고속 기준 속도 (dp/ms). 기본값: 6.0f */
     const val SUMMARY_HIGH_VEL = 6.0f
+    /** 곡선 제목 필드 고정 추천어. 기본값: 아래 목록 */
+    val CURVE_NAME_SUGGESTIONS = listOf("정밀", "게임", "기본", "빠름")
+    /** 곡선 설명 필드 고정 추천어. 기본값: 아래 목록 */
+    val CURVE_DESC_SUGGESTIONS = listOf("정밀 작업용", "빠른 이동", "기본 설정")
 }
 
 /** 기본 커브: 배율 1.0 직선 (기존 코드 호환용) */

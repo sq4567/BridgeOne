@@ -8,8 +8,13 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -53,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -114,6 +120,8 @@ private val LABEL_COLOR = Color(0xFF888888)
 
 private const val NAME_MAX_LEN = 12
 private const val DESC_MAX_LEN = 50
+private const val FIELD_NAME = "name"
+private const val FIELD_DESC = "desc"
 
 // ─────────────────────────────────────────────────────────────
 // 화면 상태 (Phase 4.5.18.4: Boolean 3개 → sealed class 1개)
@@ -450,8 +458,8 @@ fun DynamicsCurveEditor(
     fun executeSlot(index: Int) {
         when (index) {
             0 -> currentScreen = EditorScreen.IconPicker
-            1 -> currentScreen = EditorScreen.Keyboard("name")
-            2 -> currentScreen = EditorScreen.Keyboard("desc")
+            1 -> currentScreen = EditorScreen.Keyboard(FIELD_NAME)
+            2 -> currentScreen = EditorScreen.Keyboard(FIELD_DESC)
             3 -> currentScreen = EditorScreen.TemplatePicker
             4 -> { activeTab = 0; selectedNodeIndex = 0 }
             5 -> { activeTab = 1; selectedNodeIndex = 0 }
@@ -470,6 +478,7 @@ fun DynamicsCurveEditor(
     }
 
     val isGraphScreen = currentScreen is EditorScreen.Graph
+    val isKeyboardScreen = currentScreen is EditorScreen.Keyboard
 
     LaunchedEffect(isGraphScreen) {
         if (!isGraphScreen) {
@@ -618,10 +627,11 @@ fun DynamicsCurveEditor(
                     selectedIconKey = selectedIconKey,
                     name = name,
                     description = description,
+                    editingTarget = (currentScreen as? EditorScreen.Keyboard)?.target,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 6.dp, vertical = 4.dp)
-                        .alpha(0.35f)
+                        .then(if (!isKeyboardScreen) Modifier.alpha(0.35f) else Modifier)
                 )
             }
 
@@ -724,25 +734,39 @@ fun DynamicsCurveEditor(
                         )
                     }
                     is EditorScreen.Keyboard -> {
-                        val (initialText, maxLen) = if (screen.target == "name")
-                            name to NAME_MAX_LEN
-                        else
-                            description to DESC_MAX_LEN
-                        val targetSlot = if (screen.target == "name") 1 else 2
-                        SwipeKeyboardOverlay(
-                            initialText = initialText,
-                            maxLength = maxLen,
-                            onCancel = {
-                                hoveredSlot = targetSlot; awaitingConfirm = true
-                                currentScreen = EditorScreen.Graph
-                            },
-                            onDone = { result ->
-                                if (screen.target == "name") name = result
-                                else description = result
-                                hoveredSlot = targetSlot; awaitingConfirm = true
-                                currentScreen = EditorScreen.Graph
-                            }
-                        )
+                        val isName = screen.target == FIELD_NAME
+                        val initialText = if (isName) name else description
+                        val maxLen = if (isName) NAME_MAX_LEN else DESC_MAX_LEN
+                        val targetSlot = if (isName) 1 else 2
+                        key(screen.target) {
+                            SwipeKeyboardOverlay(
+                                initialText = initialText,
+                                maxLength = maxLen,
+                                showScrim = false,
+                                suggestions = if (isName)
+                                    CurveEditorConstants.CURVE_NAME_SUGGESTIONS
+                                else
+                                    CurveEditorConstants.CURVE_DESC_SUGGESTIONS,
+                                onTextChange = { text ->
+                                    if (isName) name = text else description = text
+                                },
+                                onNext = if (isName) { _ ->
+                                    currentScreen = EditorScreen.Keyboard(FIELD_DESC)
+                                } else null,
+                                onPrev = if (!isName) { _ ->
+                                    currentScreen = EditorScreen.Keyboard(FIELD_NAME)
+                                } else null,
+                                onCancel = {
+                                    hoveredSlot = targetSlot; awaitingConfirm = true
+                                    currentScreen = EditorScreen.Graph
+                                },
+                                onDone = { result ->
+                                    if (isName) name = result else description = result
+                                    hoveredSlot = targetSlot; awaitingConfirm = true
+                                    currentScreen = EditorScreen.Graph
+                                }
+                            )
+                        }
                     }
                     else -> {}
                 }
@@ -783,7 +807,7 @@ fun DynamicsCurveEditor(
                         )
                     }
                 }
-            } else {
+            } else if (!isKeyboardScreen) {
                 EditorActionGrid(
                     slots = actionSlots,
                     hoveredSlot = hoveredSlot,
@@ -1300,8 +1324,23 @@ private fun MetaCard(
     selectedIconKey: String,
     name: String,
     description: String,
+    editingTarget: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val caretAlpha by rememberInfiniteTransition(label = "metaCaret").animateFloat(
+        initialValue = 1f, targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 1000
+                1f at 0
+                1f at 499
+                0f at 500
+                0f at 999
+            },
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "caretAlpha"
+    )
     val cardShape = RoundedCornerShape(10.dp)
     val cellShape = RoundedCornerShape(7.dp)
     val dividerColor = Color.White.copy(alpha = 0.09f)
@@ -1353,18 +1392,25 @@ private fun MetaCard(
                     .padding(horizontal = 7.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
-                Text(
-                    text = name.ifBlank { "이름 없음" },
-                    color = when {
-                        (hovName || awName) && enName -> Color.White
-                        name.isBlank()                -> LABEL_COLOR
-                        else                          -> Color.White.copy(alpha = 0.85f)
-                    },
-                    fontSize = 12.sp,
-                    fontWeight = if ((hovName || awName) && enName) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val isEditingName = editingTarget == FIELD_NAME
+                    Text(
+                        text = if (isEditingName) name else name.ifBlank { "이름 없음" },
+                        color = when {
+                            (hovName || awName) && enName -> Color.White
+                            name.isBlank() && !isEditingName -> LABEL_COLOR
+                            else                          -> Color.White.copy(alpha = 0.85f)
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = if ((hovName || awName) && enName) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isEditingName) {
+                        Text("|", color = Color.White.copy(alpha = caretAlpha), fontSize = 12.sp)
+                    }
+                }
             }
 
             Box(Modifier.fillMaxWidth().height(1.dp).background(dividerColor))
@@ -1380,17 +1426,25 @@ private fun MetaCard(
                     .padding(horizontal = 7.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
-                Text(
-                    text = if (description.isBlank()) "설명 추가하기..." else description,
-                    color = when {
-                        (hovDesc || awDesc) && enDesc -> Color.White
-                        description.isBlank()         -> LABEL_COLOR.copy(alpha = 0.6f)
-                        else                          -> Color.White.copy(alpha = 0.55f)
-                    },
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val isEditingDesc = editingTarget == FIELD_DESC
+                    Text(
+                        text = if (isEditingDesc) description
+                               else if (description.isBlank()) "설명 추가하기..." else description,
+                        color = when {
+                            (hovDesc || awDesc) && enDesc -> Color.White
+                            description.isBlank() && !isEditingDesc -> LABEL_COLOR.copy(alpha = 0.6f)
+                            else                          -> Color.White.copy(alpha = 0.55f)
+                        },
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isEditingDesc) {
+                        Text("|", color = Color.White.copy(alpha = caretAlpha), fontSize = 11.sp)
+                    }
+                }
             }
         }
 
