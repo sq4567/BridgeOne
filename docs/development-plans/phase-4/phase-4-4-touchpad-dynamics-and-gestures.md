@@ -1047,7 +1047,7 @@ updated: "2026-04-02"
 | 포인터 다이나믹스 | ❌ | ✅ (프리셋 버튼: 원탭 사이클 / 롱프레스 팝업 선택) |
 | 모드 프리셋 | ❌ | ✅ (ModePresetButton: 원탭 사이클 / 롱프레스 팝업 선택) |
 | 스크롤 감도 | ❌ | ✅ (ScrollSensitivityButton) |
-| 멀티 커서 | ❌ | ⏳ Phase 4.7 (Page 2 풀 와이드 터치패드, CursorModeButton 활성화) |
+| 멀티 커서 | ❌ | ⏳ Phase 4.8 (Page 2 풀 와이드 터치패드, CursorModeButton 활성화) |
 | ControlButtonContainer | ❌ 숨김 | ✅ 표시 |
 | 스크롤 가이드라인 | ❌ | ✅ (스크롤 모드 시) |
 | 모드별 테두리 색상 | ❌ | ✅ (모드 조합에 따른 단색/그라데이션) |

@@ -1,5 +1,5 @@
 ---
-title: "BridgeOne Phase 4.12: ScrollPad 컴포넌트 — 페이지 1 스크롤 전용 패드"
+title: "BridgeOne Phase 4.13: ScrollPad 컴포넌트 — 페이지 1 스크롤 전용 패드"
 description: "페이지 1 Actions 패널 하단 매크로 영역을 ScrollPad 컴포넌트로 교체. 항상 활성 상태의 독립 휠 스크롤 입력 패드 구현."
 tags: ["android", "scrollpad", "scroll", "wheel", "hid", "ui", "page1"]
 version: "v1.0"
@@ -7,7 +7,7 @@ owner: "Chatterbones"
 updated: "2026-05-03"
 ---
 
-# BridgeOne Phase 4.12: ScrollPad 컴포넌트
+# BridgeOne Phase 4.13: ScrollPad 컴포넌트
 
 **개발 기간**: 2~3일
 
@@ -16,8 +16,8 @@ updated: "2026-05-03"
 **핵심 성과물**:
 - `ScrollPadWrapper.kt` 신규 컴포넌트 (수직 + 수평 스크롤, NORMAL + INFINITE 모드)
 - `StandardModePage.kt` 내 `MacrosPlaceholder` 제거 및 `ScrollPadWrapper` 배치
-- `styleframe-page1.md` §2.2-C 갱신 완료 (Phase 4.12 시작 전 기완료)
-- `component-scrollpad.md` 신규 명세서 작성 완료 (Phase 4.12 시작 전 기완료)
+- `styleframe-page1.md` §2.2-C 갱신 완료 (Phase 4.13 시작 전 기완료)
+- `component-scrollpad.md` 신규 명세서 작성 완료 (Phase 4.13 시작 전 기완료)
 
 **선행 조건**: Phase 4.2 (Page 1 Actions 패널) 완료
 
@@ -29,19 +29,19 @@ updated: "2026-05-03"
 - `ScrollGuideline.kt` — 축 가이드라인 시각화
 - `protocol/BridgeFrame.kt` / `FrameBuilder.kt` — HID 프로토콜 변경 없음
 
-**에뮬레이터 호환성**: 4.12.1~4.12.3 UI 개발은 에뮬레이터에서 가능. 실제 휠 이벤트 확인(4.12.2+) 및 관성 튜닝(4.12.4)은 실기기 필요.
+**에뮬레이터 호환성**: 4.13.1~4.13.3 UI 개발은 에뮬레이터에서 가능. 실제 휠 이벤트 확인(4.13.2+) 및 관성 튜닝(4.13.4)은 실기기 필요.
 
 | 하위 Phase | 내용 | 상태 |
 |-----------|------|------|
-| 4.12.1 | ScrollPad 골격 + MacrosPlaceholder 교체 | 미시작 |
-| 4.12.2 | 수직 NORMAL 스크롤 구현 | 미시작 |
-| 4.12.3 | 수평 축 추가 + 가이드라인 | 미시작 |
-| 4.12.4 | INFINITE 관성 모드 + 모드 칩 | 미시작 |
-| 4.12.5 | 레이아웃 비율 재조정 + 실기기 검증 | 미시작 |
+| 4.13.1 | ScrollPad 골격 + MacrosPlaceholder 교체 | 미시작 |
+| 4.13.2 | 수직 NORMAL 스크롤 구현 | 미시작 |
+| 4.13.3 | 수평 축 추가 + 가이드라인 | 미시작 |
+| 4.13.4 | INFINITE 관성 모드 + 모드 칩 | 미시작 |
+| 4.13.5 | 레이아웃 비율 재조정 + 실기기 검증 | 미시작 |
 
 ---
 
-## Phase 4.12.1: ScrollPad 골격 + MacrosPlaceholder 교체
+## Phase 4.13.1: ScrollPad 골격 + MacrosPlaceholder 교체
 
 **개발 기간**: 0.5일
 
@@ -72,7 +72,7 @@ updated: "2026-05-03"
 
 ---
 
-## Phase 4.12.2: 수직 NORMAL 스크롤 구현
+## Phase 4.13.2: 수직 NORMAL 스크롤 구현
 
 **개발 기간**: 0.5일
 
@@ -108,7 +108,7 @@ updated: "2026-05-03"
 
 ---
 
-## Phase 4.12.3: 수평 축 추가 + 가이드라인
+## Phase 4.13.3: 수평 축 추가 + 가이드라인
 
 **개발 기간**: 0.5일
 
@@ -139,7 +139,7 @@ updated: "2026-05-03"
 
 ---
 
-## Phase 4.12.4: INFINITE 관성 모드 + 모드 칩
+## Phase 4.13.4: INFINITE 관성 모드 + 모드 칩
 
 **개발 기간**: 0.5일
 
@@ -176,7 +176,7 @@ updated: "2026-05-03"
 
 ---
 
-## Phase 4.12.5: 레이아웃 비율 재조정 + 실기기 검증
+## Phase 4.13.5: 레이아웃 비율 재조정 + 실기기 검증
 
 **개발 기간**: 0.5일
 

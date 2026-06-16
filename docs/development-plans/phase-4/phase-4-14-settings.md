@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.13: 환경 설정"
-description: "BridgeOne 프로젝트 Phase 4.13 - 앱 내 설정 UI 구현, 접근 편의 모드(Assisted Mode), DataStore 기반 설정 영속화"
+title: "BridgeOne Phase 4.14: 환경 설정"
+description: "BridgeOne 프로젝트 Phase 4.14 - 앱 내 설정 UI 구현, 접근 편의 모드(Assisted Mode), DataStore 기반 설정 영속화"
 tags: ["android", "settings", "accessibility", "datastore", "preferences", "assisted-mode"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-04-05"
 ---
 
-# BridgeOne Phase 4.13: 환경 설정
+# BridgeOne Phase 4.14: 환경 설정
 
 **개발 기간**: 3-5일
 
@@ -19,13 +19,13 @@ updated: "2026-04-05"
 - DataStore 기반 설정값 영속화
 - 설정 변경 시 실시간 반영
 
-**선행 조건**: Phase 4.10 완료 (모든 페이지 UI 구현 완료 상태)
+**선행 조건**: Phase 4.11 완료 (모든 페이지 UI 구현 완료 상태)
 
 **에뮬레이터 호환성**: 전체 에뮬레이터에서 개발 가능.
 
 ---
 
-## Phase 4.13.1: DataStore 인프라 및 SettingsRepository
+## Phase 4.14.1: DataStore 인프라 및 SettingsRepository
 
 **개발 기간**: 0.5-1일
 
@@ -41,7 +41,7 @@ updated: "2026-04-05"
 3. 기존 `SharedPreferences` 사용부 (`StandardModePage.kt`의 DPI 레벨) → DataStore로 마이그레이션
 4. 싱글톤 제공: `Application` 클래스 또는 수동 싱글톤
 
-**설정 항목 목록** (Phase 4.13.2에서 UI로 노출):
+**설정 항목 목록** (Phase 4.14.2에서 UI로 노출):
 
 | 카테고리 | 설정 항목 | 타입 | 기본값 | 범위/옵션 | 설명 |
 |----------|----------|------|--------|----------|------|
@@ -70,7 +70,7 @@ updated: "2026-04-05"
 
 ---
 
-## Phase 4.13.2: 설정 페이지 UI (일반 모드)
+## Phase 4.14.2: 설정 페이지 UI (일반 모드)
 
 **개발 기간**: 1-1.5일
 
@@ -136,7 +136,7 @@ updated: "2026-04-05"
 
 ---
 
-## Phase 4.13.3: 접근 편의 모드 (Assisted Mode)
+## Phase 4.14.3: 접근 편의 모드 (Assisted Mode)
 
 **개발 기간**: 1-1.5일
 
@@ -214,7 +214,7 @@ updated: "2026-04-05"
 
 ---
 
-## Phase 4.13.4: 설정-동작 바인딩 및 통합
+## Phase 4.14.4: 설정-동작 바인딩 및 통합
 
 **개발 기간**: 0.5-1일
 
