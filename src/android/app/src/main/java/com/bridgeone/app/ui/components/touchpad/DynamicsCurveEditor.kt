@@ -2,6 +2,7 @@ package com.bridgeone.app.ui.components.touchpad
 
 import android.os.Build
 import android.view.HapticFeedbackConstants
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -59,6 +60,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.key
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,6 +78,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -89,8 +93,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.components.SwipeKeyboardOverlay
 import com.bridgeone.app.ui.common.AppIcon
-import com.bridgeone.app.ui.common.AppIconDef
-import com.bridgeone.app.ui.common.CUSTOM_PRESET_ICON_OPTIONS
+import com.bridgeone.app.ui.common.ColorCodec
+import com.bridgeone.app.ui.components.colorpicker.ColorPickerStage
+import com.bridgeone.app.ui.components.colorpicker.ColorPickerSwipe
+import com.bridgeone.app.ui.common.swipe.LocalSwipeFocusController
+import com.bridgeone.app.ui.common.swipe.ROOT_SCOPE
+import com.bridgeone.app.ui.common.swipe.SwipeGestureLayer
+import com.bridgeone.app.ui.common.swipe.rememberSwipeFocusController
 import com.bridgeone.app.ui.common.CUSTOM_PRESET_TEMPLATES
 import com.bridgeone.app.ui.common.CurveEditorConstants
 import com.bridgeone.app.ui.common.CurveEditorConstants.TEMPLATE_PICKER_SWIPE_STEP_DP
@@ -123,6 +132,7 @@ private const val DESC_MAX_LEN = 50
 private const val FIELD_NAME = "name"
 private const val FIELD_DESC = "desc"
 
+
 // ─────────────────────────────────────────────────────────────
 // 화면 상태 (Phase 4.5.18.4: Boolean 3개 → sealed class 1개)
 // ─────────────────────────────────────────────────────────────
@@ -132,6 +142,7 @@ private sealed class EditorScreen {
     data class Keyboard(val target: String) : EditorScreen() // "name" | "desc"
     object IconPicker : EditorScreen()
     object TemplatePicker : EditorScreen()
+    object ColorPicker : EditorScreen()
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -164,16 +175,16 @@ private data class ActionSlot(
 
 // ── 메인 그리드 슬롯 배치
 // Row 0 (Header): 7=취소, 8=저장
-// Row 1 (MetaCard 상단): 0=아이콘, 1=이름, 3=템플릿
+// Row 1 (MetaCard 상단): 0=아이콘, 10=색상, 1=이름, 3=템플릿
 // Row 2 (MetaCard 하단): 2=설명, 3=템플릿
 // Row 3 (노드 편집, 단독): 9=노드 편집
 // Row 4 (CurveCard, 기준 행): 4=가속, 6=→복사, 5=감속
 private val ACTION_ROW_SLOTS = listOf(
-    listOf(7, 8),      // Row 0: Header (취소, 저장)
-    listOf(0, 1, 3),   // Row 1: MetaCard 상단
-    listOf(2, 3),      // Row 2: MetaCard 하단
-    listOf(9),         // Row 3: 노드 편집 (단독)
-    listOf(4, 6, 5),   // Row 4: CurveCard (기준 행)
+    listOf(7, 8),         // Row 0: Header (취소, 저장)
+    listOf(0, 10, 1, 3),  // Row 1: MetaCard 상단 (아이콘, 색상, 이름, 템플릿)
+    listOf(2, 3),         // Row 2: MetaCard 하단
+    listOf(9),            // Row 3: 노드 편집 (단독)
+    listOf(4, 6, 5),      // Row 4: CurveCard (기준 행)
 )
 private const val MAIN_START_ROW = 4  // CurveCard = 기준 행
 
@@ -206,51 +217,6 @@ private val SAVE_CONFIRM_ROW_SLOTS = listOf(
     listOf(0, 1)
 )
 private const val SAVE_CONFIRM_START_ROW = 0
-
-// ─────────────────────────────────────────────────────────────
-// 아이콘 선택 — 셀 모델
-// ─────────────────────────────────────────────────────────────
-
-private data class IconCell(val key: String, val def: AppIconDef)
-
-private data class IconRow(val cells: List<IconCell>)
-
-private data class IconCellPos(val row: Int, val col: Int)
-
-private enum class HeaderZone { BACK, NONE }
-
-/** 5개씩 6행, 총 30개 아이콘 */
-private fun buildIconLayout(): List<IconRow> =
-    CUSTOM_PRESET_ICON_OPTIONS.chunked(5).map { chunk ->
-        IconRow(cells = chunk.map { (key, def) -> IconCell(key, def) })
-    }
-
-/** selectedIconKey에 해당하는 초기 셀 위치 반환. 매칭 없으면 (0,0). */
-private fun findInitialCell(selectedIconKey: String, layout: List<IconRow>): IconCellPos {
-    layout.forEachIndexed { rowIdx, row ->
-        row.cells.forEachIndexed { colIdx, cell ->
-            if (cell.key == selectedIconKey) return IconCellPos(rowIdx, colIdx)
-        }
-    }
-    return IconCellPos(0, 0)
-}
-
-/** 범위 클램프 */
-private fun resolveIconCell(target: IconCellPos, layout: List<IconRow>): IconCellPos {
-    val row = target.row.coerceIn(0, layout.size - 1)
-    val col = target.col.coerceIn(0, layout[row].cells.size - 1)
-    return IconCellPos(row, col)
-}
-
-/** 셀 중심의 분수(0~1) 가로 위치 (균등 weight 전제) */
-private fun computeFracX(cell: IconCellPos, layout: List<IconRow>): Float {
-    val count = layout[cell.row].cells.size.toFloat()
-    return (cell.col + 0.5f) / count
-}
-
-/** fracX에 해당하는 컬럼 인덱스 반환 (균등 weight 전제) */
-private fun findColAtFracX(fracX: Float, row: IconRow): Int =
-    (fracX * row.cells.size).toInt().coerceIn(0, row.cells.lastIndex)
 
 /**
  * 가변 슬롯 매핑. 드래그 시작점 기준 상대 이동량(dragDelta)으로 슬롯 결정.
@@ -324,10 +290,50 @@ fun DynamicsCurveEditor(
     }
     var activeTab by remember { mutableIntStateOf(0) } // 0=가속, 1=감속
     var selectedIconKey by remember { mutableStateOf(initialPreset?.iconKey ?: "") }
+    var selectedColorHex by remember { mutableStateOf(initialPreset?.colorHex ?: "") }
 
     var currentScreen by remember { mutableStateOf<EditorScreen>(EditorScreen.Graph) }
+
+    // 아이콘 피커: 카테고리 2단계 애플워치 서랍 (자체 SwipeFocusController + 제스처 레이어)
+    val iconPickerController = rememberSwipeFocusController()
+    // 빠른 스와이프 시 한 이벤트당 1칸만 이동 (셀렉션 링 그리드 이탈 방지)
+    LaunchedEffect(iconPickerController) { iconPickerController.maxFocusStepsPerEvent = 1 }
+    var iconPickerStage by remember { mutableStateOf<IconDrawerStage>(IconDrawerStage.Category) }
+    var iconPickerAnchor by remember { mutableStateOf(Offset.Zero) }
+    LaunchedEffect(currentScreen) {
+        if (currentScreen is EditorScreen.IconPicker) iconPickerStage = IconDrawerStage.Category
+    }
+
+    val colorPickerController = rememberSwipeFocusController()
+    LaunchedEffect(colorPickerController) { colorPickerController.maxFocusStepsPerEvent = 1 }
+    var colorPickerStage by remember { mutableStateOf<ColorPickerStage>(ColorPickerStage.Category) }
+    var colorPickerAnchor by remember { mutableStateOf(Offset.Zero) }
+    // 롱프레스 색 확정 후보 hex. null이면 확정 대상 없음(ExpandToggle 등). 기본값: null
+    var colorCommitCandidate by remember { mutableStateOf<String?>(null) }
+
     var hoveredSlot by remember { mutableIntStateOf(0) }
     var awaitingConfirm by remember { mutableStateOf(true) }
+
+    // 아이콘 피커 뒤로가기: 아이콘 단계 → 카테고리 단계, 카테고리 단계 → 그래프 복귀
+    BackHandler(enabled = currentScreen is EditorScreen.IconPicker) {
+        if (iconPickerStage is IconDrawerStage.Icons) {
+            iconPickerStage = IconDrawerStage.Category
+        } else {
+            hoveredSlot = 0; awaitingConfirm = true
+            currentScreen = EditorScreen.Graph
+        }
+    }
+    BackHandler(enabled = currentScreen is EditorScreen.ColorPicker) {
+        when (val s = colorPickerStage) {
+            is ColorPickerStage.DirectInput -> colorPickerStage = if (s.sourceTab != null)
+                ColorPickerStage.Swatches(s.sourceTab) else ColorPickerStage.Category
+            is ColorPickerStage.Swatches    -> colorPickerStage = ColorPickerStage.Category
+            is ColorPickerStage.Category    -> {
+                hoveredSlot = 10; awaitingConfirm = true
+                currentScreen = EditorScreen.Graph
+            }
+        }
+    }
     var gridContext by remember { mutableStateOf<GridContext>(GridContext.Main) }
     var selectedNodeIndex by remember { mutableIntStateOf(0) }
     var nodeStepIndex by remember { mutableIntStateOf(CurveEditorConstants.NODE_STEP_DEFAULT_INDEX) }
@@ -337,8 +343,6 @@ fun DynamicsCurveEditor(
     var tabLabelHovered by remember { mutableStateOf(false) }
 
     // 서브메뉴 재진입 시 위치 유지
-    val iconLayout = remember { buildIconLayout() }
-    var savedIconCell by remember { mutableStateOf<IconCellPos?>(null) }
     var savedTemplateIndex by remember { mutableIntStateOf(0) }
 
     val isDuplicate = name.isNotBlank() &&
@@ -350,7 +354,7 @@ fun DynamicsCurveEditor(
 
     // 슬롯 인덱스: 0=아이콘, 1=이름, 2=설명, 3=템플릿
     //              4=가속, 5=감속, 6=→감속복사
-    //              7=취소, 8=저장, 9=노드 편집
+    //              7=취소, 8=저장, 9=노드 편집, 10=색상
     val actionSlots = listOf(
         ActionSlot("아이콘", enabled = true,
             iconKey = selectedIconKey, style = SlotStyle.NORMAL),
@@ -366,7 +370,8 @@ fun DynamicsCurveEditor(
         ActionSlot("→감속\n복사", enabled = activeTab == 0, style = SlotStyle.NORMAL),
         ActionSlot("취소", enabled = true, style = SlotStyle.SECONDARY),
         ActionSlot("저장", enabled = nameValid, style = SlotStyle.PRIMARY),
-        ActionSlot("노드 편집", enabled = true, style = SlotStyle.NORMAL)
+        ActionSlot("노드 편집", enabled = true, style = SlotStyle.NORMAL),
+        ActionSlot("색상", enabled = true, previewText = selectedColorHex, style = SlotStyle.NORMAL),
     )
 
     // 노드 편집 슬롯 활성 여부 (dry-run 방식)
@@ -452,7 +457,8 @@ fun DynamicsCurveEditor(
     fun buildPresetSnapshot() = CustomPointerDynamicsPreset(
         id = presetId, name = name,
         accelerationCurve = accelCurve, decelerationCurve = decelCurve,
-        description = description, iconKey = selectedIconKey
+        description = description, iconKey = selectedIconKey,
+        colorHex = selectedColorHex
     )
 
     fun executeSlot(index: Int) {
@@ -473,6 +479,10 @@ fun DynamicsCurveEditor(
             9 -> { // 노드 편집 진입 — 선택 모드부터 시작
                 gridContext = GridContext.NodeEdit.Select
                 selectedNodeIndex = 0
+            }
+            10 -> { // 색상 피커
+                colorPickerStage = ColorPickerStage.Category
+                currentScreen = EditorScreen.ColorPicker
             }
         }
     }
@@ -611,8 +621,11 @@ fun DynamicsCurveEditor(
                             hoveredSlot = hoveredSlot,
                             awaitingConfirm = awaitingConfirm,
                             selectedIconKey = selectedIconKey,
+                            selectedColorHex = selectedColorHex,
                             name = name,
                             description = description,
+                            onIconSlotPositioned = { iconPickerAnchor = it },
+                            onColorSlotPositioned = { colorPickerAnchor = it },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 6.dp, vertical = 4.dp)
@@ -625,6 +638,7 @@ fun DynamicsCurveEditor(
                     hoveredSlot = hoveredSlot,
                     awaitingConfirm = awaitingConfirm,
                     selectedIconKey = selectedIconKey,
+                    selectedColorHex = selectedColorHex,
                     name = name,
                     description = description,
                     editingTarget = (currentScreen as? EditorScreen.Keyboard)?.target,
@@ -821,22 +835,6 @@ fun DynamicsCurveEditor(
         // ── 오버레이 레이어: 서브메뉴 활성 시 풀스크린으로 렌더 ──
         // Box 의 두 번째 자식 → z-order 상위. 제스처가 화면 어디서든 흡수됨.
         when (currentScreen) {
-            is EditorScreen.IconPicker -> {
-                IconPickerContent(
-                    selectedIconKey = selectedIconKey,
-                    initialCell = savedIconCell ?: findInitialCell(selectedIconKey, iconLayout),
-                    onCellChange = { savedIconCell = it },
-                    onClose = {
-                        hoveredSlot = 0; awaitingConfirm = true
-                        currentScreen = EditorScreen.Graph
-                    },
-                    onSelect = { key ->
-                        selectedIconKey = key
-                        hoveredSlot = 0; awaitingConfirm = true
-                        currentScreen = EditorScreen.Graph
-                    }
-                )
-            }
             is EditorScreen.TemplatePicker -> {
                 TemplatePickerContent(
                     templates = CUSTOM_PRESET_TEMPLATES,
@@ -854,7 +852,93 @@ fun DynamicsCurveEditor(
                     }
                 )
             }
-            is EditorScreen.Graph, is EditorScreen.Keyboard -> {}
+            else -> {}
+        }
+
+        // ── 아이콘 피커(카테고리 서랍): 진입/이탈 fade + scale ──
+        AnimatedVisibility(
+            visible = currentScreen is EditorScreen.IconPicker,
+            enter = fadeIn(tween(200)) + scaleIn(tween(200), initialScale = 0.92f),
+            exit = fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.92f),
+            modifier = Modifier.matchParentSize(),
+        ) {
+            CompositionLocalProvider(LocalSwipeFocusController provides iconPickerController) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    CategoryIconDrawer(
+                        controller = iconPickerController,
+                        stage = iconPickerStage,
+                        onStageChange = { iconPickerStage = it },
+                        selectedIconKey = selectedIconKey,
+                        anchorCenterInWindow = iconPickerAnchor,
+                        scope = ROOT_SCOPE,
+                        onPick = { key ->
+                            selectedIconKey = key
+                            hoveredSlot = 0; awaitingConfirm = true
+                            currentScreen = EditorScreen.Graph
+                        },
+                        modifier = Modifier.matchParentSize(),
+                    )
+                    SwipeGestureLayer(
+                        controller = iconPickerController,
+                        modifier = Modifier.matchParentSize(),
+                        onLongPress = {
+                            // 롱프레스: 아이콘 단계 → 카테고리 단계 복귀, 카테고리 단계 → 닫기(변경 취소)
+                            if (iconPickerStage is IconDrawerStage.Icons) {
+                                iconPickerStage = IconDrawerStage.Category
+                            } else {
+                                hoveredSlot = 0; awaitingConfirm = true
+                                currentScreen = EditorScreen.Graph
+                            }
+                            true
+                        },
+                    )
+                }
+            }
+        }
+
+        // ── 컬러 피커 오버레이 ──
+        AnimatedVisibility(
+            visible = currentScreen is EditorScreen.ColorPicker,
+            enter = fadeIn(tween(200)) + scaleIn(tween(200), initialScale = 0.92f),
+            exit = fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.92f),
+            modifier = Modifier.matchParentSize(),
+        ) {
+            CompositionLocalProvider(LocalSwipeFocusController provides colorPickerController) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    ColorPickerSwipe(
+                        controller = colorPickerController,
+                        pickerScope = ROOT_SCOPE,
+                        selectedColorHex = selectedColorHex,
+                        anchorCenterInWindow = colorPickerAnchor,
+                        stage = colorPickerStage,
+                        onStageChange = { colorPickerStage = it },
+                        onPick = { hex ->
+                            selectedColorHex = hex
+                            hoveredSlot = 10; awaitingConfirm = true
+                            currentScreen = EditorScreen.Graph
+                        },
+                        onCommitCandidateChange = { colorCommitCandidate = it },
+                        modifier = Modifier.matchParentSize(),
+                    )
+                    SwipeGestureLayer(
+                        controller = colorPickerController,
+                        modifier = Modifier.matchParentSize(),
+                        onLongPress = {
+                            // 단계별 뒤로가기: DirectInput→Swatches(or Category), Swatches→Category, Category→닫기
+                            when (val s = colorPickerStage) {
+                                is ColorPickerStage.DirectInput -> colorPickerStage = if (s.sourceTab != null)
+                                    ColorPickerStage.Swatches(s.sourceTab) else ColorPickerStage.Category
+                                is ColorPickerStage.Swatches    -> colorPickerStage = ColorPickerStage.Category
+                                is ColorPickerStage.Category    -> {
+                                    hoveredSlot = 10; awaitingConfirm = true
+                                    currentScreen = EditorScreen.Graph
+                                }
+                            }
+                            true
+                        },
+                    )
+                }
+            }
         }
 
         // ── 스텝 정밀도 피커 오버레이 (C5: AnimatedVisibility 페이드+스케일) ──
@@ -1315,16 +1399,19 @@ private fun NodeEditGrid(
     }
 }
 
-/** 메타 카드: 아이콘(0) / 이름(1)+설명(2) / 템플릿(3) — 양 끝이 전체 높이 차지 */
+/** 메타 카드: 아이콘(0) / 색상(10) / 이름(1)+설명(2) / 템플릿(3) — 양 끝이 전체 높이 차지 */
 @Composable
 private fun MetaCard(
     slots: List<ActionSlot>,
     hoveredSlot: Int,
     awaitingConfirm: Boolean,
     selectedIconKey: String,
+    selectedColorHex: String = "",
     name: String,
     description: String,
     editingTarget: String? = null,
+    onIconSlotPositioned: (Offset) -> Unit = {},
+    onColorSlotPositioned: (Offset) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val caretAlpha by rememberInfiniteTransition(label = "metaCaret").animateFloat(
@@ -1358,6 +1445,10 @@ private fun MetaCard(
         Box(
             modifier = Modifier
                 .aspectRatio(1f).fillMaxHeight()
+                .onGloballyPositioned { coords ->
+                    val b = coords.boundsInWindow()
+                    onIconSlotPositioned(Offset((b.left + b.right) / 2f, (b.top + b.bottom) / 2f))
+                }
                 .background(cellBgColor(hovIcon, awIcon, enIcon), cellShape)
                 .cellBorder(hovIcon, awIcon, enIcon, shape = cellShape),
             contentAlignment = Alignment.Center
@@ -1372,6 +1463,33 @@ private fun MetaCard(
             } else {
                 Text("+", color = LABEL_COLOR, fontSize = 36.sp, fontWeight = FontWeight.Light)
             }
+        }
+
+        Box(Modifier.width(1.dp).fillMaxHeight().background(dividerColor))
+
+        // 슬롯 10: 색상
+        val hovColor = hoveredSlot == 10
+        val awColor = awaitingConfirm && hovColor
+        val enColor = slots.getOrNull(10)?.enabled ?: true
+        val parsedSwatchColor = ColorCodec.hexToColorOrNull(selectedColorHex)
+        Box(
+            modifier = Modifier
+                .width(44.dp).fillMaxHeight()
+                .onGloballyPositioned { coords ->
+                    val b = coords.boundsInWindow()
+                    onColorSlotPositioned(Offset((b.left + b.right) / 2f, (b.top + b.bottom) / 2f))
+                }
+                .background(cellBgColor(hovColor, awColor, enColor), cellShape)
+                .cellBorder(hovColor, awColor, enColor, shape = cellShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(parsedSwatchColor ?: Color.White.copy(alpha = 0.08f))
+                    .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+            )
         }
 
         Box(Modifier.width(1.dp).fillMaxHeight().background(dividerColor))
@@ -1785,293 +1903,6 @@ private fun EditorHeader(
 // 아이콘 선택 컨텐츠 (그래프 영역 대체, 스와이프 방식)
 // ─────────────────────────────────────────────────────────────
 
-@Composable
-private fun IconPickerContent(
-    selectedIconKey: String,
-    initialCell: IconCellPos,
-    onCellChange: (IconCellPos) -> Unit,
-    onClose: () -> Unit,
-    onSelect: (String) -> Unit
-) {
-    val view = LocalView.current
-    val layout = remember { buildIconLayout() }
-    val currentCell = remember(selectedIconKey) { findInitialCell(selectedIconKey, layout) }
-    var selectedCell by remember { mutableStateOf(initialCell) }
-    var headerZone by remember { mutableStateOf<HeaderZone?>(null) }
-    var awaitingConfirm by remember { mutableStateOf(false) }
-    var gridWidthPx by remember { mutableIntStateOf(0) }
-    var gridHeightPx by remember { mutableIntStateOf(0) }
-
-    val hoveredLabel = when (headerZone) {
-        HeaderZone.BACK -> "← 뒤로"
-        HeaderZone.NONE -> "없음"
-        null -> layout[selectedCell.row].cells[selectedCell.col].key
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(layout) {
-                val tapThreshPx = 10.dp.toPx()
-                awaitEachGesture {
-                    val totalRows = layout.size
-                    val rowH = if (gridHeightPx > 0) gridHeightPx.toFloat() / totalRows
-                               else size.height.toFloat() / totalRows
-                    val totalW = if (gridWidthPx > 0) gridWidthPx.toFloat() else size.width.toFloat()
-
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    val startPos = down.position
-                    val startCell = selectedCell
-                    var moved = false
-
-                    var ev = awaitPointerEvent()
-                    while (ev.type != PointerEventType.Release) {
-                        if (ev.type == PointerEventType.Move) {
-                            ev.changes.forEach { it.consume() }
-                            val pos = ev.changes.first().position
-                            val dx = pos.x - startPos.x
-                            val dy = pos.y - startPos.y
-                            if (sqrt(dx * dx + dy * dy) > tapThreshPx) moved = true
-
-                            val rowDelta = (dy / rowH).roundToInt()
-                            val rawNewRow = startCell.row + rowDelta
-                            val startFracX = computeFracX(startCell, layout)
-                            val newFracX = (startFracX + dx / totalW).coerceIn(0f, 1f)
-
-                            if (rawNewRow < 0) {
-                                val newZone = if (newFracX < 0.35f) HeaderZone.BACK else HeaderZone.NONE
-                                if (headerZone != newZone) {
-                                    headerZone = newZone
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                            } else {
-                                val newRow = rawNewRow.coerceIn(0, totalRows - 1)
-                                val newCol = findColAtFracX(newFracX, layout[newRow])
-                                val resolved = resolveIconCell(IconCellPos(newRow, newCol), layout)
-                                if (headerZone != null) {
-                                    headerZone = null
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                                if (resolved != selectedCell) {
-                                    selectedCell = resolved
-                                    onCellChange(resolved)
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                            }
-                        }
-                        ev = awaitPointerEvent()
-                    }
-
-                    if (!moved && awaitingConfirm) {
-                        when (headerZone) {
-                            HeaderZone.BACK -> onClose()
-                            HeaderZone.NONE -> onSelect("")
-                            null -> onSelect(layout[selectedCell.row].cells[selectedCell.col].key)
-                        }
-                    } else {
-                        awaitingConfirm = true
-                    }
-                }
-            }
-    ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 64.dp, bottom = 98.dp)
-            .background(SURFACE, RoundedCornerShape(8.dp))
-    ) {
-        // ── 헤더: 뒤로 | 제목 | 선택 중 | 없음 chip ──
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val backActive = headerZone == HeaderZone.BACK
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(
-                        when {
-                            backActive && awaitingConfirm -> ACCENT_BLUE.copy(alpha = 0.38f)
-                            backActive -> ACCENT_BLUE.copy(alpha = 0.22f)
-                            else -> Color.White.copy(alpha = 0.06f)
-                        },
-                        RoundedCornerShape(8.dp)
-                    )
-                    .then(when {
-                        backActive && awaitingConfirm -> Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
-                        backActive -> Modifier.border(1.5.dp, ACCENT_BLUE, RoundedCornerShape(8.dp))
-                        else -> Modifier
-                    })
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            val up = awaitPointerEvent()
-                            if (up.type == PointerEventType.Release) onClose()
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = null,
-                    tint = if (backActive) ACCENT_BLUE else Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = "아이콘 선택",
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = hoveredLabel,
-                color = ACCENT_BLUE.copy(alpha = 0.8f),
-                fontSize = 11.sp
-            )
-            Spacer(Modifier.width(8.dp))
-            val noneIsActive = selectedIconKey.isEmpty()
-            val noneHovered = headerZone == HeaderZone.NONE
-            Box(
-                modifier = Modifier
-                    .background(
-                        when {
-                            noneHovered && awaitingConfirm -> ACCENT_BLUE.copy(alpha = 0.38f)
-                            noneHovered -> ACCENT_BLUE.copy(alpha = 0.22f)
-                            noneIsActive -> ACCENT_BLUE.copy(alpha = 0.15f)
-                            else -> Color.White.copy(alpha = 0.07f)
-                        },
-                        RoundedCornerShape(10.dp)
-                    )
-                    .border(
-                        when {
-                            noneHovered && awaitingConfirm -> 2.dp
-                            noneHovered -> 1.5.dp
-                            noneIsActive -> 1.dp
-                            else -> 1.dp
-                        },
-                        when {
-                            noneHovered && awaitingConfirm -> Color.White.copy(alpha = 0.9f)
-                            noneHovered -> ACCENT_BLUE
-                            noneIsActive -> ACCENT_BLUE.copy(alpha = 0.6f)
-                            else -> Color.White.copy(alpha = 0.18f)
-                        },
-                        RoundedCornerShape(10.dp)
-                    )
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            val up = awaitPointerEvent()
-                            if (up.type == PointerEventType.Release) onSelect("")
-                        }
-                    }
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "없음",
-                    color = when {
-                        noneHovered -> ACCENT_BLUE
-                        noneIsActive -> ACCENT_BLUE
-                        else -> Color.White.copy(alpha = 0.6f)
-                    },
-                    fontSize = 11.sp,
-                    fontWeight = if (noneHovered || noneIsActive) FontWeight.Bold else FontWeight.Normal
-                )
-            }
-        }
-
-        // ── 그리드 영역 ──
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .onSizeChanged { gridWidthPx = it.width; gridHeightPx = it.height }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                layout.forEachIndexed { rowIdx, row ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        row.cells.forEachIndexed { colIdx, cell ->
-                            val pos = IconCellPos(rowIdx, colIdx)
-                            val isSelected = headerZone == null && selectedCell == pos
-                            val isCurrent = currentCell == pos
-
-                            val bgColor = when {
-                                isSelected && awaitingConfirm -> ACCENT_BLUE.copy(alpha = 0.38f)
-                                isSelected && isCurrent -> ACCENT_BLUE.copy(alpha = 0.30f)
-                                isSelected -> ACCENT_BLUE.copy(alpha = 0.28f)
-                                isCurrent -> ACCENT_BLUE.copy(alpha = 0.12f)
-                                else -> Color.White.copy(alpha = 0.06f)
-                            }
-                            val borderMod: Modifier = when {
-                                isSelected && awaitingConfirm -> Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(6.dp))
-                                isSelected && isCurrent -> Modifier.border(2.dp, ACCENT_BLUE, RoundedCornerShape(6.dp))
-                                isSelected -> Modifier.border(1.5.dp, ACCENT_BLUE, RoundedCornerShape(6.dp))
-                                isCurrent -> Modifier.border(1.dp, ACCENT_BLUE.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                                else -> Modifier
-                            }
-                            val iconTint = if (isSelected || isCurrent) ACCENT_BLUE else Color.White
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .background(bgColor, RoundedCornerShape(6.dp))
-                                    .then(borderMod),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                AppIcon(
-                                    def = cell.def,
-                                    contentDescription = cell.key,
-                                    tint = iconTint,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── 하단 조작 안내 ──
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 3.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(horizontalArrangement = Arrangement.Center) {
-                Text("↔ 드래그하여 선택", color = LABEL_COLOR, fontSize = 10.sp)
-                Text("  |  ", color = LABEL_COLOR, fontSize = 10.sp)
-                Text(
-                    text = if (awaitingConfirm) "⊙ 탭하면 확정" else "⊙ 손을 떼면 선택",
-                    color = if (awaitingConfirm) ACCENT_BLUE else LABEL_COLOR,
-                    fontSize = 10.sp
-                )
-            }
-            Text(
-                text = "↑ 위로 스와이프하면 뒤로·없음 선택 가능",
-                color = LABEL_COLOR,
-                fontSize = 10.sp
-            )
-        }
-    }
-    } // end outer Box
-}
 
 // ─────────────────────────────────────────────────────────────
 // 템플릿 선택 컨텐츠 (그래프 영역 대체, 정사각 카드 + 확정 단계)

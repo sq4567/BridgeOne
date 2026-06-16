@@ -173,6 +173,9 @@ object EdgeSwipeConstants {
     /** 엣지 존 힌트 알파 전환 애니메이션 시간 (ms). 기본값: 150 */
     const val EDGE_ZONE_HINT_ANIM_MS = 150
 
+    /** 엣지 존 활성 칩이 엣지로부터 안쪽으로 떨어진 거리 (dp). 기본값: 48f */
+    const val EDGE_ZONE_CHIP_INWARD_OFFSET_DP = 48f
+
     // ── 존 분할 방식 (Phase 4.6.2) ──
 
     /** 존 최소 크기 비율. 기본값: 0.10f */
@@ -189,6 +192,23 @@ object EdgeSwipeConstants {
 
     /** 스트립 에디터에서 코너 오버랩 차단 구간 근사 비율 (실제 값 = edgePx/엣지길이이며 기기마다 다름). 기본값: 0.06f */
     const val EDGE_CORNER_OVERLAP_RATIO = 0.06f
+
+    // ── 존 상시 시각화 (Phase 4.6.3) ──
+
+    /** idle 존 fill 알파 (색상 블록 불투명도). 기본값: 0.35f */
+    const val EDGE_ZONE_IDLE_BLOCK_ALPHA = 0.35f
+
+    /** idle 존 아이콘 크기 (dp). 기본값: 14f */
+    const val EDGE_ZONE_IDLE_ICON_SIZE_DP = 14f
+
+    /** idle 존 아이콘 tint 알파 (흰색 기준). 기본값: 0.75f */
+    const val EDGE_ZONE_IDLE_ICON_ALPHA = 0.75f
+
+    /** 라벨 병행 표시 최소 존 크기 임계값 (dp). 이 이상일 때 아이콘 + 라벨 함께 표시. 기본값: 32f */
+    const val EDGE_ZONE_IDLE_LABEL_MIN_SIZE_DP = 32f
+
+    /** idle 아이콘 외곽 테두리에서 안쪽으로 밀어주는 오프셋 (dp). 기본값: 2f */
+    const val EDGE_ZONE_IDLE_ICON_INSET_DP = 2f
 
     // ── 존 편집기 시각 (UI/UX 리디자인) ──
 
@@ -226,6 +246,16 @@ object EdgeSwipeConstants {
     /** 로테이션 존 최소 후보 수. 기본값: 2 */
     const val EDGE_ZONE_ROTATION_MIN_CANDIDATES = 2
 
+    /** 로테이션 인터벌 프리셋 — 빠름 (ms). 기본값: 300 */
+    const val EDGE_ZONE_ROTATION_INTERVAL_FAST_MS = 300
+    /** 로테이션 인터벌 프리셋 — 보통 (ms). 기본값: 600 */
+    const val EDGE_ZONE_ROTATION_INTERVAL_NORMAL_MS = 600
+    /** 로테이션 인터벌 프리셋 — 느림 (ms). 기본값: 1000 */
+    const val EDGE_ZONE_ROTATION_INTERVAL_SLOW_MS = 1000
+
+    /** 엣지 존 옵션 카드 그리드 표시 영역 최대 높이 (dp). 카드 80dp×3행 + 간격 8dp×2 = 256. 기본값: 256 */
+    const val EDGE_ZONE_OPTION_GRID_MAX_HEIGHT_DP = 256
+
     // ── 데포르메 비활성 오브젝트 (편집기 캔버스) ──
 
     /** 편집기 캔버스 내 코너 버튼 미니어처 크기 (dp). 기본값: 30f */
@@ -243,4 +273,18 @@ object EdgeSwipeConstants {
     const val EDGE_ZONE_LABEL_MAX_LEN = 12
     /** 엣지 존 라벨 고정 추천어. 기본값: 아래 목록 */
     val EDGE_ZONE_LABEL_SUGGESTIONS = listOf("복사", "붙여넣기", "실행 취소", "뒤로")
+    /** 엣지 존 폴더 네비게이션 그리드 전환 애니메이션 길이 (ms). 기본값: 220 */
+    const val EDGE_ZONE_FOLDER_NAV_ANIM_MS = 220
+    /** 폴더 네비게이션 슬라이드 진입 거리 비율 (콘텐츠 폭 대비). 기본값: 0.18f */
+    const val EDGE_ZONE_FOLDER_NAV_SLIDE_FRACTION = 0.18f
+
+    /** 엣지 존 라벨 키보드 등장/퇴장 애니메이션 길이 (ms). 기본값: 280 */
+    const val EDGE_ZONE_LABEL_KEYBOARD_ANIM_MS = 280
+    /** 엣지 존 라벨 키보드 시각 컨텐츠 높이 (dp), 폼 하단 여백 계산용. 기본값: 440 */
+    const val EDGE_ZONE_LABEL_KEYBOARD_VISUAL_HEIGHT_DP = 440
+
+    // ── 프리셋 팝업 미리보기 (Phase 4.6.3) ──
+
+    /** 프리셋 썸네일/미리보기의 종횡비 (너비 / 높이). 기본값: 16f / 9f */
+    const val PRESET_PREVIEW_ASPECT_RATIO = 16f / 9f
 }

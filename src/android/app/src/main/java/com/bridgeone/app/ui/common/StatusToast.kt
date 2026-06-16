@@ -5,6 +5,10 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
@@ -46,12 +51,14 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -74,7 +81,7 @@ import kotlinx.coroutines.flow.asStateFlow
 // ============================================================
 
 enum class ToastType {
-    INFO, SUCCESS, WARNING, ERROR
+    INFO, SUCCESS, WARNING, ERROR, PROGRESS
 }
 
 // ============================================================
@@ -84,11 +91,9 @@ enum class ToastType {
 data class ToastMessage(
     val message: String,
     val type: ToastType,
-    val durationMs: Long = 3000L
-) {
-    /** equals/hashCode에 포함되지 않는 고유 ID — Compose key 용도 */
-    val id: Long = System.nanoTime()
-}
+    val durationMs: Long = 3000L,
+    val id: Long = System.nanoTime(),
+)
 
 /** 자동 사라짐 없이 무제한 표시 */
 const val TOAST_DURATION_INFINITE = Long.MAX_VALUE
@@ -261,6 +266,7 @@ private fun StatusToastContent(
         ToastType.SUCCESS -> StateSuccess
         ToastType.WARNING -> StateWarning
         ToastType.ERROR -> StateError
+        ToastType.PROGRESS -> StateInfo
     }
     val contentColor: Color = if (type == ToastType.WARNING) BackgroundPrimary else Color.White
     val iconTint: Color = backgroundColor  // 흰 원 위에서 토스트 배경색으로 아이콘을 표시
@@ -269,10 +275,11 @@ private fun StatusToastContent(
         ToastType.SUCCESS -> Icons.Filled.CheckCircle
         ToastType.WARNING -> Icons.Filled.Warning
         ToastType.ERROR -> Icons.Filled.Error
+        ToastType.PROGRESS -> Icons.Filled.Info  // 미사용, 진행 링으로 대체
     }
 
-    // 타이머 테두리 애니메이션: 남은 시간에 비례하여 테두리가 줄어듦
-    val showTimerBorder = durationMs != TOAST_DURATION_INFINITE
+    // 타이머 테두리 애니메이션: 남은 시간에 비례하여 테두리가 줄어듦 (PROGRESS 타입은 링으로 대체)
+    val showTimerBorder = durationMs != TOAST_DURATION_INFINITE && type != ToastType.PROGRESS
     val timerProgress = remember { Animatable(1f) }
     val borderColor = contentColor.copy(alpha = 0.4f)
 
@@ -345,12 +352,19 @@ private fun StatusToastContent(
                 .size(36.dp)
                 .background(Color.White, CircleShape)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(26.dp)
-            )
+            if (type == ToastType.PROGRESS) {
+                MacroProgressRingIcon(
+                    progress = 1f - timerProgress.value,
+                    tint = backgroundColor
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
         }
         Spacer(Modifier.width(10.dp))
         Text(
@@ -361,5 +375,47 @@ private fun StatusToastContent(
             fontSize = 13.sp,
             lineHeight = 18.sp
         )
+    }
+}
+
+// ============================================================
+// MacroProgressRingIcon — PROGRESS 타입 전용 진행 링 아이콘
+// ============================================================
+
+@Composable
+private fun MacroProgressRingIcon(progress: Float, tint: Color) {
+    val infiniteTransition = rememberInfiniteTransition(label = "macroProgressRotation")
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "progressRingRotation"
+    )
+    Canvas(
+        modifier = Modifier
+            .size(26.dp)
+            .rotate(rotation)
+    ) {
+        val strokePx = 3.dp.toPx()
+        drawArc(
+            color = tint.copy(alpha = 0.3f),
+            startAngle = -90f,
+            sweepAngle = 360f,
+            useCenter = false,
+            style = Stroke(width = strokePx, cap = StrokeCap.Round)
+        )
+        val sweepAngle = progress * 360f
+        if (sweepAngle > 0.5f) {
+            drawArc(
+                color = tint,
+                startAngle = -90f,
+                sweepAngle = sweepAngle,
+                useCenter = false,
+                style = Stroke(width = strokePx, cap = StrokeCap.Round)
+            )
+        }
     }
 }

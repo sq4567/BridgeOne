@@ -1,6 +1,7 @@
 package com.bridgeone.app.ui.common
 
 import com.bridgeone.app.ui.components.touchpad.DynamicsAlgorithm
+import com.bridgeone.app.ui.components.touchpad.IconRegistry
 import com.bridgeone.app.ui.components.touchpad.PointerDynamicsPreset
 
 // ============================================================
@@ -20,46 +21,25 @@ data class CustomPointerDynamicsPreset(
     val accelerationCurve: List<CurveNode>,
     val decelerationCurve: List<CurveNode>,
     val description: String = "",
-    val iconKey: String = ""
+    val iconKey: String = "",
+    val colorHex: String = ""
 )
 
-/** 커스텀 프리셋에서 선택 가능한 아이콘 목록 (key → AppIconDef) */
+/**
+ * 커스텀 프리셋에서 선택 가능한 아이콘 목록 (key → AppIconDef).
+ * 실제 아이콘 데이터는 [IconRegistry]에서 관리하며, 이 목록은 기존 snake_case 키 순서와
+ * 호출부 시그니처를 유지하는 위임 래퍼다.
+ */
 val CUSTOM_PRESET_ICON_OPTIONS: List<Pair<String, AppIconDef>> = listOf(
-    "star"           to AppIcons.PickStar,
-    "flash"          to AppIcons.PickFlash,
-    "bolt"           to AppIcons.PickBolt,
-    "whatshot"       to AppIcons.PickWhatshot,
-    "fast_forward"   to AppIcons.PickFastForward,
-    "run"            to AppIcons.PickDirectionsRun,
-    "speed"          to AppIcons.PickSpeed,
-    "trending_up"    to AppIcons.PickTrendingUp,
-    "bar_chart"      to AppIcons.PickBarChart,
-    "show_chart"     to AppIcons.PickShowChart,
-    "timeline"       to AppIcons.PickTimeline,
-    "waves"          to AppIcons.PickWaves,
-    "tune"           to AppIcons.PickTune,
-    "adjust"         to AppIcons.PickAdjust,
-    "filter"         to AppIcons.PickFilter,
-    "center_focus"   to AppIcons.PickCenterFocus,
-    "gps_fixed"      to AppIcons.PickGpsFixed,
-    "my_location"    to AppIcons.PickMyLocation,
-    "explore"        to AppIcons.PickExplore,
-    "loop"           to AppIcons.PickLoop,
-    "favorite"       to AppIcons.PickFavorite,
-    "gamepad"        to AppIcons.PickGamepad,
-    "extension"      to AppIcons.PickExtension,
-    "settings"       to AppIcons.PickSettings,
-    "build"          to AppIcons.PickBuild,
-    "mouse"          to AppIcons.PickMouse,
-    "touch"          to AppIcons.PickTouchApp,
-    "timer"          to AppIcons.PickTimer,
-    "autorenew"      to AppIcons.PickAutorenew,
-    "vibration"      to AppIcons.PickVibration,
-)
+    "star", "flash", "bolt", "whatshot", "fast_forward", "run",
+    "speed", "trending_up", "bar_chart", "show_chart", "timeline", "waves",
+    "tune", "adjust", "filter", "center_focus", "gps_fixed", "my_location",
+    "explore", "loop", "favorite", "gamepad", "extension", "settings",
+    "build", "mouse", "touch", "timer", "autorenew", "vibration",
+).map { key -> key to IconRegistry.def(key) }
 
 /** iconKey → AppIconDef 변환 (없으면 null → 이름 2자 텍스트 표시) */
-fun customPresetIconOrNull(iconKey: String): AppIconDef? =
-    CUSTOM_PRESET_ICON_OPTIONS.firstOrNull { it.first == iconKey }?.second
+fun customPresetIconOrNull(iconKey: String): AppIconDef? = IconRegistry.defOrNull(iconKey)
 
 /** 그래프 편집기 상수 */
 object CurveEditorConstants {

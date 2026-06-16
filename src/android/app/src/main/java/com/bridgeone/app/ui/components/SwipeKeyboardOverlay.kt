@@ -16,6 +16,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,11 +37,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.offset
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -287,11 +297,18 @@ fun SwipeKeyboardOverlay(
     onCancel: () -> Unit = {},
     onDone: (String) -> Unit,
     showScrim: Boolean = true,
+    gestureFullHeight: Boolean = false,
+    showGuide: Boolean = true,
     initialMode: KeyboardMode = KeyboardMode.HANGUL,
     suggestions: List<String> = emptyList(),
     onNext: ((String) -> Unit)? = null,
     onPrev: ((String) -> Unit)? = null,
-    revertOnCancel: Boolean = true
+    revertOnCancel: Boolean = true,
+    onContentHeightMeasured: ((Int) -> Unit)? = null,
+    showKeyboard: Boolean = true,
+    /** 키보드를 화면 하단으로부터 위로 올릴 거리 (dp). 0이면 화면 하단에 붙음. */
+    keyboardBottomPadding: Dp = 0.dp,
+    overlay: (@Composable BoxScope.() -> Unit)? = null,
 ) {
     val original = remember { initialText }
     var composer by remember { mutableStateOf(ComposerState(committed = initialText)) }
@@ -303,6 +320,16 @@ fun SwipeKeyboardOverlay(
     val hasPrev = onPrev != null
     val hasNext = onNext != null
     val layout = remember(mode, shift) { buildLayout(mode, shift, hasPrev, hasNext, suggestions) }
+
+    val isKeyboardActive by rememberUpdatedState(showKeyboard)
+    LaunchedEffect(showKeyboard) {
+        if (showKeyboard) {
+            composer = ComposerState(committed = initialText)
+            mode = initialMode
+            selectedCell = CellPos(if (suggestions.isEmpty()) 0 else 1, 0)
+            shift = ShiftMode.OFF
+        }
+    }
 
     val currentOnTextChange by rememberUpdatedState(onTextChange)
     LaunchedEffect(composer) {
@@ -495,17 +522,21 @@ fun SwipeKeyboardOverlay(
 
     Box(
         modifier = Modifier
-            .fillMaxSize()
+            .then(
+                if (showScrim || gestureFullHeight || overlay != null) Modifier.fillMaxSize()
+                else Modifier.fillMaxWidth().wrapContentHeight()
+            )
             .background(if (showScrim) Color.Black.copy(alpha = 0.5f) else Color.Transparent)
             .pointerInput(layout) {
                 awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (!isKeyboardActive) return@awaitEachGesture
                     val totalRows = layout.size
                     val rowH = if (gridHeightPx > 0) gridHeightPx.toFloat() / totalRows
                                else size.height.toFloat() / totalRows
                     val totalW = if (gridWidthPx > 0) gridWidthPx.toFloat() else size.width.toFloat()
                     val tapThreshPx = 10.dp.toPx()
 
-                    val down = awaitFirstDown(requireUnconsumed = false)
                     val startPos = down.position
                     val startCell = selectedCell
                     var moved = false
@@ -539,17 +570,28 @@ fun SwipeKeyboardOverlay(
                     if (!moved) activateCell(layout[selectedCell.row].cells[selectedCell.col])
                 }
             },
-        contentAlignment = if (showScrim) Alignment.BottomCenter else Alignment.TopCenter
+        contentAlignment = if (showScrim || gestureFullHeight) Alignment.BottomCenter else Alignment.TopCenter
     ) {
+        AnimatedVisibility(
+            visible = showKeyboard,
+            enter = slideInVertically(tween(220)) { it } + fadeIn(tween(220)),
+            exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(180)),
+            modifier = Modifier.offset(y = -keyboardBottomPadding),
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
                     KB_BG,
-                    if (showScrim) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                    if (showScrim || gestureFullHeight) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
                     else RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
                 )
-                .padding(top = 12.dp, bottom = 8.dp),
+                .padding(top = 12.dp, bottom = 8.dp)
+                .then(
+                    if (onContentHeightMeasured != null)
+                        Modifier.onGloballyPositioned { onContentHeightMeasured(it.size.height) }
+                    else Modifier
+                ),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
 
@@ -697,66 +739,70 @@ fun SwipeKeyboardOverlay(
                 }
             }
 
-            // ── 조작 안내 (2×2 그리드) ──
-            val hints = listOf(
-                Triple("↔", "드래그", "손가락을 밀어 키 선택"),
-                Triple("⊙", "손 떼기", "선택된 키 입력"),
-                Triple("⇧", "Shift", "쌍자음·대문자 (1회 후 복귀)"),
-                Triple("⇄", "모드", "한·A·123 순으로 전환")
-            )
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp)
-                    .padding(top = 6.dp)
-                    .background(KB_SURFACE, RoundedCornerShape(8.dp))
-            ) {
-                hints.forEachIndexed { idx, (icon, action, desc) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = icon,
-                            color = KB_ACCENT,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.width(24.dp)
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            text = action,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "→",
-                            color = KB_LABEL,
-                            fontSize = 12.sp
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = desc,
-                            color = KB_LABEL,
-                            fontSize = 12.sp
-                        )
-                    }
-                    if (idx < hints.lastIndex) {
-                        Spacer(
+            // ── 조작 안내 (2×2 그리드) — showGuide=false 시 숨김 ──
+            if (showGuide) {
+                val hints = listOf(
+                    Triple("↔", "드래그", "손가락을 밀어 키 선택"),
+                    Triple("⊙", "손 떼기", "선택된 키 입력"),
+                    Triple("⇧", "Shift", "쌍자음·대문자 (1회 후 복귀)"),
+                    Triple("⇄", "모드", "한·A·123 순으로 전환")
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp)
+                        .padding(top = 6.dp)
+                        .background(KB_SURFACE, RoundedCornerShape(8.dp))
+                ) {
+                    hints.forEachIndexed { idx, (icon, action, desc) ->
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp)
-                                .height(1.dp)
-                                .background(Color.White.copy(alpha = 0.08f))
-                        )
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = icon,
+                                color = KB_ACCENT,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.width(24.dp)
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                text = action,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "→",
+                                color = KB_LABEL,
+                                fontSize = 12.sp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = desc,
+                                color = KB_LABEL,
+                                fontSize = 12.sp
+                            )
+                        }
+                        if (idx < hints.lastIndex) {
+                            Spacer(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp)
+                                    .height(1.dp)
+                                    .background(Color.White.copy(alpha = 0.08f))
+                            )
+                        }
                     }
                 }
             }
         }
+        } // AnimatedVisibility
+        overlay?.invoke(this)
     }
 }

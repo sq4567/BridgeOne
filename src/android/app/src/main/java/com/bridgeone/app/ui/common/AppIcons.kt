@@ -55,9 +55,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
  *
  * 현재: staticIcon(Material Icons ImageVector)만 사용.
  * 향후: animation 필드를 추가해 Lottie/AVD 애니메이션 아이콘으로 교체 가능.
+ *
+ * @param category 아이콘 카테고리. 기본값 [IconCategory.SYSTEM] (기존 AppIcons object 호출 호환용).
  */
 data class AppIconDef(
     val staticIcon: ImageVector,
+    val category: IconCategory = IconCategory.SYSTEM,
     // val animation: AppIconAnimation? = null  // 향후 Lottie/AVD 확장용 (현재 미구현)
 )
 

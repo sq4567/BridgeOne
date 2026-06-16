@@ -178,6 +178,8 @@ data class TouchpadState(
     val lastScrollMode: ScrollMode = ScrollMode.NORMAL_SCROLL,
     /** 임시 커스텀 DPI 배율 (null = 사전 정의 레벨 사용). 앱 재시작 및 USB 끊김 시 소멸. */
     val customDpiMultiplier: Float? = null,
+    /** 임시 커스텀 스크롤 속도 배율 (null = 사전 정의 레벨 사용). 앱 재시작 및 USB 끊김 시 소멸. */
+    val customScrollSensitivityMultiplier: Float? = null,
     /** 현재 포인터 다이나믹스 프리셋 인덱스 (DYNAMICS_PRESETS 기준). 기본값: 0 = Off */
     val dynamicsPresetIndex: Int = 0,
     /** 현재 모드 프리셋 인덱스 (MODE_PRESETS 기준). 기본값: 0 = Standard */
@@ -188,6 +190,10 @@ data class TouchpadState(
     /** 실제 적용되는 DPI 배율 (커스텀 우선, 없으면 레벨 배율) */
     val effectiveDpiMultiplier: Float
         get() = customDpiMultiplier ?: dpiLevel.multiplier
+
+    /** 실제 적용되는 스크롤 속도 배율 (커스텀 우선, 없으면 레벨 배율) */
+    val effectiveScrollMultiplier: Float
+        get() = customScrollSensitivityMultiplier ?: scrollSensitivity.multiplier
 
     /** 스크롤 모드가 활성화되어 있는지 */
     val isScrollActive: Boolean

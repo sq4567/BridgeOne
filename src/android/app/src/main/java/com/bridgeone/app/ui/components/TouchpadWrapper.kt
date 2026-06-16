@@ -26,7 +26,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +59,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.bridgeone.app.protocol.BridgeMode
+import com.bridgeone.app.ui.common.AudioController
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import com.bridgeone.app.ui.common.TouchpadButtonVisibility
 import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignment
@@ -91,6 +94,11 @@ import com.bridgeone.app.ui.components.touchpad.EdgeSwipeMode
 import com.bridgeone.app.ui.components.touchpad.EdgeSwipeOverlay
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneAction
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneActionHandler
+import com.bridgeone.app.ui.components.touchpad.InputModeCheck
+import com.bridgeone.app.ui.components.touchpad.MouseButton
+import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
+import com.bridgeone.app.ui.components.touchpad.MacroStep
+import com.bridgeone.app.ui.components.touchpad.PageNav
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneDetector
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneOverlay
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneTrigger
@@ -165,6 +173,12 @@ fun TouchpadWrapper(
     onDynamicsLongPress: () -> Unit = {},
     onModePresetLongPress: () -> Unit = {},
     buttonVisibility: TouchpadButtonVisibility = TouchpadButtonVisibility(),
+    onRestorePrevious: () -> Unit = {},
+    onSendShortcut: (modifierBits: Int, keyCodes: List<Int>, hold: Boolean) -> Unit = { _, _, _ -> },
+    onSendMacro: (steps: List<MacroStep>, stepDelayMs: Int) -> Unit = { _, _ -> },
+    onMouseHoldToggle: (button: MouseButton, mode: MouseHoldMode) -> Unit = { _, _ -> },
+    onCyclePage: (direction: PageNav) -> Unit = {},
+    onJumpToPage: (pageIndex: Int) -> Unit = {},
     onTouchEvent: (
         eventType: PointerEventType,
         currentPosition: Offset,
@@ -182,6 +196,13 @@ fun TouchpadWrapper(
     val latestAssignment by rememberUpdatedState(edgeZoneAssignment)
     val latestCustomPresets by rememberUpdatedState(customPresets)
     val latestOnStateChange by rememberUpdatedState(onTouchpadStateChange)
+    val latestOnRestore by rememberUpdatedState(onRestorePrevious)
+    val latestOnSendShortcut by rememberUpdatedState(onSendShortcut)
+    val latestOnSendMacro by rememberUpdatedState(onSendMacro)
+    val latestOnMouseHoldToggle by rememberUpdatedState(onMouseHoldToggle)
+    val latestOnCyclePage by rememberUpdatedState(onCyclePage)
+    val latestOnJumpToPage by rememberUpdatedState(onJumpToPage)
+    var pendingImeCheckMacro: EdgeZoneAction.SendMacro? by remember { mutableStateOf(null) }
     val latestConfig by rememberUpdatedState(buttonVisibility.controlButtonConfig)
 
     // ── 커서 모드 상태 (기존) ──
@@ -831,6 +852,17 @@ fun TouchpadWrapper(
                                                         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                                                         edgeSwipeHapticFired = true
                                                     }
+                                                    // 존 진입 음성 안내 (할당된 존만, 진입 1회)
+                                                    curZone?.let { z ->
+                                                        val isAssigned = when (val t = z.trigger) {
+                                                            is EdgeZoneTrigger.SingleAction -> t.action !is EdgeZoneAction.Unassigned
+                                                            is EdgeZoneTrigger.Rotation -> t.candidates.isNotEmpty()
+                                                        }
+                                                        if (isAssigned) {
+                                                            val text = z.label.ifEmpty { z.action.displayName() }
+                                                            AudioController.speak(text)
+                                                        }
+                                                    }
                                                     // 로테이션 존이면 회전 코루틴 시작
                                                     val rotTrigger = curZone?.trigger as? EdgeZoneTrigger.Rotation
                                                     if (rotTrigger != null && rotTrigger.candidates.size >= com.bridgeone.app.ui.common.EdgeSwipeConstants.EDGE_ZONE_ROTATION_MIN_CANDIDATES) {
@@ -944,7 +976,7 @@ fun TouchpadWrapper(
                             if (latestState.scrollMode == ScrollMode.NORMAL_SCROLL ||
                                 latestState.scrollMode == ScrollMode.INFINITE_SCROLL
                             ) {
-                                val sensitivity = latestState.scrollSensitivity.multiplier
+                                val sensitivity = latestState.effectiveScrollMultiplier
                                 val effectiveUnitPx = scrollUnitPx / sensitivity
 
                                 // 데드존 체크
@@ -1235,10 +1267,29 @@ fun TouchpadWrapper(
                                             ?.takeIf { it !is EdgeZoneAction.Unassigned }
                                 }
                                 if (actionToApply != null) {
-                                    val newState = EdgeZoneActionHandler.applyZoneAction(
-                                        latestState, actionToApply, latestCustomPresets.size
-                                    )
-                                    latestOnStateChange(newState)
+                                    when (actionToApply) {
+                                        EdgeZoneAction.RestorePreviousMode ->
+                                            latestOnRestore()
+                                        is EdgeZoneAction.SendShortcut ->
+                                            latestOnSendShortcut(actionToApply.modifierBits, actionToApply.keyCodes, actionToApply.hold)
+                                        is EdgeZoneAction.SendMacro ->
+                                            if (actionToApply.inputModeCheck != InputModeCheck.NONE)
+                                                pendingImeCheckMacro = actionToApply
+                                            else
+                                                latestOnSendMacro(actionToApply.steps, actionToApply.stepDelayMs)
+                                        is EdgeZoneAction.MouseHoldToggle ->
+                                            latestOnMouseHoldToggle(actionToApply.button, actionToApply.mode)
+                                        is EdgeZoneAction.CyclePage ->
+                                            latestOnCyclePage(actionToApply.direction)
+                                        is EdgeZoneAction.JumpToPage ->
+                                            latestOnJumpToPage(actionToApply.pageIndex)
+                                        else -> {
+                                            val newState = EdgeZoneActionHandler.applyZoneAction(
+                                                latestState, actionToApply, latestCustomPresets.size
+                                            )
+                                            latestOnStateChange(newState)
+                                        }
+                                    }
                                 }
                             }
                             rotationJob?.cancel()
@@ -1292,7 +1343,7 @@ fun TouchpadWrapper(
                             ) {
                                 // 무한 스크롤 손가락 릴리즈 → 관성 시작 (Phase 4.3.4)
                                 val capturedAxis = scrollAxis
-                                val capturedSensitivity = latestState.scrollSensitivity.multiplier
+                                val capturedSensitivity = latestState.effectiveScrollMultiplier
 
                                 // 속도 샘플에서 초기 속도 계산 (dp/ms, 부호 포함)
                                 val initialVelocity = if (velocitySamples.size >= 2) {
@@ -1551,51 +1602,6 @@ fun TouchpadWrapper(
             }
         }
 
-        // 일반 스크롤 버튼 (NORMAL_SCROLL 모드 + 표시 설정 ON일 때만 표시)
-        AnimatedVisibility(
-            visible = touchpadState.scrollMode == ScrollMode.NORMAL_SCROLL && buttonVisibility.showScrollButtons,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(200)),
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 8.dp, bottom = 8.dp)
-        ) {
-            NormalScrollButtons()
-        }
-
-        // 다이나믹스 프리셋 버튼 (커서 이동 모드 + Standard 모드 + 표시 설정 ON일 때만 표시, Phase 4.3.8)
-        AnimatedVisibility(
-            visible = buttonVisibility.showDynamicsButton &&
-                touchpadState.scrollMode == ScrollMode.OFF &&
-                bridgeMode != BridgeMode.ESSENTIAL,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(200)),
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 8.dp, bottom = 8.dp)
-        ) {
-            DynamicsPresetButton(
-                touchpadState = touchpadState,
-                customPresets = customPresets,
-                onTouchpadStateChange = onTouchpadStateChange,
-                onLongPress = onDynamicsLongPress,
-                showLabel = showPresetLabel
-            )
-        }
-
-        // 모드 프리셋 버튼 (Standard 모드 + 표시 설정 ON일 때 표시, Phase 4.4.8)
-        if (buttonVisibility.showModePresetButton && bridgeMode != BridgeMode.ESSENTIAL) {
-            ModePresetButton(
-                touchpadState = touchpadState,
-                onTouchpadStateChange = onTouchpadStateChange,
-                onLongPress = onModePresetLongPress,
-                showLabel = showModePresetLabel,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 8.dp, bottom = 8.dp)
-            )
-        }
-
         // 산봉우리 오버레이 (Phase 4.4.6)
         // 드래그 중: lastBump*(nearest edge 기준) 사용 / 수축 중: Animatable 값 사용
         val effectiveBumpEdge = when {
@@ -1649,6 +1655,51 @@ fun TouchpadWrapper(
             }
         }
 
+        // 일반 스크롤 버튼 (NORMAL_SCROLL 모드 + 표시 설정 ON일 때만 표시)
+        AnimatedVisibility(
+            visible = touchpadState.scrollMode == ScrollMode.NORMAL_SCROLL && buttonVisibility.showScrollButtons,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(200)),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 8.dp, bottom = 8.dp)
+        ) {
+            NormalScrollButtons()
+        }
+
+        // 다이나믹스 프리셋 버튼 (커서 이동 모드 + Standard 모드 + 표시 설정 ON일 때만 표시, Phase 4.3.8)
+        AnimatedVisibility(
+            visible = buttonVisibility.showDynamicsButton &&
+                touchpadState.scrollMode == ScrollMode.OFF &&
+                bridgeMode != BridgeMode.ESSENTIAL,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(200)),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 8.dp, bottom = 8.dp)
+        ) {
+            DynamicsPresetButton(
+                touchpadState = touchpadState,
+                customPresets = customPresets,
+                onTouchpadStateChange = onTouchpadStateChange,
+                onLongPress = onDynamicsLongPress,
+                showLabel = showPresetLabel
+            )
+        }
+
+        // 모드 프리셋 버튼 (Standard 모드 + 표시 설정 ON일 때 표시, Phase 4.4.8)
+        if (buttonVisibility.showModePresetButton && bridgeMode != BridgeMode.ESSENTIAL) {
+            ModePresetButton(
+                touchpadState = touchpadState,
+                onTouchpadStateChange = onTouchpadStateChange,
+                onLongPress = onModePresetLongPress,
+                showLabel = showModePresetLabel,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 8.dp, bottom = 8.dp)
+            )
+        }
+
         // 엣지 스와이프 메뉴 오버레이 (Phase 4.3.12) — 최상단 레이어
         EdgeSwipeOverlay(
             visible = showEdgePopup,
@@ -1668,6 +1719,25 @@ fun TouchpadWrapper(
             modifier = Modifier.fillMaxSize()
         )
         }  // inner Box 끝
+
+        // 입력 모드 확인 다이얼로그 (한글 / 영어)
+        pendingImeCheckMacro?.let { macro ->
+            val isKorean = macro.inputModeCheck == InputModeCheck.KOREAN
+            AlertDialog(
+                onDismissRequest = { pendingImeCheckMacro = null },
+                title = { Text(if (isKorean) "한글 모드 확인" else "영어 모드 확인") },
+                text = { Text(if (isKorean) "매크로를 실행하기 전에 PC가 한글 입력 모드인지 확인하세요." else "매크로를 실행하기 전에 PC가 영어 입력 모드인지 확인하세요.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pendingImeCheckMacro = null
+                        latestOnSendMacro(macro.steps, macro.stepDelayMs)
+                    }) { Text("확인 후 실행") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingImeCheckMacro = null }) { Text("취소") }
+                }
+            )
+        }
 
     }  // outer Box 끝
 }

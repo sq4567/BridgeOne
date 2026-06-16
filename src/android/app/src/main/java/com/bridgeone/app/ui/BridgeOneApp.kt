@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.common.BOTTOM_SAFE_ZONE
+import com.bridgeone.app.ui.common.MacroScrimOverlay
 import com.bridgeone.app.ui.common.StatusToastOverlay
 import com.bridgeone.app.ui.common.TOP_SAFE_ZONE
 import com.bridgeone.app.ui.common.ToastController
@@ -302,6 +303,8 @@ fun BridgeOneApp() {
             }
         }
 
+        // 매크로 실행 중 터치 차단 스크림 (토스트 아래에 배치 → 토스트는 스크림 위로 보임)
+        MacroScrimOverlay()
         // 커스텀 토스트 오버레이 (항상 최상단에 렌더링)
         StatusToastOverlay()
     }

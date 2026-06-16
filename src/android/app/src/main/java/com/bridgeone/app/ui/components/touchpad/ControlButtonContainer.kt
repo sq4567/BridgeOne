@@ -98,7 +98,10 @@ data class ControlButtonConfig(
     val showCursorMode: Boolean = false,
     val showDpi: Boolean = true,
     val showScrollSensitivity: Boolean = true
-)
+) {
+    val hasControlButtons: Boolean
+        get() = showClickMode || showMoveMode || showScrollMode || showCursorMode || showDpi || showScrollSensitivity
+}
 
 // ============================================================
 // ControlButtonContainer

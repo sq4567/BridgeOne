@@ -13,6 +13,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.bridgeone.app.ui.BridgeOneApp
+import com.bridgeone.app.ui.common.AudioController
 import com.bridgeone.app.ui.common.ToastController
 import com.bridgeone.app.ui.theme.BridgeOneTheme
 import com.bridgeone.app.usb.UsbDeviceDetectionReceiver
@@ -66,6 +67,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Phase 4.6.4: 존 음성 안내 TTS 초기화
+        AudioController.initialize(applicationContext)
+
         // Phase 2.3.1.1: USB Serial 인식 검증을 위한 초기화
         initializeUsbSystem()
 
@@ -90,6 +94,12 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         // 리소스 정리: BroadcastReceiver 등록 해제
         unregisterUsbBroadcastReceivers()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // TTS 엔진 해제 (리소스 누수 방지)
+        AudioController.shutdown()
     }
 
     /**

@@ -60,6 +60,7 @@ class CustomPresetsRepository(context: Context) {
         put("decel", serializeCurve(p.decelerationCurve))
         if (p.description.isNotEmpty()) put("description", p.description)
         if (p.iconKey.isNotEmpty()) put("iconKey", p.iconKey)
+        if (p.colorHex.isNotEmpty()) put("colorHex", p.colorHex)
     }
 
     private fun serializeCurve(curve: List<CurveNode>): JSONArray {
@@ -79,7 +80,8 @@ class CustomPresetsRepository(context: Context) {
         accelerationCurve = parseCurve(obj.getJSONArray("accel")),
         decelerationCurve = parseCurve(obj.getJSONArray("decel")),
         description = obj.optString("description", ""),
-        iconKey = obj.optString("iconKey", "")
+        iconKey = obj.optString("iconKey", ""),
+        colorHex = obj.optString("colorHex", "")
     )
 
     private fun parseCurve(arr: JSONArray): List<CurveNode> =

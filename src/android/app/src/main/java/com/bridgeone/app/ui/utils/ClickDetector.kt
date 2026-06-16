@@ -376,6 +376,24 @@ object ClickDetector {
     }
 
     /**
+     * 마우스 버튼 프레임을 생성합니다 (홀드/릴리즈 토글용).
+     *
+     * @param buttons 버튼 비트마스크 (BridgeFrame.BUTTON_LEFT/RIGHT/MIDDLE_MASK 조합). 기본값: 0u
+     * @return BridgeFrame 객체
+     */
+    fun createMouseButtonFrame(buttons: UByte): BridgeFrame {
+        return FrameBuilder.buildFrame(
+            buttons  = buttons,
+            deltaX   = 0,
+            deltaY   = 0,
+            wheel    = 0,
+            modifiers = 0u,
+            keyCode1 = 0u,
+            keyCode2 = 0u
+        )
+    }
+
+    /**
      * 생성된 BridgeFrame을 UART로 비동기로 전송합니다.
      *
      * UsbSerialManager.sendFrame()을 호출하여 USB Serial 포트를 통해

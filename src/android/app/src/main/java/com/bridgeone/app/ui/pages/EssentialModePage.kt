@@ -29,12 +29,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import android.content.Context
 import android.util.Log
 import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.common.*
 import com.bridgeone.app.ui.components.KeyboardKeyButton
 import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.utils.ClickDetector
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 
 // ============================================================
 // Essential 모드 페이지
@@ -48,7 +51,16 @@ import com.bridgeone.app.ui.utils.ClickDetector
  */
 @Composable
 fun EssentialModePage() {
+    val context = LocalContext.current
     val activeKeys = remember { mutableStateOf(setOf<UByte>()) }
+
+    val assignmentRepo = remember {
+        TouchpadEdgeZoneAssignmentRepository(context).also { it.migrateLegacyIfNeeded(context) }
+    }
+    var essentialAssignment by remember { mutableStateOf(assignmentRepo.load(TouchpadIds.ESSENTIAL_PRIMARY)) }
+    LaunchedEffect(essentialAssignment) {
+        assignmentRepo.save(TouchpadIds.ESSENTIAL_PRIMARY, essentialAssignment)
+    }
 
     Column(
         modifier = Modifier
@@ -65,7 +77,10 @@ fun EssentialModePage() {
         ) {
             // 좌측: 터치패드 (72%)
             TouchpadWrapper(
+                touchpadId = TouchpadIds.ESSENTIAL_PRIMARY,
                 bridgeMode = BridgeMode.ESSENTIAL,
+                edgeZoneAssignment = essentialAssignment,
+                onEdgeZoneAssignmentChange = { essentialAssignment = it },
                 modifier = Modifier
                     .weight(0.72f)
                     .fillMaxHeight()
