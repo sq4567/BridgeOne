@@ -44,28 +44,32 @@ class FrameBuilderTest {
     }
 
     /**
-     * Test: Sequence wraps around (255 -> 0)
+     * Test: Sequence wraps around (253 -> 0)
+     *
+     * SEQ_MODULUS=254: 유효 범위는 0~253. 0xFE(254)·0xFF(255)는 프로토콜 예약 바이트.
      */
     @Test
     fun testSequenceWraparound() {
-        // Setup: Create frames up to sequence 253
-        repeat(253) {
+        // seq 0..252 소비
+        repeat(252) {
             FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
         }
 
+        val frame252 = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
         val frame253 = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
-        val frame254 = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
-        val frame255 = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
-        val frameWrapped = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
+        val frameWrapped = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)  // 254번째 → 0
+        val frameAfterWrap = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
 
+        assertEquals("seq 252", 252u.toUByte(), frame252.seq)
         assertEquals("seq 253", 253u.toUByte(), frame253.seq)
-        assertEquals("seq 254", 254u.toUByte(), frame254.seq)
-        assertEquals("seq 255", 255u.toUByte(), frame255.seq)
-        assertEquals("seq wraps to 0", 0u.toUByte(), frameWrapped.seq)
+        assertEquals("seq wraps to 0 after 253", 0u.toUByte(), frameWrapped.seq)
+        assertEquals("seq 1 after wrap", 1u.toUByte(), frameAfterWrap.seq)
     }
 
     /**
-     * Test: Multiple wrap-arounds (255 -> 0 -> 1 -> ...)
+     * Test: Multiple wrap-arounds (253 -> 0 -> 1 -> ...)
+     *
+     * SEQ_MODULUS=254 기준으로 254번째 프레임부터 0으로 순환.
      */
     @Test
     fun testMultipleWraparounds() {
@@ -75,7 +79,7 @@ class FrameBuilderTest {
 
         for (i in 250 until 260) {
             val frame = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
-            val expected = (i % 256).toUByte()
+            val expected = (i % 254).toUByte()  // SEQ_MODULUS=254 기준
             assertEquals("seq at $i", expected, frame.seq)
         }
     }
@@ -210,7 +214,7 @@ class FrameBuilderTest {
         val totalExpectedCalls = NUM_THREADS * FRAMES_PER_THREAD
         assertEquals(
             "counter after all calls",
-            totalExpectedCalls % 256,
+            totalExpectedCalls % 254,  // SEQ_MODULUS=254
             sequenceValues.get()
         )
     }
@@ -233,14 +237,17 @@ class FrameBuilderTest {
 
     /**
      * Test: Extreme sequence wraparound
+     *
+     * SEQ_MODULUS=254: 250번째 이후 253→0→1→2 순환 확인.
      */
     @Test
     fun testExtremeSequenceWraparound() {
-        repeat(254) {
+        repeat(250) {
             FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
         }
 
-        val expectedSequences = listOf(254, 255, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+        // 250부터 시작해서 253→0→1→2 순환 확인
+        val expectedSequences = listOf(250, 251, 252, 253, 0, 1, 2, 3, 4, 5, 6, 7)
         expectedSequences.forEach { expected ->
             val frame = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
             assertEquals("wraparound seq", expected.toUByte(), frame.seq)
@@ -292,19 +299,22 @@ class FrameBuilderTest {
     }
 
     /**
-     * Test: Full 0-255 sequence cycle
+     * Test: Full 0-253 sequence cycle (SEQ_MODULUS=254)
+     *
+     * 0xFE(254)·0xFF(255)는 프로토콜 예약 바이트라 유효 범위는 0~253.
+     * 한 사이클 = 254 프레임.
      */
     @Test
     fun testFullSequenceCycle() {
         FrameBuilder.resetSequence()
 
         val sequences = mutableListOf<UByte>()
-        repeat(256) {
+        repeat(254) {  // SEQ_MODULUS=254 한 사이클
             val frame = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
             sequences.add(frame.seq)
         }
 
-        for (i in 0 until 256) {
+        for (i in 0 until 254) {
             assertEquals("seq at position $i", i.toUByte(), sequences[i])
         }
 

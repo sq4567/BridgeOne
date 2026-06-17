@@ -41,6 +41,11 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true  // android.util.Log 등 미구현 호출을 0/null/false로 반환
+        }
+    }
 }
 
 dependencies {
@@ -62,6 +67,7 @@ dependencies {
     implementation(libs.accompanistPermissions)
     
     testImplementation(libs.junit)
+    testImplementation(libs.org.json)  // EdgeZoneJson 라운드트립용 PC측 org.json 구현
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

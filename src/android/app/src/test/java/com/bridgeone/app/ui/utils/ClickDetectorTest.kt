@@ -198,5 +198,57 @@ class ClickDetectorTest {
         assertEquals("keyCode1 should be 0 (key release)", 0u.toUByte(), frame.keyCode1)
         assertTrue("LEFT_SHIFT should still be active", frame.isShiftModifierActive())
     }
+
+    // ======================================================
+    // detectClick 경계 4상한 테스트 (Phase 4.7.2-B 보강)
+    //
+    // CLICK_MAX_DURATION = 500L (ms), CLICK_MAX_MOVEMENT_DP = 15f (dp)
+    // Log.d 부수효과는 testOptions.isReturnDefaultValues=true 로 처리
+    // ======================================================
+
+    @Test
+    fun detectClick_shortDuration_smallMovement_leftClick() {
+        // duration < 500 && movement < 15 → LEFT_CLICK(0x01)
+        assertEquals("short tap → LEFT_CLICK",
+            0x01.toUByte(), ClickDetector.detectClick(499L, 14.99f))
+    }
+
+    @Test
+    fun detectClick_longDuration_smallMovement_rightClick() {
+        // duration >= 500 && movement < 15 → RIGHT_CLICK(0x02)
+        assertEquals("long press → RIGHT_CLICK",
+            0x02.toUByte(), ClickDetector.detectClick(500L, 14.99f))
+    }
+
+    @Test
+    fun detectClick_largeMovement_noClick() {
+        // movement >= 15 (duration 무관) → NO_CLICK(0x00)
+        assertEquals("moved ≥ 15dp → NO_CLICK",
+            0x00.toUByte(), ClickDetector.detectClick(100L, 15.0f))
+    }
+
+    @Test
+    fun detectClick_boundary_duration499_leftClick() {
+        assertEquals("duration=499 → LEFT_CLICK",
+            0x01.toUByte(), ClickDetector.detectClick(499L, 0f))
+    }
+
+    @Test
+    fun detectClick_boundary_duration500_rightClick() {
+        assertEquals("duration=500 → RIGHT_CLICK",
+            0x02.toUByte(), ClickDetector.detectClick(500L, 0f))
+    }
+
+    @Test
+    fun detectClick_boundary_movement1499_leftClick() {
+        assertEquals("movement=14.99 → LEFT_CLICK",
+            0x01.toUByte(), ClickDetector.detectClick(0L, 14.99f))
+    }
+
+    @Test
+    fun detectClick_boundary_movement1500_noClick() {
+        assertEquals("movement=15.0 → NO_CLICK",
+            0x00.toUByte(), ClickDetector.detectClick(0L, 15.0f))
+    }
 }
 

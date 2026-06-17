@@ -116,10 +116,15 @@ updated: "2026-06-17"
 **작업 항목**:
 
 ### 4.7.2-A: 테스트 의존성 추가
-- `gradle/libs.versions.toml` + `app/build.gradle.kts`에 추가:
-  - `kotlinx-coroutines-test` (코루틴 로직 테스트)
-  - `org.robolectric:robolectric` (Compose `Density`/`Offset` 등 androidx.compose.ui 단위에 의존하는 순수 로직의 JVM 테스트)
-  - (선택) `com.google.truth` (단언 가독성)
+
+> **⚠️ 계획 변경 (Robolectric 미채택 → 경량 구성 채택)**: 원안의 Robolectric/Truth/coroutines-test 대신 다음 최소 의존성만 추가. 테스트 대상 4종의 Android 의존성이 `android.util.Log`(ClickDetector)와 `org.json`(EdgeZoneJson) 둘뿐이며, `Offset`/`Density`/`Dp`는 순수 Compose 값 클래스라 JVM에서 그대로 로드됨. 기존 테스트 전부 순수 JUnit4(`assertEquals`) → 컨벤션 유지.
+
+**실제 추가된 의존성**:
+- `testOptions { unitTests { isReturnDefaultValues = true } }` (android 블록) — `android.util.Log` 미구현 호출을 0/null/false로 처리
+- `org.json:json:20240303` (testImplementation) — EdgeZoneJson 라운드트립용 PC측 실구현
+- `kotlinx-coroutines-test`: 4.7.2-B 대상에 코루틴 로직 없음 → 4.7.3-C/4.7.4-B에서 추가
+- `org.robolectric:robolectric`: 미채택
+- `com.google.truth`: 미채택 (기존 `assertEquals` 컨벤션 유지)
 
 ### 4.7.2-B: 이미 순수한 로직 즉시 테스트 (코드 수정 불요, 최우선)
 - `src/test/.../ui/utils/DeltaCalculatorTest.kt` (신규):
@@ -137,8 +142,8 @@ updated: "2026-06-17"
 - **존 분할/병합** — `EdgeZoneEditorScreen`의 로컬 `fun splitInto`/`tryMergeWith`(393~427행). 클로저에 갇힘 → 4.7.5-A
 
 **검증**:
-- [ ] `.\gradlew testDebugUnitTest` 그린
-- [ ] 4.7.2-B 대상 로직이 모두 테스트로 고정됨 (이후 회귀 시 즉시 탐지)
+- [x] `.\gradlew testDebugUnitTest` 전체 그린 (103 tests, 0 fail)
+- [x] 4.7.2-B 대상 로직이 모두 테스트로 고정됨 (이후 회귀 시 즉시 탐지)
 
 ---
 
