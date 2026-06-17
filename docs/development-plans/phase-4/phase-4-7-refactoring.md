@@ -11,19 +11,20 @@ updated: "2026-06-17"
 
 **개발 기간**: 미정
 
-**목표**: Phase 4.1~4.6에서 리팩토링 없이 누적 개발된 Android 코드의 외부 동작을 100% 유지한 채 내부 구조를 개선합니다. 상수 정리, 중복 제거, 거대 파일 분해, MVVM ViewModel 도입을 통해 코드 품질과 유지보수성을 높입니다.
+**목표**: Phase 4.1~4.6에서 리팩토링 없이 누적 개발된 Android 코드의 외부 동작을 100% 유지한 채 내부 구조를 개선합니다. 테스트 안전망 구축, 상수 정리, 중복 제거, 거대 파일 분해, 상태 홀더 분리를 통해 코드 품질과 유지보수성을 높입니다.
 
 **핵심 성과물**:
+- 핵심 입력 로직(`DeltaCalculator`·매크로 시퀀싱·엣지 기하 등)의 단위 테스트 안전망
 - 기능별로 분리된 `*Constants.kt` 파일군
-- 중복 제거용 공통 유틸 (`HapticFeedbackHelper`, `PopupScaffold`)
+- 중복 제거용 공통 유틸 (`HapticFeedbackHelper`)
 - `TouchpadWrapper` / `StandardModePage` / `EdgeZoneEditorScreen` / `DynamicsCurveEditor` 분해
-- 화면별 `ViewModel` (`TouchpadViewModel`, `StandardModePageViewModel`, `EdgeZoneEditorViewModel`)
+- 화면별 상태 홀더 (`TouchpadGestureState`, `StandardModePageState`, `EdgeZoneEditorState`)
 
 **선행 조건**: Phase 4.6 완료
 
-**불변 조건 (핵심)**: 모든 하위 Phase는 사용자가 체감하는 동작을 바꾸지 않습니다. 이것이 기능 변경과 리팩토링을 가르는 기준입니다. 각 하위 Phase 완료 시 `.\gradlew assembleDebug` 빌드 통과 + 해당 기능 수동 회귀 확인을 마친 뒤 다음 단계로 진행합니다.
+**불변 조건 (핵심)**: 모든 하위 Phase는 사용자가 체감하는 동작을 바꾸지 않습니다. 이것이 기능 변경과 리팩토링을 가르는 기준입니다. **이 불변 조건을 자동으로 보증하기 위해, 거대 파일을 손대기 전에 핵심 로직의 단위 테스트를 먼저 깝니다(Phase 4.7.2).** 각 하위 Phase 완료 시 `.\gradlew testDebugUnitTest`(해당 시) + `.\gradlew assembleDebug` 빌드 통과 + 해당 기능 수동 회귀 확인을 마친 뒤 다음 단계로 진행합니다.
 
-**진행 순서**: 저위험(상수·중복) → 고위험(구조·ViewModel) 순서로 진행합니다. 각 하위 Phase는 독립적으로 빌드·검증 가능한 단위이므로, 중간에 중단해도 코드가 깨지지 않습니다.
+**진행 순서**: 테스트 안전망 → 저위험(상수·중복·파일 이동) → 고위험(구조·상태 분리) 순서로 진행합니다. 각 하위 Phase는 독립적으로 빌드·검증 가능한 단위이므로, 중간에 중단해도 코드가 깨지지 않습니다. 회귀가 생기면 어느 단계가 원인인지 단위 테스트가 특정해 줍니다.
 
 **Phase 4.15(성능 최적화)와의 관계**: 본 Phase는 **구조 개선**이 목적이며, 성능 향상은 부수적 결과입니다. 측정 기반의 성능 최적화는 모든 기능 완성 후 `phase-4-15-performance.md`에서 별도로 진행합니다. 일부 대상 코드가 겹치므로(예: 햅틱 호출, 제스처 루프), 본 Phase에서 만든 구조 위에서 4.15가 동작하게 됩니다.
 
@@ -49,12 +50,18 @@ updated: "2026-06-17"
 
 ### 목표 아키텍처
 
-BridgeOne 기존 아키텍처(MVVM + Clean Architecture)에 맞춰, 화면 단위로 상태·로직을 `ViewModel`로 이관하고 Composable은 렌더링과 이벤트 위임만 담당하는 단방향 데이터 흐름(UDF)으로 재구성합니다.
+화면 단위로 상태·로직을 **평범한 상태 홀더 클래스**(`*State`)로 이관하고 Composable은 렌더링과 이벤트 위임만 담당하는 단방향 데이터 흐름(UDF)으로 재구성합니다.
 
 ```
-[Composable] --user event--> [ViewModel] --state(StateFlow)--> [Composable]
-   (렌더링 전용)                (상태·비즈니스 로직)
+[Composable] --user event--> [상태 홀더] --state--> [Composable]
+   (렌더링 전용)              (상태·비즈니스 로직)
 ```
+
+> **상태 홀더 방식 결정 (AndroidX ViewModel 미채택)**: 본 Phase는 `androidx.lifecycle.ViewModel`이 아니라 **평범한 클래스 상태 홀더 + `remember`**를 표준으로 합니다. 근거:
+> - 이 앱은 단일 모듈·화면 소수이고 의존성 그래프가 얕습니다(리포지토리 전부 `(context)` 1-인자). DI 프레임워크(Hilt) 비용 대비 이득이 적어 **도입하지 않습니다.**
+> - 프로젝트가 이미 `SwipeFocusController`·`ModeHistoryStack`·`*Repository(context)`로 **수동 DI + 상태 홀더 컨벤션**을 확립해 두었습니다. 이 컨벤션과 일치시킵니다.
+> - `TouchpadWrapper`는 페이저 안에서 `touchpadId`별 다중 인스턴스라, AndroidX ViewModel은 `viewModel(key=...)` 키 관리가 오히려 번거롭습니다. `remember(touchpadId)`가 현 구조에 더 맞습니다.
+> - 예외: 구성 변경(화면 회전) 시 상태 보존이 꼭 필요한 화면에 한해 선택적으로 `androidx.lifecycle.ViewModel`(+`lifecycle-viewmodel-compose` 의존성) 채택을 검토합니다. 매니페스트 `screenOrientation` 확인 후 결정합니다.
 
 ---
 
@@ -100,52 +107,67 @@ BridgeOne 기존 아키텍처(MVVM + Clean Architecture)에 맞춰, 화면 단�
 
 ---
 
-## Phase 4.7.2: 공통 유틸 추출 (중복 제거)
+## Phase 4.7.2: 테스트 안전망 선행 구축
 
-**목표**: 반복되는 햅틱 호출과 Popup 보일러플레이트를 공통 단위로 통합합니다.
+> **신설 (4.7.2의 기존 "공통 유틸 추출"은 4.7.3-B로 이동)**: 거대 파일을 손대기 전에 핵심 로직의 단위 테스트를 먼저 깝니다. 동작을 전혀 바꾸지 않으므로 가장 안전하며, 이후 모든 분해 단계에서 "무엇이 깨졌는지" 자동으로 특정하는 기반이 됩니다. 현재 입력 핵심인 `DeltaCalculator`에 테스트가 0개라는 점이 본 리팩토링의 가장 큰 위험 요소입니다.
+
+**목표**: 외부 동작 100% 유지를 자동 검증할 단위 테스트 안전망을 구축합니다.
 
 **작업 항목**:
-1. 반복되는 햅틱 진동 호출을 `HapticFeedbackHelper`로 단일화 (호출부는 헬퍼를 통해 진동)
-2. 4개 Popup의 공통 열기·닫기·dismiss 구조를 `PopupScaffold`로 추출, 각 Popup이 이를 사용하도록 변경
 
-**신규 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/common/HapticFeedbackHelper.kt`
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/common/PopupScaffold.kt` (위치는 구현 시 확정)
+### 4.7.2-A: 테스트 의존성 추가
+- `gradle/libs.versions.toml` + `app/build.gradle.kts`에 추가:
+  - `kotlinx-coroutines-test` (코루틴 로직 테스트)
+  - `org.robolectric:robolectric` (Compose `Density`/`Offset` 등 androidx.compose.ui 단위에 의존하는 순수 로직의 JVM 테스트)
+  - (선택) `com.google.truth` (단언 가독성)
 
-**수정 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt` (햅틱 호출부)
-- `DynamicsPresetPopup.kt` / `ModePresetPopup.kt` / `EdgeZonePresetPopup.kt` / `DpiAdjustPopup.kt`
+### 4.7.2-B: 이미 순수한 로직 즉시 테스트 (코드 수정 불요, 최우선)
+- `src/test/.../ui/utils/DeltaCalculatorTest.kt` (신규):
+  - `calculateDelta`, `applyDeadZone`(데드존 미만→0 / 초과→±127 clamp / 축 독립), `normalizeOnly`
+  - `determineRightAngleAxis`(데드밴드 각도 경계 HORIZONTAL/VERTICAL/UNDECIDED), `applyRightAngleLock`
+  - `applyPointerDynamics`(NONE/WINDOWS_EPP/LINEAR 분기 + maxMultiplier clamp), `interpolateCurve`(경계·보간), `applyCustomDynamics`(가속/감속 곡선 히스테리시스)
+- `ClickDetectorTest.kt` (기존 보강): `detectClick`의 500ms/15dp 경계 4상한(LEFT/RIGHT/NO_CLICK) 명시
+- `MacroTextEncoderTest.kt` (신규): 한/영 전환·자모 스텝 생성
+- `EdgeZoneJsonTest.kt` (신규): config↔JSON 라운드트립 (직렬화 보존 → 프리셋 회귀 방지)
 
-> **⚠️ Phase 4.15.2 영향**: 4.15.2(햅틱 호출 빈도 최적화)는 본 Phase에서 만든 `HapticFeedbackHelper`에 시간 게이트(`HAPTIC_MIN_INTERVAL_MS`)를 추가하는 방식으로 진행하면 됩니다. 호출부가 헬퍼로 단일화되어 있으므로 한 곳만 수정하면 전체 적용됩니다.
+### 4.7.2-C: 추출 후 테스트할 로직 식별 (식별만, 추출은 해당 Phase에서)
+현재 Composable에 묶여 테스트 불가능한 순수 로직. 이후 단계에서 추출하며 테스트를 함께 작성:
+- **매크로 시퀀싱** — `StandardModePage.onSendMacro`(약 218~320행) → 4.7.4-B에서 `MacroFrameSequencer`로 추출
+- **엣지 진입 판정** — `TouchpadWrapper`의 `detectEntryEdge`/`getInwardDistance`/`findNearestEdge`/`computeDirectTouchButtonRects`/`applyEdgeModeToggle`(1756~1919행). 이미 top-level `private fun`이라 visibility만 `internal`로 올리면 즉시 테스트 가능 → 4.7.3-A
+- **존 분할/병합** — `EdgeZoneEditorScreen`의 로컬 `fun splitInto`/`tryMergeWith`(393~427행). 클로저에 갇힘 → 4.7.5-A
 
 **검증**:
-- [ ] `.\gradlew assembleDebug` 빌드 통과
-- [ ] 무한 스크롤·관성·경계 피드백 등 모든 햅틱 체감 동일
-- [ ] 4개 Popup의 열기·선택·취소 동작 동일
+- [ ] `.\gradlew testDebugUnitTest` 그린
+- [ ] 4.7.2-B 대상 로직이 모두 테스트로 고정됨 (이후 회귀 시 즉시 탐지)
 
 ---
 
-## Phase 4.7.3: TouchpadWrapper 분해 + TouchpadViewModel 도입
+## Phase 4.7.3: TouchpadWrapper 분해 + 제스처 핸들러 추출
 
-**목표**: `TouchpadWrapper.kt`의 상태·로직을 ViewModel로 이관하고 Composable은 렌더링 전용으로 축소합니다.
+> **⚠️ Phase 4.15.3 / 4.15.4 영향**: 가이드라인 리컴포지션 최소화(4.15.3)와 제스처 루프 작업 제거(4.15.4)는 본 Phase에서 분리된 상태 홀더·핸들러 구조 위에서 진행됩니다. 4.15 진행 시 본 Phase 결과(파일 위치)를 먼저 확인할 것.
+
+**목표**: 순수 함수부터 끄집어낸 뒤 상태 홀더로 모읍니다. 제스처 루프(`pointerInput`)는 Compose `PointerInputScope` 컨텍스트가 필요해 통째로 옮길 수 없으므로, "계산"과 "루프"를 분리합니다.
 
 **작업 항목**:
-1. 제스처 처리 로직을 별도 핸들러로 추출
-2. 스크롤 축 확정·관성·가속도 등 상태 계산과 다수 상태 변수를 `TouchpadViewModel`로 이관, UDF 적용
-3. Composable에는 UI 렌더링과 이벤트 위임만 잔류
 
-**신규 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadViewModel.kt`
-- 제스처 핸들러 파일 (이름·위치는 구현 시 확정)
+### 4.7.3-A (저위험): 순수 기하/판정 함수 분리
+- 신규 `ui/components/touchpad/EdgeGeometry.kt`: 1756~1919행의 `detectEntryEdge`/`getInwardDistance`/`getAlongEdgePosition`/`findNearestEdge`/`computeDirectTouchButtonRects`/`applyEdgeModeToggle`를 `internal` top-level로 이동 (동작 동일)
+- 신규 `EdgeGeometryTest.kt`로 고정 (4.7.2-C 항목 해소)
 
-**수정 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
-- `TouchpadWrapper`를 호출하는 페이지 (ViewModel 연결)
+### 4.7.3-B (중위험): 햅틱 단일화 (기존 4.7.2 항목 흡수)
+- 신규 `ui/common/HapticFeedbackHelper.kt`: 반복되는 `vibrator.vibrate(...)` 호출 블록(무한 스크롤 햅틱·관성 햅틱 등)을 `class HapticFeedbackHelper(vibrator)`로 통합
+- 수정: `TouchpadWrapper.kt`(햅틱 호출부)
 
-> **⚠️ Phase 4.15.3 / 4.15.4 영향**: 가이드라인 리컴포지션 최소화(4.15.3)와 제스처 루프 작업 제거(4.15.4)는 본 Phase에서 분리된 ViewModel·핸들러 구조 위에서 진행됩니다. 대상 파일 위치가 달라질 수 있으므로 4.15 진행 시 본 Phase 결과를 먼저 확인할 것.
+> **⚠️ Phase 4.15.2 영향**: 4.15.2(햅틱 호출 빈도 최적화)는 `HapticFeedbackHelper`에 시간 게이트(`HAPTIC_MIN_INTERVAL_MS`)를 추가하는 방식으로 진행합니다. 호출부가 헬퍼로 단일화되어 있으므로 한 곳만 수정하면 전체 적용됩니다.
+
+### 4.7.3-C (고위험): TouchpadGestureState 상태 홀더 도입
+- 신규 `ui/components/TouchpadGestureState.kt`: **`SwipeFocusController`와 동일한 평범한 클래스 상태 홀더** (lifecycle 의존 없음, 컨벤션 일치). 53개 상태 중 비-Compose-애니메이션 상태(스크롤 축 `lastScrollAxis`, `previousVelocityDpMs`, `lastScrollFrameSentMs`, 관성 Job 핸들, 엣지 후보/회전 인덱스 등)를 이관
+- `Animatable`/`animateColorAsState` 등 컴포지션 종속 상태는 Composable에 잔류
+- 제스처 루프는 `TouchpadWrapper`에 유지하되, 루프 내부 계산을 핸들러 메서드 호출(`gestureState.onMove(...)` 등)로 치환. 프레임 전송은 `ClickDetector.sendFrame` 그대로
+- 인스턴스화: `remember(touchpadId)` (페이저 내 `touchpadId`별 다중 인스턴스 대응)
 
 **검증**:
-- [ ] `.\gradlew assembleDebug` 빌드 통과
+- [ ] `.\gradlew testDebugUnitTest`(EdgeGeometry) + `.\gradlew assembleDebug` 통과
 - [ ] 커서 이동·클릭·드래그 동작 동일
 - [ ] 스크롤(일반/무한)·관성·축 확정·직각 이동 동작 동일
 - [ ] 엣지 스와이프 메뉴·가이드라인 표시 동일
@@ -153,72 +175,91 @@ BridgeOne 기존 아키텍처(MVVM + Clean Architecture)에 맞춰, 화면 단�
 
 ---
 
-## Phase 4.7.4: StandardModePage 분해 + StandardModePageViewModel 도입
+## Phase 4.7.4: StandardModePage 분해 + 매크로 시퀀서 추출
 
-**목표**: 한 파일에 정의된 다수 Composable을 페이지별로 분리하고 공유 상태를 ViewModel로 이관합니다.
+**목표**: 한 파일에 정의된 13개 Composable을 페이지별로 분리하고, 매크로 시퀀싱 순수 로직을 추출하며, 공유 상태를 상태 홀더로 이관합니다.
 
 **작업 항목**:
-1. 한 파일 내 정의된 페이지/팝업 Composable을 페이지 단위 파일로 분리
-2. 페이지 간 공유 상태와 모드 전환 로직을 `StandardModePageViewModel`로 이관
 
-**신규 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/StandardModePageViewModel.kt`
-- 페이지별 분리 파일 (이름·위치는 구현 시 확정)
+### 4.7.4-A (저위험): 페이지 Composable 파일 분리
+파일 경계가 이미 깔끔하므로 단순 이동 (`ui/pages/standard/` 신설):
+- `Page1TouchpadActions.kt` (+`ActionsPanel`/`SpecialKeysGrid`/`ShortcutsGrid`/`MacrosPlaceholder`)
+- `Page2TestTouchpad.kt` / `Page3KeyboardPlaceholder.kt` / `Page4MinecraftPlaceholder.kt` / `Page5Settings.kt`(+`SettingsInputModeSection`/`SettingsEdgeInteractionModeSection`)
+- `PageIndicator.kt`
+- `StandardModePrefs.kt`: SharedPreferences 헬퍼(`loadDpiLevel`/`saveDpiLevel`/`loadEdgeInteractionMode` 등) 이동
 
-**수정 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/StandardModePage.kt`
+### 4.7.4-B (중위험): 매크로/단축키 시퀀싱 순수화
+- 신규 `ui/common/MacroFrameSequencer.kt`: `onSendMacro`(218~320행)의 스텝→`List<BridgeFrame>` 시퀀스 생성 로직을 순수 함수로 추출 (딜레이는 호출부 적용 또는 `(frame, delayMs)` 리스트 반환). `onSendShortcut`도 동일
+- `sendFrame`/`coroutineScope.launch`/`MacroOverlayController`/`ToastController` 등 사이드이펙트는 Composable 콜백에 잔류
+- 신규 `MacroFrameSequencerTest.kt`: TAP repeat, 홀드 합성(combinedMod/keys 2개 제한), dangling hold 안전 해제, estimatedMs 계산 (4.7.2-C 항목 해소)
+
+### 4.7.4-C (고위험): StandardModePageState 상태 홀더
+- 신규 `ui/pages/StandardModePageState.kt` (평범한 상태 홀더): `touchpadState` 호이스팅, `ModeHistoryStack`/`recordingOnChange`/`onRestorePrevious`, `heldMouseButtons` 이관. 페이지는 상태 구독·이벤트 위임만
 
 **검증**:
-- [ ] `.\gradlew assembleDebug` 빌드 통과
+- [ ] `.\gradlew testDebugUnitTest`(MacroFrameSequencer) + `.\gradlew assembleDebug` 통과
 - [ ] 5페이지 스와이프 전환 동작 동일
 - [ ] 페이지 간 상태 공유·동기화 동일
 - [ ] DPI·매크로·곡선 편집 등 팝업 호출 동일
 
 ---
 
-## Phase 4.7.5: EdgeZoneEditorScreen 분해 + EdgeZoneEditorViewModel 도입
+## Phase 4.7.5: EdgeZoneEditorScreen 분해 (최대 규모)
 
 > **⚠️ Phase 4.7.1 변경사항**: `EdgeSwipeConstants`가 `ScrollConstants.kt`에서 `EdgeSwipeConstants.kt`(신규)로 분리됨. 같은 패키지(`ui/common`)라서 `EdgeZoneEditorScreen.kt`의 `import com.bridgeone.app.ui.common.EdgeSwipeConstants`는 수정 불필요.
 
-**목표** (최대 규모): 다수 Composable과 상태 변수가 집중된 `EdgeZoneEditorScreen.kt`를 상태 홀더(ViewModel) + 기능별 하위 Composable로 분할합니다.
+**목표**: 8,828줄 / 단일 함수 약 2,840줄 / 상태 157개의 파일을 `ui/components/touchpad/edgezone/` 하위 단위로 분할합니다. **SWIPE/NORMAL 분기가 함수 전체에 산재**한 것이 최대 난점이라, 4개 서브단계로 나눠 각 단계가 독립 빌드되도록 합니다.
 
-**작업 항목**:
-1. 존 편집·액션 할당·UndoStack 등 로직을 `EdgeZoneEditorViewModel`로 이관
-2. 캔버스·팝업·라벨 편집·프리셋 등 UI를 기능별 하위 Composable로 분리 (예: `ZoneCanvas`, `ZonePopups`, `ZoneLabelEditor`, `ZonePresetPopups` — 명칭은 구현 시 확정)
-3. 다수의 `remember`/`LaunchedEffect`/`DisposableEffect`를 책임 단위로 재배치
+**분해 단위** (실제 섹션 주석·행 번호 기반):
 
-**신규 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/EdgeZoneEditorViewModel.kt`
-- 기능별 하위 Composable 파일들 (구현 시 확정)
+| 신규 파일 | 책임 | 추출 출처(행) |
+|---|---|---|
+| `EdgeZoneEditorState.kt` | 상태 홀더(평범 클래스): `workConfig`/`selectedZone`/`currentPresetId`/`undoStack`+`pushUndo`, `splitInto`/`tryMergeWith`/`deleteZone`/존 비율 프리셋 적용 등 순수 config 변환 + Undo | 318~427, 762~807 |
+| `EdgeZoneActionResolver.kt` | 순수 함수: `domainOf`/`actionEquals`/`describeUndoStep`/`migrateDynamicsIndicesAfterDelete`/`ratioPresetsFor` | 3086, 4429, 7855, 8023, 8052 |
+| `ZoneCanvasSection.kt` | 캔버스 + SWIPE hit 오버레이 | 1059~1240 |
+| `ZoneEditPanel.kt` | 선택 존 편집 패널 컨테이너 (영역 비율~표시 설정 슬롯 배치) | 1241~2181 |
+| `ZoneActionPicker.kt` | 액션 선택 + `ActionDomainPicker` 폴더 트리/그리드 | 1758~1906, 3124~4225 |
+| `ZoneLabelIconColorEditor.kt` | 표시 설정(라벨 IME/아이콘/컬러) + 라벨 커서 애니메이션 | 1907~2117, 361~389 |
+| `ZoneRotationEditor.kt` | `RotationEditor` + 후보 편집 hoist 상태 | 2118~2181, 352~360, 8094~ |
+| `ZonePopups.kt` | `ZoneActionPopup`(Initial/Split/Merge/Delete) when 분기 | 1481~1706 |
+| `MacroEditorPopup.kt` / `ShortcutEditorPopup.kt` | 이미 독립 `private fun` — 별도 파일 이동(+`MacroDelaySliderRow`) | 4457~5398, 5417~ |
+| `ZonePresetPopups.kt` / `UndoHistorySwipePopup.kt` / `RatioPresetSwipePopup.kt` | 프리셋/Undo/비율 스와이프 팝업 | 2500~2552, 7885~8022 |
 
-**수정 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/EdgeZoneEditorScreen.kt`
+**SWIPE/NORMAL 분기 처리 (핵심 설계 결정)**: 함수 전체에 흩어진 `if (inputMode == InputMode.SWIPE)`를 정리합니다.
+- (권장) `InputMode`를 `CompositionLocal`로 제공 + 분기를 각 하위 Composable 내부로 가둠. SWIPE 전용 오버레이(2233~2810행: 힌트/툴팁/서랍/컬러피커/제스처오버레이)는 `SwipeOverlayLayer.kt`로, NORMAL 전용 바텀시트(2818~2880행)는 `NormalSheetLayer.kt`로 모음. 분기가 "레이어 선택" 한 곳으로 수렴
+- (대안·비권장) `EdgeZoneEditorScreenSwipe`/`...Normal` 완전 분리 → 공통 편집 패널 중복 부담 큼
+
+**서브단계** (각 독립 빌드):
+1. **4.7.5-A**: 순수 함수(`EdgeZoneActionResolver`) + config 변환·Undo(`EdgeZoneEditorState`) 추출 + 테스트(splitInto/tryMerge/describeUndoStep/JSON 라운드트립). 4.7.2-C 항목 해소
+2. **4.7.5-B** (저위험): 이미 독립적인 `private fun` Composable(Macro/Shortcut/Rotation/팝업류)을 파일 이동만 (시그니처 유지)
+3. **4.7.5-C**: 편집 패널을 섹션별 Composable로 분리, 상태는 `EdgeZoneEditorState`/hoist 파라미터로 전달
+4. **4.7.5-D**: SWIPE/NORMAL 레이어 분리 + `CompositionLocal` 도입
+
+> **주의**: 4.7.1 회귀목록의 ⚠️ 기존 스트립 에디터 스와이프 버그(구분선 1칸 이동 후 무반응)는 본 리팩토링 범위 밖입니다. 동작 동일성만 유지하고 별도 추적합니다.
 
 **검증**:
-- [ ] `.\gradlew assembleDebug` 빌드 통과
+- [ ] `.\gradlew testDebugUnitTest`(EdgeZoneEditorState) + `.\gradlew assembleDebug` 통과
 - [ ] 4개 엣지 존 시각화·드래그 편집 동작 동일
 - [ ] 존 분할/병합, 액션·아이콘·컬러·숏컷 할당 동작 동일
 - [ ] 회전 트리거, 라벨 편집(IME), 프리셋 저장/로드 동작 동일
 - [ ] Undo/Redo 동작 동일
+- [ ] SWIPE/NORMAL 두 모드 UI 모두 동작 동일
 
 ---
 
-## Phase 4.7.6: DynamicsCurveEditor 분해
+## Phase 4.7.6: DynamicsCurveEditor 분해 (난도 최저)
 
-**목표**: 곡선 편집기를 렌더링·제스처·데이터 생성 단위로 분리합니다.
+**목표**: 곡선 편집기를 렌더링·제스처·데이터 생성 단위로 분리합니다. 이미 내부 서브 Composable이 잘 나뉘어 있어 4개 대상 중 난도가 가장 낮습니다.
 
-**작업 항목**:
-1. 곡선 캔버스 렌더링과 노드 드래그 제스처를 분리
-2. 템플릿 선택·곡선 요약(자연어 설명) 생성 로직을 별도 단위로 추출
-
-**신규 파일**:
-- 분리된 곡선 캔버스/노드 에디터 파일 (구현 시 확정)
-
-**수정 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/touchpad/DynamicsCurveEditor.kt`
+**작업 항목** (`ui/components/touchpad/curve/` 신설):
+1. `CurveGraphCanvas.kt`: 곡선 캔버스 렌더링(715행 호출부) + 노드 드래그 `pointerInput`(659행) 분리
+2. `NodeEditPanel.kt`: `NodeEditGrid`/`NodeEditHeader`/`EditorActionGrid`/십자패드
+3. `EditorCards.kt`: `MetaCard`/`CurveCard`/`ActionCard`/`EditorHeader`
+4. `CurveSummary.kt`: 곡선 요약(자연어)·`templateAccent`·step 정밀도 (순수) + 테스트
+5. 필요 시 `CurveEditorState.kt`: `GridContext` 네비 상태 홀더
 
 **검증**:
-- [ ] `.\gradlew assembleDebug` 빌드 통과
+- [ ] `.\gradlew testDebugUnitTest`(CurveSummary) + `.\gradlew assembleDebug` 통과
 - [ ] 곡선 노드 추가·삭제·드래그 동작 동일
 - [ ] 템플릿 선택·스텝 정밀도·요약 텍스트 동일
 - [ ] 곡선 저장(이름/설명) 동작 동일
@@ -230,12 +271,12 @@ BridgeOne 기존 아키텍처(MVVM + Clean Architecture)에 맞춰, 화면 단�
 **목표**: 전체 리팩토링 결과를 종합 검증합니다.
 
 **작업 항목**:
-1. 전체 `.\gradlew assembleDebug` 통과 확인
+1. 전체 `.\gradlew testDebugUnitTest` + `.\gradlew assembleDebug` 통과 확인
 2. 빌드 경고 점검 및 정리 (가능 범위)
 3. Phase 4.1~4.6 주요 기능 수동 회귀 체크리스트 일괄 점검
 
 **검증**:
-- [ ] 전체 빌드 통과, 신규 경고 없음
+- [ ] 전체 단위 테스트 그린, 전체 빌드 통과, 신규 경고 없음
 - [ ] 스플래시·연결 대기 (Phase 4.1) 동작 동일
 - [ ] Page 1 터치패드·Actions (Phase 4.2~4.3) 동작 동일
 - [ ] 터치패드 다이나믹스·제스처 (Phase 4.4) 동작 동일
