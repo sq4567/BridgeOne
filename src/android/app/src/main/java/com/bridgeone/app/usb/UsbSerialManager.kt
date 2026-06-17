@@ -495,8 +495,8 @@ object UsbSerialManager {
                         continue
                     }
 
-                    // 8바이트 수신 시도 (100ms 타임아웃)
-                    val len = port.read(buf, 100)
+                    // 8바이트 수신 시도
+                    val len = port.read(buf, UsbConstants.USB_READ_TIMEOUT_MS)
                     if (len < 0) {
                         Log.e(TAG, "Receiver: read error (len=$len)")
                     } else if (len > 0) {

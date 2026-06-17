@@ -63,7 +63,11 @@ import com.bridgeone.app.ui.common.AudioController
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import com.bridgeone.app.ui.common.TouchpadButtonVisibility
 import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignment
+import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_HAPTIC_AMPLITUDE_MAX
+import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_HAPTIC_AMPLITUDE_MIN
+import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_HAPTIC_DURATION_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS
+import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_INERTIA_FRAME_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_MIN_VELOCITY_DP_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_TIME_CONSTANT_MS
 import com.bridgeone.app.ui.common.ScrollConstants.INFINITE_SCROLL_VELOCITY_WINDOW_MS
@@ -1233,9 +1237,9 @@ fun TouchpadWrapper(
                             val totalDp = velocitySamples.sumOf { it.first.toDouble() }.toFloat()
                             val timeSpanMs = (newest.second - oldest.second).toFloat()
                             val speed = if (timeSpanMs > 0f) abs(totalDp / timeSpanMs) else 0f
-                            val amplitude = (speed / INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS * 255)
-                                .toInt().coerceIn(1, 255)
-                            vibrator.vibrate(VibrationEffect.createOneShot(20, amplitude))
+                            val amplitude = (speed / INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS * INFINITE_SCROLL_HAPTIC_AMPLITUDE_MAX)
+                                .toInt().coerceIn(INFINITE_SCROLL_HAPTIC_AMPLITUDE_MIN, INFINITE_SCROLL_HAPTIC_AMPLITUDE_MAX)
+                            vibrator.vibrate(VibrationEffect.createOneShot(INFINITE_SCROLL_HAPTIC_DURATION_MS, amplitude))
                         }
 
                         onTouchEvent(PointerEventType.Move, currentTouchPosition.value, previousTouchPosition.value)
@@ -1353,7 +1357,7 @@ fun TouchpadWrapper(
                                     val timeSpanMs = (newest.second - oldest.second).toFloat()
                                     if (timeSpanMs > 0f) totalDp / timeSpanMs else 0f
                                 } else if (velocitySamples.size == 1) {
-                                    velocitySamples.first().first / 16f  // 1프레임(16ms) 기준
+                                    velocitySamples.first().first / INFINITE_SCROLL_INERTIA_FRAME_MS.toFloat()  // 1프레임 기준
                                 } else {
                                     0f
                                 }
@@ -1380,7 +1384,7 @@ fun TouchpadWrapper(
                                         val effectiveUnitDp = capturedScrollUnitDp / capturedSensitivity
 
                                         while (abs(velocity) > INFINITE_SCROLL_MIN_VELOCITY_DP_MS) {
-                                            delay(16L)  // ~60fps
+                                            delay(INFINITE_SCROLL_INERTIA_FRAME_MS)  // ~60fps
 
                                             val now = System.currentTimeMillis()
                                             val dt = (now - lastTimestamp).toFloat()
@@ -1391,9 +1395,9 @@ fun TouchpadWrapper(
 
                                             // 속도 비례 연속 진동 (매 프레임)
                                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                                val amplitude = (abs(velocity) / INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS * 255)
-                                                    .toInt().coerceIn(1, 255)
-                                                vibrator.vibrate(VibrationEffect.createOneShot(20, amplitude))
+                                                val amplitude = (abs(velocity) / INFINITE_SCROLL_HAPTIC_MAX_VELOCITY_DP_MS * INFINITE_SCROLL_HAPTIC_AMPLITUDE_MAX)
+                                                    .toInt().coerceIn(INFINITE_SCROLL_HAPTIC_AMPLITUDE_MIN, INFINITE_SCROLL_HAPTIC_AMPLITUDE_MAX)
+                                                vibrator.vibrate(VibrationEffect.createOneShot(INFINITE_SCROLL_HAPTIC_DURATION_MS, amplitude))
                                             }
 
                                             // 이동량 누적 (dp 단위, velocity * dt = dp)
@@ -1527,9 +1531,8 @@ fun TouchpadWrapper(
 
                             if (buttonState != 0x00u.toUByte()) {
                                 // press→release 간 지연: OS가 버튼 다운/업을 별도 이벤트로 처리하도록
-                                // (지연 없으면 우클릭 메뉴가 토글처럼 동작하는 문제 발생)
                                 coroutineScope.launch {
-                                    delay(30L)
+                                    delay(ClickDetector.CLICK_PRESS_RELEASE_GAP_MS)
                                     val releaseFrame = ClickDetector.createFrame(
                                         buttonState = 0x00u.toUByte(),
                                         deltaX = 0f,

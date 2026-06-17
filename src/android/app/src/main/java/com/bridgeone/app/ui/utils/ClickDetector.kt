@@ -84,6 +84,12 @@ object ClickDetector {
     const val CLICK_MAX_MOVEMENT_DP: Float = 15f
 
     /**
+     * 클릭 press→release 사이 지연 (ms). OS가 버튼 다운/업을 별도 이벤트로 처리하게 함.
+     * (지연 없으면 우클릭 메뉴가 토글처럼 동작하는 문제 발생). 기본값: 30L
+     */
+    const val CLICK_PRESS_RELEASE_GAP_MS: Long = 30L
+
+    /**
      * 디버그 로그 태그
      */
     private const val TAG = "ClickDetector"

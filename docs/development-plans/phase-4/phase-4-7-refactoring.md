@@ -4,7 +4,7 @@ description: "BridgeOne 프로젝트 Phase 4.7 - Phase 4.1~4.6 산출물의 외�
 tags: ["android", "refactoring", "architecture", "mvvm", "code-quality"]
 version: "v1.0"
 owner: "Chatterbones"
-updated: "2026-06-16"
+updated: "2026-06-17"
 ---
 
 # BridgeOne Phase 4.7: Android 코드베이스 리팩토링
@@ -58,28 +58,45 @@ BridgeOne 기존 아키텍처(MVVM + Clean Architecture)에 맞춰, 화면 단�
 
 ---
 
-## Phase 4.7.1: 상수 정리 및 분리
+## Phase 4.7.1: 상수 정리 및 분리 ✅
 
 **목표**: 흩어지거나 혼재된 상수를 기능별 `*Constants.kt`로 정리합니다.
 
 **작업 항목**:
 1. `ScrollConstants.kt`에서 엣지 스와이프 관련 상수를 `EdgeSwipeConstants.kt`(신규)로 분리
 2. 코드에 하드코딩된 magic number를 적절한 `*Constants.kt`로 이동 (상수 기본값 주석 정책 준수)
-3. `PointerDynamicsConstants.kt`에 혼재된 곡선 템플릿 데이터를 별도 파일로 분리할지 검토 후 적용
+3. `PointerDynamicsConstants.kt`에 혼재된 곡선 템플릿 데이터를 `CustomPresetTemplates.kt`(신규)로 분리
 
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/common/EdgeSwipeConstants.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/CustomPresetTemplates.kt`
 
 **수정 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/common/ScrollConstants.kt`
-- `src/android/app/src/main/java/com/bridgeone/app/ui/common/PointerDynamicsConstants.kt`
-- 분리된 상수를 참조하던 호출부 (import 경로 갱신)
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/ScrollConstants.kt` — `EdgeSwipeConstants` 블록 제거, 신규 상수 4개 추가
+- `src/android/app/src/main/java/com/bridgeone/app/ui/common/PointerDynamicsConstants.kt` — `CUSTOM_PRESET_TEMPLATES` 블록 제거
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt` — 햅틱/프레임 magic number 상수화, import 추가
+- `src/android/app/src/main/java/com/bridgeone/app/usb/UsbSerialManager.kt` — `port.read(buf, 100)` → 기존 `UsbConstants.USB_READ_TIMEOUT_MS` 사용
+- `src/android/app/src/main/java/com/bridgeone/app/ui/utils/ClickDetector.kt` — `CLICK_PRESS_RELEASE_GAP_MS` 상수 추가
+
+> **참고 (import 변경 불필요)**: `EdgeSwipeConstants`와 `CUSTOM_PRESET_TEMPLATES`는 같은 `com.bridgeone.app.ui.common` 패키지의 새 파일로 이동했으므로, 기존 호출부의 import 경로(`import com.bridgeone.app.ui.common.EdgeSwipeConstants`)가 그대로 유효합니다. 호출부 수정 0건.
 
 **검증**:
-- [ ] `.\gradlew assembleDebug` 빌드 통과
-- [ ] 분리 전후 상수 값이 동일 (의도치 않은 값 변경 없음)
-- [ ] 스크롤·엣지 스와이프 동작 회귀 없음
-- [ ] 추가/이동한 상수에 기본값 주석 존재
+- [x] `.\gradlew assembleDebug` 빌드 통과 (경고 없음)
+- [x] 분리 전후 상수 값이 동일 (의도치 않은 값 변경 없음)
+- [x] 추가/이동한 상수에 기본값 주석 존재
+
+**수동 회귀 체크리스트** (실기기):
+
+- [x] **무한 스크롤 진동** — 무한 스크롤 모드에서 손가락을 빠르게 드래그하면 강하게, 천천히 드래그하면 약하게 진동하는지 (`HAPTIC_AMPLITUDE_MAX/MIN` 상수화 영향)
+- [x] **관성 진동** — 손가락을 떼고 관성이 진행되는 동안 속도 감소에 따라 진동도 점점 약해지다가 멈출 때 진동도 함께 멈추는지
+- [x] **관성 감속 곡선** — 무한 스크롤 관성이 이전과 동일하게 부드럽게 감속하는지, 너무 갑자기 멈추거나 오래 지속되는 느낌이 없는지 (`INERTIA_FRAME_MS=16L` 상수화 영향)
+- [x] **좌클릭** — 짧게 탭하면 좌클릭 1회만 전달되는지 (연속 이중 클릭 없음)
+- [x] **우클릭** — 길게 탭하면 우클릭 컨텍스트 메뉴가 열리는지, 다시 우클릭해도 메뉴가 토글(닫혔다 열렸다)되지 않는지 (`CLICK_PRESS_RELEASE_GAP_MS=30L` 상수화 영향)
+- [x] **엣지 스와이프 팝업** — 4방향(상·하·좌·우) 엣지에서 스와이프 시 팝업이 정상 등장하고, 엣지 쪽으로 되돌리면 취소되는지 (`EdgeSwipeConstants` 파일 분리 영향)
+- [x] **엣지 존 힌트 오버레이** — 엣지 근처에 손가락을 가져가면 힌트 오버레이가 나타나고, 떼면 사라지는지
+- [x] **엣지 스트립 에디터 (스와이프 레이어)** — 스와이프 레이어 설정 화면에서 존 경계 핸들 드래그로 존 크기 조절이 되는지 ⚠️ 기존 버그 확인됨: 스와이프 시 구분선 1칸 이동 후 조작 모드 강제 해제 + UI 무반응. 4.7.1 이전부터 존재하는 버그이며 별도 추적 필요.
+- [x] **커스텀 프리셋 템플릿** — 커스텀 프리셋이 없는 초기 상태에서 템플릿 목록(균형·정밀 우선·빠른 이동·손 떨림 방지 4개)이 표시되는지 (`CUSTOM_PRESET_TEMPLATES` 파일 분리 영향)
+- [x] **USB 수신** — 연결 후 커서 이동·클릭 명령이 ESP32-S3로 정상 전달되는지 (`UsbSerialManager` 수신 타임아웃 상수 교체 영향)
 
 ---
 
@@ -160,6 +177,8 @@ BridgeOne 기존 아키텍처(MVVM + Clean Architecture)에 맞춰, 화면 단�
 ---
 
 ## Phase 4.7.5: EdgeZoneEditorScreen 분해 + EdgeZoneEditorViewModel 도입
+
+> **⚠️ Phase 4.7.1 변경사항**: `EdgeSwipeConstants`가 `ScrollConstants.kt`에서 `EdgeSwipeConstants.kt`(신규)로 분리됨. 같은 패키지(`ui/common`)라서 `EdgeZoneEditorScreen.kt`의 `import com.bridgeone.app.ui.common.EdgeSwipeConstants`는 수정 불필요.
 
 **목표** (최대 규모): 다수 Composable과 상태 변수가 집중된 `EdgeZoneEditorScreen.kt`를 상태 홀더(ViewModel) + 기능별 하위 Composable로 분할합니다.
 
