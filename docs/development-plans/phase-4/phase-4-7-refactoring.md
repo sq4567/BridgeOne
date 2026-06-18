@@ -217,14 +217,22 @@ updated: "2026-06-19"
 
 > **⚠️ Phase 4.15 영향**: `MacroFrameSequencer`는 4.15의 `MACRO_BUTTON` 렌더링이 그대로 재사용한다. API: `buildMacro(steps: List<MacroStep>, stepDelayMs: Int): List<TimedFrame>`. 스텝 입력이 `MacroStep`(페이지 비의존 데이터 타입)이므로 4.15 `MacroButtonCfg.steps`와 호환. 단, 매크로 스텝 JSON 직렬화 헬퍼 추출은 4.15.1 소관이며 4.7.4-B 범위 아님.
 
-### 4.7.4-C (고위험): StandardModePageState 상태 홀더
-- 신규 `ui/pages/StandardModePageState.kt` (평범한 상태 홀더): `touchpadState` 호이스팅, `ModeHistoryStack`/`recordingOnChange`/`onRestorePrevious`, `heldMouseButtons` 이관. 페이지는 상태 구독·이벤트 위임만
-- `standardAssignments`/`standardButtonVisibility` 맵은 **단순 호이스팅**만 수행. 정교한 accessor/변환 API를 새로 만들지 않음 — 4.15.4가 깔끔히 제거할 수 있도록 격리 유지
+### 4.7.4-C (고위험): StandardModePageState 상태 홀더 ✅
+- 신규 `ui/pages/StandardModePageState.kt` (평범한 클래스 상태 홀더, `remember`로 생성):
+  - `var touchpadState by mutableStateOf(initialTouchpadState)` — public var. 히스토리 미기록 변경(팝업 confirm·곡선 편집)은 외부 직접 할당, 기록 필요 변경은 메서드 사용
+  - `private val historyStack = ModeHistoryStack()`
+  - `var heldMouseButtons by mutableStateOf(...)` — private set
+  - `fun changeStateRecordingHistory(newState)` — 구 `recordingOnChange` (히스토리 push 후 교체)
+  - `fun restorePrevious(): Boolean` — 구 `onRestorePrevious`. 스택 비면 false 반환 (토스트는 호출부)
+  - `fun toggleMouseHold(button, mode): UByte` — 구 `onMouseHoldToggle`의 상태 전이. 전송할 buttons 바이트 반환 (sendFrame·토스트는 호출부)
+- **사이드이펙트 격리**: 상태 홀더는 순수 상태 전이만 보유. `sendFrame`/토스트/`MacroOverlay`는 전부 Composable 콜백에 잔류 (4.7.4-B 철학 일관)
+- **계획과 다르게 구현**: `standardAssignments`/`standardButtonVisibility` 두 Map은 상태 홀더로 옮기지 **않고** Composable의 `remember`에 그대로 잔류. 두 Map은 각자의 repo(`assignmentRepo`/`buttonVisibilityRepo`)·저장 `LaunchedEffect`와 결합돼 있어 상태 홀더로 옮기면 context·repo 의존이 따라와 격리가 깨진다. Composable 잔류가 "정교한 API 금지 + 4.15.4 제거 용이성" 목표에 더 부합
+- 호출부 `StandardModePage.kt`: `touchpadState` 직접 참조 18곳을 `pageState.touchpadState`로 교체. 불필요해진 import(`BridgeFrame`/`ModeHistoryStack`) 제거. `StandardModePage.kt`는 페이저·콜백 배선·팝업 오버레이만 잔류
 
-> **⚠️ Phase 4.15 영향**: `StandardModePageState`는 4.15.2가 `pages: List<PageLayout>` 상태와 debounce 저장 `LaunchedEffect`를 가산(additive)으로 추가한다. 또한 `standardAssignments`/`standardButtonVisibility` 맵은 4.15.4에서 제거되어 `PlacedComponent` config로 흡수된다. 따라서 이 두 맵은 단순 호이스팅만 하고 정교한 변환 API를 새로 만들지 않는다(4.15.4 제거 용이성 확보).
+> **⚠️ Phase 4.15 영향**: `StandardModePageState`는 4.15.2가 `pages: List<PageLayout>` 상태와 debounce 저장 `LaunchedEffect`를 가산(additive)으로 추가한다. `standardAssignments`/`standardButtonVisibility` 맵은 **상태 홀더가 아니라 `StandardModePage.kt` Composable에 잔류** 중이며, 4.15.4에서 제거되어 `PlacedComponent` config로 흡수된다. `touchpadState`는 `pageState.touchpadState`(public var)로 노출돼 있어 4.15.4의 동적 렌더러도 동일하게 읽고 직접 할당 가능.
 
-**검증** (A/B 완료):
-- [x] `.\gradlew testDebugUnitTest`(MacroFrameSequencerTest 20 tests) + `.\gradlew assembleDebug` 통과
+**검증** (A/B/C 완료):
+- [x] `.\gradlew testDebugUnitTest`(MacroFrameSequencerTest 20 tests) + `.\gradlew assembleDebug` 통과 (A/B/C 각 단계 빌드·테스트 그린, 신규 경고 없음)
 
 #### 수동 회귀 체크리스트 (실기기)
 
@@ -264,7 +272,23 @@ Page 5 설정 렌더링:
 - [x] HOLD + TAP 조합 매크로 (예: Ctrl HOLD → C TAP → RELEASE): Ctrl+C 동작 확인
 - [x] HOLD만으로 끝나는 매크로: 매크로 종료 후 PC에서 키가 눌린 채 남지 않는지 (dangling 해제 확인 — 텍스트 에디터에서 키 누름 상태 해제 확인)
 
-> **4.7.4-C 선행 정보**: A/B에서 분리된 패키지 경로 확정 (`com.bridgeone.app.ui.pages.standard.*`). `MacroFrameSequencer` (`ui/common/`)는 C 작업 시 `StandardModePageState`가 직접 호출하거나 onSendMacro 콜백을 상태 홀더로 이관할 때 재사용. `standardAssignments`/`standardButtonVisibility` 두 Map은 단순 호이스팅만(accessor API 생성 금지 — 4.15.4에서 제거 예정).
+**4.7.4-C: 상태 홀더 회귀**
+
+터치패드 상태 동기화 (touchpadState → pageState.touchpadState 이관):
+- [ ] 페이지 1/2 간 전환 시 터치패드 모드(클릭/이동/스크롤)·DPI가 동일하게 공유·유지되는지
+- [ ] 제어 버튼으로 모드 변경 후 설정(페이지 5)에 즉시 반영되는지, 반대로 설정 변경이 터치패드에 반영되는지
+- [ ] DPI 세밀 조절 팝업 confirm 후 값이 적용되는지 (직접 할당 경로)
+- [ ] 다이나믹스 프리셋 / 모드 프리셋 팝업 confirm 후 적용되는지 (직접 할당 경로)
+- [ ] 곡선 편집기로 커스텀 프리셋 저장 시 즉시 선택되는지 (직접 할당 경로)
+
+모드 이력 / 되돌리기 (ModeHistoryStack 이관):
+- [ ] 모드를 여러 번 바꾼 뒤 "되돌리기"로 직전 상태가 순서대로 복원되는지
+- [ ] 이력이 없을 때 되돌리기 시 "이전 모드 및 세팅이 없습니다" 토스트가 뜨는지
+- [ ] 되돌리기로 복원된 상태가 다시 이력에 쌓이지 않는지 (연속 되돌리기 정상)
+
+마우스 홀드 (heldMouseButtons 이관):
+- [ ] 좌/우/중간 클릭 홀드 토글 시 "○클릭 홀드 ON/OFF" 토스트 + 실제 버튼 유지 동작 확인
+- [ ] 홀드 ON 상태에서 앱 종료(또는 화면 이탈) 시 PC에서 버튼이 눌린 채 남지 않는지 (DisposableEffect 해제)
 
 ---
 

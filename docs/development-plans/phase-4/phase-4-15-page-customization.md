@@ -137,7 +137,7 @@ updated: "2026-06-18"
 
 **목표**: `DynamicPageRenderer`를 완성하고, `StandardModePage`의 하드코딩 `when(page % PAGE_COUNT)` 분기를 동적 페이지 리스트 렌더링으로 전환한다. **완료 후 기존 5개 페이지가 100% 동일하게 동작해야 한다.** 이 단계가 릴리스 가능한 중간 지점이다.
 
-> **⚠️ Phase 4.7.4 변경사항**: 페이지 래퍼(`Page1TouchpadActions` 등)는 4.7.4-A에서 `ui/pages/standard/`로 분리됐으나 이 단계에서 `DynamicPage` 호출로 대체된다. `standardAssignments`/`standardButtonVisibility` 맵은 4.7.4-C에서 `StandardModePageState`로 단순 호이스팅된 상태이며, 이 단계에서 제거하고 `PlacedComponent` config로 흡수한다.
+> **⚠️ Phase 4.7.4 변경사항**: 페이지 래퍼(`Page1TouchpadActions` 등)는 4.7.4-A에서 `ui/pages/standard/`로 분리됐으나 이 단계에서 `DynamicPage` 호출로 대체된다. `standardAssignments`/`standardButtonVisibility` 맵은 4.7.4-C에서 `StandardModePageState`로 옮기지 **않고** `StandardModePage.kt` Composable의 `remember`에 잔류시켰다(각자 repo·저장 LaunchedEffect와 결합돼 격리 유지). 이 단계에서 두 Map을 제거하고 `PlacedComponent` config로 흡수한다. `touchpadState`는 `pageState.touchpadState`(public var)로 노출돼 있어 동적 렌더러가 동일하게 읽고 할당 가능.
 
 **구현 항목**:
 1. `DynamicPageRenderer.kt` — `PageLayout` → `GridContainer` + `ComponentRenderer` 렌더. 터치패드 전역 팝업(DPI/Dynamics/ModePreset 블러 포함) 오버레이를 렌더러 루트에서 1회 처리

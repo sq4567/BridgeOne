@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.bridgeone.app.protocol.BridgeFrame
 import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.common.AudioController
 import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
@@ -61,7 +60,6 @@ import com.bridgeone.app.ui.common.saveTtsRate
 import com.bridgeone.app.ui.components.touchpad.DynamicsCurveEditor
 import com.bridgeone.app.ui.components.touchpad.DpiLevel
 import com.bridgeone.app.ui.components.touchpad.MacroStep
-import com.bridgeone.app.ui.components.touchpad.ModeHistoryStack
 import com.bridgeone.app.ui.components.touchpad.MouseButton
 import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
 import com.bridgeone.app.ui.components.touchpad.PageNav
@@ -104,10 +102,10 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // Phase 4.3.3: 터치패드 상태를 페이지 레벨로 호이스팅
-    // DpiLevel, EdgeInteractionMode는 SharedPreferences에서 복원
-    var touchpadState by remember {
-        mutableStateOf(
+    // Phase 4.7.4-C: 페이지 레벨 상태 홀더 (터치패드 상태·모드 이력·마우스 홀드 세션)
+    // DpiLevel, EdgeInteractionMode는 SharedPreferences에서 복원해 초기값 주입
+    val pageState = remember {
+        StandardModePageState(
             TouchpadState(
                 dpiLevel = loadDpiLevel(context),
                 edgeInteractionMode = loadEdgeInteractionMode(context)
@@ -115,35 +113,23 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
         )
     }
 
-    // 모드/세팅 변경 이력 스택 (세션 내 유지, 비영속)
-    val historyStack = remember { ModeHistoryStack() }
-
     // 모든 모드 변경을 인터셉트해 의미있는 변화를 히스토리에 push한 뒤 상태 교체.
     // onTouchpadStateChange 콜백 대신 이 람다를 사용한다.
     val recordingOnChange: (TouchpadState) -> Unit = { newState ->
-        if (historyStack.isMeaningfulChange(touchpadState, newState)) {
-            historyStack.push(touchpadState)
-        }
-        touchpadState = newState
+        pageState.changeStateRecordingHistory(newState)
     }
 
-    // 히스토리 스택에서 직전 상태를 pop해 복원.
-    // recordingOnChange를 거치지 않으므로 복원 자체가 다시 push되는 일이 없다.
-    // edgeInteractionMode는 현재 값을 유지(조작 방식이 되돌리기로 바뀌면 혼란 방지).
+    // 히스토리 스택에서 직전 상태를 pop해 복원. 복원할 게 없으면 토스트.
     val onRestorePrevious: () -> Unit = {
-        val prev = historyStack.pop()
-        if (prev != null) {
-            touchpadState = prev.copy(edgeInteractionMode = touchpadState.edgeInteractionMode)
-        } else {
+        if (!pageState.restorePrevious()) {
             ToastController.show("이전 모드 및 세팅이 없습니다", ToastType.INFO)
         }
     }
 
-    // 마우스 홀드 토글 세션 상태 (비영속, 앱 종료 시 자동 해제)
-    var heldMouseButtons by remember { mutableStateOf(setOf<MouseButton>()) }
+    // 마우스 홀드 세션 상태는 pageState가 보유. 앱 종료(컴포지션 dispose) 시 잔여 홀드 해제.
     DisposableEffect(Unit) {
         onDispose {
-            if (heldMouseButtons.isNotEmpty()) {
+            if (pageState.heldMouseButtons.isNotEmpty()) {
                 ClickDetector.sendFrame(ClickDetector.createMouseButtonFrame(0u))
             }
         }
@@ -179,23 +165,11 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
         }
     }
 
-    // 마우스 홀드 콜백: mode에 따라 강제 홀드/릴리즈 또는 토글 후 버튼 비트 전송
+    // 마우스 홀드 콜백: pageState에서 상태 갱신 후 버튼 비트 전송 + 토스트 (사이드이펙트는 잔류)
     val onMouseHoldToggle: (MouseButton, MouseHoldMode) -> Unit = { button, mode ->
-        val newHeld = when (mode) {
-            MouseHoldMode.HOLD -> heldMouseButtons + button
-            MouseHoldMode.RELEASE -> heldMouseButtons - button
-            MouseHoldMode.TOGGLE -> if (heldMouseButtons.contains(button)) heldMouseButtons - button else heldMouseButtons + button
-        }
-        heldMouseButtons = newHeld
-        val buttonsByte = newHeld.fold(0) { acc, btn ->
-            acc or when (btn) {
-                MouseButton.LEFT   -> BridgeFrame.BUTTON_LEFT_MASK.toInt()
-                MouseButton.RIGHT  -> BridgeFrame.BUTTON_RIGHT_MASK.toInt()
-                MouseButton.MIDDLE -> BridgeFrame.BUTTON_MIDDLE_MASK.toInt()
-            }
-        }.toUByte()
+        val buttonsByte = pageState.toggleMouseHold(button, mode)
         ClickDetector.sendFrame(ClickDetector.createMouseButtonFrame(buttonsByte))
-        val isOn = newHeld.contains(button)
+        val isOn = pageState.heldMouseButtons.contains(button)
         val buttonLabel = when (button) {
             MouseButton.LEFT   -> "좌클릭"
             MouseButton.RIGHT  -> "우클릭"
@@ -272,13 +246,13 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     }
 
     // DPI 레벨(사전 정의 값)이 변경될 때 SharedPreferences에 저장
-    LaunchedEffect(touchpadState.dpiLevel) {
-        saveDpiLevel(context, touchpadState.dpiLevel)
+    LaunchedEffect(pageState.touchpadState.dpiLevel) {
+        saveDpiLevel(context, pageState.touchpadState.dpiLevel)
     }
 
     // 엣지 조작 방식이 변경될 때 SharedPreferences에 저장 (Phase 4.6.1)
-    LaunchedEffect(touchpadState.edgeInteractionMode) {
-        saveEdgeInteractionMode(context, touchpadState.edgeInteractionMode)
+    LaunchedEffect(pageState.touchpadState.edgeInteractionMode) {
+        saveEdgeInteractionMode(context, pageState.touchpadState.edgeInteractionMode)
     }
 
     // 엣지 존 할당이 변경될 때 파일에 저장 (Phase 4.6.2+)
@@ -334,7 +308,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     }
 
     // 스크롤 모드 전환 시 다이나믹스 팝업 취소 (Phase 4.3.8)
-    LaunchedEffect(touchpadState.scrollMode) {
+    LaunchedEffect(pageState.touchpadState.scrollMode) {
         if (dynamicsPresetPopupVisible) dynamicsPresetPopupVisible = false
     }
 
@@ -348,7 +322,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
         // ── 페이지 컨테이너 ──
         // 스크롤 모드 활성 시: HorizontalPager보다 먼저 Initial 패스에서
         // Move 이벤트를 소비하여 페이저의 수평 드래그 감지를 원천 차단
-        val isScrollActive = touchpadState.scrollMode != ScrollMode.OFF
+        val isScrollActive = pageState.touchpadState.scrollMode != ScrollMode.OFF
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -367,14 +341,14 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
         ) {
             HorizontalPager(
                 state = pagerState,
-                userScrollEnabled = touchpadState.scrollMode == ScrollMode.OFF,
+                userScrollEnabled = pageState.touchpadState.scrollMode == ScrollMode.OFF,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 4.dp, vertical = 8.dp)
             ) { page ->
                 when (page % PAGE_COUNT) {
                     0 -> Page1TouchpadActions(
-                        touchpadState = touchpadState,
+                        touchpadState = pageState.touchpadState,
                         edgeZoneAssignment = standardAssignments[0] ?: TouchpadEdgeZoneAssignment.default(),
                         onEdgeZoneAssignmentChange = { updated -> standardAssignments = standardAssignments + (0 to updated) },
                         customPresets = customPresets,
@@ -398,16 +372,16 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                             val matchedLevel = DpiLevel.entries.firstOrNull {
                                 abs(it.multiplier - value) < 0.001f
                             }
-                            touchpadState = if (matchedLevel != null) {
-                                touchpadState.copy(dpiLevel = matchedLevel, customDpiMultiplier = null)
+                            pageState.touchpadState = if (matchedLevel != null) {
+                                pageState.touchpadState.copy(dpiLevel = matchedLevel, customDpiMultiplier = null)
                             } else {
-                                touchpadState.copy(customDpiMultiplier = value)
+                                pageState.touchpadState.copy(customDpiMultiplier = value)
                             }
                         },
                         onDpiAdjustDismiss = { dpiAdjustPopupVisible = false },
                         onDynamicsPresetConfirmed = { index ->
                             dynamicsPresetPopupVisible = false
-                            touchpadState = touchpadState.copy(dynamicsPresetIndex = index)
+                            pageState.touchpadState = pageState.touchpadState.copy(dynamicsPresetIndex = index)
                         },
                         onDynamicsPresetDismiss = { dynamicsPresetPopupVisible = false },
                         onAddCustomPreset = {
@@ -422,14 +396,14 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                             customPresetsRepo.delete(id)
                             customPresets = customPresetsRepo.loadAll()
                             // 삭제된 프리셋이 선택중이면 Off(0)으로 초기화
-                            if (touchpadState.dynamicsPresetIndex >= DYNAMICS_PRESETS.size + customPresets.size) {
-                                touchpadState = touchpadState.copy(dynamicsPresetIndex = 0)
+                            if (pageState.touchpadState.dynamicsPresetIndex >= DYNAMICS_PRESETS.size + customPresets.size) {
+                                pageState.touchpadState = pageState.touchpadState.copy(dynamicsPresetIndex = 0)
                             }
                         },
                         onModePresetConfirmed = { index ->
                             modePresetPopupVisible = false
                             val preset = MODE_PRESETS[index]
-                            touchpadState = touchpadState.copy(
+                            pageState.touchpadState = pageState.touchpadState.copy(
                                 clickMode = preset.padModeState.clickMode,
                                 moveMode = preset.padModeState.moveMode,
                                 scrollMode = preset.padModeState.scrollMode,
@@ -442,7 +416,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onModePresetDismiss = { modePresetPopupVisible = false }
                     )
                     1 -> Page2TestTouchpad(
-                        touchpadState = touchpadState,
+                        touchpadState = pageState.touchpadState,
                         edgeZoneAssignment = standardAssignments[1] ?: TouchpadEdgeZoneAssignment.default(),
                         onEdgeZoneAssignmentChange = { updated -> standardAssignments = standardAssignments + (1 to updated) },
                         customPresets = customPresets,
@@ -459,7 +433,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                     2 -> Page3KeyboardPlaceholder()
                     3 -> Page4MinecraftPlaceholder()
                     4 -> Page5Settings(
-                        touchpadState = touchpadState,
+                        touchpadState = pageState.touchpadState,
                         onTouchpadStateChange = recordingOnChange,
                         inputMode = inputMode,
                         onInputModeChange = { inputMode = it },
@@ -545,7 +519,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                     // 새 프리셋을 즉시 선택
                     val newIndex = DYNAMICS_PRESETS.size + customPresets.indexOfFirst { it.id == saved.id }
                     if (newIndex >= DYNAMICS_PRESETS.size) {
-                        touchpadState = touchpadState.copy(dynamicsPresetIndex = newIndex)
+                        pageState.touchpadState = pageState.touchpadState.copy(dynamicsPresetIndex = newIndex)
                     }
                 } else {
                     customPresetsRepo.update(preset)
