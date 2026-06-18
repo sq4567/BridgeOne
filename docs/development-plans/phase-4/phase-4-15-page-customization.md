@@ -106,9 +106,11 @@ updated: "2026-06-18"
 
 **목표**: 그리드 렌더러와 컴포넌트 레지스트리를 구축한다. 이 단계에서는 기존 `HorizontalPager`를 건드리지 않으며, 4.15.4에서 스와핑할 준비만 한다.
 
+> **⚠️ Phase 4.7.4-A 변경사항**: `ActionsPanel`/`SpecialKeysGrid`/`ShortcutsGrid`/`MacrosPlaceholder`가 `ui/pages/standard/components/`에 `internal` standalone Composable로 추출됨. `ComponentRenderer`가 이들을 재추출 없이 직접 디스패치 가능.
+
 **구현 항목**:
 1. `GridContainer.kt` — `BoxWithConstraints`로 `cellW = maxWidth / cols`, 컴포넌트를 `.offset(cellW*colStart, …).size(cellW*colSpan, …)`로 배치
-2. `ComponentCallbacks.kt` — 12개 콜백 번들 (현 `StandardModePage` line 511~617 배선 압축)
+2. `ComponentCallbacks.kt` — 12개 콜백 번들 (4.7.4 분해 후 `StandardModePage` 콜백 배선 압축 — 4.7.4-A 완료 후 정확한 위치/시그니처 확인 후 작성)
 3. `ComponentRegistry.kt` + `CatalogMeta.kt` — `ComponentType` → `CatalogEntry(displayName, icon, defaultColSpan, defaultRowSpan, minColSpan, minRowSpan, defaultConfig)` 매핑. `COMPONENT_CATALOG: List<CatalogEntry>` 정의
 4. `ComponentRenderer.kt` — `PlacedComponent` + `ComponentCallbacks` → 실제 Composable 디스패치
    - `TOUCHPAD`: `TouchpadWrapper` 본체만 셀에 렌더. DPI/Dynamics/ModePreset 팝업 오버레이는 `DynamicPageRenderer` 루트에서 1회 렌더 (이 파일에서는 제외)
@@ -132,6 +134,8 @@ updated: "2026-06-18"
 **개발 기간**: 1~1.5일
 
 **목표**: `DynamicPageRenderer`를 완성하고, `StandardModePage`의 하드코딩 `when(page % PAGE_COUNT)` 분기를 동적 페이지 리스트 렌더링으로 전환한다. **완료 후 기존 5개 페이지가 100% 동일하게 동작해야 한다.** 이 단계가 릴리스 가능한 중간 지점이다.
+
+> **⚠️ Phase 4.7.4 변경사항**: 페이지 래퍼(`Page1TouchpadActions` 등)는 4.7.4-A에서 `ui/pages/standard/`로 분리됐으나 이 단계에서 `DynamicPage` 호출로 대체된다. `standardAssignments`/`standardButtonVisibility` 맵은 4.7.4-C에서 `StandardModePageState`로 단순 호이스팅된 상태이며, 이 단계에서 제거하고 `PlacedComponent` config로 흡수한다.
 
 **구현 항목**:
 1. `DynamicPageRenderer.kt` — `PageLayout` → `GridContainer` + `ComponentRenderer` 렌더. 터치패드 전역 팝업(DPI/Dynamics/ModePreset 블러 포함) 오버레이를 렌더러 루트에서 1회 처리

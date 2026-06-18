@@ -178,26 +178,39 @@ updated: "2026-06-17"
 
 **작업 항목**:
 
-### 4.7.4-A (저위험): 페이지 Composable 파일 분리
-파일 경계가 이미 깔끔하므로 단순 이동 (`ui/pages/standard/` 신설):
-- `Page1TouchpadActions.kt` (+`ActionsPanel`/`SpecialKeysGrid`/`ShortcutsGrid`/`MacrosPlaceholder`)
-- `Page2TestTouchpad.kt` / `Page3KeyboardPlaceholder.kt` / `Page4MinecraftPlaceholder.kt` / `Page5Settings.kt`(+`SettingsInputModeSection`/`SettingsEdgeInteractionModeSection`)
-- `PageIndicator.kt`
-- `StandardModePrefs.kt`: SharedPreferences 헬퍼(`loadDpiLevel`/`saveDpiLevel`/`loadEdgeInteractionMode` 등) 이동
+### 4.7.4-A (저위험): 페이지 Composable 파일 분리 + 재사용 컴포넌트 추출
+`ui/pages/standard/` 신설. 페이지 래퍼와 재사용 컴포넌트를 구분해 분리합니다.
+
+**페이지 래퍼** (4.15.4에서 `DynamicPage`로 대체될 임시 구조. 각 래퍼의 레이아웃 비율/배치 로직이 4.15.2 `DefaultPageTemplates` 데이터화의 기준이 됨):
+- `Page1TouchpadActions.kt` / `Page2TestTouchpad.kt` / `Page3KeyboardPlaceholder.kt` / `Page4MinecraftPlaceholder.kt` / `Page5Settings.kt`(+`SettingsInputModeSection`/`SettingsEdgeInteractionModeSection`)
+- `PageIndicator.kt` — 이미 `pageCount` 파라미터를 받으므로 단순 이동, 4.15 영향 없음
+- `StandardModePrefs.kt`: SharedPreferences 헬퍼(`loadDpiLevel`/`saveDpiLevel`/`loadEdgeInteractionMode` 등) 이동 — 전역 설정이라 4.15 영향 없음
+
+**재사용 컴포넌트** (`ui/pages/standard/components/` 신설, 가시성 `internal`):
+- `ActionsPanel.kt`, `SpecialKeysGrid.kt`, `ShortcutsGrid.kt`, `MacrosPlaceholder.kt`
+- 각 Composable의 페이지 컨텍스트 의존을 끊고 콜백·상태를 **명시적 파라미터**로 수령. 단, 4.15의 `ComponentCallbacks` 번들 강제 도입은 금지 — 그건 4.15.3 작업
+
+> **⚠️ Phase 4.15 영향**: 4.15.4가 `when(page % PAGE_COUNT)` 분기를 `DynamicPage`(데이터 기반 렌더링)로 통째 대체한다. 따라서 페이지 래퍼(`Page1TouchpadActions` 등)는 임시 구조이며 4.15.2 `DefaultPageTemplates`의 데이터화 기준으로만 쓰인다. 반면 내부 컴포넌트(`ActionsPanel`/`SpecialKeysGrid`/`ShortcutsGrid`)는 4.15.3 `ComponentRenderer`가 직접 디스패치해 재사용하므로, 페이지 의존을 끊은 standalone `internal` Composable로 추출한다(`ui/pages/standard/components/`).
 
 ### 4.7.4-B (중위험): 매크로/단축키 시퀀싱 순수화
 - 신규 `ui/common/MacroFrameSequencer.kt`: `onSendMacro`(218~320행)의 스텝→`List<BridgeFrame>` 시퀀스 생성 로직을 순수 함수로 추출 (딜레이는 호출부 적용 또는 `(frame, delayMs)` 리스트 반환). `onSendShortcut`도 동일
 - `sendFrame`/`coroutineScope.launch`/`MacroOverlayController`/`ToastController` 등 사이드이펙트는 Composable 콜백에 잔류
 - 신규 `MacroFrameSequencerTest.kt`: TAP repeat, 홀드 합성(combinedMod/keys 2개 제한), dangling hold 안전 해제, estimatedMs 계산 (4.7.2-C 항목 해소)
 
+> **⚠️ Phase 4.15 영향**: `MacroFrameSequencer`는 4.15의 `MACRO_BUTTON` 렌더링이 그대로 재사용한다. 스텝 입력은 4.15 `MacroButtonCfg.steps`와 호환되도록 페이지 비의존 데이터 타입으로 받을 것. 단, 매크로 스텝의 JSON 직렬화 헬퍼(`macroStepsToJson`/`macroStepsFromJson`) 추출은 `EdgeZoneJson.kt`를 손대는 별개 작업으로 4.15.1 소관이며 4.7.4-B 범위가 아니다.
+
 ### 4.7.4-C (고위험): StandardModePageState 상태 홀더
 - 신규 `ui/pages/StandardModePageState.kt` (평범한 상태 홀더): `touchpadState` 호이스팅, `ModeHistoryStack`/`recordingOnChange`/`onRestorePrevious`, `heldMouseButtons` 이관. 페이지는 상태 구독·이벤트 위임만
+- `standardAssignments`/`standardButtonVisibility` 맵은 **단순 호이스팅**만 수행. 정교한 accessor/변환 API를 새로 만들지 않음 — 4.15.4가 깔끔히 제거할 수 있도록 격리 유지
+
+> **⚠️ Phase 4.15 영향**: `StandardModePageState`는 4.15.2가 `pages: List<PageLayout>` 상태와 debounce 저장 `LaunchedEffect`를 가산(additive)으로 추가한다. 또한 `standardAssignments`/`standardButtonVisibility` 맵은 4.15.4에서 제거되어 `PlacedComponent` config로 흡수된다. 따라서 이 두 맵은 단순 호이스팅만 하고 정교한 변환 API를 새로 만들지 않는다(4.15.4 제거 용이성 확보).
 
 **검증**:
 - [ ] `.\gradlew testDebugUnitTest`(MacroFrameSequencer) + `.\gradlew assembleDebug` 통과
 - [ ] 5페이지 스와이프 전환 동작 동일
 - [ ] 페이지 간 상태 공유·동기화 동일
 - [ ] DPI·매크로·곡선 편집 등 팝업 호출 동일
+- [ ] 추출된 재사용 컴포넌트(`ActionsPanel`/`SpecialKeysGrid`/`ShortcutsGrid`)가 페이지 비의존 standalone `internal` Composable로 분리되고, Page1 렌더 결과 동일
 
 ---
 
