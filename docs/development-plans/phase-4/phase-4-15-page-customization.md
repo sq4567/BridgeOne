@@ -108,6 +108,8 @@ updated: "2026-06-18"
 
 > **⚠️ Phase 4.7.4-A 변경사항**: `ActionsPanel`/`SpecialKeysGrid`/`ShortcutsGrid`/`MacrosPlaceholder`가 `ui/pages/standard/components/`에 `internal` standalone Composable로 추출됨. `ComponentRenderer`가 이들을 재추출 없이 직접 디스패치 가능.
 
+> **⚠️ Phase 4.7.4-B 변경사항**: `ui/common/MacroFrameSequencer` 완성. `MACRO_BUTTON` 실행 경로에서 `MacroFrameSequencer.buildMacro(steps, stepDelayMs): List<TimedFrame>`을 호출해 프레임 시퀀스 생성. `TimedFrame(frame: BridgeFrame, delayAfterMs: Long)`. 페이지 비의존 입력(`List<MacroStep>`)이므로 4.15 `MacroButtonCfg.steps`와 직접 호환.
+
 **구현 항목**:
 1. `GridContainer.kt` — `BoxWithConstraints`로 `cellW = maxWidth / cols`, 컴포넌트를 `.offset(cellW*colStart, …).size(cellW*colSpan, …)`로 배치
 2. `ComponentCallbacks.kt` — 12개 콜백 번들 (4.7.4 분해 후 `StandardModePage` 콜백 배선 압축 — 4.7.4-A 완료 후 정확한 위치/시그니처 확인 후 작성)

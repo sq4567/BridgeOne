@@ -4,7 +4,7 @@ description: "BridgeOne 프로젝트 Phase 4.7 - Phase 4.1~4.6 산출물의 외�
 tags: ["android", "refactoring", "architecture", "mvvm", "code-quality"]
 version: "v1.0"
 owner: "Chatterbones"
-updated: "2026-06-17"
+updated: "2026-06-19"
 ---
 
 # BridgeOne Phase 4.7: Android 코드베이스 리팩토링
@@ -178,26 +178,44 @@ updated: "2026-06-17"
 
 **작업 항목**:
 
-### 4.7.4-A (저위험): 페이지 Composable 파일 분리 + 재사용 컴포넌트 추출
+### 4.7.4-A (저위험): 페이지 Composable 파일 분리 + 재사용 컴포넌트 추출 ✅
 `ui/pages/standard/` 신설. 페이지 래퍼와 재사용 컴포넌트를 구분해 분리합니다.
 
 **페이지 래퍼** (4.15.4에서 `DynamicPage`로 대체될 임시 구조. 각 래퍼의 레이아웃 비율/배치 로직이 4.15.2 `DefaultPageTemplates` 데이터화의 기준이 됨):
-- `Page1TouchpadActions.kt` / `Page2TestTouchpad.kt` / `Page3KeyboardPlaceholder.kt` / `Page4MinecraftPlaceholder.kt` / `Page5Settings.kt`(+`SettingsInputModeSection`/`SettingsEdgeInteractionModeSection`)
+- `Page1TouchpadActions.kt` / `Page2TestTouchpad.kt` / `Page3KeyboardPlaceholder.kt` / `Page4MinecraftPlaceholder.kt` / `Page5Settings.kt`(+`SettingsInputModeSection`/`SettingsEdgeInteractionModeSection`/`ZoneEditorEntryRow`/`SettingsButtonVisibilitySection`/`SettingsToggleRow`)
 - `PageIndicator.kt` — 이미 `pageCount` 파라미터를 받으므로 단순 이동, 4.15 영향 없음
-- `StandardModePrefs.kt`: SharedPreferences 헬퍼(`loadDpiLevel`/`saveDpiLevel`/`loadEdgeInteractionMode` 등) 이동 — 전역 설정이라 4.15 영향 없음
+- `StandardModePrefs.kt`: SharedPreferences 헬퍼(`loadDpiLevel`/`saveDpiLevel`/`loadEdgeInteractionMode`/`saveEdgeInteractionMode`) + 상수(`PREF_NAME`/`KEY_DPI_LEVEL`/`KEY_EDGE_INTERACTION_MODE`) 이동 — 전역 설정이라 4.15 영향 없음
 
 **재사용 컴포넌트** (`ui/pages/standard/components/` 신설, 가시성 `internal`):
 - `ActionsPanel.kt`, `SpecialKeysGrid.kt`, `ShortcutsGrid.kt`, `MacrosPlaceholder.kt`
-- 각 Composable의 페이지 컨텍스트 의존을 끊고 콜백·상태를 **명시적 파라미터**로 수령. 단, 4.15의 `ComponentCallbacks` 번들 강제 도입은 금지 — 그건 4.15.3 작업
+- 현재 이 4개는 파라미터가 거의 없는 정적 컴포넌트(modifier만). 4.15의 `ComponentCallbacks` 번들 강제 도입 금지 — 그건 4.15.3 작업
 
-> **⚠️ Phase 4.15 영향**: 4.15.4가 `when(page % PAGE_COUNT)` 분기를 `DynamicPage`(데이터 기반 렌더링)로 통째 대체한다. 따라서 페이지 래퍼(`Page1TouchpadActions` 등)는 임시 구조이며 4.15.2 `DefaultPageTemplates`의 데이터화 기준으로만 쓰인다. 반면 내부 컴포넌트(`ActionsPanel`/`SpecialKeysGrid`/`ShortcutsGrid`)는 4.15.3 `ComponentRenderer`가 직접 디스패치해 재사용하므로, 페이지 의존을 끊은 standalone `internal` Composable로 추출한다(`ui/pages/standard/components/`).
+> **⚠️ Phase 4.15 영향**: 4.15.4가 `when(page % PAGE_COUNT)` 분기를 `DynamicPage`(데이터 기반 렌더링)로 통째 대체한다. 따라서 페이지 래퍼(`Page1TouchpadActions` 등)는 임시 구조이며 4.15.2 `DefaultPageTemplates`의 데이터화 기준으로만 쓰인다. 반면 내부 컴포넌트(`ActionsPanel`/`SpecialKeysGrid`/`ShortcutsGrid`)는 4.15.3 `ComponentRenderer`가 직접 디스패치해 재사용하므로, 페이지 의존을 끊은 standalone `internal` Composable로 추출한다(`ui/pages/standard/components/`). **확정 경로**: `com.bridgeone.app.ui.pages.standard.components`.
 
-### 4.7.4-B (중위험): 매크로/단축키 시퀀싱 순수화
-- 신규 `ui/common/MacroFrameSequencer.kt`: `onSendMacro`(218~320행)의 스텝→`List<BridgeFrame>` 시퀀스 생성 로직을 순수 함수로 추출 (딜레이는 호출부 적용 또는 `(frame, delayMs)` 리스트 반환). `onSendShortcut`도 동일
-- `sendFrame`/`coroutineScope.launch`/`MacroOverlayController`/`ToastController` 등 사이드이펙트는 Composable 콜백에 잔류
-- 신규 `MacroFrameSequencerTest.kt`: TAP repeat, 홀드 합성(combinedMod/keys 2개 제한), dangling hold 안전 해제, estimatedMs 계산 (4.7.2-C 항목 해소)
+**4.7.4-A 신규 파일 (11개)**:
+- `ui/pages/standard/StandardModePrefs.kt`
+- `ui/pages/standard/PageIndicator.kt`
+- `ui/pages/standard/Page1TouchpadActions.kt` (29 파라미터)
+- `ui/pages/standard/Page2TestTouchpad.kt` (13 파라미터)
+- `ui/pages/standard/Page3KeyboardPlaceholder.kt`
+- `ui/pages/standard/Page4MinecraftPlaceholder.kt`
+- `ui/pages/standard/Page5Settings.kt` (하위 섹션 composable 포함)
+- `ui/pages/standard/components/ActionsPanel.kt`
+- `ui/pages/standard/components/SpecialKeysGrid.kt`
+- `ui/pages/standard/components/ShortcutsGrid.kt`
+- `ui/pages/standard/components/MacrosPlaceholder.kt`
 
-> **⚠️ Phase 4.15 영향**: `MacroFrameSequencer`는 4.15의 `MACRO_BUTTON` 렌더링이 그대로 재사용한다. 스텝 입력은 4.15 `MacroButtonCfg.steps`와 호환되도록 페이지 비의존 데이터 타입으로 받을 것. 단, 매크로 스텝의 JSON 직렬화 헬퍼(`macroStepsToJson`/`macroStepsFromJson`) 추출은 `EdgeZoneJson.kt`를 손대는 별개 작업으로 4.15.1 소관이며 4.7.4-B 범위가 아니다.
+### 4.7.4-B (중위험): 매크로/단축키 시퀀싱 순수화 ✅
+- 신규 `ui/common/MacroFrameSequencer.kt`: `object MacroFrameSequencer`
+  - `data class TimedFrame(val frame: BridgeFrame, val delayAfterMs: Long)`
+  - `fun buildMacro(steps: List<MacroStep>, stepDelayMs: Int): List<TimedFrame>`
+  - `fun buildShortcut(modifierBits: Int, keyCodes: List<Int>): List<BridgeFrame>`
+- `StandardModePage.kt`의 `onSendMacro`: `MacroFrameSequencer.buildMacro()`로 교체. `timedFrames.sumOf { delayAfterMs }`로 `estimatedMs` 산출 (기존 foldIndexed와 수학적 동등성 확인). 코루틴 내 프레임 순차 전송으로 간소화
+- `onSendShortcut`: `MacroFrameSequencer.buildShortcut().forEach { sendFrame(it) }` 1줄로 교체
+- 제거된 import: `MACRO_INTRA_STEP_PRESS_RELEASE_MS`, `MACRO_MAX_HELD_KEYS`, `MacroStepKind` (StandardModePage에서 불필요)
+- 신규 `test/.../ui/common/MacroFrameSequencerTest.kt`: 20 테스트 (TAP repeat·홀드 합성·INTRA 딜레이·dangling hold·RELEASE 전체/특정·estimatedMs 동등성·buildShortcut) → 4.7.2-C "매크로 시퀀싱" 항목 해소
+
+> **⚠️ Phase 4.15 영향**: `MacroFrameSequencer`는 4.15의 `MACRO_BUTTON` 렌더링이 그대로 재사용한다. API: `buildMacro(steps: List<MacroStep>, stepDelayMs: Int): List<TimedFrame>`. 스텝 입력이 `MacroStep`(페이지 비의존 데이터 타입)이므로 4.15 `MacroButtonCfg.steps`와 호환. 단, 매크로 스텝 JSON 직렬화 헬퍼 추출은 4.15.1 소관이며 4.7.4-B 범위 아님.
 
 ### 4.7.4-C (고위험): StandardModePageState 상태 홀더
 - 신규 `ui/pages/StandardModePageState.kt` (평범한 상태 홀더): `touchpadState` 호이스팅, `ModeHistoryStack`/`recordingOnChange`/`onRestorePrevious`, `heldMouseButtons` 이관. 페이지는 상태 구독·이벤트 위임만
@@ -205,12 +223,48 @@ updated: "2026-06-17"
 
 > **⚠️ Phase 4.15 영향**: `StandardModePageState`는 4.15.2가 `pages: List<PageLayout>` 상태와 debounce 저장 `LaunchedEffect`를 가산(additive)으로 추가한다. 또한 `standardAssignments`/`standardButtonVisibility` 맵은 4.15.4에서 제거되어 `PlacedComponent` config로 흡수된다. 따라서 이 두 맵은 단순 호이스팅만 하고 정교한 변환 API를 새로 만들지 않는다(4.15.4 제거 용이성 확보).
 
-**검증**:
-- [ ] `.\gradlew testDebugUnitTest`(MacroFrameSequencer) + `.\gradlew assembleDebug` 통과
-- [ ] 5페이지 스와이프 전환 동작 동일
-- [ ] 페이지 간 상태 공유·동기화 동일
-- [ ] DPI·매크로·곡선 편집 등 팝업 호출 동일
-- [ ] 추출된 재사용 컴포넌트(`ActionsPanel`/`SpecialKeysGrid`/`ShortcutsGrid`)가 페이지 비의존 standalone `internal` Composable로 분리되고, Page1 렌더 결과 동일
+**검증** (A/B 완료):
+- [x] `.\gradlew testDebugUnitTest`(MacroFrameSequencerTest 20 tests) + `.\gradlew assembleDebug` 통과
+
+#### 수동 회귀 체크리스트 (실기기)
+
+**4.7.4-A: 페이지 분리 회귀**
+
+페이지 전환 / 인디케이터:
+- [x] Page 1→2→3→4→5 순차 스와이프 전환 정상 (5→1 wrap도 확인)
+- [x] 하단 인디케이터 도트가 현재 페이지에 맞게 이동하는지 (worm 애니메이션)
+- [x] 인디케이터 도트 탭으로 페이지 점프가 정상 동작하는지
+
+Page 1 렌더링 (ActionsPanel 분리 영향):
+- [x] 우측 패널 "특수 키" 섹션: Esc·Tab·Enter·⌫·Del·Space·Home·End 버튼 표시 및 탭 시 PC에 해당 키 전달 확인
+- [x] 우측 패널 "단축키" 섹션: Ctrl+C·Ctrl+V·Ctrl+S·Ctrl+Z 등 8개 버튼 표시 및 탭 시 실행 확인
+- [x] 우측 패널 "매크로" 섹션 표시 정상
+
+SharedPreferences 저장/복원 (StandardModePrefs 분리 영향):
+- [x] 앱 재시작 후 DPI 레벨이 이전 설정값으로 복원되는지
+- [x] 앱 재시작 후 엣지 조작 방식(일반/스와이프)이 이전 설정으로 복원되는지
+
+Page 5 설정 렌더링:
+- [x] 설정 페이지 전체 항목이 정상 표시 (입력 방식·엣지 조작 방식·버튼 표시·TTS 슬라이더 등)
+- [x] TTS 속도 슬라이더 핸들이 정상 렌더링되는지 (BoxWithConstraints offset 수정 영향)
+
+**4.7.4-B: 매크로 시퀀서 회귀**
+
+단축키 (buildShortcut 교체 영향):
+- [x] 특수키 탭(예: Esc) → PC에서 해당 키 동작 확인 (press+release 2프레임 전송)
+- [x] 단축키 탭(예: Ctrl+C) → PC에서 복사 동작 확인 (modifier+key press, 전체 release)
+
+매크로 실행 흐름:
+- [x] 매크로 실행 시 스크림 오버레이(화면 어두워짐)가 나타나고 실행 완료 후 사라지는지
+- [x] PROGRESS 토스트 "매크로 실행 중"이 스크림과 함께 등장하고 완료 후 사라지는지
+- [x] 매크로 표시 시간이 너무 짧거나(400ms 최소 보장) 너무 길지 않은지
+
+매크로 스텝 종류별 (엣지 존에 매크로 할당 후 트리거):
+- [x] TAP repeat 매크로 (예: repeatCount=3): 키가 3회 연속 전달되는지
+- [x] HOLD + TAP 조합 매크로 (예: Ctrl HOLD → C TAP → RELEASE): Ctrl+C 동작 확인
+- [x] HOLD만으로 끝나는 매크로: 매크로 종료 후 PC에서 키가 눌린 채 남지 않는지 (dangling 해제 확인 — 텍스트 에디터에서 키 누름 상태 해제 확인)
+
+> **4.7.4-C 선행 정보**: A/B에서 분리된 패키지 경로 확정 (`com.bridgeone.app.ui.pages.standard.*`). `MacroFrameSequencer` (`ui/common/`)는 C 작업 시 `StandardModePageState`가 직접 호출하거나 onSendMacro 콜백을 상태 홀더로 이관할 때 재사용. `standardAssignments`/`standardButtonVisibility` 두 Map은 단순 호이스팅만(accessor API 생성 금지 — 4.15.4에서 제거 예정).
 
 ---
 
