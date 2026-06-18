@@ -228,11 +228,12 @@ updated: "2026-06-19"
 - **사이드이펙트 격리**: 상태 홀더는 순수 상태 전이만 보유. `sendFrame`/토스트/`MacroOverlay`는 전부 Composable 콜백에 잔류 (4.7.4-B 철학 일관)
 - **계획과 다르게 구현**: `standardAssignments`/`standardButtonVisibility` 두 Map은 상태 홀더로 옮기지 **않고** Composable의 `remember`에 그대로 잔류. 두 Map은 각자의 repo(`assignmentRepo`/`buttonVisibilityRepo`)·저장 `LaunchedEffect`와 결합돼 있어 상태 홀더로 옮기면 context·repo 의존이 따라와 격리가 깨진다. Composable 잔류가 "정교한 API 금지 + 4.15.4 제거 용이성" 목표에 더 부합
 - 호출부 `StandardModePage.kt`: `touchpadState` 직접 참조 18곳을 `pageState.touchpadState`로 교체. 불필요해진 import(`BridgeFrame`/`ModeHistoryStack`) 제거. `StandardModePage.kt`는 페이저·콜백 배선·팝업 오버레이만 잔류
+- 신규 `test/.../ui/pages/StandardModePageStateTest.kt`: 14 테스트 (changeStateRecordingHistory push 조건·restorePrevious edgeInteractionMode 유지·연속 복원 재push 없음·toggleMouseHold 비트 OR/RELEASE/TOGGLE)
 
 > **⚠️ Phase 4.15 영향**: `StandardModePageState`는 4.15.2가 `pages: List<PageLayout>` 상태와 debounce 저장 `LaunchedEffect`를 가산(additive)으로 추가한다. `standardAssignments`/`standardButtonVisibility` 맵은 **상태 홀더가 아니라 `StandardModePage.kt` Composable에 잔류** 중이며, 4.15.4에서 제거되어 `PlacedComponent` config로 흡수된다. `touchpadState`는 `pageState.touchpadState`(public var)로 노출돼 있어 4.15.4의 동적 렌더러도 동일하게 읽고 직접 할당 가능.
 
 **검증** (A/B/C 완료):
-- [x] `.\gradlew testDebugUnitTest`(MacroFrameSequencerTest 20 tests) + `.\gradlew assembleDebug` 통과 (A/B/C 각 단계 빌드·테스트 그린, 신규 경고 없음)
+- [x] `.\gradlew testDebugUnitTest`(MacroFrameSequencerTest 20 + StandardModePageStateTest 14 tests) + `.\gradlew assembleDebug` 통과 (A/B/C 각 단계 빌드·테스트 그린, 신규 경고 없음)
 
 #### 수동 회귀 체크리스트 (실기기)
 
