@@ -18,7 +18,7 @@ updated: "2026-06-17"
 - 기능별로 분리된 `*Constants.kt` 파일군
 - 중복 제거용 공통 유틸 (`HapticFeedbackHelper`)
 - `TouchpadWrapper` / `StandardModePage` / `EdgeZoneEditorScreen` / `DynamicsCurveEditor` 분해
-- 화면별 상태 홀더 (`TouchpadGestureState`, `StandardModePageState`, `EdgeZoneEditorState`)
+- 화면별 상태 홀더 (`StandardModePageState`, `EdgeZoneEditorState`)
 
 **선행 조건**: Phase 4.6 완료
 
@@ -122,7 +122,7 @@ updated: "2026-06-17"
 **실제 추가된 의존성**:
 - `testOptions { unitTests { isReturnDefaultValues = true } }` (android 블록) — `android.util.Log` 미구현 호출을 0/null/false로 처리
 - `org.json:json:20240303` (testImplementation) — EdgeZoneJson 라운드트립용 PC측 실구현
-- `kotlinx-coroutines-test`: 4.7.2-B 대상에 코루틴 로직 없음 → 4.7.3-C/4.7.4-B에서 추가
+- `kotlinx-coroutines-test`: 4.7.2-B 대상에 코루틴 로직 없음 → 4.7.4-B에서 추가
 - `org.robolectric:robolectric`: 미채택
 - `com.google.truth`: 미채택 (기존 `assertEquals` 컨벤션 유지)
 
@@ -147,36 +147,28 @@ updated: "2026-06-17"
 
 ---
 
-## Phase 4.7.3: TouchpadWrapper 분해 + 제스처 핸들러 추출
+## Phase 4.7.3: TouchpadWrapper 순수 함수·햅틱 분리
 
-> **⚠️ Phase 4.15.3 / 4.15.4 영향**: 가이드라인 리컴포지션 최소화(4.15.3)와 제스처 루프 작업 제거(4.15.4)는 본 Phase에서 분리된 상태 홀더·핸들러 구조 위에서 진행됩니다. 4.15 진행 시 본 Phase 결과(파일 위치)를 먼저 확인할 것.
+> **⚠️ Phase 4.15.3 / 4.15.4 영향**: 가이드라인 리컴포지션 최소화(4.15.3)와 제스처 루프 작업 제거(4.15.4)는 현재 `TouchpadWrapper` 제스처 루프 구조 위에서 진행됩니다. 4.15 진행 시 이 파일 구조를 먼저 확인할 것.
 
-**목표**: 순수 함수부터 끄집어낸 뒤 상태 홀더로 모읍니다. 제스처 루프(`pointerInput`)는 Compose `PointerInputScope` 컨텍스트가 필요해 통째로 옮길 수 없으므로, "계산"과 "루프"를 분리합니다.
+**목표**: `TouchpadWrapper`에서 떼어낼 가치가 분명한 순수 함수와 중복 로직을 분리합니다. 제스처 루프(`pointerInput`)는 코루틴·부작용·콜백이 본질적으로 강결합된 상태머신이라 분해하지 않습니다.
 
 **작업 항목**:
 
-### 4.7.3-A (저위험): 순수 기하/판정 함수 분리
-- 신규 `ui/components/touchpad/EdgeGeometry.kt`: 1756~1919행의 `detectEntryEdge`/`getInwardDistance`/`getAlongEdgePosition`/`findNearestEdge`/`computeDirectTouchButtonRects`/`applyEdgeModeToggle`를 `internal` top-level로 이동 (동작 동일)
-- 신규 `EdgeGeometryTest.kt`로 고정 (4.7.2-C 항목 해소)
+### 4.7.3-A (저위험): 순수 기하/판정 함수 분리 ✅
+- 신규 `ui/components/touchpad/EdgeGeometry.kt`: `detectEntryEdge`/`getInwardDistance`/`getAlongEdgePosition`/`findNearestEdge`/`computeDirectTouchButtonRects`/`applyEdgeModeToggle` 6개 함수를 `internal` top-level로 이동 (동작 동일)
+- `TouchpadWrapper.kt`에서 함수 정의 삭제 → import 6개 추가 (`com.bridgeone.app.ui.components.touchpad.*`), 불필요 import (`CornerOverlap`) 제거
+- 신규 `EdgeGeometryTest.kt`: 42 tests 그린 (4.7.2-C "엣지 진입 판정" 항목 해소)
 
-### 4.7.3-B (중위험): 햅틱 단일화 (기존 4.7.2 항목 흡수)
-- 신규 `ui/common/HapticFeedbackHelper.kt`: 반복되는 `vibrator.vibrate(...)` 호출 블록(무한 스크롤 햅틱·관성 햅틱 등)을 `class HapticFeedbackHelper(vibrator)`로 통합
-- 수정: `TouchpadWrapper.kt`(햅틱 호출부)
+### 4.7.3-B (중위험): 햅틱 단일화 (기존 4.7.2 항목 흡수) ✅
+- 신규 `ui/common/HapticFeedbackHelper.kt`: 완전 중복이던 `vibrator.vibrate(...)` 2곳 (터치 드래그 중 / 관성 코루틴 중)을 `fun vibrateByVelocity(velocity: Float)`로 단일화. SDK O 가드·amplitude 계산·VibrationEffect 생성 흡수
+- `TouchpadWrapper.kt`: `hapticHelper = remember(vibrator) { HapticFeedbackHelper(vibrator) }` 추가, 두 호출부를 `hapticHelper.vibrateByVelocity(speed/abs(velocity))`로 교체. 불필요 import (`VibrationEffect`, `INFINITE_SCROLL_HAPTIC_*` 4개) 제거
 
 > **⚠️ Phase 4.15.2 영향**: 4.15.2(햅틱 호출 빈도 최적화)는 `HapticFeedbackHelper`에 시간 게이트(`HAPTIC_MIN_INTERVAL_MS`)를 추가하는 방식으로 진행합니다. 호출부가 헬퍼로 단일화되어 있으므로 한 곳만 수정하면 전체 적용됩니다.
 
-### 4.7.3-C (고위험): TouchpadGestureState 상태 홀더 도입
-- 신규 `ui/components/TouchpadGestureState.kt`: **`SwipeFocusController`와 동일한 평범한 클래스 상태 홀더** (lifecycle 의존 없음, 컨벤션 일치). 53개 상태 중 비-Compose-애니메이션 상태(스크롤 축 `lastScrollAxis`, `previousVelocityDpMs`, `lastScrollFrameSentMs`, 관성 Job 핸들, 엣지 후보/회전 인덱스 등)를 이관
-- `Animatable`/`animateColorAsState` 등 컴포지션 종속 상태는 Composable에 잔류
-- 제스처 루프는 `TouchpadWrapper`에 유지하되, 루프 내부 계산을 핸들러 메서드 호출(`gestureState.onMove(...)` 등)로 치환. 프레임 전송은 `ClickDetector.sendFrame` 그대로
-- 인스턴스화: `remember(touchpadId)` (페이저 내 `touchpadId`별 다중 인스턴스 대응)
-
 **검증**:
-- [ ] `.\gradlew testDebugUnitTest`(EdgeGeometry) + `.\gradlew assembleDebug` 통과
-- [ ] 커서 이동·클릭·드래그 동작 동일
-- [ ] 스크롤(일반/무한)·관성·축 확정·직각 이동 동작 동일
-- [ ] 엣지 스와이프 메뉴·가이드라인 표시 동일
-- [ ] 햅틱 피드백 타이밍 동일
+- [x] `.\gradlew testDebugUnitTest`(EdgeGeometry 42 tests) + `.\gradlew assembleDebug` 통과 (4.7.3-A/B)
+- [x] 커서 이동·클릭·드래그·스크롤·관성·엣지 스와이프·햅틱 수동 회귀 통과 (A/B 완료 시점)
 
 ---
 
