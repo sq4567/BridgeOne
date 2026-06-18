@@ -26,7 +26,7 @@ updated: "2026-06-17"
 
 **진행 순서**: 테스트 안전망 → 저위험(상수·중복·파일 이동) → 고위험(구조·상태 분리) 순서로 진행합니다. 각 하위 Phase는 독립적으로 빌드·검증 가능한 단위이므로, 중간에 중단해도 코드가 깨지지 않습니다. 회귀가 생기면 어느 단계가 원인인지 단위 테스트가 특정해 줍니다.
 
-**Phase 4.15(성능 최적화)와의 관계**: 본 Phase는 **구조 개선**이 목적이며, 성능 향상은 부수적 결과입니다. 측정 기반의 성능 최적화는 모든 기능 완성 후 `phase-4-15-performance.md`에서 별도로 진행합니다. 일부 대상 코드가 겹치므로(예: 햅틱 호출, 제스처 루프), 본 Phase에서 만든 구조 위에서 4.15가 동작하게 됩니다.
+**Phase 4.16(성능 최적화)와의 관계**: 본 Phase는 **구조 개선**이 목적이며, 성능 향상은 부수적 결과입니다. 측정 기반의 성능 최적화는 모든 기능 완성 후 `phase-4-16-performance.md`에서 별도로 진행합니다. 일부 대상 코드가 겹치므로(예: 햅틱 호출, 제스처 루프), 본 Phase에서 만든 구조 위에서 4.16이 동작하게 됩니다.
 
 ---
 
@@ -149,7 +149,7 @@ updated: "2026-06-17"
 
 ## Phase 4.7.3: TouchpadWrapper 순수 함수·햅틱 분리
 
-> **⚠️ Phase 4.15.3 / 4.15.4 영향**: 가이드라인 리컴포지션 최소화(4.15.3)와 제스처 루프 작업 제거(4.15.4)는 현재 `TouchpadWrapper` 제스처 루프 구조 위에서 진행됩니다. 4.15 진행 시 이 파일 구조를 먼저 확인할 것.
+> **⚠️ Phase 4.16.3 / 4.16.4 영향**: 가이드라인 리컴포지션 최소화(4.16.3)와 제스처 루프 작업 제거(4.16.4)는 현재 `TouchpadWrapper` 제스처 루프 구조 위에서 진행됩니다. 4.16 진행 시 이 파일 구조를 먼저 확인할 것.
 
 **목표**: `TouchpadWrapper`에서 떼어낼 가치가 분명한 순수 함수와 중복 로직을 분리합니다. 제스처 루프(`pointerInput`)는 코루틴·부작용·콜백이 본질적으로 강결합된 상태머신이라 분해하지 않습니다.
 
@@ -164,7 +164,7 @@ updated: "2026-06-17"
 - 신규 `ui/common/HapticFeedbackHelper.kt`: 완전 중복이던 `vibrator.vibrate(...)` 2곳 (터치 드래그 중 / 관성 코루틴 중)을 `fun vibrateByVelocity(velocity: Float)`로 단일화. SDK O 가드·amplitude 계산·VibrationEffect 생성 흡수
 - `TouchpadWrapper.kt`: `hapticHelper = remember(vibrator) { HapticFeedbackHelper(vibrator) }` 추가, 두 호출부를 `hapticHelper.vibrateByVelocity(speed/abs(velocity))`로 교체. 불필요 import (`VibrationEffect`, `INFINITE_SCROLL_HAPTIC_*` 4개) 제거
 
-> **⚠️ Phase 4.15.2 영향**: 4.15.2(햅틱 호출 빈도 최적화)는 `HapticFeedbackHelper`에 시간 게이트(`HAPTIC_MIN_INTERVAL_MS`)를 추가하는 방식으로 진행합니다. 호출부가 헬퍼로 단일화되어 있으므로 한 곳만 수정하면 전체 적용됩니다.
+> **⚠️ Phase 4.16.2 영향**: 4.16.2(햅틱 호출 빈도 최적화)는 `HapticFeedbackHelper`에 시간 게이트(`HAPTIC_MIN_INTERVAL_MS`)를 추가하는 방식으로 진행합니다. 호출부가 헬퍼로 단일화되어 있으므로 한 곳만 수정하면 전체 적용됩니다.
 
 **검증**:
 - [x] `.\gradlew testDebugUnitTest`(EdgeGeometry 42 tests) + `.\gradlew assembleDebug` 통과 (4.7.3-A/B)

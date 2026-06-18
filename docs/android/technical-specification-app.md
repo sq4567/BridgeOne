@@ -3305,6 +3305,175 @@ fun shouldTransmit(absCoord: AbsoluteCoordinate): Boolean {
 
 ---
 
+### 2.11 페이지 커스터마이징 구현 요구사항
+
+환경설정에서 사용자가 페이지를 추가·삭제·순서변경·편집하고, 각 페이지에 컴포넌트를 원하는 위치·크기로 배치할 수 있는 기능이다. 현재 `StandardModePage.kt`에 하드코딩된 5개 페이지를 데이터 모델 기반 동적 렌더링으로 전환한다.
+
+#### 2.11.1 페이지 데이터 모델
+
+**신규 파일**: `ui/layout/PageLayoutModel.kt`
+
+```kotlin
+enum class PageOrientation { PORTRAIT, LANDSCAPE }
+enum class PageKind { GRID, SETTINGS_NATIVE }
+
+data class GridPadding(val top: Int, val bottom: Int, val left: Int, val right: Int)  // dp
+
+data class PageLayout(
+    val id: String,                  // UUID — page index와 분리
+    val name: String,
+    val orientation: PageOrientation,
+    val gridCols: Int,               // 사용자 지정 열 수
+    val gridRows: Int,               // 사용자 지정 행 수
+    val padding: GridPadding,
+    val components: List<PlacedComponent>,
+    val isBuiltinTemplate: Boolean = false,
+    val kind: PageKind = PageKind.GRID
+)
+
+data class PlacedComponent(
+    val instanceId: String,          // UUID — touchpadId 대체
+    val type: ComponentType,
+    val colStart: Int, val rowStart: Int,
+    val colSpan: Int,  val rowSpan: Int,
+    val config: PlacedComponentConfig
+)
+```
+
+**`PlacedComponentConfig` (sealed class)**:
+- `Touchpad(edgeZoneAssignment: TouchpadEdgeZoneAssignment, buttonVisibility: TouchpadButtonVisibility)` — 기존 `standardAssignments`/`standardButtonVisibility` 맵 흡수. `showControlButtons`는 `TouchpadButtonVisibility` 내부 필드이므로 별도 파라미터 없음
+- `ShortcutButtonCfg(shortcutLabel, mod, keys)`
+- `KeyboardKeyCfg(keyLabel, keyCode, stickyHold)`
+- `MacroButtonCfg(steps, stepDelayMs, label)`
+- `KeyboardLayoutCfg(...)`, `EdgeZoneStripCfg(...)`, `None`
+
+**설정 페이지 예외**: Page5(설정) 화면은 `kind = SETTINGS_NATIVE`로 표시하고 그리드 데이터화 대상에서 제외한다. 편집 진입점 자체이므로 그리드 컴포넌트로 강제하지 않는다.
+
+**핵심 변경**: 기존 `TouchpadIds.standardPage(index)` 기반 `touchpadId`를 `placed.instanceId`(UUID)로 대체한다. `TouchpadWrapper` 시그니처(`touchpadId: String`)는 변경 불필요.
+
+#### 2.11.2 직렬화 및 영속화
+
+**직렬화**: 신규 `ui/layout/PageLayoutJson.kt` — `ui/common/EdgeZoneJson.kt` 패턴 복제.
+- `pageLayoutToJsonObject(PageLayout)` / `pageLayoutFromJsonObject(JSONObject)`
+- `PlacedComponentConfig.Touchpad` 직렬화는 기존 `edgeZoneConfigToJsonObject(assignment.config)` 중첩 호출로 재사용
+- `MacroButtonCfg.steps` 직렬화는 `EdgeZoneJson`의 `SendMacro` 직렬화 블록을 헬퍼로 추출해 공유
+- 모든 역직렬화는 `optInt/optString` + `runCatching` 폴백
+- 라운드트립 단위 테스트: `PageLayoutJsonTest.kt`
+
+**영속화**: 신규 `ui/common/PageLayoutRepository.kt` — `TouchpadEdgeZoneAssignmentRepository.kt` 패턴 복제.
+- 저장 파일: `{filesDir}/page_layouts.json`
+- 루트 구조: `{ "version": 1, "pages": [ ... ] }` (version 필드로 스키마 진화 대비)
+- `StandardModePageState`가 `pages: List<PageLayout>` 보유 → `LaunchedEffect(pages) { repo.saveAll(pages) }` (debounce 포함)
+
+**index→id 마이그레이션 요구사항**:
+- `page_layouts.json`이 없으면 `defaultPageLayouts()` 생성 시, 기존 `TouchpadEdgeZoneAssignmentRepository`의 `standard_page_0`, `standard_page_1` 키 데이터와 `TouchpadButtonVisibilityRepository` 값을 읽어 템플릿 터치패드 config에 흡수
+- `DefaultPageTemplates`의 터치패드 `instanceId`는 고정 상수 UUID(멱등 보장)
+- 기존 파일은 삭제하지 않고 방치(마이그레이션 선례 준수)
+- Essential 모드(`ESSENTIAL_PRIMARY`)는 커스터마이징 대상이 아니며 기존 Repository 그대로 유지
+
+#### 2.11.3 그리드 시스템 및 동적 렌더링
+
+**그리드 렌더러**: 신규 `ui/layout/GridContainer.kt`
+
+```kotlin
+@Composable
+fun GridContainer(
+    cols: Int, rows: Int, padding: GridPadding,
+    components: List<PlacedComponent>,
+    content: @Composable (PlacedComponent, Modifier) -> Unit
+) {
+    BoxWithConstraints(Modifier.fillMaxSize().padding(...)) {
+        val cellW = maxWidth / cols
+        val cellH = maxHeight / rows
+        components.forEach { p ->
+            content(p, Modifier
+                .offset(x = cellW * p.colStart, y = cellH * p.rowStart)
+                .size(width = cellW * p.colSpan, height = cellH * p.rowSpan)
+            )
+        }
+    }
+}
+```
+
+기존 `BoxWithConstraints` + 비율 + clamp 패턴(`ControlButtonContainer.kt`, `TouchpadWrapper.kt`)과 동형. EdgeZone의 `startRatio/endRatio`(0~1) 개념과 일치.
+
+**컴포넌트 레지스트리**: 신규 파일군 — `ui/layout/ComponentType.kt`, `ui/layout/ComponentRegistry.kt`, `ui/layout/CatalogMeta.kt`
+
+```kotlin
+enum class ComponentType {
+    TOUCHPAD, KEYBOARD_LAYOUT, SHORTCUT_BUTTON, KEYBOARD_KEY,
+    MACRO_BUTTON, EDGE_ZONE_STRIP, SPECIAL_KEY_GRID
+}
+```
+
+각 `ComponentType`은 `CatalogEntry(displayName, icon, defaultColSpan, defaultRowSpan, minColSpan, minRowSpan, defaultConfig)`를 가진다.
+
+**콜백 번들**: 신규 `ui/layout/ComponentCallbacks.kt`
+
+```kotlin
+data class ComponentCallbacks(
+    val onSendShortcut: (Int, List<Int>, Boolean) -> Unit,
+    val onSendMacro: (List<MacroStep>, Int) -> Unit,
+    val onMouseHoldToggle: (MouseButton, MouseHoldMode) -> Unit,
+    val onCyclePage: (PageNav) -> Unit,
+    val onJumpToPage: (Int) -> Unit,
+    val onTouchpadStateChange: (TouchpadState) -> Unit,
+    val onRestorePrevious: () -> Unit,
+)
+```
+
+현재 `StandardModePage`가 페이지별로 수동 배선하던 12개 콜백(line 511~617)을 번들 1개로 압축.
+
+**컴포넌트 렌더러**: 신규 `ui/layout/ComponentRenderer.kt`
+
+`ComponentType`에 따라 실제 Composable로 디스패치. `TOUCHPAD` 타입은 `TouchpadWrapper` 본체만 셀에 렌더하고, DPI/Dynamics/ModePreset 팝업 오버레이는 `DynamicPageRenderer` 루트에서 1회만 렌더(현 구조 유지).
+
+**동적 페이지 렌더러**: 신규 `ui/layout/DynamicPageRenderer.kt`
+
+`PageLayout` 데이터를 받아 `GridContainer` + `RenderComponent`로 렌더링. `HorizontalPager`의 `PAGE_COUNT = 5` 하드코딩을 `pages.size` 동적화로 전환. `when(page % PAGE_COUNT)` 분기 제거.
+
+#### 2.11.4 페이지 편집 UI 요구사항
+
+**진입점**: 현 Page5 Settings의 `ZoneEditorEntryRow` 패턴 복제 → `showPageListEditor` 상태 오버레이(현 `showZoneEditor`/`EdgeZoneEditorScreen` 패턴).
+
+**신규 파일군** (`ui/layout/editor/`):
+- `PageListEditorScreen.kt` — 페이지 목록(순서변경·삭제·추가·복제)
+- `PageEditScreen.kt` — 단일 페이지 편집(그리드 드래그/리사이즈·방향·padding·격자수)
+- `ComponentCatalogSheet.kt` — 컴포넌트 카탈로그 바텀시트
+- `PageEditState.kt` — 편집 세션 상태 홀더
+
+**목록 관리 (`PageListEditorScreen`):**
+- 순서 변경: 드래그 리오더 + ▲/▼ 이동 버튼 대안(큰 터치타겟 56dp+) 동시 제공
+- 삭제(확인 다이얼로그), 추가(빈 PageLayout), 복제(`copy(id=새 UUID, instanceId 재발급)`)
+
+**페이지 편집 (`PageEditScreen`):**
+- 상단 컨트롤: 방향 세그먼트(PORTRAIT/LANDSCAPE), padding 4슬라이더(기존 Page5 슬라이더 패턴 재사용), 격자 수 cols/rows 스테퍼(+/− 버튼)
+- 본문: `GridContainer` 편집 모드 — 그리드 라인 시각화 + 컴포넌트 드래그/리사이즈(셀 스냅)
+  - 드래그: `awaitEachGesture`/`drag` API(기존 슬라이더와 동일)
+  - 리사이즈: 모서리 핸들 드래그 → `colSpan`/`rowSpan` 스냅
+  - 충돌 검사: 겹침 시 빨강 테두리 경고 또는 배치 거부
+**컴포넌트 선택 및 config 편집**:
+- 편집 모드에서 배치된 컴포넌트 탭 → 선택 상태 진입 (강조 테두리 + 선택 툴바: 삭제 / 설정 / ▲▼◀▶ 이동). 드래그는 길게 누르기 후 이동으로 구분.
+- 선택 툴바 "설정" 탭 → `ComponentConfigEditor` 호출. 타입별 config 편집 UI 디스패치:
+
+| 타입 | 편집 UI | 주요 설정 |
+|------|---------|---------|
+| TOUCHPAD | TouchpadPageConfigSheet | 버튼 표시(마스터·개별 6개·다이나믹스·모드프리셋·스크롤) + 엣지존 설정 진입 |
+| SHORTCUT_BUTTON | 다이얼로그 | 수식키 조합 + 키코드, 레이블 |
+| KEYBOARD_KEY | 키코드 선택 다이얼로그 | 키코드 |
+| MACRO_BUTTON | 매크로 스텝 편집 | 스텝 목록, 레이블 |
+| KEYBOARD_LAYOUT | 없음 | 설정 버튼 비활성화 |
+| EDGE_ZONE_STRIP | 방향·액션 다이얼로그 | 방향, 할당 액션 |
+| SPECIAL_KEY_GRID | 표시키 선택 다이얼로그 | 특수키 목록 |
+
+- 카탈로그 배치 직후: `SHORTCUT_BUTTON` / `KEYBOARD_KEY` / `MACRO_BUTTON`은 `ComponentConfigEditor` 자동 오픈(초기 설정 유도). 기타 타입은 자동 진입 없음.
+
+**편집 모드 제스처 격리**: 편집 모드에서는 `HorizontalPager userScrollEnabled = false`(현 `isScrollActive` 차단 선례) + 컴포넌트 자체 제스처 비활성으로 편집 드래그만 허용.
+
+**접근성**: 모든 드래그 조작에 버튼 대안 동시 제공. 그리드 스냅으로 픽셀 정밀 조작 불필요. Phase 4.14 Assisted Mode와 연계 가능(추후).
+
+---
+
 ## 3. 상수 및 임계값 정의
 
 ### 3.1 레이아웃 및 UI 상수
@@ -3544,6 +3713,27 @@ fun shouldTransmit(absCoord: AbsoluteCoordinate): Boolean {
 | `PERFORMANCE_TARGET_LATENCY_MS` | 50 | ms | 성능 테스트 목표 지연시간 | Performance Testing |
 | `STRESS_TEST_DURATION_HOURS` | 24 | 시간 | 스트레스 테스트 지속시간 | Stress Testing |
 | `MEMORY_LEAK_THRESHOLD_MB` | 100 | MB | 메모리 누수 임계값 | Memory Testing |
+
+---
+
+### 3.12 페이지 편집 상수
+
+**신규 파일**: 관련 상수는 `ui/layout/PageEditConstants.kt`에 정의한다.
+
+| 상수명 | 기본값 | 단위 | 설명 | 사용 위치 |
+|--------|--------|------|------|--------|
+| `PAGE_EDIT_DEFAULT_COLS` | 12 | 열 | 신규 페이지 기본 그리드 열 수 (기본값: 12) | PageEditScreen |
+| `PAGE_EDIT_DEFAULT_ROWS` | 8 | 행 | 신규 페이지 기본 그리드 행 수 (기본값: 8) |  PageEditScreen |
+| `PAGE_EDIT_MIN_COL_SPAN` | 2 | 열 | 컴포넌트 최소 colSpan (기본값: 2) | GridContainer, 편집 UI |
+| `PAGE_EDIT_MIN_ROW_SPAN` | 1 | 행 | 컴포넌트 최소 rowSpan (기본값: 1) | GridContainer, 편집 UI |
+| `PAGE_EDIT_SNAP_THRESHOLD_DP` | 8f | dp | 드래그 스냅 임계값 — 이 거리 이내면 가장 가까운 셀로 스냅 (기본값: 8f) | PageEditScreen |
+| `PAGE_EDIT_PADDING_MIN_DP` | 0 | dp | 페이지 padding 최소값 (기본값: 0) | PageEditScreen |
+| `PAGE_EDIT_PADDING_MAX_DP` | 64 | dp | 페이지 padding 최대값 (기본값: 64) | PageEditScreen |
+| `PAGE_EDIT_GRID_LINE_ALPHA` | 0.15f | - | 그리드 라인 불투명도 (기본값: 0.15f) | GridContainer 편집 모드 |
+| `PAGE_EDIT_HANDLE_SIZE_DP` | 24f | dp | 리사이즈 핸들 크기 — 접근성 최소 기준 초과 (기본값: 24f) | PageEditScreen |
+| `PAGE_EDIT_SAVE_DEBOUNCE_MS` | 300L | ms | 페이지 레이아웃 저장 debounce 지연 (기본값: 300L) | PageLayoutRepository |
+| `PAGE_EDIT_MAX_COLS` | 24 | 열 | 그리드 최대 열 수 (기본값: 24) | PageEditScreen |
+| `PAGE_EDIT_MAX_ROWS` | 16 | 행 | 그리드 최대 행 수 (기본값: 16) | PageEditScreen |
 
 ---
 

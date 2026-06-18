@@ -312,7 +312,7 @@ Standard 모드
 - [x] 탭 시 아무 반응 없음
 - [x] 시각적으로 비활성화 상태 명확
 
-> **⚠️ Phase 4.15 변경 예정**: 이 영역은 Phase 4.15에서 `ScrollPadWrapper` 컴포넌트로 교체됩니다. `MacrosPlaceholder` 함수와 "매크로" 그룹 헤더는 그 시점에 삭제됩니다. 명세는 `docs/android/component-scrollpad.md` 참조.
+> **⚠️ Phase 4.13 변경 예정**: 이 영역은 Phase 4.13에서 `ScrollPadWrapper` 컴포넌트로 교체됩니다. `MacrosPlaceholder` 함수와 "매크로" 그룹 헤더는 그 시점에 삭제됩니다. 명세는 `docs/android/component-scrollpad.md` 참조.
 
 ---
 
@@ -388,7 +388,7 @@ StandardModePage
 │   │   └── Actions Panel (LazyColumn)
 │   │       ├── Special Keys (8개, 2열 그리드)
 │   │       ├── Shortcuts (8개, ShortcutButton, 2열 그리드)
-│   │       └── Macros (3개, Disabled placeholder) ← Phase 4.15에서 ScrollPad로 교체 예정
+│   │       └── Macros (3개, Disabled placeholder) ← Phase 4.13에서 ScrollPad로 교체 예정
 │   ├── Page 2: Placeholder ← Phase 4.8에서 구현 (AbsolutePointingPad)
 │   ├── Page 3: Placeholder ← Phase 4.9에서 구현 (키보드)
 │   └── Page 4: Placeholder ← Phase 4.10에서 구현 (Minecraft)

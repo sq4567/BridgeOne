@@ -1071,7 +1071,90 @@ graph TD
 
 ---
 
-## 9. 페이지별 스타일프레임 링크
+## 9. 페이지 편집 UI 가이드라인
+
+페이지 커스터마이징 기능(Phase 4.15)의 편집 화면 디자인 원칙이다. 기술 요구사항은 `technical-specification-app.md` §2.11 참조.
+
+### 9.1 그리드 시각화
+
+- 편집 모드 진입 시 그리드 라인을 화면 위에 오버레이. 불투명도 `PAGE_EDIT_GRID_LINE_ALPHA = 0.15f`로 낮게 유지해 배치된 컴포넌트가 가려지지 않도록
+- 그리드 라인 색상: `MaterialTheme.colorScheme.onSurface` (테마 자동 대응)
+- 셀 크기는 `BoxWithConstraints`로 `maxWidth / cols`, `maxHeight / rows`를 계산해 해상도 독립적으로 렌더
+
+### 9.2 컴포넌트 배치 및 조작
+
+**드래그 이동**
+- 컴포넌트를 길게 누르면 드래그 가능 상태 진입 (대상 강조 테두리 표시)
+- 드래그 중 가장 가까운 셀 경계로 스냅 (임계값 `PAGE_EDIT_SNAP_THRESHOLD_DP = 8f`)
+- 픽셀 단위 정밀 조작 불필요 — 그리드 스냅으로 충분
+
+**리사이즈**
+- 컴포넌트 모서리에 핸들 표시. 핸들 크기 `PAGE_EDIT_HANDLE_SIZE_DP = 24f` (접근성 기준 충족)
+- 핸들 드래그 → `colSpan`/`rowSpan` 셀 단위 스냅
+
+**버튼 대안**
+- 모든 드래그/리사이즈 조작에 방향 버튼(▲▼◀▶ 및 확장/축소) 대안을 동시 제공. 정밀 조작이 어려운 사용자를 위한 필수 요건
+
+**충돌 피드백**
+- 컴포넌트가 다른 컴포넌트와 겹치면 빨강 테두리(`MaterialTheme.colorScheme.error`) 경고
+- 겹침 상태에서는 "확인/저장" 불가 — 해결 전 배치 거부
+
+### 9.3 컴포넌트 카탈로그 시트
+
+- 하단 FAB "컴포넌트 추가" 탭 → `ModalBottomSheet` 형태로 카탈로그 등장
+- 카탈로그 항목: 아이콘 + 이름 + 기본 크기(예: "터치패드 — 8×6칸") 표시
+- 항목 탭하면 그리드 내 빈 공간에 `defaultColSpan` × `defaultRowSpan` 크기로 자동 배치
+- 카탈로그 항목 목록: TOUCHPAD, KEYBOARD_LAYOUT, SHORTCUT_BUTTON, KEYBOARD_KEY, MACRO_BUTTON, EDGE_ZONE_STRIP, SPECIAL_KEY_GRID
+
+### 9.4 페이지 속성 컨트롤
+
+| 컨트롤 | UI 요소 | 접근성 |
+|--------|---------|--------|
+| 방향 (PORTRAIT/LANDSCAPE) | 2-세그먼트 버튼 | 큰 터치타겟 (48dp+) |
+| Padding 상/하/좌/우 | 슬라이더 (0~64dp) | 기존 Page5 슬라이더 패턴 재사용 |
+| 열 수 (gridCols) | +/− 스테퍼 버튼 | 버튼 터치타겟 48dp+, 현재 값 레이블 |
+| 행 수 (gridRows) | +/− 스테퍼 버튼 | 동일 |
+
+### 9.5 페이지 목록 관리
+
+- 각 페이지 행: 이름 + 그리드 썸네일 미리보기 + 편집 진입 버튼
+- 순서 변경: 드래그 핸들(우측) + ▲/▼ 이동 버튼 대안 동시 제공 (터치타겟 56dp+)
+- 삭제: 스와이프 또는 삭제 아이콘 탭 → 확인 다이얼로그
+- 추가: 하단 FAB "페이지 추가" → 빈 PORTRAIT 페이지(기본 12×8 그리드) 생성
+- 복제: 롱프레스 컨텍스트 메뉴 → `copy(id=새 UUID, instanceId 재발급)`
+
+### 9.6 진입 및 탈출
+
+- **진입**: 환경설정(Page5) → "페이지 커스터마이징" 행 탭 → `showPageListEditor = true` 오버레이 (현 `showZoneEditor`/`EdgeZoneEditorScreen` 진입 패턴과 동일)
+- **탈출**: 상단 "← 뒤로" 또는 Back 제스처 → 변경사항 자동 저장(debounce) 후 설정 화면 복귀
+- 터치패드 인스턴스: 선택 툴바 "설정" 탭 → 기존 `EdgeZoneEditorScreen` 중첩 진입(편집 완료 후 페이지 편집 화면으로 복귀)
+
+### 9.7 컴포넌트 config 편집
+
+**선택 및 진입 모델**
+- 편집 모드에서 배치된 컴포넌트를 탭 → 선택 상태 진입 (강조 테두리 표시 + 선택 툴바 등장: 삭제 / 설정 / ▲▼◀▶ 이동)
+- 드래그는 길게 누르기 후 이동으로 구분 → 탭(선택)과 충돌 없음
+- 선택 툴바 "설정" 버튼 탭 → 해당 타입의 config 편집 UI 진입
+
+**배치 직후 자동 진입**
+- 카탈로그에서 `SHORTCUT_BUTTON` / `KEYBOARD_KEY` / `MACRO_BUTTON` 배치 직후 → config 편집 UI 자동 오픈(초기 설정 유도)
+- `TOUCHPAD` / `KEYBOARD_LAYOUT` 등 기본 config로 즉시 동작 가능한 타입은 자동 진입 없음
+
+**타입별 config 편집 UI**
+
+| 컴포넌트 타입 | 편집 UI | 주요 설정 항목 |
+|---|---|---|
+| TOUCHPAD | TouchpadPageConfigSheet | 버튼 표시 토글: 마스터(showControlButtons), 개별 6개(클릭·이동·스크롤·커서 모드·DPI·스크롤감도), 포인트 다이나믹스, 모드 프리셋, 스크롤 버튼 + "엣지존 설정" 진입 버튼 → EdgeZoneEditorScreen |
+| SHORTCUT_BUTTON | 다이얼로그 | 수식키 조합 + 키코드, 레이블 |
+| KEYBOARD_KEY | 키코드 선택 다이얼로그 | 키코드 |
+| MACRO_BUTTON | 매크로 스텝 편집 (MacroTextEncoder 패턴) | 스텝 목록, 레이블 |
+| KEYBOARD_LAYOUT | 없음 | 설정 버튼 비활성화 |
+| EDGE_ZONE_STRIP | 스트립 방향·액션 다이얼로그 | 방향, 할당 액션 |
+| SPECIAL_KEY_GRID | 표시키 선택 다이얼로그 | 포함할 특수키 목록 |
+
+---
+
+## 10. 페이지별 스타일프레임 링크
 
 본 문서는 앱 전반의 설계/정책을 다룹니다. 각 페이지에 공통 컴포넌트(토스트, 페이지 인디케이터 등)와 특수 컴포넌트(DPad, 모드 버튼 등)가 실제로 배치된 시각 구조는 아래 스타일프레임 문서를 참조하세요.
 

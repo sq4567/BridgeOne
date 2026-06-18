@@ -1,13 +1,13 @@
 ---
-title: "BridgeOne Phase 4.15: 성능 최적화"
-description: "BridgeOne 프로젝트 Phase 4.15 - 전반적 입력 지연 및 렉 원인 조사 및 수정"
+title: "BridgeOne Phase 4.16: 성능 최적화"
+description: "BridgeOne 프로젝트 Phase 4.16 - 전반적 입력 지연 및 렉 원인 조사 및 수정"
 tags: ["android", "performance", "haptic", "recomposition", "input-latency"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-04-11"
 ---
 
-# BridgeOne Phase 4.15: 성능 최적화
+# BridgeOne Phase 4.16: 성능 최적화
 
 **개발 기간**: 미정
 
@@ -15,14 +15,14 @@ updated: "2026-04-11"
 
 | 하위 Phase | 내용 | 상태 |
 |-----------|------|------|
-| 4.15.1 | 프로파일링 및 병목 특정 | 미시작 |
-| 4.15.2 | 햅틱 호출 빈도 최적화 | 미시작 |
-| 4.15.3 | Compose 리컴포지션 최소화 | 미시작 |
-| 4.15.4 | 제스처 루프 내 불필요한 작업 제거 | 미시작 |
+| 4.16.1 | 프로파일링 및 병목 특정 | 미시작 |
+| 4.16.2 | 햅틱 호출 빈도 최적화 | 미시작 |
+| 4.16.3 | Compose 리컴포지션 최소화 | 미시작 |
+| 4.16.4 | 제스처 루프 내 불필요한 작업 제거 | 미시작 |
 
 ---
 
-## Phase 4.15.1: 프로파일링 및 병목 특정
+## Phase 4.16.1: 프로파일링 및 병목 특정
 
 **개발 기간**: 0.5일
 
@@ -67,13 +67,13 @@ updated: "2026-04-11"
 - [ ] Compose Recomposition 카운트 확인 완료
 - [ ] Frame Timing 캡처 완료 및 jank 비율 기록
 - [ ] 조사 결과 표 작성 완료
-- [ ] 병목 항목 특정 완료 → 해당 Phase(4.15.2~4.15.4) 진행 여부 결정
+- [ ] 병목 항목 특정 완료 → 해당 Phase(4.16.2~4.16.4) 진행 여부 결정
 
 ---
 
-## Phase 4.15.2: 햅틱 호출 빈도 최적화
+## Phase 4.16.2: 햅틱 호출 빈도 최적화
 
-> **선행 조건**: Phase 4.15.1 조사 A에서 `vibrate()` 가 병목으로 확인된 경우에만 진행.
+> **선행 조건**: Phase 4.16.1 조사 A에서 `vibrate()` 가 병목으로 확인된 경우에만 진행.
 
 **개발 기간**: 0.5일 미만
 
@@ -105,15 +105,15 @@ updated: "2026-04-11"
 
 **검증**:
 - [ ] 무한 스크롤 빠른 드래그 중 햅틱 체감 유지되는지 확인 (진동 느낌 여전히 있음)
-- [ ] Phase 4.15.1 System Trace 재측정 → `vibrate()` 호출 빈도 감소 확인
+- [ ] Phase 4.16.1 System Trace 재측정 → `vibrate()` 호출 빈도 감소 확인
 - [ ] 메인 스레드 점유 시간 감소 확인
 - [ ] 일반 스크롤 CLOCK_TICK 햅틱에는 영향 없음 확인 (별도 경로)
 
 ---
 
-## Phase 4.15.3: Compose 리컴포지션 최소화
+## Phase 4.16.3: Compose 리컴포지션 최소화
 
-> **선행 조건**: Phase 4.15.1 조사 B에서 과잉 리컴포지션이 병목으로 확인된 경우에만 진행.
+> **선행 조건**: Phase 4.16.1 조사 B에서 과잉 리컴포지션이 병목으로 확인된 경우에만 진행.
 
 **개발 기간**: 0.5~1일
 
@@ -131,14 +131,14 @@ MOVE 이벤트마다 `guidelineTarget`(Float 상태), `guidelineVisible`(Boolean
 **수정 파일**: 조사 결과 확인 후 결정
 
 **검증**:
-- [ ] Phase 4.15.1 Recomposition 카운트 재측정 → 빈도 감소 확인
+- [ ] Phase 4.16.1 Recomposition 카운트 재측정 → 빈도 감소 확인
 - [ ] 가이드라인·산봉우리 애니메이션 시각적 동작 동일 확인 (기능 회귀 없음)
 
 ---
 
-## Phase 4.15.4: 제스처 루프 내 불필요한 작업 제거
+## Phase 4.16.4: 제스처 루프 내 불필요한 작업 제거
 
-> **선행 조건**: Phase 4.15.1 조사 A에서 `pointerInput` 람다 실행 시간이 병목으로 확인된 경우에만 진행.
+> **선행 조건**: Phase 4.16.1 조사 A에서 `pointerInput` 람다 실행 시간이 병목으로 확인된 경우에만 진행.
 
 **개발 기간**: 0.5일 미만
 
@@ -159,6 +159,6 @@ MOVE 이벤트마다 `guidelineTarget`(Float 상태), `guidelineVisible`(Boolean
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
 
 **검증**:
-- [ ] Phase 4.15.1 System Trace 재측정 → `pointerInput` 람다 실행 시간 감소 확인
+- [ ] Phase 4.16.1 System Trace 재측정 → `pointerInput` 람다 실행 시간 감소 확인
 - [ ] 가이드라인 숨김 타이밍 동일하게 동작 확인
 - [ ] 커서 이동·클릭·스크롤 기능 회귀 없음 확인
