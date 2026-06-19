@@ -319,7 +319,7 @@ Page 5 설정 렌더링:
 
 **서브단계** (각 독립 빌드):
 1. **4.7.5-A** ✅: 순수 함수(`EdgeZoneActionResolver`) + config 변환·Undo(`EdgeZoneEditorState`) 추출 + 테스트. 4.7.2-C 항목 해소
-2. **4.7.5-B** (저위험): 이미 독립적인 `private fun` Composable(Macro/Shortcut/Rotation/팝업류)을 파일 이동만 (시그니처 유지)
+2. **4.7.5-B** ✅ (저위험): 이미 독립적인 `private fun` Composable(Macro/Shortcut/Rotation/팝업류)을 파일 이동만 (시그니처 유지)
 3. **4.7.5-C**: 편집 패널을 섹션별 Composable로 분리, 상태는 `EdgeZoneEditorState`/hoist 파라미터로 전달
 4. **4.7.5-D**: SWIPE/NORMAL 레이어 분리 + `CompositionLocal` 도입
 
@@ -329,6 +329,18 @@ Page 5 설정 렌더링:
 > - **상태 hoist 방식**: 홀더가 `workConfigState` 등 `MutableState`를 노출하고, `EdgeZoneEditorScreen`은 기존 지역 변수명을 `var workConfig by state.workConfigState` **위임**으로 유지 → 함수 내 113곳 참조를 그대로 둠. **4.7.5-C에서 패널 Composable로 상태를 넘길 때는 `state` 인스턴스(또는 `state.xxxState`/hoist 콜백)를 파라미터로 전달**한다.
 > - **`zonePopup` 책임 이동**: `splitInto`/`tryMergeWith`가 갖던 `zonePopup = ZoneActionPopup.None` 리셋을 홀더에서 제거하고 **호출부(Composable)**로 옮김(홀더는 UI-free). `splitInto`/`tryMergeWith`는 적용 성공 여부를 `Boolean`으로 반환하고, 호출부는 **성공 시에만** 팝업을 닫는다(원본 동작 보존: 비인접 탭 시 병합 모드 유지). 4.7.5-C에서 이 패턴 유지.
 > - **신규 테스트**: `EdgeZoneActionResolverTest.kt` / `EdgeZoneEditorStateTest.kt` (순수 JUnit4).
+
+> **⚠️ 4.7.5-B 완료 기록 (4.7.5-C/D 전제)**:
+> - **신규 파일 5개** (모두 `touchpad/` 패키지 직하 — `edgezone/` 하위폴더 미사용, 4.7.5-A 선례 따름):
+>   - `ShortcutEditorPopup.kt` (`ShortcutEditorPopup`)
+>   - `MacroEditorPopup.kt` (`MacroEditorPopup` + `MacroDelaySliderRow`(private 유지) + enum `MacroStepEditMode`/`MacroEditorPage`/`MacroKbTarget` + `macroButtonLabel`)
+>   - `UndoHistorySwipePopup.kt` (`UndoHistorySwipePopup`)
+>   - `RatioPresetSwipePopup.kt` (`RatioPresetSwipePopup` + `MiniRatioBar`)
+>   - `ZoneRotationEditor.kt` (`RotationEditor`)
+> - **가시성 승격**: 이동한 top-level 함수는 메인 파일에서 cross-file 호출되므로 `private fun`→`internal fun`. 빌드 중 메인 함수도 `MiniRatioBar`/`macroButtonLabel`을 직접 호출함이 드러나 두 함수도 `internal`로 올림(나머지 helper enum·`MacroDelaySliderRow`는 같은 파일 전용이라 `private` 유지).
+> - **EdgeZoneEditorScreen.kt 잔류 심볼 승격(private→internal)**: `CUSTOM_SLIDER_TRACK_HEIGHT_DP`/`CUSTOM_SLIDER_LINE_WIDTH_DP`(잔류 `ActionDomainPicker`+이동 함수들이 공유), `ActionDomainPicker`(메인 함수+이동된 `RotationEditor`가 호출), `CustomPresetTarget`(internal이 된 `ActionDomainPicker`의 파라미터 타입이라 노출 에러 방지). **4.7.5-C에서 `ActionDomainPicker`를 `ZoneActionPicker.kt`로 옮길 때 이 4종 심볼을 그대로 internal로 가져가면 됨** (`RotationEditor`·`MacroEditorPopup`·메인이 참조 중).
+> - **미사용 import 정리**: 이동으로 메인 파일에서 안 쓰게 된 import 50개 제거(아이콘·`MACRO_*`·`MOD_BIT_*`·IME·컬러피커 등). 새 파일은 사용 import만 포함.
+> - **검증**: `.\gradlew assembleDebug` + `testDebugUnitTest` 통과, 신규 경고 없음(잔존 경고 deprecated 아이콘·tautological 체크는 이동 코드에 원래 있던 것). git HEAD 원본 대비 정밀 대조 통과 — 이동 코드는 가시성 키워드 외 바이트 동일, 메인 파일은 import 50개 차감 + 가시성 4건 외 변경 0. 실기기 회귀 통과(숏컷/매크로 편집 팝업·회전 트리거·Undo·비율 프리셋 스와이프 팝업 SWIPE/NORMAL 동작 동일).
 
 > **주의**: 4.7.1 회귀목록의 ⚠️ 기존 스트립 에디터 스와이프 버그(구분선 1칸 이동 후 무반응)는 본 리팩토링 범위 밖입니다. 동작 동일성만 유지하고 별도 추적합니다.
 
