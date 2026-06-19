@@ -10,15 +10,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -43,16 +34,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.TouchApp
@@ -79,19 +67,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,8 +87,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
@@ -116,6 +96,7 @@ import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import com.bridgeone.app.ui.common.EdgeZonePresetsRepository
 import com.bridgeone.app.ui.common.stripActions
 import com.bridgeone.app.ui.common.InputMode
+import com.bridgeone.app.ui.common.LocalInputMode
 import com.bridgeone.app.ui.common.ToastController
 import com.bridgeone.app.ui.common.ToastType
 import com.bridgeone.app.ui.common.loadInputMode
@@ -123,10 +104,7 @@ import com.bridgeone.app.ui.common.loadSwipeWrapEdge
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFocusController
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFocused
 import com.bridgeone.app.ui.common.swipe.SwipeFocusable
-import com.bridgeone.app.ui.common.swipe.SwipeGestureLayer
-import com.bridgeone.app.ui.common.swipe.SwipeMode
 import com.bridgeone.app.ui.common.swipe.rememberSwipeFocusController
-import com.bridgeone.app.ui.common.ColorCodec
 
 
 import com.bridgeone.app.ui.components.SwipeKeyboardOverlay
@@ -138,7 +116,7 @@ internal const val CUSTOM_SLIDER_TRACK_HEIGHT_DP = 28f
 internal const val CUSTOM_SLIDER_LINE_WIDTH_DP = 3f
 
 // ── 영역 비율 인라인 액션 팝업 상태 ──
-private sealed class ZoneActionPopup {
+internal sealed class ZoneActionPopup {
     object None : ZoneActionPopup()
     data class Initial(val zone: EdgeZone, val anchor: Float) : ZoneActionPopup()
     data class MergeSelecting(val zone: EdgeZone) : ZoneActionPopup()
@@ -197,88 +175,87 @@ fun EdgeZoneEditorScreen(
     var selectedZone by state.selectedZoneState
     var currentPresetId by state.currentPresetIdState
     var undoStack by state.undoStackState
+    // Phase 4.7.5-D: 오버레이/팝업 UI 상태 홀더. 기존 지역 변수명은 MutableState 위임으로 유지.
+    val overlayUi = remember { EdgeZoneOverlayUiState() }
     var savedRotationTrigger by remember { mutableStateOf<EdgeZoneTrigger.Rotation?>(null) }
     var showDiscardDialog by remember { mutableStateOf(false) }
-    var showIconSheet by remember { mutableStateOf(false) }
-    var showColorPicker by remember { mutableStateOf(false) }
+    var showIconSheet by overlayUi.showIconSheetState
+    var showColorPicker by overlayUi.showColorPickerState
     // 커스텀 단축키 팝업 — SWIPE 모드에서는 Popup 대신 Box 인라인 오버레이로 렌더링
-    var swipeShortcutVisible by remember { mutableStateOf(false) }
-    var swipeShortcutDraft by remember { mutableStateOf(EdgeZoneAction.SendShortcut(0)) }
-    var swipeShortcutOnConfirm: (EdgeZoneAction.SendShortcut) -> Unit by remember { mutableStateOf({}) }
-    var swipeShortcutOnAddAsCandidate: ((draft: EdgeZoneAction.SendShortcut, iconKey: String, name: String) -> Unit)? by remember { mutableStateOf(null) }
+    var swipeShortcutVisible by overlayUi.swipeShortcutVisibleState
+    var swipeShortcutDraft by overlayUi.swipeShortcutDraftState
+    var swipeShortcutOnConfirm by overlayUi.swipeShortcutOnConfirmState
+    var swipeShortcutOnAddAsCandidate by overlayUi.swipeShortcutOnAddAsCandidateState
     // 커스텀 매크로 편집기 — SWIPE 모드에서는 Box 인라인 오버레이로 렌더링 (NORMAL은 Popup)
-    var macroEditorVisible by remember { mutableStateOf(false) }
-    var macroEditorDraft by remember { mutableStateOf(EdgeZoneAction.SendMacro()) }
-    var macroEditorOnConfirm: (EdgeZoneAction.SendMacro, String, String) -> Unit by remember { mutableStateOf({ _, _, _ -> }) }
-    var macroEditorOnAddAsPreset: ((EdgeZoneAction.SendMacro, String, String) -> Unit)? by remember { mutableStateOf(null) }
-    var macroEditorInitialIconKey by remember { mutableStateOf("") }
-    var macroEditorInitialName by remember { mutableStateOf("") }
+    var macroEditorVisible by overlayUi.macroEditorVisibleState
+    var macroEditorDraft by overlayUi.macroEditorDraftState
+    var macroEditorOnConfirm by overlayUi.macroEditorOnConfirmState
+    var macroEditorOnAddAsPreset by overlayUi.macroEditorOnAddAsPresetState
+    var macroEditorInitialIconKey by overlayUi.macroEditorInitialIconKeyState
+    var macroEditorInitialName by overlayUi.macroEditorInitialNameState
     // SWIPE 모드 매크로 이름/문자열 입력 키보드 활성 여부 (제스처 양보용). 기본값: false
-    var macroNameKbActive by remember { mutableStateOf(false) }
+    var macroNameKbActive by overlayUi.macroNameKbActiveState
     // NORMAL 모드 매크로 편집기 미니버튼 롱프레스 툴팁 상태 (호이스팅). 기본값: ""
-    var normalMiniTooltipText by remember { mutableStateOf("") }
-    var normalMiniTooltipAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
-    var colorPickerStage by remember {
-        mutableStateOf<com.bridgeone.app.ui.components.colorpicker.ColorPickerStage>(
-            com.bridgeone.app.ui.components.colorpicker.ColorPickerStage.Category
-        )
-    }
-    var showLabelKeyboard by remember { mutableStateOf(false) }
-    var candidateLabelKeyboard by remember { mutableStateOf<((String) -> Unit)?>(null) }
+    var normalMiniTooltipText by overlayUi.normalMiniTooltipTextState
+    var normalMiniTooltipAnchor by overlayUi.normalMiniTooltipAnchorState
+    var colorPickerStage by overlayUi.colorPickerStageState
+    var showLabelKeyboard by overlayUi.showLabelKeyboardState
+    var candidateLabelKeyboard by overlayUi.candidateLabelKeyboardState
     var candidateLabelCurrent by remember { mutableStateOf("") }
-    var showPresetPopup by remember { mutableStateOf(false) }
-    var presetPopupStage by remember { mutableStateOf(PopupStage.GRID) }
+    var showPresetPopup by overlayUi.showPresetPopupState
+    var presetPopupStage by overlayUi.presetPopupStageState
     // SWIPE 모드 프리셋 이름 입력 키보드 상태. null이면 비활성. 기본값: null
-    var presetNameKeyboard by remember { mutableStateOf<((String) -> Unit)?>(null) }
-    var presetNameSeed by remember { mutableStateOf("") }
+    var presetNameKeyboard by overlayUi.presetNameKeyboardState
+    var presetNameSeed by overlayUi.presetNameSeedState
     // SWIPE 모드 단축키 액션명 입력 키보드 활성 여부. 팝업 내부가 관리하고 본체는 scope 전환·제스처 양보에만 사용. 기본값: false
-    var shortcutNameKbActive by remember { mutableStateOf(false) }
-    var showUndoMenu by remember { mutableStateOf(false) }
+    var shortcutNameKbActive by overlayUi.shortcutNameKbActiveState
+    var showUndoMenu by overlayUi.showUndoMenuState
     // Undo 버튼 하단 y 좌표 (px, in window). 드롭다운 위치 계산용. 기본값: 0
-    var undoMenuAnchorBottom by remember { mutableIntStateOf(0) }
+    var undoMenuAnchorBottom by overlayUi.undoMenuAnchorBottomState
     // 커스텀 다이나믹스 프리셋 편집기 상태
     var localCustomPresets by remember(customPresets) { mutableStateOf(customPresets) }
     // 커스텀 단축키 프리셋 상태
-    var localCustomShortcutPresets by remember { mutableStateOf<List<com.bridgeone.app.ui.common.CustomShortcutPreset>>(emptyList()) }
+    var localCustomShortcutPresets by overlayUi.localCustomShortcutPresetsState
     LaunchedEffect(Unit) { customShortcutPresetsRepo?.let { localCustomShortcutPresets = it.loadAll() } }
     // 커스텀 매크로 프리셋 상태
-    var localCustomMacroPresets by remember { mutableStateOf<List<com.bridgeone.app.ui.common.CustomMacroPreset>>(emptyList()) }
+    var localCustomMacroPresets by overlayUi.localCustomMacroPresetsState
     LaunchedEffect(Unit) { customMacroPresetsRepo?.let { localCustomMacroPresets = it.loadAll() } }
     var dynamicsEditorVisible by remember { mutableStateOf(false) }
     // 편집 대상 다이나믹스 프리셋. null이면 신규 생성, non-null이면 해당 프리셋 편집. 기본값: null
     var dynamicsEditorInitial by remember { mutableStateOf<CustomPointerDynamicsPreset?>(null) }
     // SWIPE 모드 커스텀 프리셋 수정/삭제 메뉴 대상. null이면 닫힘. 기본값: null
-    var swipeCustomMenuTarget by remember { mutableStateOf<CustomPresetTarget?>(null) }
-    var zonePopup by remember { mutableStateOf<ZoneActionPopup>(ZoneActionPopup.None) }
+    var swipeCustomMenuTarget by overlayUi.swipeCustomMenuTargetState
+    val zonePopupState = remember { mutableStateOf<ZoneActionPopup>(ZoneActionPopup.None) }
+    var zonePopup by zonePopupState
     var canvasVisible by remember { mutableStateOf(true) }
     var selectedEdge by remember { mutableStateOf<EntryEdge?>(null) }
-    var nextFocusOnZoneChange by remember { mutableStateOf<EdgeEditorElement?>(null) }
+    var nextFocusOnZoneChange by overlayUi.nextFocusOnZoneChangeState
     val iconSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var iconBoxCenterInWindow by remember { mutableStateOf(Offset.Zero) }
-    var colorBoxCenterInWindow by remember { mutableStateOf(Offset.Zero) }
-    var ratioBtnBoundsInWindow by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
-    var actionTypeBtnBoundsInWindow by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
-    var revertBtnBoundsInWindow by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    var iconBoxCenterInWindow by overlayUi.iconBoxCenterInWindowState
+    var colorBoxCenterInWindow by overlayUi.colorBoxCenterInWindowState
+    var ratioBtnBoundsInWindow by overlayUi.ratioBtnBoundsInWindowState
+    var actionTypeBtnBoundsInWindow by overlayUi.actionTypeBtnBoundsInWindowState
+    var revertBtnBoundsInWindow by overlayUi.revertBtnBoundsInWindowState
     // 롱프레스 색 확정 후보 hex. null이면 확정 대상 없음(ExpandToggle 등). 기본값: null
-    var colorCommitCandidate by remember { mutableStateOf<String?>(null) }
+    var colorCommitCandidate by overlayUi.colorCommitCandidateState
     // 아이콘 서랍 단계 (카테고리 ↔ 아이콘). BackHandler 분기를 위해 상위가 소유.
-    var iconDrawerStage by remember { mutableStateOf<IconDrawerStage>(IconDrawerStage.Category) }
+    var iconDrawerStage by overlayUi.iconDrawerStageState
     // 단축키 팝업 아이콘 선택 서랍 (SWIPE 전용). 기본값: false
-    var shortcutIconSheetVisible by remember { mutableStateOf(false) }
-    var shortcutIconSeed by remember { mutableStateOf("") }
-    var shortcutIconOnPick by remember { mutableStateOf<((String) -> Unit)?>(null) }
-    var shortcutIconAnchor by remember { mutableStateOf(Offset.Zero) }
+    var shortcutIconSheetVisible by overlayUi.shortcutIconSheetVisibleState
+    var shortcutIconSeed by overlayUi.shortcutIconSeedState
+    var shortcutIconOnPick by overlayUi.shortcutIconOnPickState
+    var shortcutIconAnchor by overlayUi.shortcutIconAnchorState
     // 서랍을 연 진입점 — 닫을 때 이 요소로 포커스 복원. 기본값: ShortcutIconButton
-    var iconPickerReturnElement by remember { mutableStateOf<EdgeEditorElement>(EdgeEditorElement.ShortcutIconButton) }
+    var iconPickerReturnElement by overlayUi.iconPickerReturnElementState
 
     // ── 액션 순환 후보 편집 상태 (RotationEditor에서 hoist) ──
     // 라벨 키보드 오버레이가 RotationEditor를 컴포지션에서 제거해도 편집 상태가 소멸하지 않도록 상위가 소유.
     var rotationEditingEntry by remember { mutableStateOf<Pair<Int?, RotationCandidate>?>(null) }
-    var rotationDraft by remember { mutableStateOf(RotationCandidate(EdgeZoneAction.Unassigned, "", "")) }
-    var showCandidateIconSheet by remember { mutableStateOf(false) }
-    var showCandidateColorPicker by remember { mutableStateOf(false) }
-    var candidateIconBoxCenterInWindow by remember { mutableStateOf(Offset.Zero) }
-    var candidateColorBoxCenterInWindow by remember { mutableStateOf(Offset.Zero) }
+    var rotationDraft by overlayUi.rotationDraftState
+    var showCandidateIconSheet by overlayUi.showCandidateIconSheetState
+    var showCandidateColorPicker by overlayUi.showCandidateColorPickerState
+    var candidateIconBoxCenterInWindow by overlayUi.candidateIconBoxCenterInWindowState
+    var candidateColorBoxCenterInWindow by overlayUi.candidateColorBoxCenterInWindowState
 
     // ── 라벨 박스 커서 애니메이션 (편집 중 깜빡임) ──
     val labelCursorTransition = rememberInfiniteTransition(label = "labelCursor")
@@ -655,6 +632,7 @@ fun EdgeZoneEditorScreen(
     }
 
     CompositionLocalProvider(
+        LocalInputMode provides inputMode,
         LocalSwipeFocusController provides if (inputMode == InputMode.SWIPE) swipeController else null
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -958,96 +936,19 @@ fun EdgeZoneEditorScreen(
                                 // 존 단위로 분해. 비활성 엣지만 등록 생략 (Unassigned 존은 포함).
                                 // 코너는 별도 hit 영역으로 제공하지 않는다.
                                 if (inputMode == InputMode.SWIPE && !isEditing) {
-                                    val edgeDp = EdgeSwipeConstants.EDGE_HIT_WIDTH_DP.dp
-                                    val canvasWidth = maxWidth
-                                    val canvasHeight = maxHeight
-                                    val hasBottomLeft = bottomLeftButtonLabel != null
-                                    val hasBottomRight = bottomRightButtonLabel != null
-                                    val blockedRatio = EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO
-                                    fun cp(c: CornerOverlap) = workConfig.cornerPriority[c] ?: defaultCornerEdge(c)
-
-                                    val selectZoneAction: (EdgeZone) -> () -> Unit = { zone ->
-                                        {
+                                    ZoneCanvasHitOverlay(
+                                        workConfig = workConfig,
+                                        disabledEdges = disabledEdges,
+                                        bottomLeftButtonLabel = bottomLeftButtonLabel,
+                                        bottomRightButtonLabel = bottomRightButtonLabel,
+                                        canvasWidth = maxWidth,
+                                        canvasHeight = maxHeight,
+                                        onZoneSelected = { zone ->
                                             selectedZone = zone
                                             selectedEdge = zone.edge
                                             canvasVisible = false
-                                        }
-                                    }
-
-                                    EntryEdge.entries.forEach { edge ->
-                                        if (edge in disabledEdges.keys) return@forEach
-                                        val zones = workConfig.zonesFor(edge)
-                                        zones.forEachIndexed inner@{ idx, zone ->
-                                            // 캔버스 렌더링과 동일한 클리핑 로직을 dp 공간에서 적용
-                                            // Unassigned 존도 포함 — 액션 지정을 위해 선택할 수 있어야 함
-                                            val rectOffsetX: androidx.compose.ui.unit.Dp
-                                            val rectOffsetY: androidx.compose.ui.unit.Dp
-                                            val rectWidth: androidx.compose.ui.unit.Dp
-                                            val rectHeight: androidx.compose.ui.unit.Dp
-                                            when (edge) {
-                                                EntryEdge.TOP -> {
-                                                    var l = canvasWidth * zone.startRatio
-                                                    var r = canvasWidth * zone.endRatio
-                                                    if (cp(CornerOverlap.TOP_LEFT) != EntryEdge.TOP) l = maxOf(l, edgeDp)
-                                                    if (cp(CornerOverlap.TOP_RIGHT) != EntryEdge.TOP) r = minOf(r, canvasWidth - edgeDp)
-                                                    rectOffsetX = l; rectOffsetY = 0.dp
-                                                    rectWidth = r - l; rectHeight = edgeDp
-                                                }
-                                                EntryEdge.BOTTOM -> {
-                                                    val minX = when {
-                                                        hasBottomLeft -> canvasWidth * blockedRatio
-                                                        cp(CornerOverlap.BOTTOM_LEFT) != EntryEdge.BOTTOM -> edgeDp
-                                                        else -> 0.dp
-                                                    }
-                                                    val maxX = when {
-                                                        hasBottomRight -> canvasWidth * (1f - blockedRatio)
-                                                        cp(CornerOverlap.BOTTOM_RIGHT) != EntryEdge.BOTTOM -> canvasWidth - edgeDp
-                                                        else -> canvasWidth
-                                                    }
-                                                    val l = maxOf(canvasWidth * zone.startRatio, minX)
-                                                    val r = minOf(canvasWidth * zone.endRatio, maxX)
-                                                    rectOffsetX = l; rectOffsetY = canvasHeight - edgeDp
-                                                    rectWidth = r - l; rectHeight = edgeDp
-                                                }
-                                                EntryEdge.LEFT -> {
-                                                    var t = canvasHeight * zone.startRatio
-                                                    var b = canvasHeight * zone.endRatio
-                                                    if (cp(CornerOverlap.TOP_LEFT) != EntryEdge.LEFT) t = maxOf(t, edgeDp)
-                                                    if (hasBottomLeft) b = minOf(b, canvasHeight * (1f - blockedRatio))
-                                                    else if (cp(CornerOverlap.BOTTOM_LEFT) != EntryEdge.LEFT) b = minOf(b, canvasHeight - edgeDp)
-                                                    rectOffsetX = 0.dp; rectOffsetY = t
-                                                    rectWidth = edgeDp; rectHeight = b - t
-                                                }
-                                                EntryEdge.RIGHT -> {
-                                                    var t = canvasHeight * zone.startRatio
-                                                    var b = canvasHeight * zone.endRatio
-                                                    if (cp(CornerOverlap.TOP_RIGHT) != EntryEdge.RIGHT) t = maxOf(t, edgeDp)
-                                                    if (hasBottomRight) b = minOf(b, canvasHeight * (1f - blockedRatio))
-                                                    else if (cp(CornerOverlap.BOTTOM_RIGHT) != EntryEdge.RIGHT) b = minOf(b, canvasHeight - edgeDp)
-                                                    rectOffsetX = canvasWidth - edgeDp; rectOffsetY = t
-                                                    rectWidth = edgeDp; rectHeight = b - t
-                                                }
-                                            }
-                                            if (rectWidth <= 0.dp || rectHeight <= 0.dp) return@inner
-
-                                            val gridRow = when (edge) {
-                                                EntryEdge.TOP -> 10
-                                                EntryEdge.LEFT, EntryEdge.RIGHT -> 11 + idx
-                                                EntryEdge.BOTTOM -> 50
-                                            }
-
-                                            SwipeFocusable(
-                                                element = EdgeEditorElement.CanvasZone(edge, idx),
-                                                shape = RoundedCornerShape(4.dp),
-                                                showBorderHighlight = true,
-                                                onActivate = selectZoneAction(zone),
-                                                gridRow = gridRow,
-                                                modifier = Modifier
-                                                    .offset(x = rectOffsetX, y = rectOffsetY)
-                                                    .size(width = rectWidth, height = rectHeight),
-                                            ) {}
-                                        }
-                                    }
+                                        },
+                                    )
                                 }
                                 if (!isEditing) {
                                     Box(
@@ -1152,7 +1053,6 @@ fun EdgeZoneEditorScreen(
                             EntryEdge.BOTTOM -> if (bottomRightButtonLabel != null) bottomRightButtonLabel else if (stripBlockedEnd > 0f) "코너" else null
                             EntryEdge.TOP    -> if (stripBlockedEnd > 0f) "코너" else null
                         }
-                        var stripBounds by remember(edgeForStrip) { mutableStateOf(IntRect.Zero) }
                         val zoneIdx = if (sel != null) zoneList.indexOfFirst { it.startRatio == sel.startRatio && it.edge == sel.edge } else -1
 
                         Column(
@@ -1163,393 +1063,22 @@ fun EdgeZoneEditorScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
 
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // ── 1. 영역 비율 ──
-                            val p = zonePopup
-                            var presetMenuOpen by remember { mutableStateOf(false) }
-                            if (inputMode == InputMode.SWIPE) {
-                                DisposableEffect(presetMenuOpen) {
-                                    val active = presetMenuOpen
-                                    if (active) swipeController.pushScope(EdgeEditorScope.RatioPresetMenu)
-                                    onDispose { if (active) swipeController.popScope() }
-                                }
-                                val presetMenuHasOpened = remember { mutableStateOf(false) }
-                                LaunchedEffect(presetMenuOpen) {
-                                    if (presetMenuOpen) {
-                                        presetMenuHasOpened.value = true
-                                        val firstLabel = EdgeZoneActionResolver.ratioPresetsFor(zoneList.size).firstOrNull()?.first
-                                        if (firstLabel != null) {
-                                            swipeController.setFocus(EdgeEditorElement.RatioPresetItem(firstLabel))
-                                        }
-                                    } else if (presetMenuHasOpened.value) {
-                                        // LaunchedEffect 실행 순서(코드 순)가 selectedZone effect(line ~253) 다음이므로
-                                        // StripZone 포커스를 덮어쓰고 RatioPresetMenu로 최종 포커스됨
-                                        swipeController.setFocus(EdgeEditorElement.RatioPresetMenu)
-                                    }
-                                }
-                            }
-                            val highlightedZones: Set<Pair<EntryEdge, Float>> = run {
-                                if (sel != null && p is ZoneActionPopup.MergeSelecting) {
-                                    buildSet {
-                                        if (zoneIdx > 0) add(zoneList[zoneIdx - 1].edge to zoneList[zoneIdx - 1].startRatio)
-                                        if (zoneIdx in 0 until zoneList.size - 1) add(zoneList[zoneIdx + 1].edge to zoneList[zoneIdx + 1].startRatio)
-                                    }
-                                } else emptySet()
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "영역 비율",
-                                    fontSize = 12.sp,
-                                    color = cs.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                if (zoneList.size >= 2) {
-                                    Box {
-                                        SwipeFocusable(
-                                            element = EdgeEditorElement.RatioPresetMenu,
-                                            shape = RoundedCornerShape(16.dp),
-                                            onActivate = { presetMenuOpen = true },
-                                            gridRow = 20,
-                                            modifier = Modifier.onGloballyPositioned { coords ->
-                                                ratioBtnBoundsInWindow = coords.boundsInWindow()
-                                            },
-                                        ) {
-                                        val ratioFocused = LocalSwipeFocused.current
-                                        IconButton(
-                                            onClick = { presetMenuOpen = true },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.BarChart,
-                                                contentDescription = "비율 프리셋",
-                                                tint = if (ratioFocused) cs.primary else cs.onSurface.copy(alpha = 0.75f),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                        }
-                                        // NORMAL 모드: 일반 DropdownMenu (focusable = true, 외부 탭으로 닫힘)
-                                        DropdownMenu(
-                                            expanded = presetMenuOpen && inputMode == InputMode.NORMAL,
-                                            onDismissRequest = { presetMenuOpen = false }
-                                        ) {
-                                            EdgeZoneActionResolver.ratioPresetsFor(zoneList.size).forEach { (label, ratios) ->
-                                                DropdownMenuItem(
-                                                    text = {
-                                                        Row(
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                                        ) {
-                                                            MiniRatioBar(
-                                                                ratios = ratios,
-                                                                modifier = Modifier
-                                                                    .width(40.dp)
-                                                                    .height(10.dp)
-                                                            )
-                                                            Text(label, fontSize = 13.sp)
-                                                        }
-                                                    },
-                                                    onClick = {
-                                                        state.applyRatioPreset(edgeForStrip, ratios)
-                                                        presetMenuOpen = false
-                                                    }
-                                                )
-                                            }
-                                        }
-                                        // SWIPE 모드: focusable=false Popup → 터치가 팝업을 통과하여
-                                        // 아래 SwipeGestureLayer까지 전달되므로 화면 어디서든 스와이프 가능
-                                        if (inputMode == InputMode.SWIPE && presetMenuOpen) {
-                                            RatioPresetSwipePopup(
-                                                presets = EdgeZoneActionResolver.ratioPresetsFor(zoneList.size),
-                                                onSelect = { ratios ->
-                                                    state.applyRatioPreset(edgeForStrip, ratios)
-                                                    presetMenuOpen = false
-                                                },
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .onGloballyPositioned { coords ->
-                                        val pos = coords.positionInWindow()
-                                        stripBounds = IntRect(
-                                            left = pos.x.toInt(),
-                                            top = pos.y.toInt(),
-                                            right = (pos.x + coords.size.width).toInt(),
-                                            bottom = (pos.y + coords.size.height).toInt()
-                                        )
-                                    }
-                            ) {
-                                EdgeStripEditor(
-                                    inputMode = inputMode,
-                                    zones = zoneList,
-                                    selectedZone = sel,
-                                    minRatio = minRatio,
-                                    onZonesChanged = { newZones ->
-                                        state.pushUndo()
-                                        workConfig = workConfig.withZones(edgeForStrip, newZones)
-                                        currentPresetId = null
-                                        val curSel = selectedZone
-                                        selectedZone = if (curSel != null) {
-                                            newZones.firstOrNull { curSel.startRatio in it.startRatio..it.endRatio }
-                                                ?: newZones.firstOrNull()
-                                        } else null
-                                    },
-                                    onZoneSelected = { tapped ->
-                                        val cur = zonePopup
-                                        if (cur is ZoneActionPopup.MergeSelecting) {
-                                            if (state.tryMergeWith(cur.zone, tapped)) zonePopup = ZoneActionPopup.None
-                                        } else {
-                                            selectedZone = tapped
-                                            zonePopup = ZoneActionPopup.None
-                                        }
-                                    },
-                                    onZoneDeselected = {
-                                        selectedZone = null
-                                        zonePopup = ZoneActionPopup.None
-                                    },
-                                    onZoneLongPressed = { zone, cf ->
-                                        selectedZone = zone
-                                        zonePopup = ZoneActionPopup.Initial(zone, cf)
-                                    },
-                                    highlightedZones = highlightedZones,
-                                    blockedStartRatio = stripBlockedStart,
-                                    blockedStartLabel = stripBlockedStartLabel,
-                                    blockedEndRatio = stripBlockedEnd,
-                                    blockedEndLabel = stripBlockedEndLabel,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-
-                            // ── 팝업 ──
-                            if (sel != null && p !is ZoneActionPopup.None) {
-                                val anchor = when (p) {
-                                    is ZoneActionPopup.Initial -> p.anchor
-                                    is ZoneActionPopup.SplitChoosing -> p.anchor
-                                    is ZoneActionPopup.DeleteConfirming -> p.anchor
-                                    else -> 0.5f
-                                }
-                                Popup(
-                                    popupPositionProvider = remember(anchor, stripBounds) {
-                                        object : PopupPositionProvider {
-                                            override fun calculatePosition(
-                                                anchorBounds: IntRect,
-                                                windowSize: IntSize,
-                                                layoutDirection: LayoutDirection,
-                                                popupContentSize: IntSize
-                                            ): IntOffset {
-                                                val x = (stripBounds.left + anchor * stripBounds.width - popupContentSize.width / 2f)
-                                                    .toInt()
-                                                    .coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
-                                                val y = stripBounds.top - popupContentSize.height - 4
-                                                return IntOffset(x, y)
-                                            }
-                                        }
-                                    },
-                                    onDismissRequest = { zonePopup = ZoneActionPopup.None },
-                                    properties = PopupProperties(
-                                        focusable = true,
-                                        dismissOnClickOutside = true,
-                                        dismissOnBackPress = false
-                                    )
-                                ) {
-                                    Surface(
-                                        modifier = Modifier
-                                            .wrapContentWidth()
-                                            .border(0.5.dp, cs.outline.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = cs.surfaceVariant,
-                                        tonalElevation = 6.dp,
-                                        shadowElevation = 8.dp
-                                    ) {
-                                        when (p) {
-                                            is ZoneActionPopup.Initial -> {
-                                                val hasAdj = zoneList.size > 1
-                                                val anySplitValid = (2..4).any { n ->
-                                                    zoneList.size + n - 1 <= maxZones &&
-                                                    (sel.endRatio - sel.startRatio) / n >= minRatio
-                                                }
-                                                val canDel = zoneList.size > 1
-                                                val divider: @Composable () -> Unit = {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .width(0.5.dp)
-                                                            .height(16.dp)
-                                                            .background(cs.onSurfaceVariant.copy(alpha = 0.25f))
-                                                    )
-                                                }
-                                                val mergeAction: () -> Unit = { zonePopup = ZoneActionPopup.MergeSelecting(sel) }
-                                                val splitAction: () -> Unit = { zonePopup = ZoneActionPopup.SplitChoosing(sel, p.anchor) }
-                                                val deleteAction: () -> Unit = { zonePopup = ZoneActionPopup.DeleteConfirming(sel, p.anchor) }
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
-                                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    SwipeFocusable(
-                                                        element = EdgeEditorElement.ZoneActionMerge,
-                                                        scope = EdgeEditorScope.ZoneActionPopup,
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
-                                                        onActivate = mergeAction,
-                                                        gridRow = 0,
-                                                    ) {
-                                                    TextButton(
-                                                        onClick = mergeAction,
-                                                        enabled = hasAdj,
-                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                                    ) { Text("병합", fontSize = 12.sp) }
-                                                    }
-                                                    divider()
-                                                    SwipeFocusable(
-                                                        element = EdgeEditorElement.ZoneActionSplit,
-                                                        scope = EdgeEditorScope.ZoneActionPopup,
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
-                                                        onActivate = splitAction,
-                                                        gridRow = 0,
-                                                    ) {
-                                                    TextButton(
-                                                        onClick = splitAction,
-                                                        enabled = anySplitValid,
-                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                                    ) { Text("분할", fontSize = 12.sp) }
-                                                    }
-                                                    divider()
-                                                    SwipeFocusable(
-                                                        element = EdgeEditorElement.ZoneActionDelete,
-                                                        scope = EdgeEditorScope.ZoneActionPopup,
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
-                                                        onActivate = deleteAction,
-                                                        gridRow = 0,
-                                                    ) {
-                                                    TextButton(
-                                                        onClick = deleteAction,
-                                                        enabled = canDel,
-                                                        colors = ButtonDefaults.textButtonColors(contentColor = cs.error),
-                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                                    ) { Text("삭제", fontSize = 12.sp) }
-                                                    }
-                                                }
-                                            }
-                                            is ZoneActionPopup.MergeSelecting -> {
-                                                val mergeCancelAction: () -> Unit = { zonePopup = ZoneActionPopup.None }
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Text("병합할 존을 선택하세요", fontSize = 12.sp, color = cs.onSurfaceVariant)
-                                                    SwipeFocusable(
-                                                        element = EdgeEditorElement.ZoneActionMergeCancel,
-                                                        scope = EdgeEditorScope.ZoneActionPopup,
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
-                                                        onActivate = mergeCancelAction,
-                                                        gridRow = 0,
-                                                    ) {
-                                                    TextButton(
-                                                        onClick = mergeCancelAction,
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                                    ) { Text("취소", fontSize = 12.sp) }
-                                                    }
-                                                }
-                                            }
-                                            is ZoneActionPopup.SplitChoosing -> {
-                                                val splitCancelAction: () -> Unit = { zonePopup = ZoneActionPopup.None }
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Text("분할:", fontSize = 12.sp, color = cs.onSurfaceVariant,
-                                                        modifier = Modifier.padding(start = 6.dp, end = 2.dp))
-                                                    (2..4).forEach { n ->
-                                                        val valid = zoneList.size + n - 1 <= maxZones &&
-                                                            (sel.endRatio - sel.startRatio) / n >= minRatio
-                                                        val splitNAction: () -> Unit = { if (state.splitInto(sel, n)) zonePopup = ZoneActionPopup.None }
-                                                        SwipeFocusable(
-                                                            element = EdgeEditorElement.ZoneActionSplitN(n),
-                                                            scope = EdgeEditorScope.ZoneActionPopup,
-                                                            shape = RoundedCornerShape(4.dp),
-                                                            showBorderHighlight = true,
-                                                            onActivate = splitNAction,
-                                                            gridRow = 0,
-                                                        ) {
-                                                        TextButton(
-                                                            onClick = splitNAction,
-                                                            enabled = valid,
-                                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                                        ) { Text("$n", fontSize = 13.sp) }
-                                                        }
-                                                    }
-                                                    SwipeFocusable(
-                                                        element = EdgeEditorElement.ZoneActionSplitCancel,
-                                                        scope = EdgeEditorScope.ZoneActionPopup,
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
-                                                        onActivate = splitCancelAction,
-                                                        gridRow = 0,
-                                                    ) {
-                                                    TextButton(
-                                                        onClick = splitCancelAction,
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                                    ) { Text("취소", fontSize = 12.sp) }
-                                                    }
-                                                }
-                                            }
-                                            is ZoneActionPopup.DeleteConfirming -> {
-                                                val deleteYesAction: () -> Unit = { state.deleteZone(sel); zonePopup = ZoneActionPopup.None }
-                                                val deleteNoAction: () -> Unit = { zonePopup = ZoneActionPopup.None }
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Text("정말 삭제하시겠습니까?", fontSize = 12.sp, color = cs.onSurface)
-                                                    SwipeFocusable(
-                                                        element = EdgeEditorElement.ZoneActionDeleteYes,
-                                                        scope = EdgeEditorScope.ZoneActionPopup,
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
-                                                        onActivate = deleteYesAction,
-                                                        gridRow = 0,
-                                                    ) {
-                                                    TextButton(
-                                                        onClick = deleteYesAction,
-                                                        colors = ButtonDefaults.textButtonColors(contentColor = cs.error),
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                                    ) { Text("예", fontSize = 12.sp) }
-                                                    }
-                                                    SwipeFocusable(
-                                                        element = EdgeEditorElement.ZoneActionDeleteNo,
-                                                        scope = EdgeEditorScope.ZoneActionPopup,
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
-                                                        onActivate = deleteNoAction,
-                                                        gridRow = 0,
-                                                    ) {
-                                                    TextButton(
-                                                        onClick = deleteNoAction,
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                                    ) { Text("아니오", fontSize = 12.sp) }
-                                                    }
-                                                }
-                                            }
-                                            else -> {}
-                                        }
-                                    }
-                                }
-                            }
-                            } // Column (영역 비율)
+                            ZoneRatioSection(
+                                state = state,
+                                zonePopupState = zonePopupState,
+                                sel = sel,
+                                edgeForStrip = edgeForStrip,
+                                zoneList = zoneList,
+                                zoneIdx = zoneIdx,
+                                minRatio = minRatio,
+                                maxZones = maxZones,
+                                stripBlockedStart = stripBlockedStart,
+                                stripBlockedStartLabel = stripBlockedStartLabel,
+                                stripBlockedEnd = stripBlockedEnd,
+                                stripBlockedEndLabel = stripBlockedEndLabel,
+                                swipeController = swipeController,
+                                onRatioBtnBoundsChange = { ratioBtnBoundsInWindow = it },
+                            )
 
                             if (sel != null) {
                                 HorizontalDivider(color = cs.outline.copy(alpha = 0.2f))
@@ -1755,215 +1284,21 @@ fun EdgeZoneEditorScreen(
                                     HorizontalDivider(color = cs.outline.copy(alpha = 0.2f))
 
                                     // ── 4. 표시 설정 (라벨 + 아이콘) ──
-                                    Text("표시 설정", fontSize = 12.sp, color = cs.onSurfaceVariant)
-                                    val trigger = sel.trigger as EdgeZoneTrigger.SingleAction
-                                    val isAutoLabel = trigger.label.isEmpty()
-                                    val isAutoIcon = trigger.iconKey.isEmpty()
-                                    val displayLabel = trigger.label.ifEmpty { sel.action.defaultLabel() }
-                                    val displayIconKey = trigger.iconKey.ifEmpty { sel.action.defaultIconKey() }
-                                    val displayColorHex = trigger.colorHex
-                                    val hasUserColor = displayColorHex.isNotEmpty()
-                                    val hasUserCustom = !isAutoLabel || !isAutoIcon || hasUserColor
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        // 아이콘 박스
-                                        SwipeFocusable(
-                                            element = EdgeEditorElement.IconBox,
-                                            shape = RoundedCornerShape(8.dp),
-                                            showBorderHighlight = true,
-                                            onActivate = { iconDrawerStage = IconDrawerStage.Category; showIconSheet = true },
-                                            gridRow = 36,
-                                            modifier = Modifier.onGloballyPositioned { coords ->
-                                                val b = coords.boundsInWindow()
-                                                iconBoxCenterInWindow = Offset(
-                                                    (b.left + b.right) / 2f,
-                                                    (b.top + b.bottom) / 2f,
-                                                )
-                                            },
-                                        ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(cs.surfaceVariant)
-                                                .border(0.5.dp, cs.outline.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                                .clickable { iconDrawerStage = IconDrawerStage.Category; showIconSheet = true },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (displayIconKey.isNotEmpty()) {
-                                                Icon(
-                                                    imageVector = IconRegistry.get(displayIconKey),
-                                                    contentDescription = null,
-                                                    tint = if (isAutoIcon) cs.onSurface.copy(alpha = 0.6f) else cs.onSurface,
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                            } else {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Add,
-                                                    contentDescription = null,
-                                                    tint = cs.onSurfaceVariant.copy(alpha = 0.5f),
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                            // 자동 배지
-                                            if (isAutoIcon && displayIconKey.isNotEmpty()) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .align(Alignment.TopEnd)
-                                                        .padding(3.dp)
-                                                        .size(14.dp)
-                                                        .clip(CircleShape)
-                                                        .background(cs.tertiaryContainer),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text("A", fontSize = 7.sp, color = cs.onTertiaryContainer, fontWeight = FontWeight.Bold) // 기본값: 7.sp
-                                                }
-                                            }
-                                        }
-                                        } // SwipeFocusable(IconBox) 닫기
-
-                                        // 컬러 박스
-                                        SwipeFocusable(
-                                            element = EdgeEditorElement.ColorBox,
-                                            shape = RoundedCornerShape(8.dp),
-                                            showBorderHighlight = true,
-                                            onActivate = { showColorPicker = true },
-                                            gridRow = 36,
-                                            modifier = Modifier.onGloballyPositioned { coords ->
-                                                val b = coords.boundsInWindow()
-                                                colorBoxCenterInWindow = Offset(
-                                                    (b.left + b.right) / 2f,
-                                                    (b.top + b.bottom) / 2f,
-                                                )
-                                            },
-                                        ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(cs.surfaceVariant)
-                                                .border(0.5.dp, cs.outline.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                                .clickable { showColorPicker = true },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (hasUserColor) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(28.dp)
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(
-                                                            com.bridgeone.app.ui.common.ColorCodec.hexToColorOrNull(displayColorHex)
-                                                                ?: cs.primary
-                                                        )
-                                                )
-                                            } else {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Add,
-                                                    contentDescription = "색상 선택",
-                                                    tint = cs.onSurfaceVariant.copy(alpha = 0.5f),
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                        }
-                                        } // SwipeFocusable(ColorBox) 닫기
-
-                                        // 라벨 박스
-                                        SwipeFocusable(
-                                            element = EdgeEditorElement.LabelBox,
-                                            shape = RoundedCornerShape(8.dp),
-                                            showBorderHighlight = true,
-                                            onActivate = { showLabelKeyboard = true },
-                                            gridRow = 36,
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(48.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(cs.surfaceVariant)
-                                                .border(0.5.dp, cs.outline.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                                .clickable { showLabelKeyboard = true }
-                                                .padding(horizontal = 12.dp),
-                                            contentAlignment = Alignment.CenterStart
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                // 텍스트 + 커서 (남는 폭 차지, 텍스트만 말줄임)
-                                                Row(
-                                                    modifier = Modifier.weight(1f),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                                ) {
-                                                    Text(
-                                                        text = displayLabel.ifEmpty { "라벨 입력..." },
-                                                        fontSize = 14.sp,
-                                                        color = if (displayLabel.isEmpty()) cs.onSurfaceVariant.copy(alpha = 0.5f)
-                                                                else if (isAutoLabel) cs.onSurface.copy(alpha = 0.7f)
-                                                                else cs.onSurface,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        modifier = Modifier.weight(1f, fill = false)
-                                                    )
-                                                    // 편집 중 커서
-                                                    if (showLabelKeyboard) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .width(1.5.dp)
-                                                                .height(16.dp)
-                                                                .background(cs.primary.copy(alpha = labelCursorAlpha))
-                                                        )
-                                                    }
-                                                }
-                                                // 자동 배지 — 항상 오른쪽 고정
-                                                if (isAutoLabel && displayLabel.isNotEmpty()) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .clip(RoundedCornerShape(4.dp))
-                                                            .background(cs.tertiaryContainer)
-                                                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                                                    ) {
-                                                        Text("자동", fontSize = 9.sp, color = cs.onTertiaryContainer) // 기본값: 9.sp
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        } // SwipeFocusable(LabelBox) 닫기
-
-                                        // 자동으로 되돌리기 (사용자 지정 상태일 때만)
-                                        if (hasUserCustom) {
-                                            val revertAction: () -> Unit = {
-                                                updateSelectedZone(sel.copy(trigger = trigger.copy(label = "", iconKey = "", colorHex = "")))
-                                            }
-                                            SwipeFocusable(
-                                                element = EdgeEditorElement.RevertToAuto,
-                                                shape = RoundedCornerShape(20.dp),
-                                                onActivate = revertAction,
-                                                gridRow = 36,
-                                                modifier = Modifier.onGloballyPositioned { coords ->
-                                                    revertBtnBoundsInWindow = coords.boundsInWindow()
-                                                },
-                                            ) {
-                                                val revertFocused = LocalSwipeFocused.current
-                                                IconButton(
-                                                    onClick = revertAction,
-                                                    modifier = Modifier.size(40.dp)
-                                                ) {
-                                                    Icon(
-                                                        Icons.AutoMirrored.Filled.Undo,
-                                                        contentDescription = "자동으로 되돌리기",
-                                                        tint = if (revertFocused) cs.primary else cs.onSurface,
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
+                                    ZoneDisplaySettingSection(
+                                        sel = sel,
+                                        labelCursorAlpha = labelCursorAlpha,
+                                        showLabelKeyboard = showLabelKeyboard,
+                                        onRequestIconSheet = { iconDrawerStage = IconDrawerStage.Category; showIconSheet = true },
+                                        onRequestColorPicker = { showColorPicker = true },
+                                        onRequestLabelKeyboard = { showLabelKeyboard = true },
+                                        onIconBoxPositioned = { iconBoxCenterInWindow = it },
+                                        onColorBoxPositioned = { colorBoxCenterInWindow = it },
+                                        onRevertBoxPositioned = { revertBtnBoundsInWindow = it },
+                                        onRevertToAuto = {
+                                            val t = sel.trigger as EdgeZoneTrigger.SingleAction
+                                            updateSelectedZone(sel.copy(trigger = t.copy(label = "", iconKey = "", colorHex = "")))
+                                        },
+                                    )
                                 } else {
                                     // ── 3. 액션 순환 후보 편집 ──
                                     val rotation = sel.trigger as EdgeZoneTrigger.Rotation
@@ -2080,550 +1415,17 @@ fun EdgeZoneEditorScreen(
 
     }
 
-        // ── SWIPE 모드: StripBoundary 조작 안내 힌트 ──
-        if (inputMode == InputMode.SWIPE) {
-            val isBoundaryManipulating = swipeController.currentFocus is EdgeEditorElement.StripBoundary
-                && swipeController.mode == SwipeMode.MANIPULATION
-            AnimatedVisibility(
-                visible = isBoundaryManipulating,
-                enter = slideInVertically { it } + fadeIn(),
-                exit = slideOutVertically { it } + fadeOut(),
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
-            ) {
-                androidx.compose.material3.Surface(
-                    color = cs.inverseSurface.copy(alpha = 0.92f),
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Text(
-                        text = "← → 스와이프로 비율 조정  •  탭으로 확정",
-                        color = cs.inverseOnSurface,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
-                    )
-                }
-            }
-        }
-
-        // ── SWIPE 모드: 아이콘 전용 버튼 이름 툴팁 ──
-        if (inputMode == InputMode.SWIPE) {
-            val rawIconButtonTooltip = when (val cf = swipeController.currentFocus) {
-                EdgeEditorElement.RatioPresetMenu -> "영역 비율 설정"
-                EdgeEditorElement.ActionTypeToggle ->
-                    if (selectedZone?.trigger is EdgeZoneTrigger.SingleAction) "액션 순환으로 전환"
-                    else "단일 액션으로 전환"
-                EdgeEditorElement.RevertToAuto -> "표시 설정 초기화"
-                else -> if (cf is EdgeEditorElement) macroButtonLabel(cf) else null
-            }
-            val tooltipAnchorBounds = when (val cf = swipeController.currentFocus) {
-                EdgeEditorElement.RatioPresetMenu -> ratioBtnBoundsInWindow
-                EdgeEditorElement.ActionTypeToggle -> actionTypeBtnBoundsInWindow
-                EdgeEditorElement.RevertToAuto -> revertBtnBoundsInWindow
-                else -> swipeController.boundsOf(cf)
-            }
-            var lastIconButtonTooltip by remember { mutableStateOf("") }
-            var lastTooltipAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
-            if (rawIconButtonTooltip != null) {
-                lastIconButtonTooltip = rawIconButtonTooltip
-                if (tooltipAnchorBounds != null) lastTooltipAnchor = tooltipAnchorBounds
-            }
-            if (rawIconButtonTooltip != null && lastTooltipAnchor != androidx.compose.ui.geometry.Rect.Zero) {
-                val density = LocalDensity.current
-                val anchorTopPx = lastTooltipAnchor.top.toInt()
-                val anchorCenterXPx = ((lastTooltipAnchor.left + lastTooltipAnchor.right) / 2f).toInt()
-                Popup(
-                    popupPositionProvider = remember(anchorTopPx, anchorCenterXPx) {
-                        object : PopupPositionProvider {
-                            override fun calculatePosition(
-                                anchorBounds: IntRect,
-                                windowSize: IntSize,
-                                layoutDirection: LayoutDirection,
-                                popupContentSize: IntSize
-                            ): IntOffset {
-                                val tooltipGapPx = with(density) { 6.dp.roundToPx() }
-                                val x = (anchorCenterXPx - popupContentSize.width / 2)
-                                    .coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
-                                val y = anchorTopPx - popupContentSize.height - tooltipGapPx
-                                return IntOffset(x, y)
-                            }
-                        }
-                    },
-                    properties = PopupProperties(focusable = false),
-                ) {
-                    Surface(
-                        color = cs.inverseOnSurface.copy(alpha = 0.92f),
-                        shape = RoundedCornerShape(8.dp),
-                    ) {
-                        Text(
-                            text = lastIconButtonTooltip,
-                            color = cs.inverseSurface,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // ── NORMAL 모드: 미니버튼 롱프레스 툴팁 ──
-        if (inputMode == InputMode.NORMAL && normalMiniTooltipText.isNotEmpty() && normalMiniTooltipAnchor != androidx.compose.ui.geometry.Rect.Zero) {
-            val densityNt = LocalDensity.current
-            val anchorTopPxNt = normalMiniTooltipAnchor.top.toInt()
-            val anchorCenterXPxNt = ((normalMiniTooltipAnchor.left + normalMiniTooltipAnchor.right) / 2f).toInt()
-            Popup(
-                popupPositionProvider = remember(anchorTopPxNt, anchorCenterXPxNt) {
-                    object : PopupPositionProvider {
-                        override fun calculatePosition(
-                            anchorBounds: IntRect,
-                            windowSize: IntSize,
-                            layoutDirection: LayoutDirection,
-                            popupContentSize: IntSize
-                        ): IntOffset {
-                            val gapPx = with(densityNt) { 6.dp.roundToPx() }
-                            val x = (anchorCenterXPxNt - popupContentSize.width / 2)
-                                .coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
-                            val y = anchorTopPxNt - popupContentSize.height - gapPx
-                            return IntOffset(x, y)
-                        }
-                    }
-                },
-                properties = PopupProperties(focusable = false),
-            ) {
-                Surface(
-                    color = cs.inverseOnSurface.copy(alpha = 0.92f),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(
-                        text = normalMiniTooltipText,
-                        color = cs.inverseSurface,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                    )
-                }
-            }
-        }
-
-        // ── SWIPE 모드: 애플워치 서랍 아이콘 선택 패널 ──
-        // SwipeGestureLayer 직전 z-order에 배치 → 제스처 레이어가 최상단을 유지
-        if (inputMode == InputMode.SWIPE) {
-            AnimatedVisibility(
-                visible = showIconSheet,
-                enter = fadeIn(tween(CATEGORY_DRAWER_OPEN_DURATION_MS)) +
-                    scaleIn(tween(CATEGORY_DRAWER_OPEN_DURATION_MS), initialScale = 0.92f),
-                exit = fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.92f),
-                modifier = Modifier.matchParentSize(),
-            ) {
-                val displayIconKeyForDrawer = run {
-                    val trigger = selectedZone?.trigger as? EdgeZoneTrigger.SingleAction
-                    trigger?.iconKey?.ifEmpty { selectedZone?.action?.defaultIconKey() ?: "" } ?: ""
-                }
-                CategoryIconDrawer(
-                    controller = swipeController,
-                    stage = iconDrawerStage,
-                    onStageChange = { iconDrawerStage = it },
-                    selectedIconKey = displayIconKeyForDrawer,
-                    anchorCenterInWindow = iconBoxCenterInWindow,
-                    scope = EdgeEditorScope.IconSheet,
-                    onPick = { key ->
-                        nextFocusOnZoneChange = EdgeEditorElement.IconBox
-                        selectedZone?.let { updateSelectedZone(it.withIconKey(key)) }
-                        showIconSheet = false
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-
-        // ── SWIPE 모드: 액션 순환 후보 아이콘 서랍 (단일 액션과 동일한 CategoryIconDrawer) ──
-        if (inputMode == InputMode.SWIPE) {
-            AnimatedVisibility(
-                visible = showCandidateIconSheet,
-                enter = fadeIn(tween(CATEGORY_DRAWER_OPEN_DURATION_MS)) +
-                    scaleIn(tween(CATEGORY_DRAWER_OPEN_DURATION_MS), initialScale = 0.92f),
-                exit = fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.92f),
-                modifier = Modifier.matchParentSize(),
-            ) {
-                val displayIconKeyForCandidate =
-                    rotationDraft.iconKey.ifEmpty { rotationDraft.action.defaultIconKey() }
-                CategoryIconDrawer(
-                    controller = swipeController,
-                    stage = iconDrawerStage,
-                    onStageChange = { iconDrawerStage = it },
-                    selectedIconKey = displayIconKeyForCandidate,
-                    anchorCenterInWindow = candidateIconBoxCenterInWindow,
-                    scope = EdgeEditorScope.IconSheet,
-                    onPick = { key ->
-                        rotationDraft = rotationDraft.copy(iconKey = key)
-                        swipeController.setFocus(EdgeEditorElement.RotationCandidateIconBox)
-                        showCandidateIconSheet = false
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-
-        // ── SWIPE 모드: 컬러 피커 패널 ──
-        if (inputMode == InputMode.SWIPE && showColorPicker) {
-            val currentColorHex = run {
-                val trigger = selectedZone?.trigger as? EdgeZoneTrigger.SingleAction
-                trigger?.colorHex ?: ""
-            }
-            com.bridgeone.app.ui.components.colorpicker.ColorPickerSwipe(
-                controller = swipeController,
-                pickerScope = EdgeEditorScope.ColorPicker,
-                selectedColorHex = currentColorHex,
-                anchorCenterInWindow = colorBoxCenterInWindow,
-                stage = colorPickerStage,
-                onStageChange = { colorPickerStage = it },
-                onPick = { hex ->
-                    selectedZone?.let { updateSelectedZone(it.withColor(hex)) }
-                    showColorPicker = false
-                },
-                onCommitCandidateChange = { colorCommitCandidate = it },
-                modifier = Modifier.matchParentSize(),
-            )
-        }
-
-        // ── SWIPE 모드: 액션 순환 후보 컬러 피커 (단일 액션과 동일한 ColorPickerSwipe) ──
-        if (inputMode == InputMode.SWIPE && showCandidateColorPicker) {
-            com.bridgeone.app.ui.components.colorpicker.ColorPickerSwipe(
-                controller = swipeController,
-                pickerScope = EdgeEditorScope.ColorPicker,
-                selectedColorHex = rotationDraft.colorHex,
-                anchorCenterInWindow = candidateColorBoxCenterInWindow,
-                stage = colorPickerStage,
-                onStageChange = { colorPickerStage = it },
-                onPick = { hex ->
-                    rotationDraft = rotationDraft.copy(colorHex = hex)
-                    showCandidateColorPicker = false
-                },
-                onCommitCandidateChange = { colorCommitCandidate = it },
-                modifier = Modifier.matchParentSize(),
-            )
-        }
-
-        // ── SWIPE 모드 Undo 히스토리 드롭다운 오버레이 ──
-        // Popup 대신 메인 Box 내부 인라인으로 렌더링해야 SwipeGestureLayer가 터치를 수신함.
-        // Popup은 별도 Window를 생성해서 Popup 영역 내 터치가 메인 Window를 우회하므로 스와이프 불가.
-        // ⚠️ SwipeGestureLayer보다 먼저 배치해야 함: Material3 Surface가 포인터를 소비하므로
-        //    이 블록이 제스처 레이어보다 위(나중)에 그려지면 드롭다운 내부에서 시작한 스와이프가
-        //    제스처 레이어에 도달하지 못한다 (아이콘 서랍/컬러 피커와 동일한 순서 규칙).
-        if (inputMode == InputMode.SWIPE) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(end = 4.dp),
-                contentAlignment = Alignment.TopEnd,
-            ) {
-                AnimatedVisibility(
-                    visible = showUndoMenu,
-                    modifier = Modifier.offset { IntOffset(0, undoMenuAnchorBottom) },
-                    enter = fadeIn(tween(180)) +
-                        expandVertically(
-                            animationSpec = tween(200, easing = FastOutSlowInEasing),
-                            expandFrom = Alignment.Top,
-                        ),
-                    exit = fadeOut(tween(120)) +
-                        shrinkVertically(
-                            animationSpec = tween(160),
-                            shrinkTowards = Alignment.Top,
-                        ),
-                ) {
-                    UndoHistorySwipePopup(
-                        undoStack = undoStack,
-                        workConfig = workConfig,
-                        onApply = { config, idx ->
-                            nextFocusOnZoneChange = EdgeEditorElement.Undo
-                            workConfig = config
-                            undoStack = undoStack.drop(idx + 1)
-                            currentPresetId = null
-                            val sel = selectedZone
-                            selectedZone = if (sel != null) {
-                                config.zonesFor(sel.edge).firstOrNull { it.startRatio == sel.startRatio }
-                                    ?: config.zonesFor(sel.edge).firstOrNull()
-                            } else null
-                            showUndoMenu = false
-                        },
-                    )
-                }
-            }
-        }
-        // ── 프리셋 팝업 오버레이 (SWIPE 모드 인라인 배치) ──
-        // 메인 Box 안, SwipeGestureLayer보다 먼저 배치 → 제스처 레이어가 터치를 수신.
-        // SWIPE: scrim clickable 없어서 터치가 제스처 레이어로 통과.
-        // NORMAL: scrim clickable로 닫기 (팝업 내부에서 inputMode로 분기).
-        // AnimatedVisibility로 등장/닫기 페이드+스케일 애니메이션.
-        presetsRepo?.let { repo ->
-            AnimatedVisibility(
-                visible = showPresetPopup,
-                enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.92f, animationSpec = tween(180)),
-                exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.92f, animationSpec = tween(140)),
-            ) {
-                EdgeZonePresetPopup(
-                    inputMode = inputMode,
-                    stage = presetPopupStage,
-                    onStageChange = { presetPopupStage = it },
-                    currentPresetId = currentPresetId,
-                    currentConfig = workConfig,
-                    presetsRepo = repo,
-                    onApply = { preset ->
-                        state.pushUndo()
-                        workConfig = preset.config.stripActions()
-                        currentPresetId = preset.id
-                        selectedZone = null
-                        showPresetPopup = false
-                    },
-                    onDismiss = { showPresetPopup = false },
-                    onRequestTextKeyboard = { initial, onResult ->
-                        presetNameSeed = initial
-                        presetNameKeyboard = onResult
-                    },
-                )
-            }
-        }
-        // ── SWIPE 모드 프리셋 이름 입력 키보드 오버레이 ──
-        // PresetPopup의 '새 프리셋 저장'·'이름 변경' 시 호출. 라벨 키보드와 동일 패턴.
-        if (inputMode == InputMode.SWIPE && presetNameKeyboard != null) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                com.bridgeone.app.ui.components.SwipeKeyboardOverlay(
-                    initialText = presetNameSeed,
-                    maxLength = 32,
-                    suggestions = emptyList(),
-                    revertOnCancel = false,
-                    showScrim = true,
-                    gestureFullHeight = true,
-                    onTextChange = {},
-                    onCancel = { presetNameKeyboard = null },
-                    onDone = { result ->
-                        presetNameKeyboard?.invoke(result)
-                        presetNameKeyboard = null
-                    }
-                )
-            }
-        }
-        // ── 커스텀 단축키 팝업 인라인 오버레이 (SWIPE 모드) ──
-        // Popup은 별도 Android Window를 생성하므로 팝업 영역 내 터치가 SwipeGestureLayer에 도달하지 못함.
-        // Box 인라인으로 배치하면 같은 Window 안에서 SwipeGestureLayer가 모든 터치를 수신함.
-        if (inputMode == InputMode.SWIPE && swipeShortcutVisible) {
-            ShortcutEditorPopup(
-                draft = swipeShortcutDraft,
-                inputMode = InputMode.SWIPE,
-                onDraftChange = { swipeShortcutDraft = it },
-                onCancel = { swipeShortcutVisible = false },
-                onConfirm = { confirmed ->
-                    swipeShortcutOnConfirm(confirmed)
-                    swipeShortcutVisible = false
-                },
-                onAddAsCandidate = if (swipeShortcutOnAddAsCandidate != null) {
-                    { iconKey, name -> swipeShortcutOnAddAsCandidate?.invoke(swipeShortcutDraft, iconKey, name); swipeShortcutVisible = false }
-                } else null,
-                onNameKeyboardActiveChange = { shortcutNameKbActive = it },
-                onRequestIconPicker = { current, anchor, onResult ->
-                    iconPickerReturnElement = EdgeEditorElement.ShortcutIconButton
-                    shortcutIconSeed = current
-                    shortcutIconAnchor = anchor
-                    shortcutIconOnPick = onResult
-                    iconDrawerStage = IconDrawerStage.Category
-                    shortcutIconSheetVisible = true
-                },
-            )
-        }
-        if (inputMode == InputMode.SWIPE && macroEditorVisible) {
-            MacroEditorPopup(
-                draft = macroEditorDraft,
-                inputMode = InputMode.SWIPE,
-                onDraftChange = { macroEditorDraft = it },
-                onCancel = { macroEditorVisible = false; macroNameKbActive = false },
-                onConfirm = { confirmed, icon, name ->
-                    macroEditorOnConfirm(confirmed, icon, name)
-                    macroEditorVisible = false; macroNameKbActive = false
-                },
-                onAddAsPreset = macroEditorOnAddAsPreset?.let {
-                    { draft, icon, name -> it(draft, icon, name) }
-                },
-                onNameKeyboardActiveChange = { macroNameKbActive = it },
-                onRequestIconPicker = { current, anchor, onResult ->
-                    iconPickerReturnElement = EdgeEditorElement.MacroIconButton
-                    shortcutIconSeed = current
-                    shortcutIconAnchor = anchor
-                    shortcutIconOnPick = onResult
-                    iconDrawerStage = IconDrawerStage.Category
-                    shortcutIconSheetVisible = true
-                },
-                initialIconKey = macroEditorInitialIconKey,
-                initialName = macroEditorInitialName,
-                customShortcutPresets = localCustomShortcutPresets,
-                onSetNormalTooltip = { text, anchor -> normalMiniTooltipText = text; normalMiniTooltipAnchor = anchor },
-            )
-        }
-        // NORMAL 모드 매크로 편집기 Popup
-        if (inputMode == InputMode.NORMAL && macroEditorVisible) {
-            MacroEditorPopup(
-                draft = macroEditorDraft,
-                inputMode = InputMode.NORMAL,
-                onDraftChange = { macroEditorDraft = it },
-                onCancel = { macroEditorVisible = false },
-                onConfirm = { confirmed, icon, name ->
-                    macroEditorOnConfirm(confirmed, icon, name)
-                    macroEditorVisible = false
-                },
-                onAddAsPreset = macroEditorOnAddAsPreset?.let {
-                    { draft, icon, name -> it(draft, icon, name) }
-                },
-                initialIconKey = macroEditorInitialIconKey,
-                initialName = macroEditorInitialName,
-                customShortcutPresets = localCustomShortcutPresets,
-                onSetNormalTooltip = { text, anchor -> normalMiniTooltipText = text; normalMiniTooltipAnchor = anchor },
-            )
-        }
-        // ── SWIPE 모드: 단축키/매크로 팝업 아이콘 선택 서랍 ──
-        // MacroEditorPopup/ShortcutEditorPopup보다 나중에 그려야 서랍이 두 팝업 위(z-order 최상위)에 표시됨.
-        if (inputMode == InputMode.SWIPE) {
-            AnimatedVisibility(
-                visible = shortcutIconSheetVisible,
-                enter = fadeIn(tween(CATEGORY_DRAWER_OPEN_DURATION_MS)) +
-                    scaleIn(tween(CATEGORY_DRAWER_OPEN_DURATION_MS), initialScale = 0.92f),
-                exit = fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.92f),
-                modifier = Modifier.matchParentSize(),
-            ) {
-                CategoryIconDrawer(
-                    controller = swipeController,
-                    stage = iconDrawerStage,
-                    onStageChange = { iconDrawerStage = it },
-                    selectedIconKey = shortcutIconSeed,
-                    anchorCenterInWindow = shortcutIconAnchor,
-                    scope = EdgeEditorScope.IconSheet,
-                    onPick = { key ->
-                        shortcutIconOnPick?.invoke(key)
-                        shortcutIconSheetVisible = false
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-        // ── SWIPE 모드 제스처 오버레이 (화면 최상단) ──
-        // 라벨 키보드 또는 프리셋 이름 키보드 활성 시에는 키보드 자체 스와이프 시스템에 입력을 양보
-        val isLabelKeyboardActive = showLabelKeyboard || candidateLabelKeyboard != null || presetNameKeyboard != null || shortcutNameKbActive || macroNameKbActive
-        if (inputMode == InputMode.SWIPE && !isLabelKeyboardActive) {
-            SwipeGestureLayer(
-                controller = swipeController,
-                modifier = Modifier.matchParentSize(),
-                onLongPress = {
-                    when {
-                        showPresetPopup -> {
-                            // 프리셋 팝업: 단계별 뒤로가기 / 닫기
-                            when (presetPopupStage) {
-                                PopupStage.GRID -> showPresetPopup = false
-                                PopupStage.CONFIRM, PopupStage.SAVE_NAME -> presetPopupStage = PopupStage.GRID
-                                PopupStage.EDIT_NAME -> presetPopupStage = PopupStage.CONFIRM
-                            }
-                            true
-                        }
-                        showUndoMenu -> {
-                            // Undo 히스토리 메뉴가 열린 상태에서 롱프레스 → 선택 없이 닫기
-                            showUndoMenu = false
-                            true
-                        }
-                        shortcutIconSheetVisible -> {
-                            // 단축키 팝업 아이콘 서랍: 아이콘 단계 → 카테고리 복귀, 카테고리 → 닫기
-                            if (iconDrawerStage is IconDrawerStage.Icons) {
-                                iconDrawerStage = IconDrawerStage.Category
-                            } else {
-                                shortcutIconSheetVisible = false
-                            }
-                            true
-                        }
-                        showIconSheet -> {
-                            // 아이콘 서랍: 아이콘 단계 → 카테고리 복귀, 카테고리 → 닫기
-                            if (iconDrawerStage is IconDrawerStage.Icons) {
-                                iconDrawerStage = IconDrawerStage.Category
-                            } else {
-                                showIconSheet = false
-                            }
-                            true
-                        }
-                        showCandidateIconSheet -> {
-                            // 후보 아이콘 서랍: 아이콘 단계 → 카테고리 복귀, 카테고리 → 닫기
-                            if (iconDrawerStage is IconDrawerStage.Icons) {
-                                iconDrawerStage = IconDrawerStage.Category
-                            } else {
-                                showCandidateIconSheet = false
-                            }
-                            true
-                        }
-                        showColorPicker || showCandidateColorPicker -> {
-                            // 단계별 뒤로가기: DirectInput→Swatches(or Category), Swatches→Category, Category→닫기
-                            when (val s = colorPickerStage) {
-                                is com.bridgeone.app.ui.components.colorpicker.ColorPickerStage.DirectInput ->
-                                    colorPickerStage = if (s.sourceTab != null)
-                                        com.bridgeone.app.ui.components.colorpicker.ColorPickerStage.Swatches(s.sourceTab)
-                                    else
-                                        com.bridgeone.app.ui.components.colorpicker.ColorPickerStage.Category
-                                is com.bridgeone.app.ui.components.colorpicker.ColorPickerStage.Swatches ->
-                                    colorPickerStage = com.bridgeone.app.ui.components.colorpicker.ColorPickerStage.Category
-                                is com.bridgeone.app.ui.components.colorpicker.ColorPickerStage.Category -> {
-                                    showColorPicker = false
-                                    showCandidateColorPicker = false
-                                }
-                            }
-                            true
-                        }
-                        swipeController.currentFocus == EdgeEditorElement.Undo -> {
-                            // Undo 버튼이 포커스된 상태에서 롱프레스 → 히스토리 메뉴 열기
-                            swipeController.activateAlt()
-                            true
-                        }
-                        swipeController.currentFocus == EdgeEditorElement.MacroStepSaveContinue -> {
-                            // 연속 추가 버튼 롱프레스 → 반복 횟수 팝업 열기
-                            swipeController.activateAlt()
-                            true
-                        }
-                        // 커스텀 프리셋 수정/삭제 메뉴가 열린 상태에서 롱프레스 → 닫기
-                        swipeCustomMenuTarget != null -> {
-                            swipeCustomMenuTarget = null
-                            true
-                        }
-                        // 개별 딜레이 슬라이더 포커스 + 롱프레스 → ⏱ 토글 OFF (delayAfterMs = null)
-                        swipeController.currentFocus is EdgeEditorElement.MacroStepDelaySlider -> {
-                            val sliderIdx = (swipeController.currentFocus as EdgeEditorElement.MacroStepDelaySlider).index
-                            val curSteps = macroEditorDraft.steps
-                            if (sliderIdx in curSteps.indices) {
-                                val newSteps = curSteps.toMutableList()
-                                newSteps[sliderIdx] = curSteps[sliderIdx].copy(delayAfterMs = null)
-                                macroEditorDraft = macroEditorDraft.copy(steps = newSteps)
-                                swipeController.setFocus(EdgeEditorElement.MacroStepDelayExpand(sliderIdx))
-                            }
-                            true
-                        }
-                        // 커스텀 ActionOptionCard 포커스 → 수정/삭제 메뉴 열기
-                        swipeController.currentFocus is EdgeEditorElement.ActionOptionCard -> {
-                            val key = (swipeController.currentFocus as EdgeEditorElement.ActionOptionCard).key
-                            val parts = key.split(":", limit = 2)
-                            val domain = parts.getOrNull(0)
-                            val label = parts.getOrNull(1)
-                            val target: CustomPresetTarget? = when (domain) {
-                                "DYNAMICS" -> localCustomPresets.firstOrNull { it.name == label }
-                                    ?.let { CustomPresetTarget.Dynamics(it) }
-                                "COMBO" -> localCustomShortcutPresets.firstOrNull {
-                                    formatShortcutCombo(it.modifierBits, it.keyCodes) == label
-                                }?.let { CustomPresetTarget.Shortcut(it) }
-                                "MACRO" -> localCustomMacroPresets.firstOrNull {
-                                    formatMacroSteps(it.steps) == label
-                                }?.let { CustomPresetTarget.Macro(it) }
-                                else -> null
-                            }
-                            if (target != null) {
-                                swipeCustomMenuTarget = target
-                                true
-                            } else {
-                                ToastController.show("커스텀 프리셋만 수정하거나 삭제할 수 있습니다", ToastType.INFO)
-                                true
-                            }
-                        }
-                        else -> false
-                    }
-                },
-            )
-        }
+        // ── 오버레이/팝업 레이어 (SWIPE 힌트·툴팁·서랍·피커·팝업·제스처 + NORMAL 미니 툴팁·매크로) ──
+        // Phase 4.7.5-D: 무조건 호출, 내부에서 inputMode 분기 유지(byte-identical). 모드 무관 프리셋 팝업과
+        // NORMAL 매크로 편집기가 SWIPE 체인 중간에 섞여 있어 호출부 모드 가드 없이 통째로 분리.
+        EdgeZoneOverlayLayer(
+            overlayUi = overlayUi,
+            state = state,
+            swipeController = swipeController,
+            presetsRepo = presetsRepo,
+            localCustomPresets = localCustomPresets,
+            updateSelectedZone = { updateSelectedZone(it) },
+        )
         // ── 커스텀 다이나믹스 프리셋 편집기 오버레이 ──
         if (dynamicsEditorVisible) {
             val currentSel = selectedZone
@@ -2665,66 +1467,22 @@ fun EdgeZoneEditorScreen(
         }
     } // Box 닫기
 
-    // ── 아이콘 선택 바텀시트 (NORMAL 모드 전용; SWIPE 모드는 Box 안의 CategoryIconDrawer 사용) ──
-    if (showIconSheet && inputMode == InputMode.NORMAL) {
-        val displayIconKeyForSheet = run {
-            val trigger = selectedZone?.trigger as? EdgeZoneTrigger.SingleAction
-            trigger?.iconKey?.ifEmpty { selectedZone?.action?.defaultIconKey() ?: "" } ?: ""
-        }
-        NormalCategoryIconSheet(
-            selectedIconKey = displayIconKeyForSheet,
-            sheetState = iconSheetState,
-            onPick = { key ->
-                selectedZone?.let { updateSelectedZone(it.withIconKey(key)) }
-                showIconSheet = false
-            },
-            onDismiss = { showIconSheet = false },
-        )
-    }
-
-    // ── 액션 순환 후보 아이콘 선택 바텀시트 (NORMAL 모드 전용) ──
-    if (showCandidateIconSheet && inputMode == InputMode.NORMAL) {
-        val candidateIconKey = rotationDraft.iconKey.ifEmpty { rotationDraft.action.defaultIconKey() }
-        NormalCategoryIconSheet(
-            selectedIconKey = candidateIconKey,
-            sheetState = iconSheetState,
-            onPick = { key ->
-                rotationDraft = rotationDraft.copy(iconKey = key)
-                showCandidateIconSheet = false
-            },
-            onDismiss = { showCandidateIconSheet = false },
-        )
-    }
-
-    // ── 컬러 피커 바텀시트 (NORMAL 모드 전용; SWIPE 모드는 Box 안의 ColorPickerSwipe 사용) ──
-    if (showColorPicker && inputMode == InputMode.NORMAL) {
-        val colorSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val currentColorHex = run {
-            val trigger = selectedZone?.trigger as? EdgeZoneTrigger.SingleAction
-            trigger?.colorHex ?: ""
-        }
-        NormalCategoryColorSheet(
-            selectedColorHex = currentColorHex,
-            sheetState = colorSheetState,
-            onPick = { hex ->
-                selectedZone?.let { updateSelectedZone(it.withColor(hex)) }
-                showColorPicker = false
-            },
-            onDismiss = { showColorPicker = false },
-        )
-    }
-
-    // ── 액션 순환 후보 컬러 피커 바텀시트 (NORMAL 모드 전용) ──
-    if (showCandidateColorPicker && inputMode == InputMode.NORMAL) {
-        val candidateColorSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        NormalCategoryColorSheet(
-            selectedColorHex = rotationDraft.colorHex,
-            sheetState = candidateColorSheetState,
-            onPick = { hex ->
-                rotationDraft = rotationDraft.copy(colorHex = hex)
-                showCandidateColorPicker = false
-            },
-            onDismiss = { showCandidateColorPicker = false },
+    // ── NORMAL 모드 전용 바텀시트 레이어 ──
+    if (inputMode == InputMode.NORMAL) {
+        NormalSheetLayer(
+            selectedZone = selectedZone,
+            iconSheetState = iconSheetState,
+            showIconSheet = showIconSheet,
+            onShowIconSheetChange = { showIconSheet = it },
+            showCandidateIconSheet = showCandidateIconSheet,
+            onShowCandidateIconSheetChange = { showCandidateIconSheet = it },
+            showColorPicker = showColorPicker,
+            onShowColorPickerChange = { showColorPicker = it },
+            showCandidateColorPicker = showCandidateColorPicker,
+            onShowCandidateColorPickerChange = { showCandidateColorPicker = it },
+            rotationDraft = rotationDraft,
+            onRotationDraftChange = { rotationDraft = it },
+            updateSelectedZone = { updateSelectedZone(it) },
         )
     }
 

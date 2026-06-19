@@ -1,0 +1,481 @@
+package com.bridgeone.app.ui.components.touchpad
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.runtime.MutableState
+import com.bridgeone.app.ui.common.InputMode
+import com.bridgeone.app.ui.common.LocalInputMode
+import com.bridgeone.app.ui.common.swipe.LocalSwipeFocused
+import com.bridgeone.app.ui.common.swipe.SwipeFocusController
+import com.bridgeone.app.ui.common.swipe.SwipeFocusable
+
+/**
+ * 선택 존의 영역 비율 편집 섹션 (Phase 4.7.5-D 추출).
+ *
+ * 비율 프리셋 메뉴(NORMAL DropdownMenu / SWIPE Popup), 스트립 에디터, 존 액션 팝업
+ * ([ZoneActionPopup] Initial/Merge/Split/Delete)을 담는다. `inputMode`는 [LocalInputMode]로 읽으며,
+ * config 변환·Undo는 [state]에 위임한다. `zonePopup`은 화면과 공유하는 [zonePopupState]에 위임해
+ * 본문을 원본과 동일하게 유지한다. `stripBounds`는 본 섹션 전용이라 내부에서 소유한다.
+ *
+ * @param sel 현재 선택 존 스냅샷(없으면 null) — 렌더 분기에 사용. 실시간 변경은 [state]를 통한다.
+ * @param edgeForStrip 편집 대상 엣지(non-null)
+ * @param onRatioBtnBoundsChange 비율 프리셋 버튼 바운즈 보고(화면의 SWIPE 툴팁 앵커 갱신)
+ */
+@Composable
+internal fun ZoneRatioSection(
+    state: EdgeZoneEditorState,
+    zonePopupState: MutableState<ZoneActionPopup>,
+    sel: EdgeZone?,
+    edgeForStrip: EntryEdge,
+    zoneList: List<EdgeZone>,
+    zoneIdx: Int,
+    minRatio: Float,
+    maxZones: Int,
+    stripBlockedStart: Float,
+    stripBlockedStartLabel: String?,
+    stripBlockedEnd: Float,
+    stripBlockedEndLabel: String?,
+    swipeController: SwipeFocusController,
+    onRatioBtnBoundsChange: (Rect) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val inputMode = LocalInputMode.current
+    var workConfig by state.workConfigState
+    var selectedZone by state.selectedZoneState
+    var currentPresetId by state.currentPresetIdState
+    var zonePopup by zonePopupState
+    var stripBounds by remember(edgeForStrip) { mutableStateOf(IntRect.Zero) }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // ── 1. 영역 비율 ──
+                            val p = zonePopup
+                            var presetMenuOpen by remember { mutableStateOf(false) }
+                            if (inputMode == InputMode.SWIPE) {
+                                DisposableEffect(presetMenuOpen) {
+                                    val active = presetMenuOpen
+                                    if (active) swipeController.pushScope(EdgeEditorScope.RatioPresetMenu)
+                                    onDispose { if (active) swipeController.popScope() }
+                                }
+                                val presetMenuHasOpened = remember { mutableStateOf(false) }
+                                LaunchedEffect(presetMenuOpen) {
+                                    if (presetMenuOpen) {
+                                        presetMenuHasOpened.value = true
+                                        val firstLabel = EdgeZoneActionResolver.ratioPresetsFor(zoneList.size).firstOrNull()?.first
+                                        if (firstLabel != null) {
+                                            swipeController.setFocus(EdgeEditorElement.RatioPresetItem(firstLabel))
+                                        }
+                                    } else if (presetMenuHasOpened.value) {
+                                        // LaunchedEffect 실행 순서(코드 순)가 selectedZone effect(line ~253) 다음이므로
+                                        // StripZone 포커스를 덮어쓰고 RatioPresetMenu로 최종 포커스됨
+                                        swipeController.setFocus(EdgeEditorElement.RatioPresetMenu)
+                                    }
+                                }
+                            }
+                            val highlightedZones: Set<Pair<EntryEdge, Float>> = run {
+                                if (sel != null && p is ZoneActionPopup.MergeSelecting) {
+                                    buildSet {
+                                        if (zoneIdx > 0) add(zoneList[zoneIdx - 1].edge to zoneList[zoneIdx - 1].startRatio)
+                                        if (zoneIdx in 0 until zoneList.size - 1) add(zoneList[zoneIdx + 1].edge to zoneList[zoneIdx + 1].startRatio)
+                                    }
+                                } else emptySet()
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "영역 비율",
+                                    fontSize = 12.sp,
+                                    color = cs.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (zoneList.size >= 2) {
+                                    Box {
+                                        SwipeFocusable(
+                                            element = EdgeEditorElement.RatioPresetMenu,
+                                            shape = RoundedCornerShape(16.dp),
+                                            onActivate = { presetMenuOpen = true },
+                                            gridRow = 20,
+                                            modifier = Modifier.onGloballyPositioned { coords ->
+                                                onRatioBtnBoundsChange(coords.boundsInWindow())
+                                            },
+                                        ) {
+                                        val ratioFocused = LocalSwipeFocused.current
+                                        IconButton(
+                                            onClick = { presetMenuOpen = true },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.BarChart,
+                                                contentDescription = "비율 프리셋",
+                                                tint = if (ratioFocused) cs.primary else cs.onSurface.copy(alpha = 0.75f),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                        }
+                                        // NORMAL 모드: 일반 DropdownMenu (focusable = true, 외부 탭으로 닫힘)
+                                        DropdownMenu(
+                                            expanded = presetMenuOpen && inputMode == InputMode.NORMAL,
+                                            onDismissRequest = { presetMenuOpen = false }
+                                        ) {
+                                            EdgeZoneActionResolver.ratioPresetsFor(zoneList.size).forEach { (label, ratios) ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                        ) {
+                                                            MiniRatioBar(
+                                                                ratios = ratios,
+                                                                modifier = Modifier
+                                                                    .width(40.dp)
+                                                                    .height(10.dp)
+                                                            )
+                                                            Text(label, fontSize = 13.sp)
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        state.applyRatioPreset(edgeForStrip, ratios)
+                                                        presetMenuOpen = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                        // SWIPE 모드: focusable=false Popup → 터치가 팝업을 통과하여
+                                        // 아래 SwipeGestureLayer까지 전달되므로 화면 어디서든 스와이프 가능
+                                        if (inputMode == InputMode.SWIPE && presetMenuOpen) {
+                                            RatioPresetSwipePopup(
+                                                presets = EdgeZoneActionResolver.ratioPresetsFor(zoneList.size),
+                                                onSelect = { ratios ->
+                                                    state.applyRatioPreset(edgeForStrip, ratios)
+                                                    presetMenuOpen = false
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned { coords ->
+                                        val pos = coords.positionInWindow()
+                                        stripBounds = IntRect(
+                                            left = pos.x.toInt(),
+                                            top = pos.y.toInt(),
+                                            right = (pos.x + coords.size.width).toInt(),
+                                            bottom = (pos.y + coords.size.height).toInt()
+                                        )
+                                    }
+                            ) {
+                                EdgeStripEditor(
+                                    inputMode = inputMode,
+                                    zones = zoneList,
+                                    selectedZone = sel,
+                                    minRatio = minRatio,
+                                    onZonesChanged = { newZones ->
+                                        state.pushUndo()
+                                        workConfig = workConfig.withZones(edgeForStrip, newZones)
+                                        currentPresetId = null
+                                        val curSel = selectedZone
+                                        selectedZone = if (curSel != null) {
+                                            newZones.firstOrNull { curSel.startRatio in it.startRatio..it.endRatio }
+                                                ?: newZones.firstOrNull()
+                                        } else null
+                                    },
+                                    onZoneSelected = { tapped ->
+                                        val cur = zonePopup
+                                        if (cur is ZoneActionPopup.MergeSelecting) {
+                                            if (state.tryMergeWith(cur.zone, tapped)) zonePopup = ZoneActionPopup.None
+                                        } else {
+                                            selectedZone = tapped
+                                            zonePopup = ZoneActionPopup.None
+                                        }
+                                    },
+                                    onZoneDeselected = {
+                                        selectedZone = null
+                                        zonePopup = ZoneActionPopup.None
+                                    },
+                                    onZoneLongPressed = { zone, cf ->
+                                        selectedZone = zone
+                                        zonePopup = ZoneActionPopup.Initial(zone, cf)
+                                    },
+                                    highlightedZones = highlightedZones,
+                                    blockedStartRatio = stripBlockedStart,
+                                    blockedStartLabel = stripBlockedStartLabel,
+                                    blockedEndRatio = stripBlockedEnd,
+                                    blockedEndLabel = stripBlockedEndLabel,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            // ── 팝업 ──
+                            if (sel != null && p !is ZoneActionPopup.None) {
+                                val anchor = when (p) {
+                                    is ZoneActionPopup.Initial -> p.anchor
+                                    is ZoneActionPopup.SplitChoosing -> p.anchor
+                                    is ZoneActionPopup.DeleteConfirming -> p.anchor
+                                    else -> 0.5f
+                                }
+                                Popup(
+                                    popupPositionProvider = remember(anchor, stripBounds) {
+                                        object : PopupPositionProvider {
+                                            override fun calculatePosition(
+                                                anchorBounds: IntRect,
+                                                windowSize: IntSize,
+                                                layoutDirection: LayoutDirection,
+                                                popupContentSize: IntSize
+                                            ): IntOffset {
+                                                val x = (stripBounds.left + anchor * stripBounds.width - popupContentSize.width / 2f)
+                                                    .toInt()
+                                                    .coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+                                                val y = stripBounds.top - popupContentSize.height - 4
+                                                return IntOffset(x, y)
+                                            }
+                                        }
+                                    },
+                                    onDismissRequest = { zonePopup = ZoneActionPopup.None },
+                                    properties = PopupProperties(
+                                        focusable = true,
+                                        dismissOnClickOutside = true,
+                                        dismissOnBackPress = false
+                                    )
+                                ) {
+                                    Surface(
+                                        modifier = Modifier
+                                            .wrapContentWidth()
+                                            .border(0.5.dp, cs.outline.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = cs.surfaceVariant,
+                                        tonalElevation = 6.dp,
+                                        shadowElevation = 8.dp
+                                    ) {
+                                        when (p) {
+                                            is ZoneActionPopup.Initial -> {
+                                                val hasAdj = zoneList.size > 1
+                                                val anySplitValid = (2..4).any { n ->
+                                                    zoneList.size + n - 1 <= maxZones &&
+                                                    (sel.endRatio - sel.startRatio) / n >= minRatio
+                                                }
+                                                val canDel = zoneList.size > 1
+                                                val divider: @Composable () -> Unit = {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .width(0.5.dp)
+                                                            .height(16.dp)
+                                                            .background(cs.onSurfaceVariant.copy(alpha = 0.25f))
+                                                    )
+                                                }
+                                                val mergeAction: () -> Unit = { zonePopup = ZoneActionPopup.MergeSelecting(sel) }
+                                                val splitAction: () -> Unit = { zonePopup = ZoneActionPopup.SplitChoosing(sel, p.anchor) }
+                                                val deleteAction: () -> Unit = { zonePopup = ZoneActionPopup.DeleteConfirming(sel, p.anchor) }
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    SwipeFocusable(
+                                                        element = EdgeEditorElement.ZoneActionMerge,
+                                                        scope = EdgeEditorScope.ZoneActionPopup,
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        showBorderHighlight = true,
+                                                        onActivate = mergeAction,
+                                                        gridRow = 0,
+                                                    ) {
+                                                    TextButton(
+                                                        onClick = mergeAction,
+                                                        enabled = hasAdj,
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                                    ) { Text("병합", fontSize = 12.sp) }
+                                                    }
+                                                    divider()
+                                                    SwipeFocusable(
+                                                        element = EdgeEditorElement.ZoneActionSplit,
+                                                        scope = EdgeEditorScope.ZoneActionPopup,
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        showBorderHighlight = true,
+                                                        onActivate = splitAction,
+                                                        gridRow = 0,
+                                                    ) {
+                                                    TextButton(
+                                                        onClick = splitAction,
+                                                        enabled = anySplitValid,
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                                    ) { Text("분할", fontSize = 12.sp) }
+                                                    }
+                                                    divider()
+                                                    SwipeFocusable(
+                                                        element = EdgeEditorElement.ZoneActionDelete,
+                                                        scope = EdgeEditorScope.ZoneActionPopup,
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        showBorderHighlight = true,
+                                                        onActivate = deleteAction,
+                                                        gridRow = 0,
+                                                    ) {
+                                                    TextButton(
+                                                        onClick = deleteAction,
+                                                        enabled = canDel,
+                                                        colors = ButtonDefaults.textButtonColors(contentColor = cs.error),
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                                    ) { Text("삭제", fontSize = 12.sp) }
+                                                    }
+                                                }
+                                            }
+                                            is ZoneActionPopup.MergeSelecting -> {
+                                                val mergeCancelAction: () -> Unit = { zonePopup = ZoneActionPopup.None }
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text("병합할 존을 선택하세요", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                                                    SwipeFocusable(
+                                                        element = EdgeEditorElement.ZoneActionMergeCancel,
+                                                        scope = EdgeEditorScope.ZoneActionPopup,
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        showBorderHighlight = true,
+                                                        onActivate = mergeCancelAction,
+                                                        gridRow = 0,
+                                                    ) {
+                                                    TextButton(
+                                                        onClick = mergeCancelAction,
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                                    ) { Text("취소", fontSize = 12.sp) }
+                                                    }
+                                                }
+                                            }
+                                            is ZoneActionPopup.SplitChoosing -> {
+                                                val splitCancelAction: () -> Unit = { zonePopup = ZoneActionPopup.None }
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text("분할:", fontSize = 12.sp, color = cs.onSurfaceVariant,
+                                                        modifier = Modifier.padding(start = 6.dp, end = 2.dp))
+                                                    (2..4).forEach { n ->
+                                                        val valid = zoneList.size + n - 1 <= maxZones &&
+                                                            (sel.endRatio - sel.startRatio) / n >= minRatio
+                                                        val splitNAction: () -> Unit = { if (state.splitInto(sel, n)) zonePopup = ZoneActionPopup.None }
+                                                        SwipeFocusable(
+                                                            element = EdgeEditorElement.ZoneActionSplitN(n),
+                                                            scope = EdgeEditorScope.ZoneActionPopup,
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            showBorderHighlight = true,
+                                                            onActivate = splitNAction,
+                                                            gridRow = 0,
+                                                        ) {
+                                                        TextButton(
+                                                            onClick = splitNAction,
+                                                            enabled = valid,
+                                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                                        ) { Text("$n", fontSize = 13.sp) }
+                                                        }
+                                                    }
+                                                    SwipeFocusable(
+                                                        element = EdgeEditorElement.ZoneActionSplitCancel,
+                                                        scope = EdgeEditorScope.ZoneActionPopup,
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        showBorderHighlight = true,
+                                                        onActivate = splitCancelAction,
+                                                        gridRow = 0,
+                                                    ) {
+                                                    TextButton(
+                                                        onClick = splitCancelAction,
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                                    ) { Text("취소", fontSize = 12.sp) }
+                                                    }
+                                                }
+                                            }
+                                            is ZoneActionPopup.DeleteConfirming -> {
+                                                val deleteYesAction: () -> Unit = { state.deleteZone(sel); zonePopup = ZoneActionPopup.None }
+                                                val deleteNoAction: () -> Unit = { zonePopup = ZoneActionPopup.None }
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text("정말 삭제하시겠습니까?", fontSize = 12.sp, color = cs.onSurface)
+                                                    SwipeFocusable(
+                                                        element = EdgeEditorElement.ZoneActionDeleteYes,
+                                                        scope = EdgeEditorScope.ZoneActionPopup,
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        showBorderHighlight = true,
+                                                        onActivate = deleteYesAction,
+                                                        gridRow = 0,
+                                                    ) {
+                                                    TextButton(
+                                                        onClick = deleteYesAction,
+                                                        colors = ButtonDefaults.textButtonColors(contentColor = cs.error),
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                                    ) { Text("예", fontSize = 12.sp) }
+                                                    }
+                                                    SwipeFocusable(
+                                                        element = EdgeEditorElement.ZoneActionDeleteNo,
+                                                        scope = EdgeEditorScope.ZoneActionPopup,
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        showBorderHighlight = true,
+                                                        onActivate = deleteNoAction,
+                                                        gridRow = 0,
+                                                    ) {
+                                                    TextButton(
+                                                        onClick = deleteNoAction,
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                                    ) { Text("아니오", fontSize = 12.sp) }
+                                                    }
+                                                }
+                                            }
+                                            else -> {}
+                                        }
+                                    }
+                                }
+                            }
+                            } // Column (영역 비율)
+}

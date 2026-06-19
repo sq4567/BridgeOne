@@ -1,6 +1,7 @@
 package com.bridgeone.app.ui.common
 
 import android.content.Context
+import androidx.compose.runtime.compositionLocalOf
 
 /**
  * 앱 전체 UI 조작 방식.
@@ -15,6 +16,17 @@ enum class InputMode {
     NORMAL,
     SWIPE,
 }
+
+/**
+ * 현재 [InputMode]를 컴포지션 트리에 제공하는 CompositionLocal (Phase 4.7.5-D).
+ *
+ * 화면 진입 시 1회 provide되며 런타임에 변경되지 않는다(`loadInputMode`로 로드된 `val`).
+ * 하위 Composable이 `inputMode` 파라미터를 일일이 받지 않고 `LocalInputMode.current`로 읽어
+ * SWIPE/NORMAL 분기를 내부에 가둘 수 있게 한다.
+ *
+ * 기본값: NORMAL (provider 누락 시 안전 폴백 — `loadInputMode`의 기본값과 일치)
+ */
+val LocalInputMode = compositionLocalOf { InputMode.NORMAL }
 
 private const val INPUT_MODE_PREF_NAME = "input_mode_prefs"
 private const val INPUT_MODE_KEY = "input_mode"

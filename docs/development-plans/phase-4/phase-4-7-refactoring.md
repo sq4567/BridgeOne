@@ -321,7 +321,7 @@ Page 5 설정 렌더링:
 1. **4.7.5-A** ✅: 순수 함수(`EdgeZoneActionResolver`) + config 변환·Undo(`EdgeZoneEditorState`) 추출 + 테스트. 4.7.2-C 항목 해소
 2. **4.7.5-B** ✅ (저위험): 이미 독립적인 `private fun` Composable(Macro/Shortcut/Rotation/팝업류)을 파일 이동만 (시그니처 유지)
 3. **4.7.5-C** ✅ (저위험 범위로 축소): `ActionDomainPicker`(+전속 헬퍼 4개)를 `ZoneActionPicker.kt`로 순수 파일 이동(C-1) + 미사용 데드코드 제거(C-2). **편집 패널 섹션(영역비율/표시설정/캔버스/ZonePopups) 추출은 4.7.5-D로 이월** — 30+개 클로저 캡처를 파라미터로 hoist해야 해 byte-identical이 깨지므로, `CompositionLocal` 선행 도입(4.7.5-D) 후 진행하는 것이 안전·구조적으로 옳음
-4. **4.7.5-D**: SWIPE/NORMAL 레이어 분리 + `CompositionLocal` 도입 **+ 편집 패널 섹션 Composable 분리(4.7.5-C에서 이월: 영역비율/표시설정/SWIPE 캔버스 hit 오버레이/ZonePopups when 분기)**
+4. **4.7.5-D** ✅: `LocalInputMode` CompositionLocal 도입 + 오버레이 레이어 분리 + 편집 패널 섹션 분리(4.7.5-C 이월분). 저위험(D-1·D-3·D-4) → 고위험(D-2·D-5) 순으로 진행, 각 독립 커밋. **byte-identical 미보장(캡처 hoist)** → 실기기 회귀 필요
 
 > **⚠️ 4.7.5-A 완료 기록 (4.7.5-B/C/D 전제)**:
 > - **신규 `EdgeZoneActionResolver.kt`** (`object` + 순수 함수 5개 `domainOf`/`actionEquals`/`describeUndoStep`/`migrateDynamicsIndicesAfterDelete`/`ratioPresetsFor`). `ActionDomain` enum도 이 파일로 이동(`internal` top-level, 같은 패키지라 호출부 import 불필요). 호출부는 `EdgeZoneActionResolver.도메인함수(...)` prefix로 호출.
@@ -349,6 +349,21 @@ Page 5 설정 렌더링:
 > - **결과**: `EdgeZoneEditorScreen.kt` **4,260 → 2,877줄**. 메인 git diff는 **0 추가 / 1,383 삭제**(순수 삭제, 코드 변경 0). `.\gradlew assembleDebug`+`testDebugUnitTest` 통과, 신규 경고 없음(잔존 경고는 deprecated 아이콘·tautological 체크로 원래 있던 것이 코드와 함께 이동/줄번호 시프트).
 > - **4.7.5-D 전제**: 잔류 편집 패널 섹션(영역비율·표시설정·SWIPE 캔버스 hit 오버레이·`ZoneActionPopup` when 분기)은 메인 함수 지역 상태를 30+개 캡처 중. 4.7.5-D에서 `InputMode` 등을 `CompositionLocal`로 제공해 캡처를 줄인 뒤 섹션 Composable로 분리한다. `state` 인스턴스 전달 방식(4.7.5-A 기록)과 병행.
 
+> **⚠️ 4.7.5-D 완료 기록 (4.7.6 이후 전제)**:
+> - **신규 `LocalInputMode`** (`ui/common/InputMode.kt`, `compositionLocalOf { InputMode.NORMAL }`). 루트 provider(`EdgeZoneEditorScreen` 657행)에 `LocalSwipeFocusController`와 병합 제공. 신규 추출 섹션은 `LocalInputMode.current`로 모드 판별. **기존 `inputMode: InputMode` 파라미터를 받던 `RotationEditor`/`MacroEditorPopup`/`ActionDomainPicker`는 미마이그레이션**(이미 안정·리터럴 전달처 있음, 향후 별도 작업 후보).
+> - **신규 파일 6개** (모두 `touchpad/` 직하):
+>   - `ZoneCanvasHitOverlay.kt` (D-3): SWIPE 캔버스 hit 영역. 값+콜백.
+>   - `ZoneDisplaySettingSection.kt` (D-4): 표시 설정(아이콘/컬러/라벨/되돌리기). 값+콜백.
+>   - `NormalSheetLayer.kt` (D-2a): NORMAL 전용 바텀시트 4개. 값+콜백. 공유 `iconSheetState` 인스턴스 전달.
+>   - `EdgeZoneOverlayUiState.kt` (D-2b): **오버레이/팝업 UI 상태 홀더**(46종 `MutableState`). `EdgeZoneEditorState`(config·Undo)와 분리된 UI 사이드이펙트 상태 전용. `internal class`(`CustomPresetTarget` 노출 회피). 화면·레이어가 `var x by overlayUi.xState` 위임으로 공유.
+>   - `EdgeZoneOverlayLayer.kt` (D-2b): 메인 Box 안 오버레이 체인(~544줄). **`BoxScope` 확장 + 무조건 호출**. 모드 무관 프리셋 팝업·NORMAL 매크로 편집기가 SWIPE 체인 중간에 섞여 있어 호출부 모드 가드 없이 내부 `inputMode` 분기 유지(byte-identical). 다이나믹스 편집기·미저장 다이얼로그는 화면 잔류.
+>   - `ZoneRatioSection.kt` (D-5): 영역 비율(프리셋 메뉴·스트립 에디터·`ZoneActionPopup` 팝업). `state`+`zonePopupState`(MutableState) 위임, `stripBounds` 내부 이동.
+> - **`ZoneActionPopup` 가시성 승격**: `private sealed class`→`internal`(`ZoneRatioSection`이 cross-file 참조 + `zonePopupState: MutableState<ZoneActionPopup>` 파라미터).
+> - **파라미터 축소 전략(사용자 결정)**: 거대 오버레이 레이어(~47개 캡처)는 개별 파라미터 대신 `EdgeZoneOverlayUiState` 홀더 1개로 묶어 전달. 화면 선언부는 `var x by remember{mutableStateOf}` → `var x by overlayUi.xState` 위임으로 변경(사용처 코드 무변경). `localCustomPresets`는 `remember(customPresets)` 키를 가져 홀더 제외·화면 소유(값 전달).
+> - **미사용 import 정리**: D-4에서 3개(`CircleShape`/`TextOverflow`/`ColorCodec`), D-2b에서 11개(애니메이션 9·`SwipeGestureLayer`·`SwipeMode`), D-5에서 8개(`IntRect`/`IntSize`/`IntOffset`/`LayoutDirection`/`PopupPositionProvider`/`positionInWindow`/`wrapContentWidth`/`BarChart`). `mutableIntStateOf`도 제거(holder가 `mutableStateOf` 사용). `getValue`/`setValue`는 위임에 암묵 사용이라 유지.
+> - **결과**: `EdgeZoneEditorScreen.kt` **2,877 → 1,591줄**(D 누적 순감 ~1,286줄). 커밋 4건(c8280bd 저위험 묶음 D-1·D-3·D-4, e46e711 D-2a, cd439fd D-2b, 02b68c8 D-5). `.\gradlew assembleDebug`+`testDebugUnitTest` 통과, 신규 경고 없음(잔존 경고는 기존 deprecated `VIBRATOR_SERVICE`·`CallMerge`).
+> - **⚠️ 동작 동일성 미입증**: byte-identical을 의도적으로 깸(캡처를 파라미터/위임으로 hoist). 빌드·단위 테스트는 통과하나 와이어링 오류를 컴파일러가 전부 잡지 못함 → **실기기 회귀 필수**(검증 체크리스트 참조).
+
 > **주의**: 4.7.1 회귀목록의 ⚠️ 기존 스트립 에디터 스와이프 버그(구분선 1칸 이동 후 무반응)는 본 리팩토링 범위 밖입니다. 동작 동일성만 유지하고 별도 추적합니다.
 
 > **⚠️ 기존 버그 (리팩토링 이전부터 존재, 별도 추적)**: 4.7.5-A 수동 회귀 중 확인됨. 동작 동일성 검증 결과 git HEAD(리팩토링 전)와 코드 경로가 동일하여 본 리팩토링이 원인이 아님이 확정됨. 별도 기능 수정 작업 필요:
@@ -358,6 +373,12 @@ Page 5 설정 렌더링:
 **검증**:
 - [x] `.\gradlew testDebugUnitTest`(EdgeZoneActionResolver/EdgeZoneEditorState) + `.\gradlew assembleDebug` 통과 (4.7.5-A, 신규 경고 없음)
 - [x] **4.7.5-C**: `ZoneActionPicker.kt` 분리(C-1) + 데드코드 제거(C-2) 후 `.\gradlew assembleDebug`+`testDebugUnitTest` 통과, 신규 경고 없음. byte-identical 대조 통과(메인 0 추가/1,383 삭제) → 동작 보존은 구조적으로 보장. 실기기 회귀(액션 선택 폴더 트리/그리드·도메인 네비·커스텀 프리셋 추가/수정/삭제·SWIPE/NORMAL)는 사용자가 실기기 연결 시 최종 확인(코드 무변경이라 형식적 확인)
+- [x] **4.7.5-D**: `.\gradlew assembleDebug`+`testDebugUnitTest` 통과, 신규 경고 없음. 신규 파일 6개 + `LocalInputMode`. byte-identical **미보장**(캡처 hoist)이었으나 아래 실기기 회귀로 동작 동일성 입증 완료
+  - [x] **(실기기)** D-3: SWIPE 캔버스 4개 엣지 존 포커스 순회·disabled 엣지 제외·코너 클리핑 동일
+  - [x] **(실기기)** D-4: 아이콘/컬러/라벨(커서 깜빡임)·auto 뱃지·되돌리기 동일(두 모드)
+  - [x] **(실기기)** D-2a: NORMAL 아이콘/컬러 시트 + 후보 시트 + 공유 `iconSheetState` 동작 동일
+  - [x] **(실기기)** D-2b: SWIPE 전체 오버레이 — StripBoundary 힌트·아이콘버튼 툴팁·아이콘 서랍(main/candidate/shortcut) stage 네비·컬러피커 long-press back·Undo 드롭다운(스와이프 투과)·프리셋 팝업 back-stack·숏컷/매크로 에디터 키보드 양보·`SwipeGestureLayer` long-press dispatch 전 분기. NORMAL 미니 툴팁·매크로 편집기 Popup. 프리셋 팝업(양 모드)
+  - [x] **(실기기)** D-5: 비율 프리셋 메뉴(NORMAL 드롭다운/SWIPE 팝업)·스트립 드래그·병합/분할/삭제 팝업 상태머신(SWIPE scope push/pop·포커스 복원)
 - [x] 4개 엣지 존 시각화·드래그 편집 동작 동일 *(4.7.5-A 실기기 검증 완료)*
 - [x] 존 분할/병합, 액션·아이콘·컬러·숏컷 할당 동작 동일 *(4.7.5-A 실기기 검증 완료)*
 - [x] 회전 트리거, 라벨 편집(IME), 프리셋 저장/로드 동작 동일 *(4.7.5-A 실기기 검증 완료)*
