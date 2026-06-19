@@ -139,7 +139,7 @@ updated: "2026-06-19"
 현재 Composable에 묶여 테스트 불가능한 순수 로직. 이후 단계에서 추출하며 테스트를 함께 작성:
 - **매크로 시퀀싱** — `StandardModePage.onSendMacro`(약 218~320행) → 4.7.4-B에서 `MacroFrameSequencer`로 추출
 - **엣지 진입 판정** — `TouchpadWrapper`의 `detectEntryEdge`/`getInwardDistance`/`findNearestEdge`/`computeDirectTouchButtonRects`/`applyEdgeModeToggle`(1756~1919행). 이미 top-level `private fun`이라 visibility만 `internal`로 올리면 즉시 테스트 가능 → 4.7.3-A
-- **존 분할/병합** — `EdgeZoneEditorScreen`의 로컬 `fun splitInto`/`tryMergeWith`(393~427행). 클로저에 갇힘 → 4.7.5-A
+- ~~**존 분할/병합** — `EdgeZoneEditorScreen`의 로컬 `fun splitInto`/`tryMergeWith`(393~427행). 클로저에 갇힘 → 4.7.5-A~~ ✅ **해소(4.7.5-A)**: `EdgeZoneEditorState`로 추출, `EdgeZoneEditorStateTest`로 고정
 
 **검증**:
 - [x] `.\gradlew testDebugUnitTest` 전체 그린 (103 tests, 0 fail)
@@ -318,20 +318,32 @@ Page 5 설정 렌더링:
 - (대안·비권장) `EdgeZoneEditorScreenSwipe`/`...Normal` 완전 분리 → 공통 편집 패널 중복 부담 큼
 
 **서브단계** (각 독립 빌드):
-1. **4.7.5-A**: 순수 함수(`EdgeZoneActionResolver`) + config 변환·Undo(`EdgeZoneEditorState`) 추출 + 테스트(splitInto/tryMerge/describeUndoStep/JSON 라운드트립). 4.7.2-C 항목 해소
+1. **4.7.5-A** ✅: 순수 함수(`EdgeZoneActionResolver`) + config 변환·Undo(`EdgeZoneEditorState`) 추출 + 테스트. 4.7.2-C 항목 해소
 2. **4.7.5-B** (저위험): 이미 독립적인 `private fun` Composable(Macro/Shortcut/Rotation/팝업류)을 파일 이동만 (시그니처 유지)
 3. **4.7.5-C**: 편집 패널을 섹션별 Composable로 분리, 상태는 `EdgeZoneEditorState`/hoist 파라미터로 전달
 4. **4.7.5-D**: SWIPE/NORMAL 레이어 분리 + `CompositionLocal` 도입
 
+> **⚠️ 4.7.5-A 완료 기록 (4.7.5-B/C/D 전제)**:
+> - **신규 `EdgeZoneActionResolver.kt`** (`object` + 순수 함수 5개 `domainOf`/`actionEquals`/`describeUndoStep`/`migrateDynamicsIndicesAfterDelete`/`ratioPresetsFor`). `ActionDomain` enum도 이 파일로 이동(`internal` top-level, 같은 패키지라 호출부 import 불필요). 호출부는 `EdgeZoneActionResolver.도메인함수(...)` prefix로 호출.
+> - **신규 `EdgeZoneEditorState.kt`** (평범한 클래스 + `mutableStateOf`, `StandardModePageState` 컨벤션). `workConfig`/`selectedZone`/`currentPresetId`/`undoStack` 상태 + `pushUndo`/`splitInto`/`tryMergeWith`/`deleteZone`/`applyRatioPreset` 메서드 보유.
+> - **상태 hoist 방식**: 홀더가 `workConfigState` 등 `MutableState`를 노출하고, `EdgeZoneEditorScreen`은 기존 지역 변수명을 `var workConfig by state.workConfigState` **위임**으로 유지 → 함수 내 113곳 참조를 그대로 둠. **4.7.5-C에서 패널 Composable로 상태를 넘길 때는 `state` 인스턴스(또는 `state.xxxState`/hoist 콜백)를 파라미터로 전달**한다.
+> - **`zonePopup` 책임 이동**: `splitInto`/`tryMergeWith`가 갖던 `zonePopup = ZoneActionPopup.None` 리셋을 홀더에서 제거하고 **호출부(Composable)**로 옮김(홀더는 UI-free). `splitInto`/`tryMergeWith`는 적용 성공 여부를 `Boolean`으로 반환하고, 호출부는 **성공 시에만** 팝업을 닫는다(원본 동작 보존: 비인접 탭 시 병합 모드 유지). 4.7.5-C에서 이 패턴 유지.
+> - **신규 테스트**: `EdgeZoneActionResolverTest.kt` / `EdgeZoneEditorStateTest.kt` (순수 JUnit4).
+
 > **주의**: 4.7.1 회귀목록의 ⚠️ 기존 스트립 에디터 스와이프 버그(구분선 1칸 이동 후 무반응)는 본 리팩토링 범위 밖입니다. 동작 동일성만 유지하고 별도 추적합니다.
 
+> **⚠️ 기존 버그 (리팩토링 이전부터 존재, 별도 추적)**: 4.7.5-A 수동 회귀 중 확인됨. 동작 동일성 검증 결과 git HEAD(리팩토링 전)와 코드 경로가 동일하여 본 리팩토링이 원인이 아님이 확정됨. 별도 기능 수정 작업 필요:
+> - **NORMAL 존 병합 미동작**: 존 롱프레스 → 3버튼(병합/분할/삭제) → "병합" 진입 후 인접 존을 탭해도 병합되지 않음
+> - **SWIPE 레이어 3버튼 미표시**: SWIPE 모드에서 존 포커스 상태에서 롱프레스·더블탭으로 병합/분할/삭제 3버튼(`ZoneActionPopup.Initial`)을 띄울 방법이 없음
+
 **검증**:
-- [ ] `.\gradlew testDebugUnitTest`(EdgeZoneEditorState) + `.\gradlew assembleDebug` 통과
-- [ ] 4개 엣지 존 시각화·드래그 편집 동작 동일
-- [ ] 존 분할/병합, 액션·아이콘·컬러·숏컷 할당 동작 동일
-- [ ] 회전 트리거, 라벨 편집(IME), 프리셋 저장/로드 동작 동일
-- [ ] Undo/Redo 동작 동일
-- [ ] SWIPE/NORMAL 두 모드 UI 모두 동작 동일
+- [x] `.\gradlew testDebugUnitTest`(EdgeZoneActionResolver/EdgeZoneEditorState) + `.\gradlew assembleDebug` 통과 (4.7.5-A, 신규 경고 없음)
+- [x] 4개 엣지 존 시각화·드래그 편집 동작 동일 *(4.7.5-A 실기기 검증 완료)*
+- [x] 존 분할/병합, 액션·아이콘·컬러·숏컷 할당 동작 동일 *(4.7.5-A 실기기 검증 완료)*
+- [x] 회전 트리거, 라벨 편집(IME), 프리셋 저장/로드 동작 동일 *(4.7.5-A 실기기 검증 완료)*
+- [x] Undo/Redo 동작 동일 *(4.7.5-A 실기기 검증 완료)*
+- [x] SWIPE/NORMAL 두 모드 UI 모두 동작 동일 *(4.7.5-A 실기기 검증 완료)*
+  - 단, 4.7.1부터 추적 중인 기존 스트립 에디터 스와이프 버그(구분선 1칸 이동 후 무반응)는 본 리팩토링 범위 밖 (동작 동일성 유지 확인)
 
 ---
 

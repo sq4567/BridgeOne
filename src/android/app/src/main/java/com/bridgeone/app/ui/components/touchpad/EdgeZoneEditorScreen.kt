@@ -272,10 +272,13 @@ fun EdgeZoneEditorScreen(
         swipeController.wrapEdge = remember { loadSwipeWrapEdge(context) }
     }
 
-    var workConfig by remember(initialConfig) { mutableStateOf(initialConfig) }
-    var selectedZone by remember { mutableStateOf<EdgeZone?>(null) }
+    // Phase 4.7.5-A: 편집 상태 홀더. 기존 지역 변수명은 MutableState 위임으로 유지.
+    val state = remember(initialConfig) { EdgeZoneEditorState(initialConfig, initialPresetId) }
+    var workConfig by state.workConfigState
+    var selectedZone by state.selectedZoneState
+    var currentPresetId by state.currentPresetIdState
+    var undoStack by state.undoStackState
     var savedRotationTrigger by remember { mutableStateOf<EdgeZoneTrigger.Rotation?>(null) }
-    var currentPresetId by remember { mutableStateOf(initialPresetId) }
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showIconSheet by remember { mutableStateOf(false) }
     var showColorPicker by remember { mutableStateOf(false) }
@@ -383,50 +386,8 @@ fun EdgeZoneEditorScreen(
         savedRotationTrigger = null
     }
 
-    var undoStack by remember { mutableStateOf<List<EdgeZoneConfig>>(emptyList()) }
-
-    fun pushUndo() {
-        undoStack = (listOf(workConfig) + undoStack).take(20)
-    }
-
-    // 분할 N개 균등 분할 (첫 조각만 기존 trigger 유지)
-    fun splitInto(zone: EdgeZone, n: Int) {
-        val zones = workConfig.zonesFor(zone.edge).toMutableList()
-        val idx = zones.indexOfFirst { it.startRatio == zone.startRatio && it.edge == zone.edge }
-        if (idx < 0) return
-        val w = (zone.endRatio - zone.startRatio) / n
-        val parts = (0 until n).map { i ->
-            val s = zone.startRatio + i * w
-            val e = if (i == n - 1) zone.endRatio else s + w
-            if (i == 0) zone.copy(endRatio = e)
-            else EdgeZone(zone.edge, s, e, EdgeZoneTrigger.SingleAction(EdgeZoneAction.Unassigned, "", ""))
-        }
-        zones.removeAt(idx)
-        zones.addAll(idx, parts)
-        pushUndo()
-        workConfig = workConfig.withZones(zone.edge, zones)
-        currentPresetId = null
-        selectedZone = parts.first()
-        zonePopup = ZoneActionPopup.None
-    }
-
-    // 인접 존 흡수 병합
-    fun tryMergeWith(base: EdgeZone, target: EdgeZone) {
-        if (base.edge != target.edge) return
-        val zones = workConfig.zonesFor(base.edge).toMutableList()
-        val bi = zones.indexOfFirst { it.startRatio == base.startRatio }
-        val ti = zones.indexOfFirst { it.startRatio == target.startRatio }
-        if (bi < 0 || ti < 0 || kotlin.math.abs(bi - ti) != 1) return
-        val merged = if (ti < bi) base.copy(startRatio = target.startRatio)
-                     else base.copy(endRatio = target.endRatio)
-        zones[bi] = merged
-        zones.removeAt(ti)
-        pushUndo()
-        workConfig = workConfig.withZones(base.edge, zones)
-        currentPresetId = null
-        selectedZone = merged
-        zonePopup = ZoneActionPopup.None
-    }
+    // Phase 4.7.5-A: undoStack/pushUndo/splitInto/tryMergeWith → EdgeZoneEditorState로 이관
+    // (splitInto/tryMergeWith의 zonePopup 리셋은 호출부로 이동)
 
     // ── SWIPE 모드 초기 포커스 시드 ──
     // 진입 시 어느 요소도 선택되지 않은 상태를 피하기 위해 Back 버튼에 포커스를 둔다.
@@ -759,37 +720,7 @@ fun EdgeZoneEditorScreen(
     }
     val canSave = hasChanges
 
-    // ── 존 삭제 ──
-    fun deleteZone(zone: EdgeZone) {
-        val zones = workConfig.zonesFor(zone.edge).toMutableList()
-        val idx = zones.indexOf(zone)
-        if (idx < 0 || zones.size <= 1) return
-        val removed = zones.removeAt(idx)
-        if (idx < zones.size) zones[idx] = zones[idx].copy(startRatio = removed.startRatio)
-        else zones[idx - 1] = zones[idx - 1].copy(endRatio = removed.endRatio)
-        pushUndo()
-        workConfig = workConfig.withZones(zone.edge, zones)
-        if (selectedZone == zone) selectedZone = null
-    }
-
-    // ── 존 비율 프리셋 적용 ──
-    fun applyRatioPreset(edge: EntryEdge, ratios: List<Float>) {
-        val zones = workConfig.zonesFor(edge).toList()
-        if (zones.size != ratios.size) return
-        var cum = 0f
-        val newZones = zones.mapIndexed { i, zone ->
-            val s = cum
-            cum += ratios[i]
-            val e = if (i == zones.size - 1) 1f else cum
-            zone.copy(startRatio = s, endRatio = e)
-        }
-        val curSel = selectedZone
-        val selIdx = if (curSel != null) zones.indexOfFirst { it.startRatio == curSel.startRatio && it.edge == curSel.edge } else -1
-        pushUndo()
-        workConfig = workConfig.withZones(edge, newZones)
-        currentPresetId = null
-        selectedZone = if (selIdx >= 0) newZones[selIdx] else null
-    }
+    // Phase 4.7.5-A: deleteZone/applyRatioPreset → EdgeZoneEditorState로 이관
 
     // ── 선택 존 업데이트 ──
     fun updateSelectedZone(updated: EdgeZone) {
@@ -797,7 +728,7 @@ fun EdgeZoneEditorScreen(
         val idx = zones.indexOfFirst { it.startRatio == updated.startRatio && it.edge == updated.edge }
         if (idx >= 0) {
             zones[idx] = updated
-            pushUndo()
+            state.pushUndo()
             workConfig = workConfig.withZones(updated.edge, zones)
             currentPresetId = presetsRepo?.loadAll()?.find { it.config == workConfig }?.id
         }
@@ -979,7 +910,7 @@ fun EdgeZoneEditorScreen(
                     ) {
                         undoStack.forEachIndexed { idx, config ->
                             val newerConfig = if (idx == 0) workConfig else undoStack[idx - 1]
-                            val desc = describeUndoStep(from = config, to = newerConfig)
+                            val desc = EdgeZoneActionResolver.describeUndoStep(from = config, to = newerConfig)
                             val undoItemAction: () -> Unit = {
                                 workConfig = config
                                 undoStack = undoStack.drop(idx + 1)
@@ -992,7 +923,7 @@ fun EdgeZoneEditorScreen(
                                 showUndoMenu = false
                             }
                             DropdownMenuItem(
-                                text = { Text(describeUndoStep(from = config, to = newerConfig)) },
+                                text = { Text(EdgeZoneActionResolver.describeUndoStep(from = config, to = newerConfig)) },
                                 onClick = undoItemAction
                             )
                         }
@@ -1097,7 +1028,7 @@ fun EdgeZoneEditorScreen(
                                     bottomRightButtonLabel = bottomRightButtonLabel,
                                     onZoneTapped = { selectedZone = it; selectedEdge = it.edge; canvasVisible = false },
                                     onCornerPriorityToggled = { corner ->
-                                        pushUndo()
+                                        state.pushUndo()
                                         workConfig = workConfig.toggleCornerPriority(corner)
                                         currentPresetId = null
                                     },
@@ -1327,7 +1258,7 @@ fun EdgeZoneEditorScreen(
                                 LaunchedEffect(presetMenuOpen) {
                                     if (presetMenuOpen) {
                                         presetMenuHasOpened.value = true
-                                        val firstLabel = ratioPresetsFor(zoneList.size).firstOrNull()?.first
+                                        val firstLabel = EdgeZoneActionResolver.ratioPresetsFor(zoneList.size).firstOrNull()?.first
                                         if (firstLabel != null) {
                                             swipeController.setFocus(EdgeEditorElement.RatioPresetItem(firstLabel))
                                         }
@@ -1386,7 +1317,7 @@ fun EdgeZoneEditorScreen(
                                             expanded = presetMenuOpen && inputMode == InputMode.NORMAL,
                                             onDismissRequest = { presetMenuOpen = false }
                                         ) {
-                                            ratioPresetsFor(zoneList.size).forEach { (label, ratios) ->
+                                            EdgeZoneActionResolver.ratioPresetsFor(zoneList.size).forEach { (label, ratios) ->
                                                 DropdownMenuItem(
                                                     text = {
                                                         Row(
@@ -1403,7 +1334,7 @@ fun EdgeZoneEditorScreen(
                                                         }
                                                     },
                                                     onClick = {
-                                                        applyRatioPreset(edgeForStrip, ratios)
+                                                        state.applyRatioPreset(edgeForStrip, ratios)
                                                         presetMenuOpen = false
                                                     }
                                                 )
@@ -1413,9 +1344,9 @@ fun EdgeZoneEditorScreen(
                                         // 아래 SwipeGestureLayer까지 전달되므로 화면 어디서든 스와이프 가능
                                         if (inputMode == InputMode.SWIPE && presetMenuOpen) {
                                             RatioPresetSwipePopup(
-                                                presets = ratioPresetsFor(zoneList.size),
+                                                presets = EdgeZoneActionResolver.ratioPresetsFor(zoneList.size),
                                                 onSelect = { ratios ->
-                                                    applyRatioPreset(edgeForStrip, ratios)
+                                                    state.applyRatioPreset(edgeForStrip, ratios)
                                                     presetMenuOpen = false
                                                 },
                                             )
@@ -1443,7 +1374,7 @@ fun EdgeZoneEditorScreen(
                                     selectedZone = sel,
                                     minRatio = minRatio,
                                     onZonesChanged = { newZones ->
-                                        pushUndo()
+                                        state.pushUndo()
                                         workConfig = workConfig.withZones(edgeForStrip, newZones)
                                         currentPresetId = null
                                         val curSel = selectedZone
@@ -1455,7 +1386,7 @@ fun EdgeZoneEditorScreen(
                                     onZoneSelected = { tapped ->
                                         val cur = zonePopup
                                         if (cur is ZoneActionPopup.MergeSelecting) {
-                                            tryMergeWith(cur.zone, tapped)
+                                            if (state.tryMergeWith(cur.zone, tapped)) zonePopup = ZoneActionPopup.None
                                         } else {
                                             selectedZone = tapped
                                             zonePopup = ZoneActionPopup.None
@@ -1625,7 +1556,7 @@ fun EdgeZoneEditorScreen(
                                                     (2..4).forEach { n ->
                                                         val valid = zoneList.size + n - 1 <= maxZones &&
                                                             (sel.endRatio - sel.startRatio) / n >= minRatio
-                                                        val splitNAction: () -> Unit = { splitInto(sel, n) }
+                                                        val splitNAction: () -> Unit = { if (state.splitInto(sel, n)) zonePopup = ZoneActionPopup.None }
                                                         SwipeFocusable(
                                                             element = EdgeEditorElement.ZoneActionSplitN(n),
                                                             scope = EdgeEditorScope.ZoneActionPopup,
@@ -1657,7 +1588,7 @@ fun EdgeZoneEditorScreen(
                                                 }
                                             }
                                             is ZoneActionPopup.DeleteConfirming -> {
-                                                val deleteYesAction: () -> Unit = { deleteZone(sel); zonePopup = ZoneActionPopup.None }
+                                                val deleteYesAction: () -> Unit = { state.deleteZone(sel); zonePopup = ZoneActionPopup.None }
                                                 val deleteNoAction: () -> Unit = { zonePopup = ZoneActionPopup.None }
                                                 Row(
                                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1790,7 +1721,7 @@ fun EdgeZoneEditorScreen(
                                                     val updated = customPresetsRepo.loadAll()
                                                     localCustomPresets = updated
                                                     onCustomPresetsChange(updated)
-                                                    val migratedConfig = migrateDynamicsIndicesAfterDelete(workConfig, removedGlobalIdx)
+                                                    val migratedConfig = EdgeZoneActionResolver.migrateDynamicsIndicesAfterDelete(workConfig, removedGlobalIdx)
                                                     workConfig = migratedConfig
                                                     // selectedZone을 새 workConfig 기준으로 재동기화
                                                     if (prevSel != null) {
@@ -2516,7 +2447,7 @@ fun EdgeZoneEditorScreen(
                     currentConfig = workConfig,
                     presetsRepo = repo,
                     onApply = { preset ->
-                        pushUndo()
+                        state.pushUndo()
                         workConfig = preset.config.stripActions()
                         currentPresetId = preset.id
                         selectedZone = null
@@ -3079,46 +3010,7 @@ private val DEFAULT_DOMAIN_GROUPS = listOf(
         listOf(ActionDomain.MODE_PRESET, ActionDomain.HISTORY, ActionDomain.PAGE)),
 )
 
-private enum class ActionDomain {
-    CLICK, SCROLL, MOVE, DPI, SCROLL_SPEED, DYNAMICS, MODE_PRESET, HISTORY, COMBO, MACRO, MOUSE_HOLD, PAGE, UNASSIGNED
-}
-
-private fun domainOf(action: EdgeZoneAction): ActionDomain = when (action) {
-    is EdgeZoneAction.ToggleMode -> when (action.mode) {
-        EdgeSwipeMode.CLICK -> ActionDomain.CLICK
-        EdgeSwipeMode.SCROLL -> ActionDomain.SCROLL
-        EdgeSwipeMode.MOVE -> ActionDomain.MOVE
-        EdgeSwipeMode.DPI -> ActionDomain.DPI
-        EdgeSwipeMode.SCROLL_SPEED -> ActionDomain.SCROLL_SPEED
-        EdgeSwipeMode.DYNAMICS -> ActionDomain.DYNAMICS
-        EdgeSwipeMode.CURSOR -> ActionDomain.CLICK
-    }
-    is EdgeZoneAction.SetClickMode -> ActionDomain.CLICK
-    is EdgeZoneAction.SetScrollMode -> ActionDomain.SCROLL
-    is EdgeZoneAction.SetMoveMode -> ActionDomain.MOVE
-    is EdgeZoneAction.SetDpi -> ActionDomain.DPI
-    is EdgeZoneAction.OpenSettings -> when (action.settingsType) {
-        SettingsType.DPI -> ActionDomain.DPI
-        SettingsType.SCROLL_SPEED -> ActionDomain.SCROLL_SPEED
-    }
-    is EdgeZoneAction.SetScrollSpeed -> ActionDomain.SCROLL_SPEED
-    is EdgeZoneAction.CyclePreset -> when (action.presetType) {
-        PresetType.DYNAMICS -> ActionDomain.DYNAMICS
-        PresetType.MODE -> ActionDomain.MODE_PRESET
-    }
-    is EdgeZoneAction.SetDynamicsPreset -> ActionDomain.DYNAMICS
-    is EdgeZoneAction.SetModePreset -> ActionDomain.MODE_PRESET
-    EdgeZoneAction.SwapScrollMode -> ActionDomain.SCROLL
-    is EdgeZoneAction.SetCustomDpi -> ActionDomain.DPI
-    is EdgeZoneAction.SetCustomScrollSpeed -> ActionDomain.SCROLL_SPEED
-    EdgeZoneAction.RestorePreviousMode -> ActionDomain.HISTORY
-    is EdgeZoneAction.SendShortcut -> ActionDomain.COMBO
-    is EdgeZoneAction.SendMacro -> ActionDomain.MACRO
-    is EdgeZoneAction.MouseHoldToggle -> ActionDomain.MOUSE_HOLD
-    is EdgeZoneAction.CyclePage -> ActionDomain.PAGE
-    is EdgeZoneAction.JumpToPage -> ActionDomain.PAGE
-    EdgeZoneAction.Unassigned -> ActionDomain.UNASSIGNED
-}
+// Phase 4.7.5-A: ActionDomain enum + domainOf → EdgeZoneActionResolver.kt로 이관
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -3341,7 +3233,7 @@ private fun ActionDomainPicker(
 
     // 폴더 탐색 경로 스택 (nodeKey 문자열 리스트). current 변경 시 deep-link 경로로 리셋.
     var pathKeyStack by remember(current) {
-        val domain = domainOf(current).takeUnless { it == ActionDomain.UNASSIGNED || it in excludeDomains }
+        val domain = EdgeZoneActionResolver.domainOf(current).takeUnless { it == ActionDomain.UNASSIGNED || it in excludeDomains }
         mutableStateOf(if (domain != null) findInitialPathKeys(domain) else emptyList<String>())
     }
 
@@ -3812,7 +3704,7 @@ private fun ActionDomainPicker(
                                 is ActionTreeNode.Leaf -> {
                                     // ── Leaf 카드 (기존 옵션 카드 로직 재사용) ──
                                     val option = node.option
-                                    val isSelected = option.onClick == null && actionEquals(current, option.action)
+                                    val isSelected = option.onClick == null && EdgeZoneActionResolver.actionEquals(current, option.action)
                                     val isAddCard = option.onClick != null
                                     val isCustom = option.customDynamicsPreset != null || option.customShortcutPreset != null || option.customMacroPreset != null
                                     val isMenuMode = activeMenuTarget?.let { mt ->
@@ -4414,44 +4306,7 @@ private fun _RemovedPlaceholder_PresetEditDeleteMenu_UNUSED(
     }
 }
 
-/**
- * 커스텀 다이나믹스 프리셋 삭제 후 [EdgeZoneConfig] 내 모든 [EdgeZoneAction.SetDynamicsPreset] 인덱스를 보정.
- *
- * - idx == removedGlobalIndex → [EdgeZoneAction.Unassigned]로 치환 (참조 프리셋 소멸)
- * - idx > removedGlobalIndex → idx - 1 (리스트 압축에 따른 시프트 보정)
- * - idx < removedGlobalIndex → 그대로
- *
- * [EdgeZoneTrigger.SingleAction]과 [EdgeZoneTrigger.Rotation]의 모든 candidate까지 순회한다.
- *
- * @param config           보정할 설정
- * @param removedGlobalIndex  `DYNAMICS_PRESETS.size + customPresets.indexOfFirst{it.id==deleted.id}` 값
- */
-private fun migrateDynamicsIndicesAfterDelete(
-    config: EdgeZoneConfig,
-    removedGlobalIndex: Int,
-): EdgeZoneConfig {
-    fun migrateAction(action: EdgeZoneAction): EdgeZoneAction = when {
-        action is EdgeZoneAction.SetDynamicsPreset && action.index == removedGlobalIndex -> EdgeZoneAction.Unassigned
-        action is EdgeZoneAction.SetDynamicsPreset && action.index > removedGlobalIndex -> EdgeZoneAction.SetDynamicsPreset(action.index - 1)
-        else -> action
-    }
-
-    fun migrateTrigger(trigger: EdgeZoneTrigger): EdgeZoneTrigger = when (trigger) {
-        is EdgeZoneTrigger.SingleAction -> trigger.copy(action = migrateAction(trigger.action))
-        is EdgeZoneTrigger.Rotation -> trigger.copy(
-            candidates = trigger.candidates.map { c -> c.copy(action = migrateAction(c.action)) }
-        )
-    }
-
-    fun migrateZone(zone: EdgeZone): EdgeZone = zone.copy(trigger = migrateTrigger(zone.trigger))
-
-    return config.copy(
-        topZones = config.topZones.map(::migrateZone),
-        bottomZones = config.bottomZones.map(::migrateZone),
-        leftZones = config.leftZones.map(::migrateZone),
-        rightZones = config.rightZones.map(::migrateZone),
-    )
-}
+// Phase 4.7.5-A: migrateDynamicsIndicesAfterDelete → EdgeZoneActionResolver.kt로 이관
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -7852,29 +7707,7 @@ private fun MacroEditorPopup(
     }
 }
 
-private fun ratioPresetsFor(n: Int): List<Pair<String, List<Float>>> = buildList {
-    add("균등" to List(n) { 1f / n })
-    val startHeavy: List<Float>? = when (n) {
-        2 -> listOf(0.65f, 0.35f)
-        3 -> listOf(0.50f, 0.30f, 0.20f)
-        4 -> listOf(0.40f, 0.30f, 0.20f, 0.10f)
-        else -> null
-    }
-    if (startHeavy != null) {
-        add("왼쪽 크게" to startHeavy)
-        add("오른쪽 크게" to startHeavy.reversed())
-    }
-    when (n) {
-        3 -> {
-            add("양 끝 크게" to listOf(0.40f, 0.20f, 0.40f))
-            add("가운데 크게" to listOf(0.20f, 0.60f, 0.20f))
-        }
-        4 -> {
-            add("양 끝 크게" to listOf(0.35f, 0.15f, 0.15f, 0.35f))
-            add("가운데 크게" to listOf(0.15f, 0.35f, 0.35f, 0.15f))
-        }
-    }
-}
+// Phase 4.7.5-A: ratioPresetsFor → EdgeZoneActionResolver.kt로 이관
 
 /**
  * SWIPE 모드 전용 Undo 히스토리 드롭다운.
@@ -7924,7 +7757,7 @@ private fun UndoHistorySwipePopup(
                 Column(modifier = Modifier.verticalScroll(scrollState, enabled = false)) {
                     undoStack.forEachIndexed { idx, config ->
                         val newerConfig = if (idx == 0) workConfig else undoStack[idx - 1]
-                        val desc = describeUndoStep(from = config, to = newerConfig)
+                        val desc = EdgeZoneActionResolver.describeUndoStep(from = config, to = newerConfig)
                         SwipeFocusable(
                             element = EdgeEditorElement.UndoHistoryItem(idx),
                             scope = EdgeEditorScope.UndoMenu,
@@ -8020,71 +7853,7 @@ private fun MiniRatioBar(
     }
 }
 
-private fun actionEquals(a: EdgeZoneAction, b: EdgeZoneAction): Boolean = when {
-    a is EdgeZoneAction.Unassigned && b is EdgeZoneAction.Unassigned -> true
-    a is EdgeZoneAction.ToggleMode && b is EdgeZoneAction.ToggleMode -> a.mode == b.mode
-    a is EdgeZoneAction.CyclePreset && b is EdgeZoneAction.CyclePreset -> a.presetType == b.presetType
-    a is EdgeZoneAction.OpenSettings && b is EdgeZoneAction.OpenSettings -> a.settingsType == b.settingsType
-    a is EdgeZoneAction.SetDpi && b is EdgeZoneAction.SetDpi -> a.level == b.level
-    a is EdgeZoneAction.SetScrollSpeed && b is EdgeZoneAction.SetScrollSpeed -> a.sensitivity == b.sensitivity
-    a is EdgeZoneAction.SetModePreset && b is EdgeZoneAction.SetModePreset -> a.index == b.index
-    a is EdgeZoneAction.SetDynamicsPreset && b is EdgeZoneAction.SetDynamicsPreset -> a.index == b.index
-    a is EdgeZoneAction.SetClickMode && b is EdgeZoneAction.SetClickMode -> a.mode == b.mode
-    a is EdgeZoneAction.SetMoveMode && b is EdgeZoneAction.SetMoveMode -> a.mode == b.mode
-    a is EdgeZoneAction.SetScrollMode && b is EdgeZoneAction.SetScrollMode -> a.mode == b.mode
-    a is EdgeZoneAction.SwapScrollMode && b is EdgeZoneAction.SwapScrollMode -> true
-    a is EdgeZoneAction.SetCustomDpi && b is EdgeZoneAction.SetCustomDpi -> true
-    a is EdgeZoneAction.SetCustomScrollSpeed && b is EdgeZoneAction.SetCustomScrollSpeed -> true
-    a is EdgeZoneAction.RestorePreviousMode && b is EdgeZoneAction.RestorePreviousMode -> true
-    // SendShortcut: 프리셋은 label로 비교, 커스텀은 mod+key 조합으로 비교
-    a is EdgeZoneAction.SendShortcut && b is EdgeZoneAction.SendShortcut ->
-        if (a.presetLabel.isNotEmpty() && b.presetLabel.isNotEmpty()) a.presetLabel == b.presetLabel
-        else a.modifierBits == b.modifierBits && a.keyCodes == b.keyCodes
-    a is EdgeZoneAction.MouseHoldToggle && b is EdgeZoneAction.MouseHoldToggle -> a.button == b.button && a.mode == b.mode
-    a is EdgeZoneAction.CyclePage && b is EdgeZoneAction.CyclePage -> a.direction == b.direction
-    a is EdgeZoneAction.JumpToPage && b is EdgeZoneAction.JumpToPage -> a.pageIndex == b.pageIndex
-    else -> false
-}
-
-/**
- * 두 config를 비교해 `from → to` 사이에 무엇이 바뀌었는지 한 줄 설명 반환.
- */
-private fun describeUndoStep(from: EdgeZoneConfig, to: EdgeZoneConfig): String {
-    if (from.cornerPriority != to.cornerPriority) return "코너 우선순위 변경"
-    for (edge in EntryEdge.entries) {
-        val f = from.zonesFor(edge)
-        val t = to.zonesFor(edge)
-        if (f == t) continue
-        val edgeName = when (edge) {
-            EntryEdge.TOP    -> "상단"
-            EntryEdge.BOTTOM -> "하단"
-            EntryEdge.LEFT   -> "좌측"
-            EntryEdge.RIGHT  -> "우측"
-        }
-        if (t.size > f.size) return "$edgeName 존 분할"
-        if (t.size < f.size) return "$edgeName 존 병합/삭제"
-        for (i in f.indices) {
-            val fz = f[i]; val tz = t[i]
-            if (fz.startRatio != tz.startRatio || fz.endRatio != tz.endRatio) return "$edgeName 비율 조정"
-            if (fz.label != tz.label) {
-                val newLabel = tz.label.ifEmpty { "(없음)" }
-                return "$edgeName 라벨 → \"$newLabel\""
-            }
-            if (fz.iconKey != tz.iconKey) return "$edgeName 아이콘 변경"
-            if (fz.trigger != tz.trigger) {
-                val ft = fz.trigger; val tt = tz.trigger
-                return when {
-                    ft is EdgeZoneTrigger.SingleAction && tt is EdgeZoneTrigger.SingleAction ->
-                        "$edgeName 액션 → ${tt.action.displayName()}"
-                    tt is EdgeZoneTrigger.Rotation -> "$edgeName 액션 순환 설정"
-                    ft is EdgeZoneTrigger.Rotation -> "$edgeName 단일 액션으로 변경"
-                    else -> "$edgeName 트리거 변경"
-                }
-            }
-        }
-    }
-    return "설정 변경"
-}
+// Phase 4.7.5-A: actionEquals + describeUndoStep → EdgeZoneActionResolver.kt로 이관
 
 // ============================================================
 // 로테이션(액션 순환) 존 편집기
