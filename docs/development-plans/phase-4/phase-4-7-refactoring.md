@@ -320,8 +320,8 @@ Page 5 설정 렌더링:
 **서브단계** (각 독립 빌드):
 1. **4.7.5-A** ✅: 순수 함수(`EdgeZoneActionResolver`) + config 변환·Undo(`EdgeZoneEditorState`) 추출 + 테스트. 4.7.2-C 항목 해소
 2. **4.7.5-B** ✅ (저위험): 이미 독립적인 `private fun` Composable(Macro/Shortcut/Rotation/팝업류)을 파일 이동만 (시그니처 유지)
-3. **4.7.5-C**: 편집 패널을 섹션별 Composable로 분리, 상태는 `EdgeZoneEditorState`/hoist 파라미터로 전달
-4. **4.7.5-D**: SWIPE/NORMAL 레이어 분리 + `CompositionLocal` 도입
+3. **4.7.5-C** ✅ (저위험 범위로 축소): `ActionDomainPicker`(+전속 헬퍼 4개)를 `ZoneActionPicker.kt`로 순수 파일 이동(C-1) + 미사용 데드코드 제거(C-2). **편집 패널 섹션(영역비율/표시설정/캔버스/ZonePopups) 추출은 4.7.5-D로 이월** — 30+개 클로저 캡처를 파라미터로 hoist해야 해 byte-identical이 깨지므로, `CompositionLocal` 선행 도입(4.7.5-D) 후 진행하는 것이 안전·구조적으로 옳음
+4. **4.7.5-D**: SWIPE/NORMAL 레이어 분리 + `CompositionLocal` 도입 **+ 편집 패널 섹션 Composable 분리(4.7.5-C에서 이월: 영역비율/표시설정/SWIPE 캔버스 hit 오버레이/ZonePopups when 분기)**
 
 > **⚠️ 4.7.5-A 완료 기록 (4.7.5-B/C/D 전제)**:
 > - **신규 `EdgeZoneActionResolver.kt`** (`object` + 순수 함수 5개 `domainOf`/`actionEquals`/`describeUndoStep`/`migrateDynamicsIndicesAfterDelete`/`ratioPresetsFor`). `ActionDomain` enum도 이 파일로 이동(`internal` top-level, 같은 패키지라 호출부 import 불필요). 호출부는 `EdgeZoneActionResolver.도메인함수(...)` prefix로 호출.
@@ -342,6 +342,13 @@ Page 5 설정 렌더링:
 > - **미사용 import 정리**: 이동으로 메인 파일에서 안 쓰게 된 import 50개 제거(아이콘·`MACRO_*`·`MOD_BIT_*`·IME·컬러피커 등). 새 파일은 사용 import만 포함.
 > - **검증**: `.\gradlew assembleDebug` + `testDebugUnitTest` 통과, 신규 경고 없음(잔존 경고 deprecated 아이콘·tautological 체크는 이동 코드에 원래 있던 것). git HEAD 원본 대비 정밀 대조 통과 — 이동 코드는 가시성 키워드 외 바이트 동일, 메인 파일은 import 50개 차감 + 가시성 4건 외 변경 0. 실기기 회귀 통과(숏컷/매크로 편집 팝업·회전 트리거·Undo·비율 프리셋 스와이프 팝업 SWIPE/NORMAL 동작 동일).
 
+> **⚠️ 4.7.5-C 완료 기록 (4.7.5-D 전제)**:
+> - **신규 `ZoneActionPicker.kt`** (`touchpad/` 패키지 직하): `ActionDomainPicker`(`internal fun`, ~1,100줄) + 전속 private 헬퍼 `ActionOption`/`ActionTreeNode`/`DomainGroup`/`DEFAULT_DOMAIN_GROUPS`를 `EdgeZoneEditorScreen.kt`에서 순수 이동. 함수 시그니처·본문 **byte-identical**(git HEAD 대조 통과, 가시성 변경 없음). 같은 패키지라 호출부(메인 `ActionDomainPicker(...)` 호출) import 수정 0건. 4.7.5-B에서 internal로 올려둔 공유 심볼(`CUSTOM_SLIDER_*`·`CustomPresetTarget`·`ActionDomain` 등)은 같은 패키지 cross-file 접근이라 그대로 동작.
+> - **import 정리**: 이동으로 메인에서 picker 전용이 된 import 31개 제거(grid·icon·gesture 등). 새 파일은 사용 import만 포함. **주의**: `getValue`/`setValue`는 `by` 위임에 암묵적으로 쓰여 코드에 literal로 등장하지 않으므로, 텍스트 기반 미사용 판정에서 false-positive가 난다 — 두 파일 모두 **반드시 유지**(4.7.5-D 추출 시 동일 주의).
+> - **데드코드 제거(C-2)**: 미참조 `_RemovedPlaceholder_PresetEditDeleteMenu_UNUSED`(192줄) 삭제. 이로써 미사용이 된 import 2개(`Delete` 아이콘·`SwipeFocusController`) 정리.
+> - **결과**: `EdgeZoneEditorScreen.kt` **4,260 → 2,877줄**. 메인 git diff는 **0 추가 / 1,383 삭제**(순수 삭제, 코드 변경 0). `.\gradlew assembleDebug`+`testDebugUnitTest` 통과, 신규 경고 없음(잔존 경고는 deprecated 아이콘·tautological 체크로 원래 있던 것이 코드와 함께 이동/줄번호 시프트).
+> - **4.7.5-D 전제**: 잔류 편집 패널 섹션(영역비율·표시설정·SWIPE 캔버스 hit 오버레이·`ZoneActionPopup` when 분기)은 메인 함수 지역 상태를 30+개 캡처 중. 4.7.5-D에서 `InputMode` 등을 `CompositionLocal`로 제공해 캡처를 줄인 뒤 섹션 Composable로 분리한다. `state` 인스턴스 전달 방식(4.7.5-A 기록)과 병행.
+
 > **주의**: 4.7.1 회귀목록의 ⚠️ 기존 스트립 에디터 스와이프 버그(구분선 1칸 이동 후 무반응)는 본 리팩토링 범위 밖입니다. 동작 동일성만 유지하고 별도 추적합니다.
 
 > **⚠️ 기존 버그 (리팩토링 이전부터 존재, 별도 추적)**: 4.7.5-A 수동 회귀 중 확인됨. 동작 동일성 검증 결과 git HEAD(리팩토링 전)와 코드 경로가 동일하여 본 리팩토링이 원인이 아님이 확정됨. 별도 기능 수정 작업 필요:
@@ -350,6 +357,7 @@ Page 5 설정 렌더링:
 
 **검증**:
 - [x] `.\gradlew testDebugUnitTest`(EdgeZoneActionResolver/EdgeZoneEditorState) + `.\gradlew assembleDebug` 통과 (4.7.5-A, 신규 경고 없음)
+- [x] **4.7.5-C**: `ZoneActionPicker.kt` 분리(C-1) + 데드코드 제거(C-2) 후 `.\gradlew assembleDebug`+`testDebugUnitTest` 통과, 신규 경고 없음. byte-identical 대조 통과(메인 0 추가/1,383 삭제) → 동작 보존은 구조적으로 보장. 실기기 회귀(액션 선택 폴더 트리/그리드·도메인 네비·커스텀 프리셋 추가/수정/삭제·SWIPE/NORMAL)는 사용자가 실기기 연결 시 최종 확인(코드 무변경이라 형식적 확인)
 - [x] 4개 엣지 존 시각화·드래그 편집 동작 동일 *(4.7.5-A 실기기 검증 완료)*
 - [x] 존 분할/병합, 액션·아이콘·컬러·숏컷 할당 동작 동일 *(4.7.5-A 실기기 검증 완료)*
 - [x] 회전 트리거, 라벨 편집(IME), 프리셋 저장/로드 동작 동일 *(4.7.5-A 실기기 검증 완료)*
