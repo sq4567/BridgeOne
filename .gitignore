@@ -70,6 +70,7 @@ captures/
 .idea/dynamic.xml
 .idea/uiDesigner.xml
 .idea/dbnavigator.xml
+.idea/deploymentTargetSelector.xml
 
 # Keystore files
 *.jks
@@ -492,6 +493,7 @@ test-results/
 # 개발자 개인 노트
 *.personal.md
 dev-notes/
+To-do.txt
 
 ##############################################
 # ESP-IDF (ESP32-S3 펌웨어)
