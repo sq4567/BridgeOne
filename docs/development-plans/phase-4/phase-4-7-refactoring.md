@@ -390,20 +390,38 @@ Page 5 설정 렌더링:
 
 ## Phase 4.7.6: DynamicsCurveEditor 분해 (난도 최저)
 
-**목표**: 곡선 편집기를 렌더링·제스처·데이터 생성 단위로 분리합니다. 이미 내부 서브 Composable이 잘 나뉘어 있어 4개 대상 중 난도가 가장 낮습니다.
+**목표**: 곡선 편집기를 렌더링·카드·노드편집 단위로 분리합니다. 이미 내부 서브 Composable이 잘 나뉘어 있어 4개 대상 중 난도가 가장 낮습니다.
 
-**작업 항목** (`ui/components/touchpad/curve/` 신설):
-1. `CurveGraphCanvas.kt`: 곡선 캔버스 렌더링(715행 호출부) + 노드 드래그 `pointerInput`(659행) 분리
+**원안 작업 항목**:
+1. `CurveGraphCanvas.kt`: 곡선 캔버스 렌더링 + 노드 드래그 `pointerInput` 분리
 2. `NodeEditPanel.kt`: `NodeEditGrid`/`NodeEditHeader`/`EditorActionGrid`/십자패드
 3. `EditorCards.kt`: `MetaCard`/`CurveCard`/`ActionCard`/`EditorHeader`
 4. `CurveSummary.kt`: 곡선 요약(자연어)·`templateAccent`·step 정밀도 (순수) + 테스트
 5. 필요 시 `CurveEditorState.kt`: `GridContext` 네비 상태 홀더
 
+> **⚠️ 4.7.6 완료 기록 (계획 대비 변경)**:
+> - **패키지 위치(사용자 결정)**: `curve/` 하위 패키지 대신 `ui/components/touchpad/` **직하**(4.7.5-A~D 선례 일관). 같은 패키지라 `internal` 승격만으로 cross-file 접근, 호출부(`StandardModePage.kt`·`EdgeZoneEditorScreen.kt`의 `DynamicsCurveEditor(...)` 호출) import 변경 0.
+> - **제스처 분리 안 함(사용자 결정)**: 노드 선택 제스처(`pointerInput`)는 메인 함수 지역 상태(`selectedNodeIndex`/`gridContext`/`hoveredSlot` 등)에 강결합 → **메인 잔류**, 순수 Canvas 렌더만 분리. 4.7.3의 "강결합 제스처 루프는 분해 안 함" 원칙과 일치. 메인 함수 본문 byte-identical 보존.
+> - **신규 파일 6개**(모두 `touchpad/` 직하):
+>   - `CurveEditorTheme.kt`: 공유 프리미티브 일괄 — 색상 7개(`BG`/`SURFACE`/`ACCENT_BLUE`/`ACCENT_ORANGE`/`ACCENT_RED`/`GRID_COLOR`/`LABEL_COLOR`) + `ActionSlot`/`SlotStyle` + `cellBgColor`/`cellBorder`/`AnimatedCellBox`. 전부 `internal`(여러 분해 파일이 공유).
+>   - `CurveGraphCanvas.kt`: `CurveGraphCanvas`(순수 렌더) + `drawGrid`/`drawCurve`/`drawAxisLabels`.
+>   - `EditorCards.kt`: `MetaCard`/`CurveCard`/`EditorHeader`.
+>   - `NodeEditPanel.kt`: `EditorActionGrid`/`Slot9Card`/`NodeEditHeader`/`ActiveTabLabel`/`NodeEditGrid`(십자패드 포함).
+>   - `CurveTemplatePicker.kt`: `TemplatePickerContent`(internal) + `TemplateSquareCard`/`HintLine`/`TemplatePhase`/`TemplateAccent`/`TEMPLATE_ACCENTS`/`templateAccent`(같은 파일 전용 `private`).
+>   - `CurveEditorOverlays.kt`: `SaveConfirmOverlay`/`NodeStepScalePickerOverlay`.
+> - **`CurveSummary.kt` 미생성**: 원안의 "곡선 요약(자연어)"인 `describeCurves`/`CurveDescription`은 **이미 `ui/common/PointerDynamicsConstants.kt`에 추출돼 있음** → 신규 파일 불필요, 테스트만 추가. `templateAccent`는 단순 색상 매핑이라 `CurveTemplatePicker.kt`에 동거.
+> - **`CurveEditorState.kt` 미생성**: 함수 분리만으로 메인 파일이 924줄로 축소돼 상태 홀더 추출 불요(`GridContext`/`EditorScreen`/슬롯 상수는 메인 잔류).
+> - **데드코드 `ActionCard` 제거**: 정의만 있고 호출처 0(4.7.5-C 선례).
+> - **가시성 승격(`private`→`internal`)**: cross-file 참조용 — `FIELD_NAME`/`FIELD_DESC`(MetaCard), `resolveSlot`+`SAVE_CONFIRM_ROW_SLOTS`/`SAVE_CONFIRM_START_ROW`(SaveConfirmOverlay·테스트). 그 외 메인 전용 슬롯 상수·`EditorScreen`/`GridContext`는 `private` 유지.
+> - **신규 테스트 2개**: `ResolveSlotTest.kt`(슬롯 매핑 — 행/열 이동·편향·coerce 경계 9 케이스), `CurveDescriptionTest.kt`(`describeCurves` 보간·비대칭 라벨·요약 문구 4 케이스).
+> - **결과**: `DynamicsCurveEditor.kt` **2,831 → 924줄**. git HEAD 대비 메인 파일 diff = **5 추가 / 1,943 삭제**(5 추가는 가시성 승격 5줄, 나머지 순삭제) → 동작 보존 구조적 보장. `.\gradlew assembleDebug`+`testDebugUnitTest` 통과, 신규 경고 없음(잔존 경고는 기존 deprecated 아이콘·tautological 체크).
+
 **검증**:
-- [ ] `.\gradlew testDebugUnitTest`(CurveSummary) + `.\gradlew assembleDebug` 통과
-- [ ] 곡선 노드 추가·삭제·드래그 동작 동일
-- [ ] 템플릿 선택·스텝 정밀도·요약 텍스트 동일
-- [ ] 곡선 저장(이름/설명) 동작 동일
+- [x] `.\gradlew testDebugUnitTest`(ResolveSlotTest 9 + CurveDescriptionTest 4) + `.\gradlew assembleDebug` 통과, 신규 경고 없음
+- [x] 메인 함수 본문·이동 코드 byte-identical(가시성 키워드 외) → 동작 보존 구조적 보장. 실기기 회귀는 코드 무변경이라 형식적 확인(사용자 실기기 연결 시 최종 확인)
+  - [ ] **(실기기)** 곡선 노드 추가·삭제·드래그(선택→조작) 동작 동일
+  - [ ] **(실기기)** 템플릿 선택(그리드→확정)·스텝 정밀도·요약 텍스트 동일
+  - [ ] **(실기기)** 곡선 저장(이름/설명)·아이콘/색상 피커 동작 동일
 
 ---
 
