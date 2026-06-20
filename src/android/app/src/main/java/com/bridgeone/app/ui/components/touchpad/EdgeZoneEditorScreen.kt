@@ -533,7 +533,10 @@ fun EdgeZoneEditorScreen(
         val latestUndoStack by rememberUpdatedState(undoStack)
         DisposableEffect(showUndoMenu) {
             val active = showUndoMenu
-            if (active) swipeController.pushScope(EdgeEditorScope.UndoMenu)
+            if (active) {
+                swipeController.pushScope(EdgeEditorScope.UndoMenu)
+                swipeController.setFocus(EdgeEditorElement.UndoHistoryItem(0))
+            }
             onDispose {
                 if (active) {
                     swipeController.popScope()
