@@ -230,8 +230,12 @@ internal fun ZoneRatioSection(
                                         currentPresetId = null
                                         val curSel = selectedZone
                                         selectedZone = if (curSel != null) {
-                                            newZones.firstOrNull { curSel.startRatio in it.startRatio..it.endRatio }
-                                                ?: newZones.firstOrNull()
+                                            // 인덱스 기반 추적: 구분선 이동으로 startRatio가 바뀌어도
+                                            // 동일 인덱스의 존으로 갱신 (다른 존으로 점프 방지)
+                                            val curIdx = zoneList.indexOfFirst {
+                                                it.startRatio == curSel.startRatio && it.edge == curSel.edge
+                                            }
+                                            if (curIdx >= 0) newZones.getOrNull(curIdx) else newZones.firstOrNull()
                                         } else null
                                     },
                                     onZoneSelected = { tapped ->

@@ -108,6 +108,7 @@ import com.bridgeone.app.ui.common.swipe.LocalSwipeFocused
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFlashAlpha
 import com.bridgeone.app.ui.common.swipe.SwipeFocusable
 import com.bridgeone.app.ui.common.swipe.SwipeGestureLayer
+import com.bridgeone.app.ui.common.swipe.SwipeMode
 import com.bridgeone.app.ui.common.swipe.rememberSwipeFocusController
 
 
@@ -305,8 +306,10 @@ fun EdgeZoneEditorScreen(
                 if (override != null) {
                     nextFocusOnZoneChange = null
                     swipeController.setFocus(override)
-                } else if (swipeController.currentFocus != EdgeEditorElement.CustomMultiplierSlider) {
-                    // 슬라이더 조작 중 selectedZone이 반복 변경될 때 포커스를 빼앗지 않음
+                } else if (swipeController.currentFocus != EdgeEditorElement.CustomMultiplierSlider
+                    && swipeController.currentFocus !is EdgeEditorElement.StripBoundary
+                    && swipeController.mode != SwipeMode.MANIPULATION) {
+                    // 슬라이더 조작 중, 또는 구분선 비율 조정 중 포커스를 빼앗지 않음
                     val zoneList = workConfig.zonesFor(zone.edge)
                     val idx = zoneList.indexOfFirst {
                         it.startRatio == zone.startRatio && it.edge == zone.edge
