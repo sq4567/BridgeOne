@@ -272,6 +272,7 @@ fun TouchpadWrapper(
     // 드래그 중 마지막 유효 값 (release 시 즉시 0으로 리셋되지 않음 → 수축 애니메이션 시작점)
     var lastBumpInwardPx by remember { mutableFloatStateOf(0f) }
     var lastBumpAlongPx by remember { mutableFloatStateOf(0f) }
+    var lastBumpEntryAlongPx by remember { mutableFloatStateOf(0f) }  // 발(base) 위치 보존 — 기본값: 0f
     var lastBumpEntryEdge by remember { mutableStateOf<EntryEdge?>(null) }
     val bumpShrinkAnimatable = remember { Animatable(0f) }
     var isBumpShrinking by remember { mutableStateOf(false) }
@@ -335,10 +336,12 @@ fun TouchpadWrapper(
             lastBumpEntryEdge = null
             lastBumpInwardPx = 0f
             lastBumpAlongPx = 0f
+            lastBumpEntryAlongPx = 0f
         } else if (!isEdgeCandidate && !isModeSelecting) {
             lastBumpEntryEdge = null
             lastBumpInwardPx = 0f
             lastBumpAlongPx = 0f
+            lastBumpEntryAlongPx = 0f
         }
     }
 
@@ -359,6 +362,7 @@ fun TouchpadWrapper(
             isBumpShrinking = false
             lastBumpEntryEdge = null
             lastBumpAlongPx = 0f
+            lastBumpEntryAlongPx = 0f
         }
     }
 
@@ -417,6 +421,14 @@ fun TouchpadWrapper(
     BoxWithConstraints(modifier = modifier) {
         // 테두리 너비: 터치패드 너비의 0.8% (최소 2dp, 최대 4dp)
         val borderWidth = (maxWidth * 0.008f).coerceIn(2.dp, 4.dp)
+
+        // 스와이프 그리드 열 수 — EdgeSwipeOverlay와 동일 임계값, pointerInput에서 최신값 참조
+        val swipeGridCols = when {
+            maxWidth >= 440.dp -> 4   // 기본값: 440dp 이상 → 4열
+            maxWidth >= 300.dp -> 3   // 기본값: 300dp 이상 → 3열
+            else -> 2                 // 기본값: 나머지 → 2열
+        }
+        val latestSwipeGridCols by rememberUpdatedState(swipeGridCols)
 
         // 글로우 Brush: [배경색, 밝은 스팟, 배경색] 패턴이 좌→우로 3초 주기 이동
         // 중심점: -widthPx(화면 왼쪽 밖) → +2*widthPx(화면 오른쪽 밖)
@@ -683,9 +695,13 @@ fun TouchpadWrapper(
                                 popupAnchorPx = bgEv.changes.first().position
                             }
                         } else if (selectedPopupMode == EdgePopupMode.SWIPE) {
-                            // ═══ 스와이프 탐색 모드 ═══
-                            val totalItems = modeCount + 1  // 모드 버튼 + 확인 버튼
+                            // ═══ 스와이프 탐색 모드: 2D 그리드 이동 ═══
+                            val cols = latestSwipeGridCols
+                            val modeRows = (modeCount + cols - 1) / cols
                             val startIdx = selectedItemIndex ?: 0
+                            // 시작 인덱스 → (행, 열) 변환. 확인 버튼(modeCount)은 modeRows행, 0열로 취급
+                            val startRow = if (startIdx >= modeCount) modeRows else startIdx / cols
+                            val startCol = if (startIdx >= modeCount) 0 else startIdx % cols
 
                             var bgEv = awaitPointerEvent()
                             while (bgEv.type == PointerEventType.Move) {
@@ -696,11 +712,15 @@ fun TouchpadWrapper(
 
                                 val dx = pos.x - bgDownPos.x
                                 val dy = pos.y - bgDownPos.y
-                                val linearOffset = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy))
-                                    (dx / navStepPx).roundToInt()
-                                else
-                                    (dy / navStepPx).roundToInt()
-                                selectedItemIndex = (startIdx + linearOffset).coerceIn(0, totalItems - 1)
+                                val colOffset = (dx / navStepPx).roundToInt()
+                                val rowOffset = (dy / navStepPx).roundToInt()
+                                val targetRow = (startRow + rowOffset).coerceIn(0, modeRows)
+                                val targetCol = (startCol + colOffset).coerceIn(0, cols - 1)
+                                selectedItemIndex = if (targetRow >= modeRows) {
+                                    modeCount  // 확인 버튼
+                                } else {
+                                    (targetRow * cols + targetCol).coerceAtMost(modeCount - 1)
+                                }
                                 bgEv = awaitPointerEvent()
                             }
 
@@ -832,6 +852,7 @@ fun TouchpadWrapper(
                                     lastBumpEntryEdge = visualEdge
                                     lastBumpInwardPx = getInwardDistance(pos, visualEdge, size.width.toFloat(), size.height.toFloat()).coerceAtLeast(0f)
                                     lastBumpAlongPx = getAlongEdgePosition(pos, visualEdge)
+                                    lastBumpEntryAlongPx = entryAlongEdgePx  // 발 위치 보존 (release 후 수축 중 튀지 않도록)
                                 }
 
                                 if (!showEdgePopup && !isModeSelecting) {
@@ -1621,7 +1642,7 @@ fun TouchpadWrapper(
             EdgeBumpOverlay(
                 entryEdge = effectiveBumpEdge,
                 fingerAlongEdgePx = effectiveBumpAlong,
-                entryAlongEdgePx = entryAlongEdgePx,
+                entryAlongEdgePx = lastBumpEntryAlongPx,
                 inwardDistancePx = effectiveBumpInward,
                 maxPeakHeightPx = maxPeakPx,
                 baseHalfSizePx = baseHalfPx,
@@ -1715,6 +1736,7 @@ fun TouchpadWrapper(
             isPopupPinned = isPopupPinned,
             pinnedBorderColor = pinnedBorderColor,
             pinnedShakeOffsetDp = pinnedBoundaryShakeAnim.value,
+            hasControlButtons = buttonVisibility.showControlButtons && buttonVisibility.controlButtonConfig.hasControlButtons,
             modifier = Modifier.fillMaxSize()
         )
         }  // inner Box 끝

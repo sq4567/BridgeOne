@@ -125,6 +125,8 @@ fun EdgeSwipeOverlay(
     isPopupPinned: Boolean = false,
     pinnedBorderColor: Color = Color.White,
     pinnedShakeOffsetDp: Float = 0f,
+    // 제어 버튼 표시 여부 — 스와이프 그리드 상단 여백 조건부 적용
+    hasControlButtons: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // ── 표시 가능한 모드 목록 (애니메이션 개수 계산에도 사용) ──
@@ -489,28 +491,38 @@ fun EdgeSwipeOverlay(
                 }
             }
         } else if (!isDirectTouch) {
-            // ═══ 스와이프 모드: 2열 반응형 그리드 ═══
+            // ═══ 스와이프 모드: 폭 기반 반응형 그리드 ═══
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 // 제어 버튼 높이 (ControlButtonContainer와 동일 공식)
                 val ctrlH = (maxHeight * 0.15f).coerceIn(48.dp, 72.dp)
+                // 제어 버튼이 실제로 표시될 때만 상단 여백 확보
+                val topReserve = if (hasControlButtons) ctrlH else 0.dp
                 val hPad = 24.dp
                 val itemGap = 12.dp
                 val confirmH = 40.dp
                 val vPad = 12.dp
+                val hintH = 44.dp  // 안내 2줄 + 패딩 예상 높이. 기본값: 44dp
 
-                val rowCount = (displayedModes.size + 1) / 2
-                // 너비 기반 아이템 크기: (전체 너비 - 좌우 패딩 - 아이템 사이 간격) / 2
-                val wSize = (maxWidth - hPad * 2 - itemGap) / 2
-                // 높이 기반 아이템 크기: 제어버튼 아래 남은 영역에서 역산
-                val totalGaps = itemGap * (rowCount + 1)  // 행 사이 + 확인 버튼 위
-                val hSize = (maxHeight - ctrlH - vPad * 2 - totalGaps - confirmH) / rowCount
+                // 터치패드 폭에 따라 동적으로 열 수 결정
+                val colsByWidth = when {
+                    maxWidth >= 440.dp -> 4   // 가로/초광폭
+                    maxWidth >= 300.dp -> 3   // Page 2 풀스크린(~360-411dp)
+                    else -> 2                 // Page 1(~210-245dp)
+                }
+                val cols = colsByWidth.coerceAtMost(displayedModes.size.coerceAtLeast(1)).coerceAtLeast(1)
+                val rowCount = (displayedModes.size + cols - 1) / cols
+                // 너비 기반 아이템 크기: (전체 너비 - 좌우 패딩 - 아이템 사이 간격) / 열 수
+                val wSize = (maxWidth - hPad * 2 - itemGap * (cols - 1)) / cols
+                // 높이 기반 아이템 크기: 상단 예약 공간 + 안내 높이를 제외한 나머지에서 역산
+                val totalGaps = itemGap * (rowCount + 2)  // 행 사이 + 확인 버튼 위 + 안내 위
+                val hSize = (maxHeight - topReserve - vPad * 2 - totalGaps - confirmH - hintH) / rowCount
                 val itemSize = minOf(wSize, hSize).coerceIn(52.dp, 80.dp)
 
-                // 제어 버튼 영역을 제외한 공간에 중앙 배치
+                // 제어 버튼이 있을 때는 그 아래 공간에, 없을 때는 화면 전체에서 중앙 배치
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = ctrlH),
+                        .padding(top = topReserve),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -518,10 +530,10 @@ fun EdgeSwipeOverlay(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(itemGap)
                     ) {
-                        displayedModes.chunked(2).forEachIndexed { rowIdx, rowModes ->
+                        displayedModes.chunked(cols).forEachIndexed { rowIdx, rowModes ->
                             Row(horizontalArrangement = Arrangement.spacedBy(itemGap)) {
                                 rowModes.forEachIndexed { colIdx, mode ->
-                                    val index = rowIdx * 2 + colIdx
+                                    val index = rowIdx * cols + colIdx
                                     EdgeSwipeModeItem(
                                         mode = mode,
                                         pendingState = pendingState,
@@ -532,14 +544,16 @@ fun EdgeSwipeOverlay(
                                             .scale(itemOffsets[index].value)
                                     )
                                 }
-                                if (rowModes.size == 1) {
-                                    Spacer(modifier = Modifier.size(itemSize))
+                                if (rowModes.size < cols) {
+                                    repeat(cols - rowModes.size) {
+                                        Spacer(modifier = Modifier.size(itemSize))
+                                    }
                                 }
                             }
                         }
 
                         // 확인 버튼
-                        val confirmWidth = itemSize * 2 + itemGap
+                        val confirmWidth = itemSize * cols + itemGap * (cols - 1)
                         Box(
                             modifier = Modifier
                                 .alpha(itemAlphas[confirmIndex].value)
@@ -564,6 +578,24 @@ fun EdgeSwipeOverlay(
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (selectedIndex == confirmIndex) Color.White else Color(0xFFDDDDDD)
+                            )
+                        }
+
+                        // 안내 메시지 — 확인 버튼 바로 아래, 묶음의 일부로 중앙 정렬
+                        Box(
+                            modifier = Modifier
+                                .alpha(hintAlpha.value)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF2A2A2A).copy(alpha = 0.9f))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "스와이프로 선택 · 탭으로 ON/OFF\n확인 선택 후 탭으로 적용",
+                                fontSize = 11.sp,
+                                color = Color(0xFFCCCCCC),
+                                textAlign = TextAlign.Center,
+                                lineHeight = 16.sp
                             )
                         }
                     }
@@ -594,27 +626,27 @@ fun EdgeSwipeOverlay(
             }
         }
 
-        // ── 하단 안내 카드 ──
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
-                .alpha(hintAlpha.value)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF2A2A2A).copy(alpha = 0.9f))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (isDirectTouch)
-                    "직접 터치 · 확인으로 적용\n엣지로 밀어서 취소"
-                else
-                    "스와이프로 선택 · 탭으로 ON/OFF\n확인 선택 후 탭으로 적용",
-                fontSize = 11.sp,
-                color = Color(0xFFCCCCCC),
-                textAlign = TextAlign.Center,
-                lineHeight = 16.sp
-            )
+        // ── 하단 안내 카드 (직접 터치 모드 전용) ──
+        // 스와이프 모드 안내는 묶음 Column 안으로 이동됨
+        if (isDirectTouch) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                    .alpha(hintAlpha.value)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF2A2A2A).copy(alpha = 0.9f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "직접 터치 · 확인으로 적용\n엣지로 밀어서 취소",
+                    fontSize = 11.sp,
+                    color = Color(0xFFCCCCCC),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 16.sp
+                )
+            }
         }
     }
 }
