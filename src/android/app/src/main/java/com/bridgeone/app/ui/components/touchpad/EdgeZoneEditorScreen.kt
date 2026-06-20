@@ -69,6 +69,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.boundsInWindow
@@ -119,7 +120,7 @@ internal const val CUSTOM_SLIDER_LINE_WIDTH_DP = 3f
 internal sealed class ZoneActionPopup {
     object None : ZoneActionPopup()
     data class Initial(val zone: EdgeZone, val anchor: Float) : ZoneActionPopup()
-    data class MergeSelecting(val zone: EdgeZone) : ZoneActionPopup()
+    data class MergeSelecting(val zone: EdgeZone, val anchor: Float, val selectedTargets: Set<Float> = emptySet()) : ZoneActionPopup()
     data class SplitChoosing(val zone: EdgeZone, val anchor: Float) : ZoneActionPopup()
     data class DeleteConfirming(val zone: EdgeZone, val anchor: Float) : ZoneActionPopup()
 }
@@ -310,6 +311,21 @@ fun EdgeZoneEditorScreen(
                     swipeController.setFocus(EdgeEditorElement.StripZone(idx))
                 }
             }
+        }
+
+    }
+
+    // Undo 후 포커스 결정: 스택 남으면 Undo 유지, 비면 복원된 존(없으면 Back)
+    // SWIPE 모드에서만 호출됨. swipeController는 항상 non-null.
+    fun focusAfterUndo(remaining: List<EdgeZoneConfig>, restored: EdgeZone?, config: EdgeZoneConfig) {
+        when {
+            remaining.isNotEmpty() -> swipeController.setFocus(EdgeEditorElement.Undo)
+            restored != null -> {
+                val idx = config.zonesFor(restored.edge)
+                    .indexOfFirst { it.startRatio == restored.startRatio }.coerceAtLeast(0)
+                swipeController.setFocus(EdgeEditorElement.StripZone(idx))
+            }
+            else -> swipeController.setFocus(EdgeEditorElement.Back)
         }
     }
 
@@ -511,13 +527,17 @@ fun EdgeZoneEditorScreen(
                 }
             }
         }
+        // rememberUpdatedState: onDispose 시점의 최신 값을 읽기 위해 DisposableEffect보다 앞에 선언
+        val latestSelectedZone by rememberUpdatedState(selectedZone)
+        val latestWorkConfig by rememberUpdatedState(workConfig)
+        val latestUndoStack by rememberUpdatedState(undoStack)
         DisposableEffect(showUndoMenu) {
             val active = showUndoMenu
             if (active) swipeController.pushScope(EdgeEditorScope.UndoMenu)
             onDispose {
                 if (active) {
                     swipeController.popScope()
-                    swipeController.setFocus(EdgeEditorElement.Undo)
+                    focusAfterUndo(latestUndoStack, latestSelectedZone, latestWorkConfig)
                 }
             }
         }
@@ -525,7 +545,42 @@ fun EdgeZoneEditorScreen(
         DisposableEffect(isZonePopupOpen) {
             val active = isZonePopupOpen
             if (active) swipeController.pushScope(EdgeEditorScope.ZoneActionPopup)
-            onDispose { if (active) swipeController.popScope() }
+            onDispose {
+                if (active) {
+                    swipeController.popScope()
+                    val zone = latestSelectedZone
+                    if (zone != null) {
+                        val zones = latestWorkConfig.zonesFor(zone.edge)
+                        val idx = zones.indexOfFirst { it.startRatio == zone.startRatio }.coerceAtLeast(0)
+                        swipeController.setFocus(EdgeEditorElement.StripZone(idx))
+                    }
+                }
+            }
+        }
+        // ZoneActionPopup.Initial 진입 시 가운데 "분할" 버튼으로 초기 포커스
+        val isInitialPopup = zonePopup is ZoneActionPopup.Initial
+        LaunchedEffect(isInitialPopup) {
+            if (isInitialPopup) swipeController.setFocus(EdgeEditorElement.ZoneActionSplit)
+        }
+        // Initial → SplitChoosing 전환 시 첫 분할 버튼(2분할)으로 초기 포커스 → 진입 즉시 미리보기 표시
+        val isSplitChoosing = zonePopup is ZoneActionPopup.SplitChoosing
+        LaunchedEffect(isSplitChoosing) {
+            if (isSplitChoosing) swipeController.setFocus(EdgeEditorElement.ZoneActionSplitN(2))
+        }
+        // Initial → MergeSelecting 전환 시 왼쪽 인접 존 버튼으로 초기 포커스
+        val isMergeSelecting = zonePopup is ZoneActionPopup.MergeSelecting
+        LaunchedEffect(isMergeSelecting) {
+            if (isMergeSelecting) {
+                val ms = zonePopup as ZoneActionPopup.MergeSelecting
+                val zones = workConfig.zonesFor(ms.zone.edge)
+                val bi = zones.indexOfFirst { it.startRatio == ms.zone.startRatio }
+                val initFocus = when {
+                    bi > 0 -> EdgeEditorElement.ZoneActionMergeLeft
+                    bi < zones.size - 1 -> EdgeEditorElement.ZoneActionMergeRight
+                    else -> EdgeEditorElement.ZoneActionMergeConfirm
+                }
+                swipeController.setFocus(initFocus)
+            }
         }
         DisposableEffect(showLabelKeyboard) {
             val active = showLabelKeyboard
@@ -752,15 +807,22 @@ fun EdgeZoneEditorScreen(
                     val undoSingleAction: () -> Unit = {
                         val prev = undoStack.firstOrNull()
                         if (prev != null) {
-                            if (inputMode == InputMode.SWIPE) nextFocusOnZoneChange = EdgeEditorElement.Undo
+                            val remaining = undoStack.drop(1)
                             workConfig = prev
-                            undoStack = undoStack.drop(1)
+                            undoStack = remaining
                             currentPresetId = null
                             val sel = selectedZone
-                            selectedZone = if (sel != null) {
+                            val newSel = if (sel != null) {
                                 prev.zonesFor(sel.edge).firstOrNull { it.startRatio == sel.startRatio }
                                     ?: prev.zonesFor(sel.edge).firstOrNull()
                             } else null
+                            selectedZone = newSel
+                            if (inputMode == InputMode.SWIPE) {
+                                // 스택 남으면 Undo override, 비면 LaunchedEffect 기본 StripZone 경로
+                                nextFocusOnZoneChange = if (remaining.isNotEmpty()) EdgeEditorElement.Undo else null
+                                // selectedZone 미변경(data class 동등) 대비 직접 setFocus
+                                focusAfterUndo(remaining, newSel, prev)
+                            }
                         }
                     }
                     val undoHistoryAction: () -> Unit = { if (undoStack.isNotEmpty()) showUndoMenu = true }
@@ -788,17 +850,16 @@ fun EdgeZoneEditorScreen(
                             )
                         }
                     }
-                    if (undoEnabled) {
-                        SwipeFocusable(
-                            element = EdgeEditorElement.Undo,
-                            shape = RoundedCornerShape(24.dp),
-                            onActivate = undoSingleAction,
-                            onActivateAlt = undoHistoryAction,
-                            gridRow = 0,
-                        ) { undoIconBox() }
-                    } else {
-                        undoIconBox()
-                    }
+                    // undoEnabled와 무관하게 항상 SwipeFocusable로 감쌈.
+                    // 조건부 렌더 시 스택 소진으로 undoEnabled=false가 되면 Undo 요소가 dispose되어
+                    // unregister→currentFocus 초기화로 포커스가 상실되는 버그를 방지.
+                    SwipeFocusable(
+                        element = EdgeEditorElement.Undo,
+                        shape = RoundedCornerShape(24.dp),
+                        onActivate = if (undoEnabled) undoSingleAction else fun() {},
+                        onActivateAlt = if (undoEnabled) undoHistoryAction else fun() {},
+                        gridRow = 0,
+                    ) { undoIconBox() }
                     // NORMAL 모드: 기본 DropdownMenu
                     DropdownMenu(
                         expanded = showUndoMenu && inputMode == InputMode.NORMAL,
@@ -1425,6 +1486,7 @@ fun EdgeZoneEditorScreen(
             presetsRepo = presetsRepo,
             localCustomPresets = localCustomPresets,
             updateSelectedZone = { updateSelectedZone(it) },
+            zonePopupState = zonePopupState,
         )
         // ── 커스텀 다이나믹스 프리셋 편집기 오버레이 ──
         if (dynamicsEditorVisible) {

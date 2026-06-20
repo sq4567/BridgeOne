@@ -80,6 +80,33 @@ class EdgeZoneEditorState(
         return true
     }
 
+    /**
+     * 여러 인접 존을 기준 존에 흡수 병합 (SWIPE 모드 다중 타겟 병합).
+     * @param targetStartRatios 병합할 인접 존들의 startRatio 집합 (빈 집합이면 false)
+     * @return 병합이 적용되면 true
+     */
+    fun tryMergeWithTargets(base: EdgeZone, targetStartRatios: Set<Float>): Boolean {
+        if (targetStartRatios.isEmpty()) return false
+        val zones = workConfig.zonesFor(base.edge).toMutableList()
+        val bi = zones.indexOfFirst { it.startRatio == base.startRatio }
+        if (bi < 0) return false
+        val leftZone = if (bi > 0 && targetStartRatios.contains(zones[bi - 1].startRatio)) zones[bi - 1] else null
+        val rightZone = if (bi < zones.size - 1 && targetStartRatios.contains(zones[bi + 1].startRatio)) zones[bi + 1] else null
+        if (leftZone == null && rightZone == null) return false
+        val merged = base.copy(
+            startRatio = leftZone?.startRatio ?: base.startRatio,
+            endRatio = rightZone?.endRatio ?: base.endRatio
+        )
+        if (rightZone != null) zones.removeAt(bi + 1)
+        zones[bi] = merged
+        if (leftZone != null) zones.removeAt(bi - 1)
+        pushUndo()
+        workConfig = workConfig.withZones(base.edge, zones)
+        currentPresetId = null
+        selectedZone = merged
+        return true
+    }
+
     /** 존 삭제. 마지막 1개는 삭제하지 않으며, 빈 비율은 인접 존이 흡수한다. */
     fun deleteZone(zone: EdgeZone) {
         val zones = workConfig.zonesFor(zone.edge).toMutableList()

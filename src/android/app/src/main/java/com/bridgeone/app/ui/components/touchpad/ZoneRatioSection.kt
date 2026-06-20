@@ -1,7 +1,9 @@
 package com.bridgeone.app.ui.components.touchpad
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,6 +50,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.MutableState
+import androidx.compose.ui.graphics.Color
 import com.bridgeone.app.ui.common.InputMode
 import com.bridgeone.app.ui.common.LocalInputMode
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFocused
@@ -66,6 +69,7 @@ import com.bridgeone.app.ui.common.swipe.SwipeFocusable
  * @param edgeForStrip 편집 대상 엣지(non-null)
  * @param onRatioBtnBoundsChange 비율 프리셋 버튼 바운즈 보고(화면의 SWIPE 툴팁 앵커 갱신)
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ZoneRatioSection(
     state: EdgeZoneEditorState,
@@ -233,21 +237,59 @@ internal fun ZoneRatioSection(
                                     onZoneSelected = { tapped ->
                                         val cur = zonePopup
                                         if (cur is ZoneActionPopup.MergeSelecting) {
-                                            if (state.tryMergeWith(cur.zone, tapped)) zonePopup = ZoneActionPopup.None
+                                            val bi = zoneList.indexOfFirst { it.startRatio == cur.zone.startRatio }
+                                            val isAdj = tapped.startRatio == zoneList.getOrNull(bi - 1)?.startRatio ||
+                                                        tapped.startRatio == zoneList.getOrNull(bi + 1)?.startRatio
+                                            if (isAdj) {
+                                                zonePopup = cur.copy(
+                                                    selectedTargets = if (tapped.startRatio in cur.selectedTargets)
+                                                        cur.selectedTargets - tapped.startRatio
+                                                    else cur.selectedTargets + tapped.startRatio
+                                                )
+                                            }
                                         } else {
                                             selectedZone = tapped
                                             zonePopup = ZoneActionPopup.None
                                         }
                                     },
                                     onZoneDeselected = {
-                                        selectedZone = null
-                                        zonePopup = ZoneActionPopup.None
+                                        if (zonePopup !is ZoneActionPopup.MergeSelecting) {
+                                            selectedZone = null
+                                            zonePopup = ZoneActionPopup.None
+                                        }
                                     },
                                     onZoneLongPressed = { zone, cf ->
-                                        selectedZone = zone
-                                        zonePopup = ZoneActionPopup.Initial(zone, cf)
+                                        val cur = zonePopup
+                                        if (cur is ZoneActionPopup.MergeSelecting) {
+                                            zonePopup = ZoneActionPopup.Initial(cur.zone, cur.anchor)
+                                        } else {
+                                            selectedZone = zone
+                                            zonePopup = ZoneActionPopup.Initial(zone, cf)
+                                        }
                                     },
                                     highlightedZones = highlightedZones,
+                                    mergeBaseZone = (p as? ZoneActionPopup.MergeSelecting)?.zone,
+                                    mergeTargetRatios = (p as? ZoneActionPopup.MergeSelecting)?.selectedTargets ?: emptySet(),
+                                    onMergeTargetToggle = { tapped ->
+                                        val cur = zonePopup
+                                        if (cur is ZoneActionPopup.MergeSelecting) {
+                                            zonePopup = cur.copy(
+                                                selectedTargets = if (tapped.startRatio in cur.selectedTargets)
+                                                    cur.selectedTargets - tapped.startRatio
+                                                else cur.selectedTargets + tapped.startRatio
+                                            )
+                                        }
+                                    },
+                                    onMergeConfirm = {
+                                        val cur = zonePopup
+                                        if (cur is ZoneActionPopup.MergeSelecting) {
+                                            if (cur.selectedTargets.isNotEmpty()) {
+                                                if (state.tryMergeWithTargets(cur.zone, cur.selectedTargets)) zonePopup = ZoneActionPopup.None
+                                            } else {
+                                                zonePopup = ZoneActionPopup.Initial(cur.zone, cur.anchor)
+                                            }
+                                        }
+                                    },
                                     blockedStartRatio = stripBlockedStart,
                                     blockedStartLabel = stripBlockedStartLabel,
                                     blockedEndRatio = stripBlockedEnd,
@@ -257,9 +299,10 @@ internal fun ZoneRatioSection(
                             }
 
                             // ── 팝업 ──
-                            if (sel != null && p !is ZoneActionPopup.None) {
+                            if (sel != null && p !is ZoneActionPopup.None && p !is ZoneActionPopup.MergeSelecting) {
                                 val anchor = when (p) {
                                     is ZoneActionPopup.Initial -> p.anchor
+                                    is ZoneActionPopup.MergeSelecting -> p.anchor
                                     is ZoneActionPopup.SplitChoosing -> p.anchor
                                     is ZoneActionPopup.DeleteConfirming -> p.anchor
                                     else -> 0.5f
@@ -283,8 +326,8 @@ internal fun ZoneRatioSection(
                                     },
                                     onDismissRequest = { zonePopup = ZoneActionPopup.None },
                                     properties = PopupProperties(
-                                        focusable = true,
-                                        dismissOnClickOutside = true,
+                                        focusable = inputMode == InputMode.NORMAL && p !is ZoneActionPopup.MergeSelecting,
+                                        dismissOnClickOutside = inputMode == InputMode.NORMAL && p !is ZoneActionPopup.MergeSelecting,
                                         dismissOnBackPress = false
                                     )
                                 ) {
@@ -313,7 +356,19 @@ internal fun ZoneRatioSection(
                                                             .background(cs.onSurfaceVariant.copy(alpha = 0.25f))
                                                     )
                                                 }
-                                                val mergeAction: () -> Unit = { zonePopup = ZoneActionPopup.MergeSelecting(sel) }
+                                                val mergeAction: () -> Unit = {
+                                                    val leftZone = zoneList.getOrNull(zoneIdx - 1)
+                                                    val rightZone = zoneList.getOrNull(zoneIdx + 1)
+                                                    when {
+                                                        leftZone != null && rightZone == null -> {
+                                                            if (state.tryMergeWith(sel, leftZone)) zonePopup = ZoneActionPopup.None
+                                                        }
+                                                        leftZone == null && rightZone != null -> {
+                                                            if (state.tryMergeWith(sel, rightZone)) zonePopup = ZoneActionPopup.None
+                                                        }
+                                                        else -> zonePopup = ZoneActionPopup.MergeSelecting(sel, p.anchor)
+                                                    }
+                                                }
                                                 val splitAction: () -> Unit = { zonePopup = ZoneActionPopup.SplitChoosing(sel, p.anchor) }
                                                 val deleteAction: () -> Unit = { zonePopup = ZoneActionPopup.DeleteConfirming(sel, p.anchor) }
                                                 Row(
@@ -325,81 +380,85 @@ internal fun ZoneRatioSection(
                                                         element = EdgeEditorElement.ZoneActionMerge,
                                                         scope = EdgeEditorScope.ZoneActionPopup,
                                                         shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
+                                                        showBorderHighlight = false,
                                                         onActivate = mergeAction,
                                                         gridRow = 0,
                                                     ) {
-                                                    TextButton(
-                                                        onClick = mergeAction,
-                                                        enabled = hasAdj,
-                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                                    ) { Text("병합", fontSize = 12.sp) }
+                                                        val focused = LocalSwipeFocused.current
+                                                        Surface(
+                                                            onClick = mergeAction,
+                                                            enabled = hasAdj,
+                                                            shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 4.dp, bottomEnd = 4.dp),
+                                                            color = if (focused && hasAdj) cs.primary else Color.Transparent,
+                                                            contentColor = when {
+                                                                !hasAdj -> cs.onSurface.copy(alpha = 0.38f)
+                                                                focused -> Color.White
+                                                                else -> cs.primary
+                                                            },
+                                                        ) {
+                                                            Text("병합", fontSize = 12.sp,
+                                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
+                                                        }
                                                     }
                                                     divider()
                                                     SwipeFocusable(
                                                         element = EdgeEditorElement.ZoneActionSplit,
                                                         scope = EdgeEditorScope.ZoneActionPopup,
                                                         shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
+                                                        showBorderHighlight = false,
                                                         onActivate = splitAction,
                                                         gridRow = 0,
                                                     ) {
-                                                    TextButton(
-                                                        onClick = splitAction,
-                                                        enabled = anySplitValid,
-                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                                    ) { Text("분할", fontSize = 12.sp) }
+                                                        val focused = LocalSwipeFocused.current
+                                                        Surface(
+                                                            onClick = splitAction,
+                                                            enabled = anySplitValid,
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = if (focused && anySplitValid) cs.primary else Color.Transparent,
+                                                            contentColor = when {
+                                                                !anySplitValid -> cs.onSurface.copy(alpha = 0.38f)
+                                                                focused -> Color.White
+                                                                else -> cs.primary
+                                                            },
+                                                        ) {
+                                                            Text("분할", fontSize = 12.sp,
+                                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
+                                                        }
                                                     }
                                                     divider()
                                                     SwipeFocusable(
                                                         element = EdgeEditorElement.ZoneActionDelete,
                                                         scope = EdgeEditorScope.ZoneActionPopup,
                                                         shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
+                                                        showBorderHighlight = false,
                                                         onActivate = deleteAction,
                                                         gridRow = 0,
                                                     ) {
-                                                    TextButton(
-                                                        onClick = deleteAction,
-                                                        enabled = canDel,
-                                                        colors = ButtonDefaults.textButtonColors(contentColor = cs.error),
-                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                                    ) { Text("삭제", fontSize = 12.sp) }
-                                                    }
-                                                }
-                                            }
-                                            is ZoneActionPopup.MergeSelecting -> {
-                                                val mergeCancelAction: () -> Unit = { zonePopup = ZoneActionPopup.None }
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Text("병합할 존을 선택하세요", fontSize = 12.sp, color = cs.onSurfaceVariant)
-                                                    SwipeFocusable(
-                                                        element = EdgeEditorElement.ZoneActionMergeCancel,
-                                                        scope = EdgeEditorScope.ZoneActionPopup,
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
-                                                        onActivate = mergeCancelAction,
-                                                        gridRow = 0,
-                                                    ) {
-                                                    TextButton(
-                                                        onClick = mergeCancelAction,
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                                    ) { Text("취소", fontSize = 12.sp) }
+                                                        val focused = LocalSwipeFocused.current
+                                                        Surface(
+                                                            onClick = deleteAction,
+                                                            enabled = canDel,
+                                                            shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 8.dp, bottomEnd = 8.dp),
+                                                            color = if (focused && canDel) cs.error else Color.Transparent,
+                                                            contentColor = when {
+                                                                !canDel -> cs.onSurface.copy(alpha = 0.38f)
+                                                                focused -> Color.White
+                                                                else -> cs.error
+                                                            },
+                                                        ) {
+                                                            Text("삭제", fontSize = 12.sp,
+                                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
+                                                        }
                                                     }
                                                 }
                                             }
                                             is ZoneActionPopup.SplitChoosing -> {
-                                                val splitCancelAction: () -> Unit = { zonePopup = ZoneActionPopup.None }
+                                                val backToInitial: () -> Unit = { zonePopup = ZoneActionPopup.Initial(sel, p.anchor) }
                                                 Row(
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
                                                     horizontalArrangement = Arrangement.spacedBy(0.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Text("분할:", fontSize = 12.sp, color = cs.onSurfaceVariant,
-                                                        modifier = Modifier.padding(start = 6.dp, end = 2.dp))
                                                     (2..4).forEach { n ->
                                                         val valid = zoneList.size + n - 1 <= maxZones &&
                                                             (sel.endRatio - sel.startRatio) / n >= minRatio
@@ -409,28 +468,26 @@ internal fun ZoneRatioSection(
                                                             scope = EdgeEditorScope.ZoneActionPopup,
                                                             shape = RoundedCornerShape(4.dp),
                                                             showBorderHighlight = true,
-                                                            onActivate = splitNAction,
+                                                            onActivate = if (valid) splitNAction else fun() {},
+                                                            onActivateAlt = backToInitial,
                                                             gridRow = 0,
                                                         ) {
-                                                        TextButton(
-                                                            onClick = splitNAction,
-                                                            enabled = valid,
-                                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                                        ) { Text("$n", fontSize = 13.sp) }
+                                                            Box(
+                                                                contentAlignment = Alignment.Center,
+                                                                modifier = Modifier.combinedClickable(
+                                                                    enabled = true,
+                                                                    onClick = { if (valid) splitNAction() },
+                                                                    onLongClick = backToInitial,
+                                                                )
+                                                            ) {
+                                                                Text(
+                                                                    "$n",
+                                                                    fontSize = 13.sp,
+                                                                    color = if (valid) cs.primary else cs.onSurface.copy(alpha = 0.38f),
+                                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                                                )
+                                                            }
                                                         }
-                                                    }
-                                                    SwipeFocusable(
-                                                        element = EdgeEditorElement.ZoneActionSplitCancel,
-                                                        scope = EdgeEditorScope.ZoneActionPopup,
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        showBorderHighlight = true,
-                                                        onActivate = splitCancelAction,
-                                                        gridRow = 0,
-                                                    ) {
-                                                    TextButton(
-                                                        onClick = splitCancelAction,
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                                    ) { Text("취소", fontSize = 12.sp) }
                                                     }
                                                 }
                                             }

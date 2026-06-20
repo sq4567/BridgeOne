@@ -25,6 +25,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -39,6 +40,15 @@ import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import kotlin.math.abs
 import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
 
 private val STRIP_ZONE_COLORS = listOf(
     Color(0xFF1E3A5F), Color(0xFF3A1E5F), Color(0xFF1E5F3A),
@@ -77,6 +87,10 @@ fun EdgeStripEditor(
     blockedEndLabel: String? = null,
     inputMode: InputMode = InputMode.NORMAL,
     swipeScope: Any = ROOT_SCOPE,
+    mergeBaseZone: EdgeZone? = null,
+    mergeTargetRatios: Set<Float> = emptySet(),
+    onMergeTargetToggle: (EdgeZone) -> Unit = {},
+    onMergeConfirm: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -84,6 +98,10 @@ fun EdgeStripEditor(
     val swipeController = LocalSwipeFocusController.current
     val focusedBoundaryIdx: Int? = when (val f = swipeController?.currentFocus) {
         is EdgeEditorElement.StripBoundary -> f.index
+        else -> null
+    }
+    val focusedSplitN: Int? = when (val f = swipeController?.currentFocus) {
+        is EdgeEditorElement.ZoneActionSplitN -> f.n
         else -> null
     }
 
@@ -255,6 +273,7 @@ fun EdgeStripEditor(
             val isSelected = sel != null && zone.startRatio == sel.startRatio && zone.edge == sel.edge
             val isHighlighted = highlights.contains(zone.edge to zone.startRatio)
             val isInactive = zone.action is EdgeZoneAction.Unassigned
+            val isMergeTarget = mergeBaseZone != null && zone.edge == mergeBaseZone.edge && zone.startRatio in mergeTargetRatios
 
             val baseColor = if (isInactive) Color(0xFF3A3A3A) else stripZoneColor(idx)
             drawRect(
@@ -265,15 +284,25 @@ fun EdgeStripEditor(
 
             if (isInactive) drawStripHatch(Offset(x0, 0f), Size(zoneW, h))
 
-            // 테두리: highlighted > selected > 기본
+            // 선택된 병합 대상: 옅은 초록 오버레이
+            if (isMergeTarget) {
+                drawRect(
+                    color = Color(0x334CAF50),
+                    topLeft = Offset(x0, 0f),
+                    size = Size(zoneW, h)
+                )
+            }
+
+            // 테두리: isMergeTarget(초록) > highlighted(파랑) > selected(초록) > 기본
             val borderColor = when {
+                isMergeTarget -> Color(0xFF4CAF50)
                 isHighlighted -> Color(0xFF2196F3)
                 isSelected -> Color(0xFF4CAF50)
                 isInactive -> Color.White.copy(alpha = 0.10f)
                 else -> Color.White.copy(alpha = 0.20f)
             }
             val borderWidth = when {
-                isHighlighted || isSelected -> 2.5f
+                isMergeTarget || isHighlighted || isSelected -> 2.5f
                 else -> 1f
             }
             drawRect(
@@ -318,6 +347,31 @@ fun EdgeStripEditor(
                 end = Offset(x, h - 4f),
                 strokeWidth = handleWidthPx
             )
+        }
+        // 분할 미리보기 — SplitChoosing에서 분할 개수 버튼 포커스 시 n등분 점선/해치 표시
+        val splitPreviewSel = currentSelected
+        val splitN = focusedSplitN
+        if (splitPreviewSel != null && splitN != null && splitN >= 2) {
+            val rangeW = splitPreviewSel.endRatio - splitPreviewSel.startRatio
+            val partRatio = rangeW / splitN
+            // 새로 생길 조각(인덱스 1..n-1) — Unassigned 해치 오버레이
+            for (i in 1 until splitN) {
+                val px0 = ((splitPreviewSel.startRatio + i * partRatio) * w).coerceIn(activeStartPx, activeEndPx)
+                val px1 = ((splitPreviewSel.startRatio + (i + 1) * partRatio) * w).coerceAtMost(activeEndPx)
+                if (px1 > px0) drawStripHatch(Offset(px0, 0f), Size(px1 - px0, h))
+            }
+            // 분할 경계선 — amber 점선
+            val dashEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
+            for (i in 1 until splitN) {
+                val bx = ((splitPreviewSel.startRatio + i * partRatio) * w).coerceIn(activeStartPx, activeEndPx)
+                drawLine(
+                    color = Color(0xFFFFC107),
+                    start = Offset(bx, 0f),
+                    end = Offset(bx, h),
+                    strokeWidth = 2f,
+                    pathEffect = dashEffect
+                )
+            }
         }
         } // Canvas 닫기
 
@@ -377,6 +431,104 @@ fun EdgeStripEditor(
                         .offset(x = centerDp - handleDp / 2)
                         .size(width = handleDp, height = stripHeight),
                 ) {}
+            }
+        }
+
+        // ── 병합 모드 인라인 오버레이 (NORMAL·SWIPE 공통) ──
+        if (mergeBaseZone != null) {
+            val baseIdx = zones.indexOfFirst { it.startRatio == mergeBaseZone.startRatio && it.edge == mergeBaseZone.edge }
+            if (baseIdx >= 0) {
+                val baseZone = zones[baseIdx]
+                val leftZone = zones.getOrNull(baseIdx - 1)
+                val rightZone = zones.getOrNull(baseIdx + 1)
+                val cs = MaterialTheme.colorScheme
+                val baseLeftDp = stripWidthDp * baseZone.startRatio
+                val baseWidthDp = stripWidthDp * (baseZone.endRatio - baseZone.startRatio)
+                val showText = baseWidthDp >= 48.dp
+
+                // 확인 버튼 (기준 존 칸 중앙)
+                if (inputMode == InputMode.SWIPE) {
+                    SwipeFocusable(
+                        element = EdgeEditorElement.ZoneActionMergeConfirm,
+                        scope = EdgeEditorScope.ZoneActionPopup,
+                        shape = RoundedCornerShape(4.dp),
+                        showBorderHighlight = true,
+                        onActivate = onMergeConfirm,
+                        gridRow = 0,
+                        modifier = Modifier
+                            .offset(x = baseLeftDp)
+                            .size(width = baseWidthDp, height = stripHeight),
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = cs.primaryContainer,
+                                contentColor = cs.onPrimaryContainer,
+                                modifier = Modifier.padding(4.dp),
+                            ) {
+                                if (showText) {
+                                    Text("확인", fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                                } else {
+                                    Icon(Icons.Filled.Check, contentDescription = "확인", modifier = Modifier.size(14.dp).padding(3.dp))
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .offset(x = baseLeftDp)
+                            .size(width = baseWidthDp, height = stripHeight),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = cs.primaryContainer,
+                            contentColor = cs.onPrimaryContainer,
+                            modifier = Modifier.padding(4.dp).clickable(onClick = onMergeConfirm),
+                        ) {
+                            if (showText) {
+                                Text("확인", fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                            } else {
+                                Icon(Icons.Filled.Check, contentDescription = "확인", modifier = Modifier.size(14.dp).padding(3.dp))
+                            }
+                        }
+                    }
+                }
+
+                // SWIPE 모드: 인접 존 포커스 오버레이 (탭=토글)
+                if (inputMode == InputMode.SWIPE) {
+                    leftZone?.let { lz ->
+                        val leftDp = stripWidthDp * lz.startRatio
+                        val leftWidthDp = stripWidthDp * (lz.endRatio - lz.startRatio)
+                        SwipeFocusable(
+                            element = EdgeEditorElement.ZoneActionMergeLeft,
+                            scope = EdgeEditorScope.ZoneActionPopup,
+                            shape = RoundedCornerShape(4.dp),
+                            showBorderHighlight = true,
+                            onActivate = { onMergeTargetToggle(lz) },
+                            gridRow = 0,
+                            modifier = Modifier
+                                .offset(x = leftDp)
+                                .size(width = leftWidthDp, height = stripHeight),
+                        ) {}
+                    }
+                    rightZone?.let { rz ->
+                        val rightDp = stripWidthDp * rz.startRatio
+                        val rightWidthDp = stripWidthDp * (rz.endRatio - rz.startRatio)
+                        SwipeFocusable(
+                            element = EdgeEditorElement.ZoneActionMergeRight,
+                            scope = EdgeEditorScope.ZoneActionPopup,
+                            shape = RoundedCornerShape(4.dp),
+                            showBorderHighlight = true,
+                            onActivate = { onMergeTargetToggle(rz) },
+                            gridRow = 0,
+                            modifier = Modifier
+                                .offset(x = rightDp)
+                                .size(width = rightWidthDp, height = stripHeight),
+                        ) {}
+                    }
+                }
             }
         }
     } // BoxWithConstraints 닫기

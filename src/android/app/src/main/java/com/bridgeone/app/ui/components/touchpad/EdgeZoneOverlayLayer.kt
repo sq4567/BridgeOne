@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,6 +71,7 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
     presetsRepo: EdgeZonePresetsRepository?,
     localCustomPresets: List<CustomPointerDynamicsPreset>,
     updateSelectedZone: (EdgeZone) -> Unit,
+    zonePopupState: MutableState<ZoneActionPopup>,
 ) {
     val inputMode = LocalInputMode.current
     val cs = MaterialTheme.colorScheme
@@ -127,6 +129,7 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
     var swipeCustomMenuTarget by overlayUi.swipeCustomMenuTargetState
     var localCustomShortcutPresets by overlayUi.localCustomShortcutPresetsState
     var localCustomMacroPresets by overlayUi.localCustomMacroPresetsState
+    var zonePopup by zonePopupState
 
         // ── SWIPE 모드: StripBoundary 조작 안내 힌트 ──
         if (inputMode == InputMode.SWIPE) {
@@ -640,6 +643,28 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
                                 macroEditorDraft = macroEditorDraft.copy(steps = newSteps)
                                 swipeController.setFocus(EdgeEditorElement.MacroStepDelayExpand(sliderIdx))
                             }
+                            true
+                        }
+                        // Initial 팝업에서 롱프레스 → 팝업 종료
+                        zonePopup is ZoneActionPopup.Initial -> {
+                            zonePopup = ZoneActionPopup.None
+                            true
+                        }
+                        // MergeSelecting 상태에서 롱프레스 → Initial 복귀
+                        zonePopup is ZoneActionPopup.MergeSelecting -> {
+                            val ms = zonePopup as ZoneActionPopup.MergeSelecting
+                            zonePopup = ZoneActionPopup.Initial(ms.zone, ms.anchor)
+                            swipeController.setFocus(EdgeEditorElement.ZoneActionMerge)
+                            true
+                        }
+                        // SplitChoosing 상태에서 분할 개수 버튼 포커스 + 롱프레스 → Initial 복귀
+                        swipeController.currentFocus is EdgeEditorElement.ZoneActionSplitN -> {
+                            swipeController.activateAlt()
+                            true
+                        }
+                        // StripZone 포커스 + 롱프레스 → 3버튼 팝업(Initial) 열기
+                        swipeController.currentFocus is EdgeEditorElement.StripZone -> {
+                            swipeController.activateAlt()
                             true
                         }
                         // 커스텀 ActionOptionCard 포커스 → 수정/삭제 메뉴 열기
