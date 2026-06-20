@@ -84,6 +84,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -104,7 +105,9 @@ import com.bridgeone.app.ui.common.loadInputMode
 import com.bridgeone.app.ui.common.loadSwipeWrapEdge
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFocusController
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFocused
+import com.bridgeone.app.ui.common.swipe.LocalSwipeFlashAlpha
 import com.bridgeone.app.ui.common.swipe.SwipeFocusable
+import com.bridgeone.app.ui.common.swipe.SwipeGestureLayer
 import com.bridgeone.app.ui.common.swipe.rememberSwipeFocusController
 
 
@@ -1568,11 +1571,13 @@ fun EdgeZoneEditorScreen(
         val discardCancelAction: () -> Unit = { showDiscardDialog = false }
 
         if (inputMode == InputMode.SWIPE) {
-            // SWIPE 모드: non-focusable Popup — 스와이프 이벤트가 SwipeGestureLayer까지 통과함
+            // SWIPE 모드: Popup은 별도 Android 윈도우라 메인 SwipeGestureLayer에 터치가 도달하지 않음.
+            // Box 최상단에 SwipeGestureLayer를 오버레이해 Popup 내 터치를 직접 처리.
             Popup(
                 alignment = Alignment.Center,
                 properties = PopupProperties(focusable = false),
             ) {
+            Box {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = cs.surfaceVariant,
@@ -1608,18 +1613,24 @@ fun EdgeZoneEditorScreen(
                             scope = EdgeEditorScope.DiscardDialog,
                             shape = RoundedCornerShape(8.dp),
                             showBorderHighlight = false,
+                            showFlashOverlay = false,
                             onActivate = discardCancelAction,
                             gridRow = 0,
                             modifier = Modifier.weight(1f),
                         ) {
                             val cancelFocused = LocalSwipeFocused.current
+                            val cancelFlash = LocalSwipeFlashAlpha.current
                             FilledTonalButton(
-                                onClick = discardCancelAction,
+                                onClick = {},
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.filledTonalButtonColors(
                                     contentColor = if (cancelFocused) cs.onPrimary else cs.onSurface,
-                                    containerColor = if (cancelFocused) cs.primary else Color.Transparent,
+                                    containerColor = lerp(
+                                        if (cancelFocused) cs.primary else Color.Transparent,
+                                        cs.error,
+                                        cancelFlash,
+                                    ),
                                 )
                             ) { Text("취소", fontSize = 14.sp) }
                         }
@@ -1628,18 +1639,24 @@ fun EdgeZoneEditorScreen(
                             scope = EdgeEditorScope.DiscardDialog,
                             shape = RoundedCornerShape(8.dp),
                             showBorderHighlight = false,
+                            showFlashOverlay = false,
                             onActivate = discardSaveAction,
                             gridRow = 0,
                             modifier = Modifier.weight(1f),
                         ) {
                             val saveFocused = LocalSwipeFocused.current
+                            val saveFlash = LocalSwipeFlashAlpha.current
                             FilledTonalButton(
-                                onClick = discardSaveAction,
+                                onClick = {},
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.filledTonalButtonColors(
                                     contentColor = if (saveFocused) cs.onPrimary else cs.primary,
-                                    containerColor = if (saveFocused) cs.primary else Color.Transparent,
+                                    containerColor = lerp(
+                                        if (saveFocused) cs.primary else Color.Transparent,
+                                        cs.error,
+                                        saveFlash,
+                                    ),
                                 )
                             ) { Text("저장", fontSize = 14.sp) }
                         }
@@ -1648,25 +1665,36 @@ fun EdgeZoneEditorScreen(
                             scope = EdgeEditorScope.DiscardDialog,
                             shape = RoundedCornerShape(8.dp),
                             showBorderHighlight = false,
+                            showFlashOverlay = false,
                             onActivate = discardDiscardAction,
                             gridRow = 0,
                             modifier = Modifier.weight(2f),
                         ) {
                             val discardFocused = LocalSwipeFocused.current
+                            val discardFlash = LocalSwipeFlashAlpha.current
                             FilledTonalButton(
-                                onClick = discardDiscardAction,
+                                onClick = {},
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                                 colors = ButtonDefaults.filledTonalButtonColors(
                                     contentColor = if (discardFocused) cs.onError else cs.error,
-                                    containerColor = if (discardFocused) cs.error else Color.Transparent,
+                                    containerColor = lerp(
+                                        if (discardFocused) cs.error else Color.Transparent,
+                                        Color.Black,
+                                        discardFlash * 0.4f,
+                                    ),
                                 )
                             ) { Text("버리고 나가기", fontSize = 14.sp) }
                         }
                         }
                     }
                 }
+                SwipeGestureLayer(
+                    controller = swipeController,
+                    modifier = Modifier.matchParentSize()
+                )
+            }
             }
         } else {
             AlertDialog(

@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.dp
 /** content 내부에서 현재 요소의 포커스 상태를 읽기 위한 CompositionLocal. */
 val LocalSwipeFocused = compositionLocalOf { false }
 
+/** content 내부에서 경계 히트 플래시 알파(0f~0.45f)를 읽기 위한 CompositionLocal. */
+val LocalSwipeFlashAlpha = compositionLocalOf { 0f }
+
 /**
  * SWIPE 모드 포커스 대상 wrapper.
  *
@@ -45,6 +48,7 @@ val LocalSwipeFocused = compositionLocalOf { false }
  * @param shape border 하이라이트 모양. 기본값: RoundedCornerShape(8.dp)
  * @param highlightBorderWidth border 두께. 기본값: 2dp
  * @param showBorderHighlight true면 포커스 시 border + 배경 오버레이 추가. content가 빈 요소에 사용. 기본값: false
+ * @param showFlashOverlay true면 경계 히트 시 붉은 오버레이 Box를 직접 렌더. false면 [LocalSwipeFlashAlpha]만 제공 — content가 직접 색상으로 반응할 때 사용. 기본값: true
  */
 @Composable
 fun SwipeFocusable(
@@ -57,6 +61,7 @@ fun SwipeFocusable(
     shape: Shape = RoundedCornerShape(8.dp),
     highlightBorderWidth: Dp = 2.dp,
     showBorderHighlight: Boolean = false,
+    showFlashOverlay: Boolean = true,
     gridRow: Int? = null,
     gridCol: Int? = null,
     modifier: Modifier = Modifier,
@@ -101,7 +106,7 @@ fun SwipeFocusable(
     val flashKey = controller.flashSignal?.takeIf { it.element == element }
     LaunchedEffect(flashKey) {
         if (flashKey != null) {
-            flashAlpha.snapTo(0.45f)
+            flashAlpha.snapTo(SWIPE_FLASH_PEAK_ALPHA)
             flashAlpha.animateTo(0f, animationSpec = tween(durationMillis = 350))
         } else if (flashAlpha.value > 0f) {
             flashAlpha.animateTo(0f, animationSpec = tween(durationMillis = 150))
@@ -138,14 +143,17 @@ fun SwipeFocusable(
                 } else Modifier
             ),
     ) {
+        val fa = flashAlpha.value
+        // [0..1] 정규화: 0 = 플래시 없음, 1 = 피크. showFlashOverlay=false 사용자가 lerp로 색상 보간할 때 활용
+        val flashFraction = fa / SWIPE_FLASH_PEAK_ALPHA
         CompositionLocalProvider(
             LocalSwipeFocused provides isFocused,
+            LocalSwipeFlashAlpha provides flashFraction,
             LocalContentColor provides contentColor,
         ) {
             content()
         }
-        val fa = flashAlpha.value
-        if (fa > 0f) {
+        if (showFlashOverlay && fa > 0f) {
             Box(
                 Modifier
                     .matchParentSize()
@@ -161,4 +169,7 @@ fun SwipeFocusable(
         }
     }
 }
+
+/** 경계 히트 플래시의 피크 alpha. [LocalSwipeFlashAlpha]는 이 값으로 정규화된 [0..1] 분율을 제공. 기본값: 0.45f */
+internal const val SWIPE_FLASH_PEAK_ALPHA = 0.45f
 
