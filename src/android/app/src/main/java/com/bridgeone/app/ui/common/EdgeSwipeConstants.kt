@@ -177,6 +177,8 @@ object EdgeSwipeConstants {
 
     /** 엣지 존 라벨 키보드 등장/퇴장 애니메이션 길이 (ms). 기본값: 280 */
     const val EDGE_ZONE_LABEL_KEYBOARD_ANIM_MS = 280
+    /** 엣지 존 이동(재배치) 시 블록 슬라이드 애니메이션 길이 (ms). 기본값: 220 */
+    const val EDGE_ZONE_MOVE_ANIM_MS = 220
     /** 엣지 존 라벨 키보드 시각 컨텐츠 높이 (dp), 폼 하단 여백 계산용. 기본값: 440 */
     const val EDGE_ZONE_LABEL_KEYBOARD_VISUAL_HEIGHT_DP = 440
 

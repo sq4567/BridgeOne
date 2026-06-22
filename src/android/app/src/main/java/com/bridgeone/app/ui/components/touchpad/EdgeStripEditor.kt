@@ -1,5 +1,8 @@
 package com.bridgeone.app.ui.components.touchpad
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -12,6 +15,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -122,6 +126,40 @@ fun EdgeStripEditor(
     // 드래그 중 임시 존 상태 (실시간 렌더링용)
     var draggingZones by remember { mutableStateOf<List<EdgeZone>?>(null) }
     val renderZones = draggingZones ?: previewZones ?: zones
+
+    // ── 존 이동(재배치) 슬라이드 애니메이션 ──
+    // 같은 엣지에서 존 개수·트리거 멀티셋은 같은데 순서만 바뀐 변경(=이동)에만 적용.
+    // 비율 조정/드래그/프리셋은 즉시 반영(애니메이션 없음).
+    val moveAnim = remember { Animatable(1f) }
+    var animFrom by remember { mutableStateOf<List<EdgeZone>?>(null) }
+    var animTo by remember { mutableStateOf(zones) }
+    LaunchedEffect(zones) {
+        val prev = animTo
+        animTo = zones
+        val sameEdge = prev.firstOrNull()?.edge == zones.firstOrNull()?.edge
+        val triggersPrev = prev.map { it.trigger }
+        val triggersNew = zones.map { it.trigger }
+        val isReorder = sameEdge && prev.size == zones.size &&
+            triggersPrev != triggersNew &&
+            triggersPrev.groupingBy { it }.eachCount() == triggersNew.groupingBy { it }.eachCount()
+        if (isReorder) {
+            animFrom = prev
+            moveAnim.snapTo(0f)
+            moveAnim.animateTo(1f, tween(EdgeSwipeConstants.EDGE_ZONE_MOVE_ANIM_MS, easing = FastOutSlowInEasing))
+            animFrom = null
+        } else {
+            animFrom = null
+            moveAnim.snapTo(1f)
+        }
+    }
+    // 애니메이션 중 각 타겟 존의 그릴 위치(시작/끝 비율)를 소스→타겟으로 보간.
+    // renderZones가 base zones일 때만(드래그/프리셋 아님) 적용.
+    val animRects: List<Pair<Float, Float>>? = run {
+        val from = animFrom
+        if (from != null && draggingZones == null && previewZones == null && moveAnim.value < 1f) {
+            interpolateZoneRects(from, zones, moveAnim.value)
+        } else null
+    }
 
     val gestureModifier = if (inputMode != InputMode.NORMAL) Modifier else Modifier.pointerInput(Unit) {
         val handleHitPx = density.run { handleHitDp.dp.toPx() }
@@ -267,8 +305,11 @@ fun EdgeStripEditor(
         val highlights = currentHighlightedZones
 
         renderZones.forEachIndexed { idx, zone ->
-            val x0 = (zone.startRatio * w).coerceAtLeast(activeStartPx)
-            val x1 = (zone.endRatio * w).coerceAtMost(activeEndPx)
+            // 그릴 위치는 애니메이션 보간값, 선택/하이라이트 판정은 타겟 비율(zone.startRatio) 유지
+            val drawStart = animRects?.getOrNull(idx)?.first ?: zone.startRatio
+            val drawEnd = animRects?.getOrNull(idx)?.second ?: zone.endRatio
+            val x0 = (drawStart * w).coerceAtLeast(activeStartPx)
+            val x1 = (drawEnd * w).coerceAtMost(activeEndPx)
             val zoneW = x1 - x0
             if (zoneW <= 0f) return@forEachIndexed
 
@@ -340,7 +381,7 @@ fun EdgeStripEditor(
         // 경계 핸들 — 활성 구역 내부만
         val handleWidthPx = density.run { EdgeSwipeConstants.EDGE_STRIP_HANDLE_WIDTH_DP.dp.toPx() }
         (1 until renderZones.size).forEach { i ->
-            val x = renderZones[i].startRatio * w
+            val x = (animRects?.getOrNull(i)?.first ?: renderZones[i].startRatio) * w
             if (x <= activeStartPx + 1f || x >= activeEndPx - 1f) return@forEach
             val isFocused = focusedBoundaryIdx == i - 1
             drawLine(
@@ -547,6 +588,28 @@ fun EdgeStripEditor(
             }
         }
     } // BoxWithConstraints 닫기
+}
+
+/**
+ * 재배치 애니메이션용: 타겟 존(`to`) 순서대로, 각 존의 그릴 rect(시작/끝 비율)를
+ * 소스(`from`)에서의 같은 트리거 위치 → 타겟 위치로 보간한 값을 반환.
+ *
+ * 트리거 동일 존을 greedily 매칭하므로 폭째 이동(블록이 자리째 슬라이드)과
+ * 액션만 교환(내용 블록이 슬롯을 가로질러 교차)이 모두 자연스럽게 보간된다.
+ */
+private fun interpolateZoneRects(
+    from: List<EdgeZone>,
+    to: List<EdgeZone>,
+    t: Float,
+): List<Pair<Float, Float>> {
+    val pool = from.toMutableList()
+    return to.map { nz ->
+        val srcIdx = pool.indexOfFirst { it.trigger == nz.trigger }
+        val src = if (srcIdx >= 0) pool.removeAt(srcIdx) else nz
+        val s = src.startRatio + (nz.startRatio - src.startRatio) * t
+        val e = src.endRatio + (nz.endRatio - src.endRatio) * t
+        s to e
+    }
 }
 
 private fun DrawScope.drawStripBlockedHatch(topLeft: Offset, size: Size) {

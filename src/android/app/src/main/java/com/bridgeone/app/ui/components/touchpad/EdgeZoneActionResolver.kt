@@ -96,6 +96,19 @@ internal object EdgeZoneActionResolver {
             }
             if (t.size > f.size) return "$edgeName 존 분할"
             if (t.size < f.size) return "$edgeName 존 병합/삭제"
+            // 순서 재정렬 감지: 존 개수 동일 + 트리거 멀티셋 동일이지만 순서가 다름
+            run {
+                val fTriggers = f.map { it.trigger }
+                val tTriggers = t.map { it.trigger }
+                if (fTriggers != tTriggers &&
+                    fTriggers.groupingBy { it }.eachCount() == tTriggers.groupingBy { it }.eachCount()
+                ) {
+                    val ratiosSame = f.indices.all {
+                        f[it].startRatio == t[it].startRatio && f[it].endRatio == t[it].endRatio
+                    }
+                    return if (ratiosSame) "$edgeName 액션 교환" else "$edgeName 존 순서 변경"
+                }
+            }
             for (i in f.indices) {
                 val fz = f[i]; val tz = t[i]
                 if (fz.startRatio != tz.startRatio || fz.endRatio != tz.endRatio) return "$edgeName 비율 조정"

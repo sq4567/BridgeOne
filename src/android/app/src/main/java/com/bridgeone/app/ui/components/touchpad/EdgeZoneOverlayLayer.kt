@@ -737,6 +737,13 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
                             swipeController.setFocus(EdgeEditorElement.ZoneActionMerge)
                             true
                         }
+                        // MoveSelecting 상태에서 롱프레스 → Initial 복귀
+                        zonePopup is ZoneActionPopup.MoveSelecting -> {
+                            val ms = zonePopup as ZoneActionPopup.MoveSelecting
+                            zonePopup = ZoneActionPopup.Initial(ms.zone, ms.anchor)
+                            swipeController.setFocus(EdgeEditorElement.ZoneActionMove)
+                            true
+                        }
                         // SplitChoosing 상태에서 분할 개수 버튼 포커스 + 롱프레스 → Initial 복귀
                         swipeController.currentFocus is EdgeEditorElement.ZoneActionSplitN -> {
                             swipeController.activateAlt()

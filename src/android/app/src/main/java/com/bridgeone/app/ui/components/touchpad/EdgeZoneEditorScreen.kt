@@ -120,6 +120,7 @@ internal sealed class ZoneActionPopup {
     object None : ZoneActionPopup()
     data class Initial(val zone: EdgeZone, val anchor: Float) : ZoneActionPopup()
     data class MergeSelecting(val zone: EdgeZone, val anchor: Float, val selectedTargets: Set<Float> = emptySet()) : ZoneActionPopup()
+    data class MoveSelecting(val zone: EdgeZone, val anchor: Float, val carryWidth: Boolean = true) : ZoneActionPopup()
     data class SplitChoosing(val zone: EdgeZone, val anchor: Float) : ZoneActionPopup()
     data class DeleteConfirming(val zone: EdgeZone, val anchor: Float) : ZoneActionPopup()
 }
@@ -570,6 +571,11 @@ fun EdgeZoneEditorScreen(
         val isSplitChoosing = zonePopup is ZoneActionPopup.SplitChoosing
         LaunchedEffect(isSplitChoosing) {
             if (isSplitChoosing) swipeController.setFocus(EdgeEditorElement.ZoneActionSplitN(2))
+        }
+        // Initial → MoveSelecting 전환 시 모드 토글 버튼으로 초기 포커스
+        val isMoveSelecting = zonePopup is ZoneActionPopup.MoveSelecting
+        LaunchedEffect(isMoveSelecting) {
+            if (isMoveSelecting) swipeController.setFocus(EdgeEditorElement.ZoneActionMoveModeToggle)
         }
         // Initial → MergeSelecting 전환 시 왼쪽 인접 존 버튼으로 초기 포커스
         val isMergeSelecting = zonePopup is ZoneActionPopup.MergeSelecting

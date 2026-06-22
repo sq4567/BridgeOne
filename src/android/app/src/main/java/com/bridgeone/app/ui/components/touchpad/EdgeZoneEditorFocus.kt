@@ -71,6 +71,11 @@ sealed class EdgeEditorElement : FocusableElement {
     // ZoneActionPopup
     object ZoneActionMerge : EdgeEditorElement()
     object ZoneActionSplit : EdgeEditorElement()
+    object ZoneActionMove : EdgeEditorElement()           // Initial 팝업의 "이동" 버튼
+    object ZoneActionMoveModeToggle : EdgeEditorElement()  // 폭째/액션만 토글
+    object ZoneActionMoveLeft : EdgeEditorElement()
+    object ZoneActionMoveRight : EdgeEditorElement()
+    object ZoneActionMoveConfirm : EdgeEditorElement()
     object ZoneActionDelete : EdgeEditorElement()
     object ZoneActionMergeCancel : EdgeEditorElement()
     object ZoneActionMergeConfirm : EdgeEditorElement()

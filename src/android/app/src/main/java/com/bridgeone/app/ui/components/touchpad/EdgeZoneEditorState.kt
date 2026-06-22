@@ -107,6 +107,54 @@ class EdgeZoneEditorState(
         return true
     }
 
+    /**
+     * 존을 인접 슬롯으로 한 칸 이동.
+     * @param carryWidth true=폭째 이동(통째 자리 교환 후 비율 재계산), false=액션만 교환(경계 고정, trigger만 swap)
+     * @return 이동 후 "원래 내용이 위치한 존"(없으면 null). 호출부가 selectedZone/popup 갱신에 사용
+     */
+    fun moveZone(zone: EdgeZone, toLeft: Boolean, carryWidth: Boolean): EdgeZone? {
+        val zones = workConfig.zonesFor(zone.edge).toMutableList()
+        val i = zones.indexOfFirst { it.startRatio == zone.startRatio && it.edge == zone.edge }
+        if (i < 0) return null
+        val j = if (toLeft) i - 1 else i + 1
+        if (j < 0 || j >= zones.size) return null
+
+        val resultZone: EdgeZone
+        if (carryWidth) {
+            // 리스트 순서 교환 후 비율을 순서대로 재계산(각 존 폭 보존)
+            val tmp = zones[i]; zones[i] = zones[j]; zones[j] = tmp
+            val recomputed = recomputeRatiosPreservingWidth(zones)
+            resultZone = recomputed[j]
+            pushUndo()
+            workConfig = workConfig.withZones(zone.edge, recomputed)
+        } else {
+            // 경계 고정, trigger만 swap
+            val zi = zones[i]; val zj = zones[j]
+            zones[i] = zi.copy(trigger = zj.trigger)
+            zones[j] = zj.copy(trigger = zi.trigger)
+            resultZone = zones[j]   // 원래 내용이 이동해 간 칸
+            pushUndo()
+            workConfig = workConfig.withZones(zone.edge, zones)
+        }
+        currentPresetId = null
+        selectedZone = resultZone
+        return resultZone
+    }
+
+    /** 리스트 순서대로 비율을 재배치, 각 존의 폭(end-start) 보존. */
+    private fun recomputeRatiosPreservingWidth(zones: List<EdgeZone>): List<EdgeZone> {
+        if (zones.isEmpty()) return zones
+        // 파티션 왼쪽 끝에서 시작. 순서가 바뀌어도 startRatio 최솟값 = 원래 첫 존의 시작점(보통 0f).
+        // 교환 후 zones.first()를 읽으면 다른 존의 startRatio라 비율이 통째로 밀리는 버그가 생긴다.
+        var cum = zones.minOf { it.startRatio }
+        return zones.mapIndexed { idx, z ->
+            val width = z.endRatio - z.startRatio
+            val s = cum; cum += width
+            val e = if (idx == zones.size - 1) 1f else cum
+            z.copy(startRatio = s, endRatio = e)
+        }
+    }
+
     /** 존 삭제. 마지막 1개는 삭제하지 않으며, 빈 비율은 인접 존이 흡수한다. */
     fun deleteZone(zone: EdgeZone) {
         val zones = workConfig.zonesFor(zone.edge).toMutableList()

@@ -386,6 +386,7 @@ internal fun ZoneRatioSection(
                                     is ZoneActionPopup.Initial -> p.anchor
                                     is ZoneActionPopup.MergeSelecting -> p.anchor
                                     is ZoneActionPopup.SplitChoosing -> p.anchor
+                                    is ZoneActionPopup.MoveSelecting -> p.anchor
                                     is ZoneActionPopup.DeleteConfirming -> p.anchor
                                     else -> 0.5f
                                 }
@@ -452,6 +453,7 @@ internal fun ZoneRatioSection(
                                                     }
                                                 }
                                                 val splitAction: () -> Unit = { zonePopup = ZoneActionPopup.SplitChoosing(sel, p.anchor) }
+                                                val moveAction: () -> Unit = { zonePopup = ZoneActionPopup.MoveSelecting(sel, p.anchor) }
                                                 val deleteAction: () -> Unit = { zonePopup = ZoneActionPopup.DeleteConfirming(sel, p.anchor) }
                                                 Row(
                                                     modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
@@ -504,6 +506,31 @@ internal fun ZoneRatioSection(
                                                             },
                                                         ) {
                                                             Text("분할", fontSize = 12.sp,
+                                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
+                                                        }
+                                                    }
+                                                    divider()
+                                                    SwipeFocusable(
+                                                        element = EdgeEditorElement.ZoneActionMove,
+                                                        scope = EdgeEditorScope.ZoneActionPopup,
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        showBorderHighlight = false,
+                                                        onActivate = moveAction,
+                                                        gridRow = 0,
+                                                    ) {
+                                                        val focused = LocalSwipeFocused.current
+                                                        Surface(
+                                                            onClick = moveAction,
+                                                            enabled = hasAdj,
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = if (focused && hasAdj) cs.primary else Color.Transparent,
+                                                            contentColor = when {
+                                                                !hasAdj -> cs.onSurface.copy(alpha = 0.38f)
+                                                                focused -> Color.White
+                                                                else -> cs.primary
+                                                            },
+                                                        ) {
+                                                            Text("이동", fontSize = 12.sp,
                                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
                                                         }
                                                     }
@@ -568,6 +595,153 @@ internal fun ZoneRatioSection(
                                                                     color = if (valid) cs.primary else cs.onSurface.copy(alpha = 0.38f),
                                                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                                                 )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            is ZoneActionPopup.MoveSelecting -> {
+                                                val moveRef = p.zone
+                                                val mi = zoneList.indexOfFirst { it.startRatio == moveRef.startRatio && it.edge == moveRef.edge }
+                                                val canLeft = mi > 0
+                                                val canRight = mi >= 0 && mi < zoneList.size - 1
+                                                val toggleMode: () -> Unit = { zonePopup = p.copy(carryWidth = !p.carryWidth) }
+                                                val moveLeftAction: () -> Unit = {
+                                                    if (canLeft) state.moveZone(p.zone, toLeft = true, carryWidth = p.carryWidth)?.let { moved ->
+                                                        if (inputMode == InputMode.SWIPE) {
+                                                            // 이동 후에도 포커스를 이동 버튼에 유지. 왼쪽 끝 도달 시 오른쪽 버튼으로 넘김.
+                                                            // selectedZone 변경 effect가 StripZone으로 강탈하지 못하도록 override 설정.
+                                                            val nz = workConfig.zonesFor(moved.edge)
+                                                            val ni = nz.indexOfFirst { it.startRatio == moved.startRatio && it.edge == moved.edge }
+                                                            val nextFocus = if (ni > 0) EdgeEditorElement.ZoneActionMoveLeft
+                                                                            else EdgeEditorElement.ZoneActionMoveRight
+                                                            overlayUi.nextFocusOnZoneChangeState.value = nextFocus
+                                                            swipeController.setFocus(nextFocus)
+                                                        }
+                                                        zonePopup = ZoneActionPopup.MoveSelecting(moved, p.anchor, p.carryWidth)
+                                                    }
+                                                }
+                                                val moveRightAction: () -> Unit = {
+                                                    if (canRight) state.moveZone(p.zone, toLeft = false, carryWidth = p.carryWidth)?.let { moved ->
+                                                        if (inputMode == InputMode.SWIPE) {
+                                                            // 이동 후에도 포커스를 이동 버튼에 유지. 오른쪽 끝 도달 시 왼쪽 버튼으로 넘김.
+                                                            val nz = workConfig.zonesFor(moved.edge)
+                                                            val ni = nz.indexOfFirst { it.startRatio == moved.startRatio && it.edge == moved.edge }
+                                                            val nextFocus = if (ni < nz.size - 1) EdgeEditorElement.ZoneActionMoveRight
+                                                                            else EdgeEditorElement.ZoneActionMoveLeft
+                                                            overlayUi.nextFocusOnZoneChangeState.value = nextFocus
+                                                            swipeController.setFocus(nextFocus)
+                                                        }
+                                                        zonePopup = ZoneActionPopup.MoveSelecting(moved, p.anchor, p.carryWidth)
+                                                    }
+                                                }
+                                                val confirmAction: () -> Unit = { zonePopup = ZoneActionPopup.None }
+                                                Column(
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                                    horizontalAlignment = Alignment.CenterHorizontally
+                                                ) {
+                                                    // 이동 방식 토글 (폭째 이동 / 액션만 교환)
+                                                    SwipeFocusable(
+                                                        element = EdgeEditorElement.ZoneActionMoveModeToggle,
+                                                        scope = EdgeEditorScope.ZoneActionPopup,
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        showBorderHighlight = true,
+                                                        onActivate = toggleMode,
+                                                        gridRow = 0,
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.clickable(onClick = toggleMode),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .background(if (p.carryWidth) cs.primary else Color.Transparent)
+                                                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                                                            ) {
+                                                                Text("폭째 이동", fontSize = 11.sp,
+                                                                    color = if (p.carryWidth) Color.White else cs.onSurfaceVariant)
+                                                            }
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .background(if (!p.carryWidth) cs.primary else Color.Transparent)
+                                                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                                                            ) {
+                                                                Text("액션만 교환", fontSize = 11.sp,
+                                                                    color = if (!p.carryWidth) Color.White else cs.onSurfaceVariant)
+                                                            }
+                                                        }
+                                                    }
+                                                    // 좌/우 이동 + 확인
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        SwipeFocusable(
+                                                            element = EdgeEditorElement.ZoneActionMoveLeft,
+                                                            scope = EdgeEditorScope.ZoneActionPopup,
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            showBorderHighlight = true,
+                                                            onActivate = moveLeftAction,
+                                                            gridRow = 1,
+                                                        ) {
+                                                            val focused = LocalSwipeFocused.current
+                                                            Surface(
+                                                                onClick = moveLeftAction,
+                                                                enabled = canLeft,
+                                                                shape = RoundedCornerShape(6.dp),
+                                                                color = if (focused && canLeft) cs.primary else Color.Transparent,
+                                                                contentColor = when {
+                                                                    !canLeft -> cs.onSurface.copy(alpha = 0.38f)
+                                                                    focused -> Color.White
+                                                                    else -> cs.primary
+                                                                },
+                                                            ) {
+                                                                Text("◀ 왼쪽", fontSize = 12.sp,
+                                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                                                            }
+                                                        }
+                                                        SwipeFocusable(
+                                                            element = EdgeEditorElement.ZoneActionMoveRight,
+                                                            scope = EdgeEditorScope.ZoneActionPopup,
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            showBorderHighlight = true,
+                                                            onActivate = moveRightAction,
+                                                            gridRow = 1,
+                                                        ) {
+                                                            val focused = LocalSwipeFocused.current
+                                                            Surface(
+                                                                onClick = moveRightAction,
+                                                                enabled = canRight,
+                                                                shape = RoundedCornerShape(6.dp),
+                                                                color = if (focused && canRight) cs.primary else Color.Transparent,
+                                                                contentColor = when {
+                                                                    !canRight -> cs.onSurface.copy(alpha = 0.38f)
+                                                                    focused -> Color.White
+                                                                    else -> cs.primary
+                                                                },
+                                                            ) {
+                                                                Text("오른쪽 ▶", fontSize = 12.sp,
+                                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                                                            }
+                                                        }
+                                                        SwipeFocusable(
+                                                            element = EdgeEditorElement.ZoneActionMoveConfirm,
+                                                            scope = EdgeEditorScope.ZoneActionPopup,
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            showBorderHighlight = true,
+                                                            onActivate = confirmAction,
+                                                            gridRow = 1,
+                                                        ) {
+                                                            val focused = LocalSwipeFocused.current
+                                                            Surface(
+                                                                onClick = confirmAction,
+                                                                shape = RoundedCornerShape(6.dp),
+                                                                color = if (focused) cs.primary else Color.Transparent,
+                                                                contentColor = if (focused) Color.White else cs.primary,
+                                                            ) {
+                                                                Text("확인", fontSize = 12.sp,
+                                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
                                                             }
                                                         }
                                                     }
