@@ -1,5 +1,6 @@
 package com.bridgeone.app.ui.components.touchpad
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Column
@@ -22,11 +23,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFocusController
+import com.bridgeone.app.ui.common.swipe.LocalSwipeFocused
 import com.bridgeone.app.ui.common.swipe.SwipeFocusable
 
 /**
@@ -67,7 +71,7 @@ internal fun UndoHistorySwipePopup(
     androidx.compose.material3.Surface(
         modifier = Modifier.widthIn(min = 200.dp, max = 280.dp),
         shape = RoundedCornerShape(12.dp),
-        color = cs.surfaceContainerHigh,
+        color = cs.surfaceVariant,
         shadowElevation = 12.dp,
     ) {
         Column(modifier = Modifier.padding(vertical = 4.dp)) {
@@ -85,16 +89,21 @@ internal fun UndoHistorySwipePopup(
                             element = EdgeEditorElement.UndoHistoryItem(idx),
                             scope = EdgeEditorScope.UndoMenu,
                             shape = RoundedCornerShape(8.dp),
-                            showBorderHighlight = true,
                             onActivate = { onApply(config, idx) },
                             gridRow = idx,
                             modifier = Modifier.onSizeChanged { size -> itemHeights[idx] = size.height },
                         ) {
+                            val focused = LocalSwipeFocused.current
                             Text(
                                 text = desc,
                                 fontSize = 14.sp,
+                                color = cs.onSurfaceVariant,
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (focused) cs.primary.copy(alpha = 0.18f) else Color.Transparent
+                                    )
                                     .padding(horizontal = 16.dp, vertical = 14.dp),
                             )
                         }
