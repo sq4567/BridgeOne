@@ -429,101 +429,19 @@ internal fun RotationEditor(
                 }
             }
             if (showCustomSlider) {
-                val intervalSwipeController = LocalSwipeFocusController.current
-                SwipeFocusable(
+                com.bridgeone.app.ui.common.CustomTrackSlider(
+                    value = rotation.intervalMs.toFloat(),
+                    onValueChange = { onRotationChanged(rotation.copy(intervalMs = it.toInt())) },
+                    valueRange = minMs..maxMs,
+                    valueLabel = "${rotation.intervalMs}ms",
+                    labelWidth = 52.dp,
+                    snap = { it.toInt().toFloat() },
+                    onBeforeChange = { onBeforeIntervalChange?.invoke() },
                     element = EdgeEditorElement.RotationIntervalSlider,
-                    shape = RoundedCornerShape(8.dp),
-                    showBorderHighlight = true,
-                    manipulatable = true,
-                    onManipulate = { deltaPx, screenWidthPx ->
-                        val rangeSpan = maxMs - minMs
-                        val deltaValue = (deltaPx / screenWidthPx) * rangeSpan
-                        val newValue = (rotation.intervalMs + deltaValue).coerceIn(minMs, maxMs)
-                        onBeforeIntervalChange?.invoke()
-                        onRotationChanged(rotation.copy(intervalMs = newValue.toInt()))
-                    },
                     gridRow = 62,
-                ) {
-                val isFocused = LocalSwipeFocused.current
-                val inManip = isFocused && intervalSwipeController?.mode == SwipeMode.MANIPULATION
-                val lineWidthDp by animateDpAsState(
-                    targetValue = when {
-                        inManip -> 6.dp
-                        isFocused -> 4.dp
-                        else -> CUSTOM_SLIDER_LINE_WIDTH_DP.dp
-                    },
-                    label = "intervalSliderLineWidth",
+                    majorTickStep = 500f,
+                    minorTickStep = 100f,
                 )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 2.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(CUSTOM_SLIDER_TRACK_HEIGHT_DP.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .pointerInput(onRotationChanged) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    down.consume()
-                                    fun applyX(x: Float) {
-                                        val fr = (x / size.width).coerceIn(0f, 1f)
-                                        val v = minMs + fr * (maxMs - minMs)
-                                        onBeforeIntervalChange?.invoke()
-                                        onRotationChanged(rotation.copy(intervalMs = v.toInt()))
-                                    }
-                                    applyX(down.position.x)
-                                    drag(down.id) { change ->
-                                        change.consume()
-                                        applyX(change.position.x)
-                                    }
-                                }
-                            }
-                    ) {
-                        val trackWidthPx = constraints.maxWidth
-                        val thumbFraction = ((rotation.intervalMs - minMs) / (maxMs - minMs)).coerceIn(0f, 1f)
-                        val trackBgColor = when {
-                            inManip -> cs.primaryContainer.copy(alpha = 0.5f)
-                            isFocused -> cs.primaryContainer.copy(alpha = 0.25f)
-                            else -> cs.surfaceVariant
-                        }
-                        Box(Modifier.matchParentSize().background(trackBgColor))
-                        Box(
-                            Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(thumbFraction)
-                                .background(cs.primary)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .offset {
-                                    val lineWidthPx = lineWidthDp.roundToPx()
-                                    IntOffset(
-                                        (thumbFraction * trackWidthPx - lineWidthPx / 2f)
-                                            .roundToInt()
-                                            .coerceIn(0, (trackWidthPx - lineWidthPx).coerceAtLeast(0)),
-                                        0,
-                                    )
-                                }
-                                .fillMaxHeight()
-                                .width(lineWidthDp)
-                                .background(if (isFocused || inManip) Color.White else Color.White.copy(alpha = 0.7f))
-                        )
-                    }
-                    Text(
-                        "${rotation.intervalMs}ms",
-                        fontSize = 13.sp,
-                        color = cs.onSurface,
-                        modifier = Modifier.width(52.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.End
-                    )
-                }
-                }
             }
         }
     } else {

@@ -242,7 +242,6 @@ internal fun Page5Settings(
                 // TTS 말하기 속도 (음성 안내 켜진 경우에만 활성)
                 if (audioFeedbackEnabled) {
                     item {
-                        val cs = MaterialTheme.colorScheme
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -250,62 +249,16 @@ internal fun Page5Settings(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(text = "말하기 속도", fontSize = 14.sp, color = Color(0xFFE0E0E0))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                BoxWithConstraints(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(28.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .pointerInput(onTtsRateChange) {
-                                            awaitEachGesture {
-                                                val down = awaitFirstDown(requireUnconsumed = false)
-                                                down.consume()
-                                                fun applyX(x: Float) {
-                                                    val fr = (x / size.width).coerceIn(0f, 1f)
-                                                    val v = 0.5f + fr * (3.0f - 0.5f)
-                                                    onTtsRateChange((v * 10f).roundToInt() / 10f)
-                                                }
-                                                applyX(down.position.x)
-                                                drag(down.id) { change ->
-                                                    change.consume()
-                                                    applyX(change.position.x)
-                                                }
-                                            }
-                                        }
-                                ) {
-                                    val trackWidthPx = constraints.maxWidth
-                                    val thumbFraction = ((ttsRate - 0.5f) / (3.0f - 0.5f)).coerceIn(0f, 1f)
-                                    Box(Modifier.matchParentSize().background(cs.surfaceVariant))
-                                    Box(Modifier.fillMaxHeight().fillMaxWidth(thumbFraction).background(cs.primary))
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.CenterStart)
-                                            .offset {
-                                                val lineWidthPx = 3.dp.roundToPx()
-                                                IntOffset(
-                                                    (thumbFraction * trackWidthPx - lineWidthPx / 2f)
-                                                        .roundToInt()
-                                                        .coerceIn(0, (trackWidthPx - lineWidthPx).coerceAtLeast(0)),
-                                                    0
-                                                )
-                                            }
-                                            .fillMaxHeight()
-                                            .width(3.dp)
-                                            .background(Color.White)
-                                    )
-                                }
-                                Text(
-                                    text = "×${"%.1f".format(ttsRate)}",
-                                    fontSize = 13.sp,
-                                    color = cs.onSurface,
-                                    modifier = Modifier.width(40.dp),
-                                    textAlign = TextAlign.End
-                                )
-                            }
+                            com.bridgeone.app.ui.common.CustomTrackSlider(
+                                value = ttsRate,
+                                onValueChange = onTtsRateChange,
+                                valueRange = 0.5f..3.0f,
+                                valueLabel = "×${"%.1f".format(ttsRate)}",
+                                labelWidth = 40.dp,
+                                snap = { (it * 10f).roundToInt() / 10f },
+                                majorTickStep = 0.5f,
+                                minorTickStep = 0.1f,
+                            )
                         }
                     }
 

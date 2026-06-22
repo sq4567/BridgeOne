@@ -139,108 +139,22 @@ private fun MacroDelaySliderRow(
     gridRow: Int,
     gridCol: Int? = null,
 ) {
-    val cs = MaterialTheme.colorScheme
-    val swipeController = LocalSwipeFocusController.current
     val minMs = com.bridgeone.app.ui.common.MACRO_STEP_DELAY_MIN_MS.toFloat()
     val maxMs = com.bridgeone.app.ui.common.MACRO_STEP_DELAY_MAX_MS.toFloat()
-
-    val content: @Composable (Boolean) -> Unit = { isFocused ->
-        val inManip = isFocused && swipeController?.mode == SwipeMode.MANIPULATION
-        val lineColor = if (isFocused || inManip) Color.White else Color.White.copy(alpha = 0.7f)
-        val lineWidthDp by animateDpAsState(
-            targetValue = when {
-                inManip -> 6.dp
-                isFocused -> 4.dp
-                else -> CUSTOM_SLIDER_LINE_WIDTH_DP.dp
-            },
-            label = "macroDelayLineWidth",
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 2.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            BoxWithConstraints(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(CUSTOM_SLIDER_TRACK_HEIGHT_DP.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .pointerInput(onValueChange) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            down.consume()
-                            fun applyX(x: Float) {
-                                val fr = (x / size.width).coerceIn(0f, 1f)
-                                val v = minMs + fr * (maxMs - minMs)
-                                onValueChange(v.roundToInt())
-                            }
-                            applyX(down.position.x)
-                            drag(down.id) { change ->
-                                change.consume()
-                                applyX(change.position.x)
-                            }
-                        }
-                    }
-            ) {
-                val trackWidthPx = constraints.maxWidth
-                val thumbFraction = ((value - minMs) / (maxMs - minMs)).coerceIn(0f, 1f)
-                val trackBgColor = when {
-                    inManip -> cs.primaryContainer.copy(alpha = 0.5f)
-                    isFocused -> cs.primaryContainer.copy(alpha = 0.25f)
-                    else -> cs.primaryContainer.copy(alpha = 0.12f)
-                }
-                Box(Modifier.matchParentSize().background(trackBgColor))
-                Box(
-                    Modifier.fillMaxHeight().fillMaxWidth(thumbFraction).background(cs.primary)
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .offset {
-                            val lineWidthPx = lineWidthDp.roundToPx()
-                            IntOffset(
-                                (thumbFraction * trackWidthPx - lineWidthPx / 2f)
-                                    .roundToInt()
-                                    .coerceIn(0, (trackWidthPx - lineWidthPx).coerceAtLeast(0)),
-                                0,
-                            )
-                        }
-                        .fillMaxHeight()
-                        .width(lineWidthDp)
-                        .background(lineColor)
-                )
-            }
-            Text(
-                "${value}ms",
-                fontSize = 13.sp,
-                color = cs.onSurface,
-                modifier = Modifier.width(44.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.End,
-            )
-        }
-    }
-
-    if (inputMode == InputMode.SWIPE) {
-        SwipeFocusable(
-            element = element,
-            scope = EdgeEditorScope.MacroPopup,
-            shape = RoundedCornerShape(8.dp),
-            showBorderHighlight = true,
-            manipulatable = true,
-            onManipulate = { deltaPx, screenWidthPx ->
-                val rangeSpan = maxMs - minMs
-                val deltaValue = (deltaPx / screenWidthPx) * rangeSpan
-                val newValue = (value.toFloat() + deltaValue).coerceIn(minMs, maxMs)
-                onValueChange(newValue.roundToInt())
-            },
-            gridRow = gridRow,
-            gridCol = gridCol,
-        ) { content(LocalSwipeFocused.current) }
-    } else {
-        content(false)
-    }
+    com.bridgeone.app.ui.common.CustomTrackSlider(
+        value = value.toFloat(),
+        onValueChange = { onValueChange(it.roundToInt()) },
+        valueRange = minMs..maxMs,
+        valueLabel = "${value}ms",
+        labelWidth = 44.dp,
+        snap = { it.roundToInt().toFloat() },
+        element = if (inputMode == InputMode.SWIPE) element else null,
+        scope = EdgeEditorScope.MacroPopup,
+        gridRow = gridRow,
+        gridCol = gridCol,
+        majorTickStep = 100f,
+        minorTickStep = 50f,
+    )
 }
 
 /** 스텝 입력 모드. 키 모드는 SINGLE_KEY/COMBO, 문자열 일괄 추가는 TEXT, 단축키 피커는 PICK. */

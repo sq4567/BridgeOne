@@ -115,11 +115,6 @@ import com.bridgeone.app.ui.common.swipe.rememberSwipeFocusController
 import com.bridgeone.app.ui.components.SwipeKeyboardOverlay
 import androidx.compose.ui.draw.alpha
 
-/** 커스텀 배율 슬라이더 트랙 높이 (dp). 기본값: 28f */
-internal const val CUSTOM_SLIDER_TRACK_HEIGHT_DP = 28f
-/** 커스텀 배율 슬라이더 손잡이 세로선 너비 (dp). 기본값: 3f */
-internal const val CUSTOM_SLIDER_LINE_WIDTH_DP = 3f
-
 // ── 영역 비율 인라인 액션 팝업 상태 ──
 internal sealed class ZoneActionPopup {
     object None : ZoneActionPopup()

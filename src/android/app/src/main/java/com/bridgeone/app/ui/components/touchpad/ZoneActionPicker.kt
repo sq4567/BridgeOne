@@ -1129,104 +1129,18 @@ internal fun ActionDomainPicker(
                     ) {
                         val displayMultiplier = lastSliderMultiplier
                         val displayOnChange = lastSliderOnChange ?: return@AnimatedVisibility
-                        val swipeController = LocalSwipeFocusController.current
-                        SwipeFocusable(
+                        com.bridgeone.app.ui.common.CustomTrackSlider(
+                            value = displayMultiplier,
+                            onValueChange = displayOnChange,
+                            valueRange = 0.1f..5.0f,
+                            valueLabel = "×${"%.1f".format(displayMultiplier)}",
+                            labelWidth = 40.dp,
+                            snap = { (it * 10f).roundToInt() / 10f },
                             element = EdgeEditorElement.CustomMultiplierSlider,
-                            shape = RoundedCornerShape(8.dp),
-                            showBorderHighlight = true,
-                            manipulatable = true,
-                            onManipulate = { deltaPx, screenWidthPx ->
-                                val rangeSpan = 5.0f - 0.1f
-                                val deltaValue = (deltaPx / screenWidthPx) * rangeSpan
-                                val newValue = (displayMultiplier + deltaValue).coerceIn(0.1f, 5.0f)
-                                displayOnChange((newValue * 10f).roundToInt() / 10f)
-                            },
                             gridRow = 35,
-                        ) {
-                        val isFocused = LocalSwipeFocused.current
-                        val inManip = isFocused && swipeController?.mode == SwipeMode.MANIPULATION
-                        // animateDpAsState를 isFocused/inManip과 같은 레벨에 선언 — mode 변경 시 즉시 리컴포지션
-                        val lineColor = if (isFocused || inManip) Color.White else Color.White.copy(alpha = 0.7f)
-                        val lineWidthDp by animateDpAsState(
-                            targetValue = when {
-                                inManip -> 6.dp
-                                isFocused -> 4.dp
-                                else -> CUSTOM_SLIDER_LINE_WIDTH_DP.dp
-                            },
-                            label = "sliderLineWidth",
+                            majorTickStep = 1.0f,
+                            minorTickStep = 0.5f,
                         )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 2.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            BoxWithConstraints(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(CUSTOM_SLIDER_TRACK_HEIGHT_DP.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .pointerInput(displayOnChange) {
-                                        awaitEachGesture {
-                                            val down = awaitFirstDown(requireUnconsumed = false)
-                                            down.consume()
-                                            fun applyX(x: Float) {
-                                                val fr = (x / size.width).coerceIn(0f, 1f)
-                                                val v = 0.1f + fr * (5.0f - 0.1f)
-                                                displayOnChange((v * 10f).roundToInt() / 10f)
-                                            }
-                                            applyX(down.position.x)
-                                            drag(down.id) { change ->
-                                                change.consume()
-                                                applyX(change.position.x)
-                                            }
-                                        }
-                                    }
-                            ) {
-                                val trackWidthPx = constraints.maxWidth
-                                val thumbFraction = ((displayMultiplier - 0.1f) / (5.0f - 0.1f)).coerceIn(0f, 1f)
-                                // 배경 (미채움 구간) — 포커스/조작 상태에 따라 색상 변화
-                                val trackBgColor = when {
-                                    inManip -> cs.primaryContainer.copy(alpha = 0.5f)
-                                    isFocused -> cs.primaryContainer.copy(alpha = 0.25f)
-                                    else -> cs.surfaceVariant
-                                }
-                                Box(Modifier.matchParentSize().background(trackBgColor))
-                                // 채움 구간 (primary)
-                                Box(
-                                    Modifier
-                                        .fillMaxHeight()
-                                        .fillMaxWidth(thumbFraction)
-                                        .background(cs.primary)
-                                )
-                                // 손잡이 (흰 세로 구분선)
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.CenterStart)
-                                        .offset {
-                                            val lineWidthPx = lineWidthDp.roundToPx()
-                                            IntOffset(
-                                                (thumbFraction * trackWidthPx - lineWidthPx / 2f)
-                                                    .roundToInt()
-                                                    .coerceIn(0, (trackWidthPx - lineWidthPx).coerceAtLeast(0)),
-                                                0,
-                                            )
-                                        }
-                                        .fillMaxHeight()
-                                        .width(lineWidthDp)
-                                        .background(lineColor)
-                                )
-                            }
-                            Text(
-                                "×${"%.1f".format(displayMultiplier)}",
-                                fontSize = 13.sp,
-                                color = cs.onSurface,
-                                modifier = Modifier.width(40.dp),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.End
-                            )
-                        }
-                        }
                     }
 
             }
