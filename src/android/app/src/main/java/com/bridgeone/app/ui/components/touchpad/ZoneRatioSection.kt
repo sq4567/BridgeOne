@@ -1,26 +1,31 @@
 package com.bridgeone.app.ui.components.touchpad
 
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +45,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -51,6 +57,7 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.MutableState
 import androidx.compose.ui.graphics.Color
+import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import com.bridgeone.app.ui.common.InputMode
 import com.bridgeone.app.ui.common.LocalInputMode
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFocused
@@ -73,6 +80,7 @@ import com.bridgeone.app.ui.common.swipe.SwipeFocusable
 @Composable
 internal fun ZoneRatioSection(
     state: EdgeZoneEditorState,
+    overlayUi: EdgeZoneOverlayUiState,
     zonePopupState: MutableState<ZoneActionPopup>,
     sel: EdgeZone?,
     edgeForStrip: EntryEdge,
@@ -98,7 +106,28 @@ internal fun ZoneRatioSection(
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             // ── 1. 영역 비율 ──
                             val p = zonePopup
-                            var presetMenuOpen by remember { mutableStateOf(false) }
+                            var presetMenuOpen by overlayUi.showRatioPresetMenuState
+                            var pendingPreviewIdx by remember { mutableStateOf<Int?>(null) }
+                            val ratioPreviewRatios by overlayUi.ratioPreviewRatiosState
+
+                            // 서랍 닫힐 때 NORMAL 미리보기 인덱스 리셋
+                            LaunchedEffect(presetMenuOpen) {
+                                if (!presetMenuOpen) pendingPreviewIdx = null
+                            }
+
+                            // 미리보기 존 파생 (workConfig/Undo 비오염, 렌더 전용)
+                            val previewZones: List<EdgeZone>? = when {
+                                inputMode == InputMode.NORMAL && pendingPreviewIdx != null -> {
+                                    val presets = EdgeZoneActionResolver.ratioPresetsFor(zoneList.size)
+                                    presets.getOrNull(pendingPreviewIdx!!)?.second
+                                        ?.let { state.computeRatioZones(zoneList, it) }
+                                }
+                                inputMode == InputMode.SWIPE -> {
+                                    ratioPreviewRatios?.let { state.computeRatioZones(zoneList, it) }
+                                }
+                                else -> null
+                            }
+
                             if (inputMode == InputMode.SWIPE) {
                                 DisposableEffect(presetMenuOpen) {
                                     val active = presetMenuOpen
@@ -109,7 +138,13 @@ internal fun ZoneRatioSection(
                                 LaunchedEffect(presetMenuOpen) {
                                     if (presetMenuOpen) {
                                         presetMenuHasOpened.value = true
-                                        val firstLabel = EdgeZoneActionResolver.ratioPresetsFor(zoneList.size).firstOrNull()?.first
+                                        val presets = EdgeZoneActionResolver.ratioPresetsFor(zoneList.size)
+                                        overlayUi.ratioPresetItemsState.value = presets
+                                        overlayUi.ratioPresetOnSelectState.value = { ratios ->
+                                            state.applyRatioPreset(edgeForStrip, ratios)
+                                            presetMenuOpen = false
+                                        }
+                                        val firstLabel = presets.firstOrNull()?.first
                                         if (firstLabel != null) {
                                             swipeController.setFocus(EdgeEditorElement.RatioPresetItem(firstLabel))
                                         }
@@ -137,72 +172,114 @@ internal fun ZoneRatioSection(
                                     "영역 비율",
                                     fontSize = 12.sp,
                                     color = cs.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f)
                                 )
                                 if (zoneList.size >= 2) {
-                                    Box {
-                                        SwipeFocusable(
-                                            element = EdgeEditorElement.RatioPresetMenu,
-                                            shape = RoundedCornerShape(16.dp),
-                                            onActivate = { presetMenuOpen = true },
-                                            gridRow = 20,
-                                            modifier = Modifier.onGloballyPositioned { coords ->
-                                                onRatioBtnBoundsChange(coords.boundsInWindow())
+                                    val presets = remember(zoneList.size) {
+                                        EdgeZoneActionResolver.ratioPresetsFor(zoneList.size)
+                                    }
+                                    var normalDrawerBoxWidthPx by remember { mutableStateOf(0) }
+                                    // NORMAL 서랍 enter/exit 애니메이션 상태 — exit가 끝날 때까지 Popup을 유지
+                                    val normalMenuVisible = remember { MutableTransitionState(false) }
+                                    normalMenuVisible.targetState = inputMode == InputMode.NORMAL && presetMenuOpen
+                                    val normalMenuPresent = normalMenuVisible.currentState || normalMenuVisible.targetState
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .heightIn(min = 32.dp) // 아이콘 숨김 시 높이 유지
+                                            .onGloballyPositioned {
+                                                normalDrawerBoxWidthPx = it.size.width
+                                                overlayUi.ratioDrawerMaxWidthPxState.value = it.size.width
                                             },
-                                        ) {
-                                        val ratioFocused = LocalSwipeFocused.current
-                                        IconButton(
-                                            onClick = { presetMenuOpen = true },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.BarChart,
-                                                contentDescription = "비율 프리셋",
-                                                tint = if (ratioFocused) cs.primary else cs.onSurface.copy(alpha = 0.75f),
-                                                modifier = Modifier.size(16.dp)
-                                            )
+                                    ) {
+                                        // 아이콘 버튼: 서랍 표시(애니메이션 포함) 중에는 숨김 (겹침 방지)
+                                        val showIcon = if (inputMode == InputMode.NORMAL)
+                                            !normalMenuPresent
+                                        else
+                                            // 닫기 애니(exit)가 끝날 때까지 아이콘 복귀 지연(NORMAL과 동일):
+                                            // 열림(targetState=presetMenuOpen) 또는 exit 진행 중(currentState)이면 숨김
+                                            !(presetMenuOpen || overlayUi.ratioPresetMenuVisibleState.currentState)
+                                        if (showIcon) {
+                                            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                                                SwipeFocusable(
+                                                    element = EdgeEditorElement.RatioPresetMenu,
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    onActivate = { presetMenuOpen = true },
+                                                    gridRow = 20,
+                                                    modifier = Modifier.onGloballyPositioned { coords ->
+                                                        onRatioBtnBoundsChange(coords.boundsInWindow())
+                                                    },
+                                                ) {
+                                                    val ratioFocused = LocalSwipeFocused.current
+                                                    IconButton(
+                                                        onClick = { presetMenuOpen = true },
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.BarChart,
+                                                            contentDescription = "비율 프리셋",
+                                                            tint = if (ratioFocused) cs.primary else cs.onSurface.copy(alpha = 0.75f),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
-                                        }
-                                        // NORMAL 모드: 일반 DropdownMenu (focusable = true, 외부 탭으로 닫힘)
-                                        DropdownMenu(
-                                            expanded = presetMenuOpen && inputMode == InputMode.NORMAL,
-                                            onDismissRequest = { presetMenuOpen = false }
-                                        ) {
-                                            EdgeZoneActionResolver.ratioPresetsFor(zoneList.size).forEach { (label, ratios) ->
-                                                DropdownMenuItem(
-                                                    text = {
-                                                        Row(
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                                        ) {
-                                                            MiniRatioBar(
-                                                                ratios = ratios,
-                                                                modifier = Modifier
-                                                                    .width(40.dp)
-                                                                    .height(10.dp)
-                                                            )
-                                                            Text(label, fontSize = 13.sp)
+                                        // NORMAL 모드: 가로 서랍 Popup (외부 탭으로 닫힘). exit 애니메이션 동안 유지
+                                        if (inputMode == InputMode.NORMAL && normalMenuPresent) {
+                                            val density = LocalDensity.current
+                                            Popup(
+                                                popupPositionProvider = remember {
+                                                    object : PopupPositionProvider {
+                                                        override fun calculatePosition(
+                                                            anchorBounds: IntRect,
+                                                            windowSize: IntSize,
+                                                            layoutDirection: LayoutDirection,
+                                                            popupContentSize: IntSize
+                                                        ): IntOffset {
+                                                            // 화면 오른쪽 끝에 우측 정렬 (SWIPE 오버레이의 TopEnd와 동일, 폼 패딩 무시)
+                                                            val x = windowSize.width - popupContentSize.width
+                                                            // 헤더 행 세로 중앙 정렬 → 컴팩트해진 메뉴가 헤더 행 안에 들어가 스트립/라벨을 가리지 않음
+                                                            val y = anchorBounds.top +
+                                                                (anchorBounds.height - popupContentSize.height) / 2
+                                                            return IntOffset(x.coerceAtLeast(0), y.coerceAtLeast(0))
+                                                        }
+                                                    }
+                                                },
+                                                onDismissRequest = {
+                                                    presetMenuOpen = false
+                                                    pendingPreviewIdx = null
+                                                },
+                                                properties = PopupProperties(
+                                                    focusable = true,
+                                                    dismissOnClickOutside = true,
+                                                ),
+                                            ) {
+                                                val maxDrawerWidthDp = with(density) {
+                                                    normalDrawerBoxWidthPx.toDp()
+                                                }
+                                                RatioPresetNormalDrawerContent(
+                                                    visibleState = normalMenuVisible,
+                                                    presets = presets,
+                                                    maxWidthDp = maxDrawerWidthDp,
+                                                    cs = cs,
+                                                    pendingPreviewIdx = pendingPreviewIdx,
+                                                    onItemTap = { idx, ratios ->
+                                                        if (pendingPreviewIdx == idx) {
+                                                            state.applyRatioPreset(edgeForStrip, ratios)
+                                                            presetMenuOpen = false
+                                                            pendingPreviewIdx = null
+                                                        } else {
+                                                            pendingPreviewIdx = idx
                                                         }
                                                     },
-                                                    onClick = {
-                                                        state.applyRatioPreset(edgeForStrip, ratios)
-                                                        presetMenuOpen = false
-                                                    }
                                                 )
                                             }
                                         }
-                                        // SWIPE 모드: focusable=false Popup → 터치가 팝업을 통과하여
-                                        // 아래 SwipeGestureLayer까지 전달되므로 화면 어디서든 스와이프 가능
-                                        if (inputMode == InputMode.SWIPE && presetMenuOpen) {
-                                            RatioPresetSwipePopup(
-                                                presets = EdgeZoneActionResolver.ratioPresetsFor(zoneList.size),
-                                                onSelect = { ratios ->
-                                                    state.applyRatioPreset(edgeForStrip, ratios)
-                                                    presetMenuOpen = false
-                                                },
-                                            )
-                                        }
+                                        // SWIPE 모드: EdgeZoneOverlayLayer에서 인라인 렌더링
+                                        // → SwipeGestureLayer가 터치를 수신하므로 화면 어디서든 스와이프 가능
                                     }
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
                                 }
                             }
 
@@ -223,6 +300,7 @@ internal fun ZoneRatioSection(
                                     inputMode = inputMode,
                                     zones = zoneList,
                                     selectedZone = sel,
+                                    previewZones = previewZones,
                                     minRatio = minRatio,
                                     onZonesChanged = { newZones ->
                                         state.pushUndo()

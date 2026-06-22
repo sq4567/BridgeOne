@@ -184,4 +184,49 @@ object EdgeSwipeConstants {
 
     /** 프리셋 썸네일/미리보기의 종횡비 (너비 / 높이). 기본값: 16f / 9f */
     const val PRESET_PREVIEW_ASPECT_RATIO = 16f / 9f
+
+    // ── 비율 프리셋 가로 서랍 ──
+
+    /** 비율 프리셋 서랍 슬라이드 인 애니메이션 길이 (ms). 기본값: 220 */
+    const val RATIO_DRAWER_OPEN_DURATION_MS = 220
+    /** 비율 프리셋 서랍 슬라이드 아웃 애니메이션 길이 (ms). 기본값: 160 */
+    const val RATIO_DRAWER_CLOSE_DURATION_MS = 160
+    /** SWIPE 비율 프리셋 서랍 위로 올림 (헤더 행 top 기준, dp). 기본값: 8f */
+    const val RATIO_DRAWER_SWIPE_Y_LIFT_DP = 8f
+    /** 비율 프리셋 서랍 컨테이너 모서리 반경 (dp). 기본값: 12f */
+    const val RATIO_DRAWER_CORNER_RADIUS_DP = 12f
+    /** 비율 프리셋 서랍 컨테이너 그림자 elevation (dp). 기본값: 6f */
+    const val RATIO_DRAWER_ELEVATION_DP = 6f
+    /** 비율 프리셋 서랍 컨테이너 내부 여백 (dp). 기본값: 4f */
+    const val RATIO_DRAWER_CONTENT_PADDING_DP = 4f
+    /** 비율 프리셋 서랍 좌측 손잡이 너비 (dp). 기본값: 4f */
+    const val RATIO_DRAWER_HANDLE_WIDTH_DP = 4f
+    /** 비율 프리셋 서랍 좌측 손잡이 높이 (dp). 기본값: 18f */
+    const val RATIO_DRAWER_HANDLE_HEIGHT_DP = 18f
+    /** 비율 프리셋 서랍 좌측 손잡이 모서리 반경 (dp). 기본값: 2f */
+    const val RATIO_DRAWER_HANDLE_CORNER_DP = 2f
+    /** 비율 프리셋 서랍 좌측 손잡이 좌우 여백 (dp). 기본값: 4f */
+    const val RATIO_DRAWER_HANDLE_PADDING_DP = 4f
+    /** 비율 프리셋 서랍 좌측 손잡이 알파. 기본값: 0.5f */
+    const val RATIO_DRAWER_HANDLE_ALPHA = 0.5f
+    /** 비율 프리셋 서랍 항목 셀 모서리 반경 (dp). 기본값: 8f */
+    const val RATIO_DRAWER_ITEM_CORNER_RADIUS_DP = 8f
+    /** 비율 프리셋 서랍 항목 셀 테두리 두께 (dp). 기본값: 1f */
+    const val RATIO_DRAWER_ITEM_BORDER_WIDTH_DP = 1f
+    /** 비율 프리셋 서랍 항목 셀 테두리 알파 (비포커스). 기본값: 0.3f */
+    const val RATIO_DRAWER_ITEM_BORDER_ALPHA = 0.3f
+    /** 비율 프리셋 서랍 항목 막대 그림 너비 (dp). 기본값: 40f ⚠️ 의도적 변경 */
+    const val RATIO_DRAWER_ITEM_MINI_BAR_WIDTH_DP = 28f
+    /** 비율 프리셋 서랍 항목 막대 그림 높이 (dp). 기본값: 10f */
+    const val RATIO_DRAWER_ITEM_MINI_BAR_HEIGHT_DP = 10f
+    /** 비율 프리셋 서랍 항목 내부 막대/텍스트 간격 (dp). 기본값: 10f ⚠️ 의도적 변경 */
+    const val RATIO_DRAWER_ITEM_SPACING_DP = 6f
+    /** 비율 프리셋 서랍 항목 수평 패딩 (dp). 기본값: 10f ⚠️ 의도적 변경 */
+    const val RATIO_DRAWER_ITEM_PADDING_HORIZONTAL_DP = 8f
+    /** 비율 프리셋 서랍 항목 수직 패딩 (dp). 기본값: 7f ⚠️ 의도적 변경 */
+    const val RATIO_DRAWER_ITEM_PADDING_VERTICAL_DP = 5f
+    /** 비율 프리셋 미리보기 중 스트립 amber 보더 두께 (dp). 기본값: 1.5f */
+    const val RATIO_PREVIEW_BORDER_WIDTH_DP = 1.5f
+    /** 비율 프리셋 미리보기 중 스트립 amber 보더 알파. 기본값: 0.55f */
+    const val RATIO_PREVIEW_BORDER_ALPHA = 0.55f
 }

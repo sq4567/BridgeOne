@@ -1,6 +1,7 @@
 package com.bridgeone.app.ui.components.touchpad
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -80,6 +81,7 @@ fun EdgeStripEditor(
     onZoneSelected: (EdgeZone) -> Unit,
     onZoneDeselected: () -> Unit,
     onZoneLongPressed: (zone: EdgeZone, anchorCenterFraction: Float) -> Unit = { _, _ -> },
+    previewZones: List<EdgeZone>? = null,
     highlightedZones: Set<Pair<EntryEdge, Float>> = emptySet(),
     blockedStartRatio: Float = 0f,
     blockedStartLabel: String? = null,
@@ -119,7 +121,7 @@ fun EdgeStripEditor(
 
     // 드래그 중 임시 존 상태 (실시간 렌더링용)
     var draggingZones by remember { mutableStateOf<List<EdgeZone>?>(null) }
-    val renderZones = draggingZones ?: zones
+    val renderZones = draggingZones ?: previewZones ?: zones
 
     val gestureModifier = if (inputMode != InputMode.NORMAL) Modifier else Modifier.pointerInput(Unit) {
         val handleHitPx = density.run { handleHitDp.dp.toPx() }
@@ -374,6 +376,19 @@ fun EdgeStripEditor(
             }
         }
         } // Canvas 닫기
+
+        // ── 미리보기 amber 보더 오버레이 ──
+        if (previewZones != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(
+                        width = EdgeSwipeConstants.RATIO_PREVIEW_BORDER_WIDTH_DP.dp,
+                        color = Color(0xFFFFC107).copy(alpha = EdgeSwipeConstants.RATIO_PREVIEW_BORDER_ALPHA),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+            )
+        }
 
         // ── SWIPE 모드 오버레이: 존 + 경계선 ──
         if (inputMode == InputMode.SWIPE) {

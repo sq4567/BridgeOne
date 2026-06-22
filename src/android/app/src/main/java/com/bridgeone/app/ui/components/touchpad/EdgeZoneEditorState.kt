@@ -123,19 +123,28 @@ class EdgeZoneEditorState(
     /** 존 비율 프리셋 적용. ratios 개수가 존 개수와 다르면 무시. */
     fun applyRatioPreset(edge: EntryEdge, ratios: List<Float>) {
         val zones = workConfig.zonesFor(edge).toList()
-        if (zones.size != ratios.size) return
-        var cum = 0f
-        val newZones = zones.mapIndexed { i, zone ->
-            val s = cum
-            cum += ratios[i]
-            val e = if (i == zones.size - 1) 1f else cum
-            zone.copy(startRatio = s, endRatio = e)
-        }
+        val newZones = computeRatioZones(zones, ratios) ?: return
         val curSel = selectedZone
         val selIdx = if (curSel != null) zones.indexOfFirst { it.startRatio == curSel.startRatio && it.edge == curSel.edge } else -1
         pushUndo()
         workConfig = workConfig.withZones(edge, newZones)
         currentPresetId = null
         selectedZone = if (selIdx >= 0) newZones[selIdx] else null
+    }
+
+    /**
+     * 비율 프리셋을 zones 배열에 적용해 새 zones 목록을 반환하는 순수 함수.
+     * workConfig/Undo를 건드리지 않으므로 미리보기에 사용 가능.
+     * ratios 개수가 zones 개수와 다르면 null 반환.
+     */
+    fun computeRatioZones(zones: List<EdgeZone>, ratios: List<Float>): List<EdgeZone>? {
+        if (zones.size != ratios.size) return null
+        var cum = 0f
+        return zones.mapIndexed { i, zone ->
+            val s = cum
+            cum += ratios[i]
+            val e = if (i == zones.size - 1) 1f else cum
+            zone.copy(startRatio = s, endRatio = e)
+        }
     }
 }

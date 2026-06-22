@@ -1,5 +1,6 @@
 package com.bridgeone.app.ui.components.touchpad
 
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
@@ -41,6 +42,18 @@ internal class EdgeZoneOverlayUiState {
     val ratioBtnBoundsInWindowState: MutableState<Rect> = mutableStateOf(Rect.Zero)
     val actionTypeBtnBoundsInWindowState: MutableState<Rect> = mutableStateOf(Rect.Zero)
     val revertBtnBoundsInWindowState: MutableState<Rect> = mutableStateOf(Rect.Zero)
+
+    // ── 비율 프리셋 메뉴 (SWIPE 인라인 팝업) ──
+    val showRatioPresetMenuState: MutableState<Boolean> = mutableStateOf(false)
+    /** SWIPE 비율 서랍 enter/exit transition. exit가 끝날 때까지 메뉴 "존재"를 추적해
+     *  서랍을 살려두고 BarChart 아이콘 복귀를 지연시킨다(NORMAL normalMenuVisible와 동일 역할). */
+    val ratioPresetMenuVisibleState: MutableTransitionState<Boolean> = MutableTransitionState(false)
+    val ratioPresetItemsState: MutableState<List<Pair<String, List<Float>>>> = mutableStateOf(emptyList())
+    val ratioPresetOnSelectState: MutableState<(List<Float>) -> Unit> = mutableStateOf({})
+    /** SWIPE 포커스 중인 프리셋 ratios (미리보기용). null이면 미리보기 없음. */
+    val ratioPreviewRatiosState: MutableState<List<Float>?> = mutableStateOf(null)
+    /** 비율 서랍 최대 폭 (px). ZoneRatioSection weight(1f) Box 폭. SWIPE 서랍 widthIn 제약에 사용. */
+    val ratioDrawerMaxWidthPxState: MutableState<Int> = mutableStateOf(0)
 
     // ── 프리셋 팝업 / Undo 메뉴 ──
     val showPresetPopupState: MutableState<Boolean> = mutableStateOf(false)

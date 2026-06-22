@@ -3,14 +3,17 @@ package com.bridgeone.app.ui.components.touchpad
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +31,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -39,6 +44,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
+import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import com.bridgeone.app.ui.common.EdgeZonePresetsRepository
 import com.bridgeone.app.ui.common.InputMode
 import com.bridgeone.app.ui.common.LocalInputMode
@@ -99,6 +105,7 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
     var ratioBtnBoundsInWindow by overlayUi.ratioBtnBoundsInWindowState
     var actionTypeBtnBoundsInWindow by overlayUi.actionTypeBtnBoundsInWindowState
     var revertBtnBoundsInWindow by overlayUi.revertBtnBoundsInWindowState
+    var showRatioPresetMenu by overlayUi.showRatioPresetMenuState
     var showPresetPopup by overlayUi.showPresetPopupState
     var presetPopupStage by overlayUi.presetPopupStageState
     var presetNameKeyboard by overlayUi.presetNameKeyboardState
@@ -398,6 +405,74 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
                 }
             }
         }
+        // ── 비율 프리셋 가로 서랍 오버레이 (SWIPE 모드 인라인 배치) ──
+        // Popup 대신 메인 Box 인라인으로 렌더링해야 SwipeGestureLayer가 터치를 수신함.
+        // ratioBtnBoundsInWindow는 window 절대 px → Box 자신의 window top을 빼 로컬 좌표로 변환.
+        if (inputMode == InputMode.SWIPE) {
+            var overlayBoxWindowTopPx by remember { mutableStateOf(0f) }
+
+            // 포커스→미리보기 갱신 (자동 스크롤은 BringIntoViewRequester로 항목 자체가 처리)
+            val presets = overlayUi.ratioPresetItemsState.value
+            LaunchedEffect(swipeController.currentFocus) {
+                val focus = swipeController.currentFocus
+                if (focus is EdgeEditorElement.RatioPresetItem) {
+                    val idx = presets.indexOfFirst { it.first == focus.label }
+                    if (idx >= 0) {
+                        overlayUi.ratioPreviewRatiosState.value = presets[idx].second
+                    }
+                } else {
+                    if (!showRatioPresetMenu) overlayUi.ratioPreviewRatiosState.value = null
+                }
+            }
+            // 서랍 닫힐 때 미리보기 리셋
+            LaunchedEffect(showRatioPresetMenu) {
+                if (!showRatioPresetMenu) overlayUi.ratioPreviewRatiosState.value = null
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { coords -> overlayBoxWindowTopPx = coords.boundsInWindow().top },
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                overlayUi.ratioPresetMenuVisibleState.targetState = showRatioPresetMenu
+                // offset은 AnimatedVisibility 바깥 wrapper Box에 적용한다.
+                // AnimatedVisibility에 직접 Modifier.offset{}을 걸면 exit(shrink) 애니메이션이
+                // placement 재평가와 충돌해 재생되지 않고 즉시 사라진다(enter는 정상).
+                Box(
+                    modifier = Modifier.offset {
+                        // 헤더 행 top에서 살짝 위로 올려 헤더와 존 스트립 사이에 안착
+                        val liftPx = EdgeSwipeConstants.RATIO_DRAWER_SWIPE_Y_LIFT_DP.dp.toPx()
+                        IntOffset(0, (ratioBtnBoundsInWindow.top - overlayBoxWindowTopPx - liftPx).toInt())
+                    },
+                ) {
+                    AnimatedVisibility(
+                        visibleState = overlayUi.ratioPresetMenuVisibleState,
+                        // 왼쪽 손잡이 기준 좌→우 펼침 (NORMAL과 통일)
+                        enter = expandHorizontally(
+                            expandFrom = Alignment.Start,
+                            animationSpec = tween(EdgeSwipeConstants.RATIO_DRAWER_OPEN_DURATION_MS),
+                        ) + fadeIn(tween(EdgeSwipeConstants.RATIO_DRAWER_OPEN_DURATION_MS)),
+                        // exit는 fade 없이 shrink만 (페이드 아웃이 shrink를 가려 닫기 애니가 안 보였음)
+                        exit = shrinkHorizontally(
+                            shrinkTowards = Alignment.Start,
+                            animationSpec = tween(EdgeSwipeConstants.RATIO_DRAWER_CLOSE_DURATION_MS),
+                        ),
+                    ) {
+                        val density = LocalDensity.current
+                        // 헤더 영역 전체 폭 (NORMAL과 동일한 확장 정도)
+                        val ratioDrawerMaxWidthDp = with(density) {
+                            overlayUi.ratioDrawerMaxWidthPxState.value.toDp()
+                        }
+                        RatioPresetSwipePopup(
+                            presets = presets,
+                            onSelect = overlayUi.ratioPresetOnSelectState.value,
+                            maxWidthDp = ratioDrawerMaxWidthDp,
+                        )
+                    }
+                }
+            }
+        }
         // ── 프리셋 팝업 오버레이 (SWIPE 모드 인라인 배치) ──
         // 메인 Box 안, SwipeGestureLayer보다 먼저 배치 → 제스처 레이어가 터치를 수신.
         // SWIPE: scrim clickable 없어서 터치가 제스처 레이어로 통과.
@@ -567,6 +642,11 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
                                 PopupStage.CONFIRM, PopupStage.SAVE_NAME -> presetPopupStage = PopupStage.GRID
                                 PopupStage.EDIT_NAME -> presetPopupStage = PopupStage.CONFIRM
                             }
+                            true
+                        }
+                        showRatioPresetMenu -> {
+                            // 비율 프리셋 메뉴가 열린 상태에서 롱프레스 → 닫기
+                            showRatioPresetMenu = false
                             true
                         }
                         showUndoMenu -> {

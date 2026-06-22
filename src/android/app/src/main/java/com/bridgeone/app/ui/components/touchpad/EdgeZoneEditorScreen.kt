@@ -1135,6 +1135,7 @@ fun EdgeZoneEditorScreen(
 
                             ZoneRatioSection(
                                 state = state,
+                                overlayUi = overlayUi,
                                 zonePopupState = zonePopupState,
                                 sel = sel,
                                 edgeForStrip = edgeForStrip,
