@@ -231,4 +231,15 @@ object EdgeSwipeConstants {
     const val RATIO_PREVIEW_BORDER_WIDTH_DP = 1.5f
     /** 비율 프리셋 미리보기 중 스트립 amber 보더 알파. 기본값: 0.55f */
     const val RATIO_PREVIEW_BORDER_ALPHA = 0.55f
+
+    // ── 캔버스 <-> 존 설정 전환 (AnimatedContent) ──
+
+    /** 캔버스 <-> 편집 전환 길이 (ms). 기본값: 260 */
+    const val EDGE_ZONE_SCENE_TRANSITION_MS = 260
+    /** 캔버스가 사라질 때 축소되는 목표 배율. 기본값: 0.85f */
+    const val EDGE_ZONE_CANVAS_SCALE_MIN = 0.85f
+    /** 편집 패널 enter 시작 배율. 기본값: 0.96f */
+    const val EDGE_ZONE_EDIT_ENTER_SCALE = 0.96f
+    /** 편집 enter를 캔버스 exit보다 늦게 시작시키는 지연 (ms). "그 이후에" 느낌. 기본값: 60 */
+    const val EDGE_ZONE_EDIT_ENTER_DELAY_MS = 60
 }

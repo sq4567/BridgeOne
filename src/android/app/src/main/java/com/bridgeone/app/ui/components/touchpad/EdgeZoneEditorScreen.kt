@@ -10,6 +10,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -228,7 +234,6 @@ fun EdgeZoneEditorScreen(
     var swipeCustomMenuTarget by overlayUi.swipeCustomMenuTargetState
     val zonePopupState = remember { mutableStateOf<ZoneActionPopup>(ZoneActionPopup.None) }
     var zonePopup by zonePopupState
-    var canvasVisible by remember { mutableStateOf(true) }
     var selectedEdge by remember { mutableStateOf<EntryEdge?>(null) }
     var nextFocusOnZoneChange by overlayUi.nextFocusOnZoneChangeState
     val iconSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -665,10 +670,10 @@ fun EdgeZoneEditorScreen(
         }
     }
 
-    BackHandler(enabled = candidateLabelKeyboard != null || zonePopup !is ZoneActionPopup.None || selectedZone != null || !canvasVisible) {
+    BackHandler(enabled = candidateLabelKeyboard != null || zonePopup !is ZoneActionPopup.None || selectedZone != null || selectedEdge != null) {
         if (candidateLabelKeyboard != null) candidateLabelKeyboard = null
         else if (zonePopup !is ZoneActionPopup.None) zonePopup = ZoneActionPopup.None
-        else { selectedZone = null; canvasVisible = true; selectedEdge = null }
+        else { selectedZone = null; selectedEdge = null }
     }
 
     val hasChanges = workConfig != initialConfig
@@ -724,7 +729,7 @@ fun EdgeZoneEditorScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val topBackAction: () -> Unit = {
-                    if (selectedZone != null || !canvasVisible) { selectedZone = null; canvasVisible = true; selectedEdge = null }
+                    if (selectedZone != null || selectedEdge != null) { selectedZone = null; selectedEdge = null }
                     else if (hasChanges) showDiscardDialog = true
                     else onBack()
                 }
@@ -957,30 +962,46 @@ fun EdgeZoneEditorScreen(
 
         // ── 메인 영역: 캔버스 + 편집 패널 ──
         BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            val totalH = maxHeight
             val touchpadAspectRatio = LocalConfiguration.current.let {
                 it.screenWidthDp.toFloat() / it.screenHeightDp.toFloat()
             }
             val isEditing = selectedZone != null || selectedEdge != null
-            val labelKbActive = (showLabelKeyboard && selectedZone != null) || candidateLabelKeyboard != null
-            val canvasH by animateDpAsState(
-                targetValue = when {
-                    labelKbActive -> 0.dp
-                    canvasVisible -> if (isEditing) totalH * 0.55f else totalH
-                    else -> 0.dp
+
+            AnimatedContent(
+                targetState = isEditing,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val dur = EdgeSwipeConstants.EDGE_ZONE_SCENE_TRANSITION_MS
+                    val delay = EdgeSwipeConstants.EDGE_ZONE_EDIT_ENTER_DELAY_MS
+                    val canvasScale = EdgeSwipeConstants.EDGE_ZONE_CANVAS_SCALE_MIN
+                    val editScale = EdgeSwipeConstants.EDGE_ZONE_EDIT_ENTER_SCALE
+                    if (targetState) {
+                        // 캔버스 → 편집: 캔버스 축소·페이드아웃, 편집 진입(지연)
+                        (scaleIn(
+                            animationSpec = tween(dur, delayMillis = delay, easing = FastOutSlowInEasing),
+                            initialScale = editScale,
+                        ) + fadeIn(tween(dur, delayMillis = delay, easing = FastOutSlowInEasing))
+                        ) togetherWith (
+                            scaleOut(tween(dur, easing = FastOutSlowInEasing), targetScale = canvasScale)
+                                + fadeOut(tween(dur, easing = FastOutSlowInEasing))
+                        )
+                    } else {
+                        // 편집 → 캔버스: 편집 축소·페이드아웃, 캔버스 복귀(지연)
+                        (scaleIn(
+                            animationSpec = tween(dur, delayMillis = delay, easing = FastOutSlowInEasing),
+                            initialScale = canvasScale,
+                        ) + fadeIn(tween(dur, delayMillis = delay, easing = FastOutSlowInEasing))
+                        ) togetherWith (
+                            scaleOut(tween(dur, easing = FastOutSlowInEasing), targetScale = editScale)
+                                + fadeOut(tween(dur, easing = FastOutSlowInEasing))
+                        )
+                    }
                 },
-                animationSpec = tween(EdgeSwipeConstants.EDGE_ZONE_LABEL_KEYBOARD_ANIM_MS),
-                label = "canvasHeight"
-            )
-            Column(modifier = Modifier.fillMaxSize()) {
-                if (canvasH > 0.dp) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(canvasH),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (canvasVisible) {
+                label = "edgeZoneScene",
+            ) { editing ->
+                if (!editing) {
+                    // ── 캔버스 씬 ──
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             BoxWithConstraints(
                                 modifier = Modifier
                                     .padding(12.dp)
@@ -994,7 +1015,7 @@ fun EdgeZoneEditorScreen(
                                     disabledEdges = disabledEdges,
                                     bottomLeftButtonLabel = bottomLeftButtonLabel,
                                     bottomRightButtonLabel = bottomRightButtonLabel,
-                                    onZoneTapped = { selectedZone = it; selectedEdge = it.edge; canvasVisible = false },
+                                    onZoneTapped = { selectedZone = it; selectedEdge = it.edge },
                                     onCornerPriorityToggled = { corner ->
                                         state.pushUndo()
                                         workConfig = workConfig.toggleCornerPriority(corner)
@@ -1006,7 +1027,7 @@ fun EdgeZoneEditorScreen(
                                 // ── SWIPE 모드 캔버스 hit 영역 오버레이 (NORMAL에서는 미렌더) ──
                                 // 존 단위로 분해. 비활성 엣지만 등록 생략 (Unassigned 존은 포함).
                                 // 코너는 별도 hit 영역으로 제공하지 않는다.
-                                if (inputMode == InputMode.SWIPE && !isEditing) {
+                                if (inputMode == InputMode.SWIPE && !editing) {
                                     ZoneCanvasHitOverlay(
                                         workConfig = workConfig,
                                         disabledEdges = disabledEdges,
@@ -1017,11 +1038,10 @@ fun EdgeZoneEditorScreen(
                                         onZoneSelected = { zone ->
                                             selectedZone = zone
                                             selectedEdge = zone.edge
-                                            canvasVisible = false
                                         },
                                     )
                                 }
-                                if (!isEditing) {
+                                if (!editing) {
                                     Box(
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.Center
@@ -1046,24 +1066,10 @@ fun EdgeZoneEditorScreen(
                                     }
                                 }
                             }
-                        } else {
-                            // 축소 애니메이션 중: 단순 배경만 표시
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .fillMaxHeight()
-                                    .padding(horizontal = 12.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF1A1A1A))
-                            )
-                        }
                     }
-                }
-
-                // ── 선택된 존 편집 패널 ──
-                Box(
-                    modifier = Modifier.fillMaxWidth().weight(1f)
-                ) {
+                } else {
+                    // ── 편집 씬 ──
+                    Box(modifier = Modifier.fillMaxSize()) {
                     val sel = selectedZone
                     val edgeForStrip = sel?.edge ?: selectedEdge
                     val labelKbActive = (showLabelKeyboard && sel != null) || candidateLabelKeyboard != null
@@ -1481,8 +1487,9 @@ fun EdgeZoneEditorScreen(
                         )
                         } // Box (graphicsLayer 슬라이드)
                     }
-                }
-            } // Column (BoxWithConstraints 내부)
+                    } // Box(fillMaxSize) 편집 씬
+                } // else (editing 씬)
+            } // AnimatedContent
         } // BoxWithConstraints
 
     }
