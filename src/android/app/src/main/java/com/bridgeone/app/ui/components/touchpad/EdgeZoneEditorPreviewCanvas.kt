@@ -24,6 +24,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.common.AppIcons
@@ -196,17 +198,27 @@ fun EdgeZoneEditorPreviewCanvas(
                         } else {
                             displayZoneLabel
                         }
+                        // 가용 공간에 맞춰 말줄임(…) 처리: 가로 엣지는 너비, 세로 엣지는 높이 기준
+                        val availWidthPx = (zr.size.width - 4f).coerceAtLeast(0f).toInt()
+                        val availHeightPx = (zr.size.height - 2f).coerceAtLeast(0f).toInt()
                         val textLayout = textMeasurer.measure(
                             displayText,
                             style = TextStyle(
                                 fontSize = EdgeSwipeConstants.ZONE_LABEL_FONT_SIZE_SP.sp,
                                 color = Color.White.copy(alpha = 0.85f),
                                 textAlign = if (isVerticalEdge) TextAlign.Center else TextAlign.Start
-                            )
+                            ),
+                            overflow = TextOverflow.Ellipsis,
+                            maxLines = if (isVerticalEdge) displayText.count { it == '\n' } + 1 else 1,
+                            constraints = if (isVerticalEdge) {
+                                Constraints(maxHeight = availHeightPx)
+                            } else {
+                                Constraints(maxWidth = availWidthPx)
+                            }
                         )
                         val tx = zr.center.x - textLayout.size.width / 2f
                         val ty = zr.center.y - textLayout.size.height / 2f
-                        if (zr.size.width > textLayout.size.width + 4f && zr.size.height > textLayout.size.height + 2f) {
+                        if (availWidthPx > 0 && availHeightPx > 0) {
                             drawText(textLayout, topLeft = Offset(tx, ty))
                         }
                     }

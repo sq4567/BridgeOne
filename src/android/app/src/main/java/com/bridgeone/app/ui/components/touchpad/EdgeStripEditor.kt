@@ -40,6 +40,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
@@ -362,17 +364,22 @@ fun EdgeStripEditor(
             }
             if (displayZoneLabel.isNotEmpty()) {
                 val displayText = displayZoneLabel
+                // 존 폭이 좁아 라벨이 다 안 들어가면 말줄임(…) 처리
+                val availWidthPx = (zoneW - 4f).coerceAtLeast(0f).toInt()
                 val textLayout = textMeasurer.measure(
                     displayText,
                     style = TextStyle(
                         fontSize = EdgeSwipeConstants.ZONE_LABEL_FONT_SIZE_SP.sp,
                         color = Color.White.copy(alpha = 0.85f),
                         textAlign = TextAlign.Center
-                    )
+                    ),
+                    overflow = TextOverflow.Ellipsis,
+                    maxLines = 1,
+                    constraints = Constraints(maxWidth = availWidthPx)
                 )
                 val tx = x0 + zoneW / 2f - textLayout.size.width / 2f
                 val ty = h / 2f - textLayout.size.height / 2f
-                if (zoneW > textLayout.size.width + 4f) {
+                if (availWidthPx > 0) {
                     drawText(textLayout, topLeft = Offset(tx, ty))
                 }
             }
