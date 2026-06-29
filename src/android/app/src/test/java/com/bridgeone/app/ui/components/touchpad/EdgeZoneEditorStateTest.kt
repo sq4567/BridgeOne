@@ -190,4 +190,130 @@ class EdgeZoneEditorStateTest {
         repeat(30) { state.pushUndo() }
         assertEquals(20, state.undoStack.size)
     }
+
+    // ============================================================
+    // 캔버스 이동 (computeMove / validateMove / dropInsertIndex / commitMove)
+    // ============================================================
+
+    /** 모든 엣지에 동일 존 리스트를 둘 수 없으니, TOP 3분할 + 다른 엣지 단일 구성 사용. */
+    private fun topTriConfig(): EdgeZoneConfig = topConfig(
+        listOf(
+            zone(EntryEdge.TOP, 0f, 0.33f, label = "A"),
+            zone(EntryEdge.TOP, 0.33f, 0.66f, label = "B"),
+            zone(EntryEdge.TOP, 0.66f, 1f, label = "C"),
+        )
+    )
+
+    @Test
+    fun dropInsertIndex_picksNearestSlot_includingEnds() {
+        val state = newState(topTriConfig())
+        // 슬롯 위치: 0f, 0.33f, 0.66f, 1f (인덱스 0..3)
+        assertEquals(0, state.dropInsertIndex(EntryEdge.TOP, 0.02f, null))
+        assertEquals(1, state.dropInsertIndex(EntryEdge.TOP, 0.30f, null))
+        assertEquals(3, state.dropInsertIndex(EntryEdge.TOP, 0.98f, null))
+    }
+
+    @Test
+    fun computeMove_sameEdge_reordersPreservingWidth() {
+        val state = newState(topTriConfig())
+        val a = state.workConfig.topZones[0]  // A: 0~0.33
+        // insertIndex는 picked(A) 제외 리스트[B,C] 기준 → 맨 끝 = 2. 순서 B, C, A. 폭(0.33) 보존.
+        val result = state.computeMove(ZoneKey(EntryEdge.TOP, a.startRatio), EntryEdge.TOP, 2)!!
+        val top = result.topZones
+        assertEquals(3, top.size)
+        assertEquals(listOf("B", "C", "A"), top.map { it.label })
+        // 각 폭 보존(약 0.33)
+        top.forEach { assertEquals(0.33f, it.endRatio - it.startRatio, 1e-2f) }
+        assertEquals(1f, top.last().endRatio, 1e-5f)
+    }
+
+    @Test
+    fun computeMove_sameEdge_swapTwoZones() {
+        // 2분할 엣지에서 첫 존을 끝(insertIndex=1, picked 제외 리스트 기준)으로 → 자리 교환
+        val state = newState(topConfig(listOf(
+            zone(EntryEdge.TOP, 0f, 0.5f, label = "이동"),
+            zone(EntryEdge.TOP, 0.5f, 1f, label = "DPI"),
+        )))
+        val first = state.workConfig.topZones[0]  // 이동
+        val result = state.computeMove(ZoneKey(EntryEdge.TOP, first.startRatio), EntryEdge.TOP, 1)!!
+        assertEquals(listOf("DPI", "이동"), result.topZones.map { it.label })
+    }
+
+    @Test
+    fun computeMove_crossEdge_removesFromSourceInsertsToTarget_preservesTrigger() {
+        val state = newState(topTriConfig())
+        val a = state.workConfig.topZones[0]  // A
+        // A(TOP)를 LEFT 엣지 맨 앞(insertIndex=0)으로
+        val result = state.computeMove(ZoneKey(EntryEdge.TOP, a.startRatio), EntryEdge.LEFT, 0)!!
+        // 출발 엣지: A 제거 → B, C 두 개로 [0,1] 재분배
+        assertEquals(2, result.topZones.size)
+        assertEquals(listOf("B", "C"), result.topZones.map { it.label })
+        assertEquals(0f, result.topZones.first().startRatio, 1e-5f)
+        assertEquals(1f, result.topZones.last().endRatio, 1e-5f)
+        // 도착 엣지: 기존 단일 존 + A = 2개, A가 맨 앞, trigger(label) 보존
+        assertEquals(2, result.leftZones.size)
+        assertEquals("A", result.leftZones[0].label)
+        assertEquals(EntryEdge.LEFT, result.leftZones[0].edge)
+        assertEquals(0f, result.leftZones.first().startRatio, 1e-5f)
+        assertEquals(1f, result.leftZones.last().endRatio, 1e-5f)
+    }
+
+    @Test
+    fun validateMove_sourceSingleZone_rejected() {
+        // BOTTOM은 단일 존 → 옮길 수 없음
+        val state = newState(topTriConfig())
+        val rej = state.validateMove(ZoneKey(EntryEdge.BOTTOM, 0f), EntryEdge.LEFT, 0, emptySet())
+        assertTrue(rej is EdgeZoneEditorState.MoveRejection.SourceLastZone)
+    }
+
+    @Test
+    fun validateMove_disabledTargetEdge_rejected() {
+        val state = newState(topTriConfig())
+        val a = state.workConfig.topZones[0]
+        val rej = state.validateMove(
+            ZoneKey(EntryEdge.TOP, a.startRatio), EntryEdge.LEFT, 0, setOf(EntryEdge.LEFT)
+        )
+        assertTrue(rej is EdgeZoneEditorState.MoveRejection.DisabledEdge)
+    }
+
+    @Test
+    fun validateMove_targetFull_rejected() {
+        // LEFT 엣지를 MAX(5)개로 채우고, TOP의 존을 LEFT로 옮기려 하면 거부
+        val full = (0 until 5).map { i ->
+            zone(EntryEdge.LEFT, i * 0.2f, if (i == 4) 1f else (i + 1) * 0.2f)
+        }
+        val cfg = EdgeZoneConfig(
+            topZones = listOf(zone(EntryEdge.TOP, 0f, 0.5f, label = "A"), zone(EntryEdge.TOP, 0.5f, 1f, label = "B")),
+            bottomZones = listOf(zone(EntryEdge.BOTTOM, 0f, 1f)),
+            leftZones = full,
+            rightZones = listOf(zone(EntryEdge.RIGHT, 0f, 1f)),
+        )
+        val state = newState(cfg)
+        val rej = state.validateMove(ZoneKey(EntryEdge.TOP, 0f), EntryEdge.LEFT, 0, emptySet())
+        assertTrue(rej is EdgeZoneEditorState.MoveRejection.TargetFull)
+    }
+
+    @Test
+    fun commitMove_crossEdge_pushesUndo_clearsSelection_returnsMorphs() {
+        val state = newState(topTriConfig())
+        val a = state.workConfig.topZones[0]
+        val morphs = state.commitMove(ZoneKey(EntryEdge.TOP, a.startRatio), EntryEdge.LEFT, 0)
+        assertEquals(2, state.workConfig.topZones.size)
+        assertEquals(2, state.workConfig.leftZones.size)
+        assertEquals(1, state.undoStack.size)
+        assertNull(state.selectedZone)
+        assertNull(state.currentPresetId)
+        // cross-edge는 출발/도착 두 엣지 모핑
+        assertEquals(2, morphs.size)
+    }
+
+    @Test
+    fun commitMove_noOp_doesNotPushUndo() {
+        val state = newState(topTriConfig())
+        val a = state.workConfig.topZones[0]  // index 0
+        // insertIndex=0 → A가 제자리. 변화 없음.
+        val morphs = state.commitMove(ZoneKey(EntryEdge.TOP, a.startRatio), EntryEdge.TOP, 0)
+        assertTrue(morphs.isEmpty())
+        assertTrue(state.undoStack.isEmpty())
+    }
 }

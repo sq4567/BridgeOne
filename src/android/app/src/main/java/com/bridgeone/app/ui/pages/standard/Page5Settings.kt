@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import com.bridgeone.app.ui.common.InputMode
+import com.bridgeone.app.ui.common.ZoneMoveMethod
 import com.bridgeone.app.ui.common.TouchpadButtonVisibility
 import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignment
 import com.bridgeone.app.ui.common.TouchpadIds
@@ -59,6 +60,8 @@ internal fun Page5Settings(
     onInputModeChange: (InputMode) -> Unit = {},
     swipeWrapEdge: Boolean = false,
     onSwipeWrapEdgeChange: (Boolean) -> Unit = {},
+    zoneMoveMethod: ZoneMoveMethod = ZoneMoveMethod.TAP,
+    onZoneMoveMethodChange: (ZoneMoveMethod) -> Unit = {},
     audioFeedbackEnabled: Boolean = true,
     onAudioFeedbackEnabledChange: (Boolean) -> Unit = {},
     ttsRate: Float = 1.0f,
@@ -213,6 +216,57 @@ internal fun Page5Settings(
                         zoneCount = zoneCount,
                         onClick = onOpenZoneEditor
                     )
+                }
+
+                // 존 이동 방식 (NORMAL 레이어에서만 노출 — SWIPE는 탭으로 강제되므로 옵션 숨김)
+                if (inputMode == InputMode.NORMAL) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(text = "존 이동 방식", fontSize = 14.sp, color = Color(0xFFE0E0E0))
+                                Text(
+                                    text = "이동 모드에서 존을 탭해 옮길지, 끌어다 놓을지 선택",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF888888)
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(
+                                    ZoneMoveMethod.TAP to "탭",
+                                    ZoneMoveMethod.DRAG_AND_DROP to "드래그 앤 드롭"
+                                ).forEach { (method, label) ->
+                                    val isSelected = zoneMoveMethod == method
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                if (isSelected) Color(0xFF2979FF).copy(alpha = 0.2f)
+                                                else Color(0xFF2A2A2A)
+                                            )
+                                            .border(
+                                                width = if (isSelected) 1.5.dp else 0.5.dp,
+                                                color = if (isSelected) Color(0xFF2979FF) else Color(0xFF444444),
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { onZoneMoveMethodChange(method) }
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 13.sp,
+                                            color = if (isSelected) Color(0xFF2979FF) else Color(0xFFCCCCCC)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // 존 음성 안내 설정 (ZONE 모드에서만 유의미)

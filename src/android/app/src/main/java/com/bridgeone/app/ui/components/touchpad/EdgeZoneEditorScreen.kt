@@ -16,6 +16,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -77,6 +78,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -109,6 +112,12 @@ import com.bridgeone.app.ui.common.ToastController
 import com.bridgeone.app.ui.common.ToastType
 import com.bridgeone.app.ui.common.loadInputMode
 import com.bridgeone.app.ui.common.loadSwipeWrapEdge
+import com.bridgeone.app.ui.common.loadZoneMoveMethod
+import com.bridgeone.app.ui.common.ZoneMoveMethod
+import com.bridgeone.app.ui.pages.standard.loadCornerBlockedRatio
+import com.bridgeone.app.ui.pages.standard.saveCornerBlockedRatio
+import com.bridgeone.app.ui.common.CustomTrackSlider
+import kotlin.math.roundToInt
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFocusController
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFocused
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFlashAlpha
@@ -126,7 +135,6 @@ internal sealed class ZoneActionPopup {
     object None : ZoneActionPopup()
     data class Initial(val zone: EdgeZone, val anchor: Float) : ZoneActionPopup()
     data class MergeSelecting(val zone: EdgeZone, val anchor: Float, val selectedTargets: Set<Float> = emptySet()) : ZoneActionPopup()
-    data class MoveSelecting(val zone: EdgeZone, val anchor: Float, val carryWidth: Boolean = true) : ZoneActionPopup()
     data class SplitChoosing(val zone: EdgeZone, val anchor: Float) : ZoneActionPopup()
     data class DeleteConfirming(val zone: EdgeZone, val anchor: Float) : ZoneActionPopup()
 }
@@ -171,6 +179,10 @@ fun EdgeZoneEditorScreen(
     // SWIPE 모드 인프라
     val context = LocalContext.current
     val inputMode = remember { loadInputMode(context) }
+    // 존 이동 방식. SWIPE 레이어에서는 항상 TAP으로 강제(설정 UI 미노출).
+    val effectiveMoveMethod = remember(inputMode) {
+        if (inputMode == InputMode.SWIPE) ZoneMoveMethod.TAP else loadZoneMoveMethod(context)
+    }
     val swipeController = rememberSwipeFocusController()
     if (inputMode == InputMode.SWIPE) {
         swipeController.wrapEdge = remember { loadSwipeWrapEdge(context) }
@@ -182,6 +194,10 @@ fun EdgeZoneEditorScreen(
     var selectedZone by state.selectedZoneState
     var currentPresetId by state.currentPresetIdState
     var undoStack by state.undoStackState
+    // 코너 버튼 차단 영역 크기(전역 설정). 슬라이더는 로컬 상태만 갱신해 미리보기에 즉시 반영하고,
+    // 실제 영속화는 '저장' 시점에만 수행 → initial 대비 변경은 hasChanges에 반영돼 미저장 이탈 시 다이얼로그가 뜬다.
+    val initialCornerBlockedRatio = remember { loadCornerBlockedRatio(context) }
+    var cornerBlockedRatio by remember { mutableStateOf(initialCornerBlockedRatio) }
     // Phase 4.7.5-D: 오버레이/팝업 UI 상태 홀더. 기존 지역 변수명은 MutableState 위임으로 유지.
     val overlayUi = remember { EdgeZoneOverlayUiState() }
     var savedRotationTrigger by remember { mutableStateOf<EdgeZoneTrigger.Rotation?>(null) }
@@ -234,6 +250,18 @@ fun EdgeZoneEditorScreen(
     var swipeCustomMenuTarget by overlayUi.swipeCustomMenuTargetState
     val zonePopupState = remember { mutableStateOf<ZoneActionPopup>(ZoneActionPopup.None) }
     var zonePopup by zonePopupState
+    // 캔버스 구조 변경 모드 (병합/분할/이동/삭제/비율) — 캔버스 씬 전용 UI 상태 (Phase 4.7.x)
+    // MutableState로 노출(zonePopupState 패턴) — EdgeZoneOverlayLayer의 롱프레스 핸들러가 이동 취소에 사용.
+    val canvasModeState = remember { mutableStateOf<CanvasEditMode>(CanvasEditMode.None) }
+    var canvasMode by canvasModeState
+    // SWIPE: 모드 퇴장(→None) 시 직전 모드의 진입 버튼으로 포커스. (모드 진입 시 초기 포커스는 isCanvasModeActive LaunchedEffect가 담당)
+    var prevCanvasModeKind by remember { mutableStateOf<CanvasModeKind?>(null) }
+    LaunchedEffect(canvasMode, inputMode) {
+        if (inputMode == InputMode.SWIPE && canvasMode is CanvasEditMode.None) {
+            prevCanvasModeKind?.let { swipeController.setFocus(EdgeEditorElement.CanvasModeButton(it)) }
+        }
+        prevCanvasModeKind = canvasMode.kind
+    }
     var selectedEdge by remember { mutableStateOf<EntryEdge?>(null) }
     var nextFocusOnZoneChange by overlayUi.nextFocusOnZoneChangeState
     val iconSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -297,7 +325,8 @@ fun EdgeZoneEditorScreen(
     if (inputMode == InputMode.SWIPE) {
         LaunchedEffect(Unit) {
             if (swipeController.currentFocus == null) {
-                swipeController.setFocus(EdgeEditorElement.Back)
+                // 캔버스 씬 진입 시 모드 진입 버튼(병합)에 포커스를 둔다
+                swipeController.setFocus(EdgeEditorElement.CanvasModeButton(CanvasModeKind.MERGE))
             }
         }
         LaunchedEffect(selectedZone) {
@@ -317,7 +346,33 @@ fun EdgeZoneEditorScreen(
                     }.coerceAtLeast(0)
                     swipeController.setFocus(EdgeEditorElement.StripZone(idx))
                 }
+            } else if (canvasMode is CanvasEditMode.None && swipeController.currentFocus !is EdgeEditorElement.CanvasZone) {
+                // 편집 → 캔버스 복귀 시 모드 진입 버튼으로 포커스
+                // (병합 직후처럼 이미 존에 포커스를 둔 경우는 유지)
+                swipeController.setFocus(EdgeEditorElement.CanvasModeButton(CanvasModeKind.MERGE))
             }
+        }
+
+        // 캔버스 씬에서는 방향 우선 공간 네비게이션을 설치 (cone traversal의 대각선 누락 보정).
+        // 이동 모드는 픽/드롭 단계 모두 캔버스 내부 요소(존/드롭 슬롯)에만 포커스를 한정해 캔버스 밖(TopAppBar 등)으로 새지 않게 한다.
+        // 편집 씬 진입 시 해제하여 기존 폼 traversal 복원.
+        val isCanvasScene = selectedZone == null && selectedEdge == null
+        val movingForNav = canvasMode as? CanvasEditMode.Moving
+        // 0=편집 씬, 1=일반 캔버스(전체 spatial), 2=이동 픽(존 전용), 3=이동 드롭(슬롯 전용)
+        val navMode = when {
+            !isCanvasScene -> 0
+            movingForNav == null -> 1
+            movingForNav.picked == null -> 2
+            else -> 3
+        }
+        DisposableEffect(navMode) {
+            swipeController.moveInterceptor = when (navMode) {
+                1 -> { dir -> canvasSpatialNav(swipeController, dir) }
+                2 -> { dir -> movingPickNav(swipeController, dir) }
+                3 -> { dir -> movingDropNav(swipeController, dir) }
+                else -> null  // 편집 씬: 기본 폼 traversal
+            }
+            onDispose { swipeController.moveInterceptor = null }
         }
 
     }
@@ -567,20 +622,87 @@ fun EdgeZoneEditorScreen(
                 }
             }
         }
+        // 캔버스 구조 변경/비율 조정 모드 진입 시 '취소' 버튼으로 초기 포커스 (SWIPE)
+        // 병합/분할/삭제/비율은 모드 바에 CanvasModeCancel을 렌더하므로 진입 즉시 취소로 포커스.
+        // 이동(Moving)은 취소 버튼이 없고 자체 포커스 시드(아래)를 쓰므로 제외.
+        val isCanvasModeActive = canvasMode !is CanvasEditMode.None
+        LaunchedEffect(isCanvasModeActive) {
+            if (isCanvasModeActive && canvasMode !is CanvasEditMode.Moving) {
+                swipeController.setFocus(EdgeEditorElement.CanvasModeCancel)
+            }
+        }
+        // 비율 조정 manipulation(MANIPULATION 진입) 시 Undo 스택에 1회만 적립
+        LaunchedEffect(swipeController.mode) {
+            if (canvasMode is CanvasEditMode.Resizing && swipeController.mode == SwipeMode.MANIPULATION) {
+                state.pushUndo()
+            }
+        }
+        // 이동 모드 포커스 시드:
+        //  - 픽 단계(picked==null): 취소로 복귀했으면 직전에 들어올렸던 존, 최초 진입이면 첫 존(CanvasZone)
+        //  - 드롭 단계(picked!=null): 선택 존의 "원래 위치" 슬롯으로 → 고스트가 제자리, 아래 스와이프 시 인접 슬롯
+        val movingMode = canvasMode as? CanvasEditMode.Moving
+        val movingPickedKey = movingMode?.picked
+        // 직전 picked 추적 — 취소(롱프레스) 후 원래 존으로 포커스 복원용. 모드 종료 시 리셋.
+        var lastMovingPicked by remember { mutableStateOf<ZoneKey?>(null) }
+        LaunchedEffect(movingPickedKey, movingMode != null) {
+            if (movingMode == null) {
+                lastMovingPicked = null
+                return@LaunchedEffect
+            }
+            val picked = movingPickedKey
+            if (picked == null) {
+                // 취소 복귀: 직전 들어올렸던 존이 그대로 있으면 그 존으로 복원
+                val restore = lastMovingPicked
+                if (restore != null) {
+                    val idx = workConfig.zonesFor(restore.edge).indexOfFirst { it.startRatio == restore.startRatio }
+                    if (idx >= 0) {
+                        swipeController.setFocus(EdgeEditorElement.CanvasZone(restore.edge, idx))
+                        return@LaunchedEffect
+                    }
+                }
+                // 최초 진입(또는 드롭 후 원위치 소멸): 첫 포커스 가능한 존
+                val firstZoneEdge = EntryEdge.entries.firstOrNull {
+                    it !in disabledEdges.keys && workConfig.zonesFor(it).isNotEmpty()
+                }
+                if (firstZoneEdge != null) {
+                    swipeController.setFocus(EdgeEditorElement.CanvasZone(firstZoneEdge, 0))
+                }
+            } else {
+                lastMovingPicked = picked
+                val pi = workConfig.zonesFor(picked.edge)
+                    .indexOfFirst { it.startRatio == picked.startRatio }.coerceAtLeast(0)
+                swipeController.setFocus(EdgeEditorElement.CanvasDropSlot(picked.edge, pi))
+            }
+        }
+
         // ZoneActionPopup.Initial 진입 시 가운데 "분할" 버튼으로 초기 포커스
         val isInitialPopup = zonePopup is ZoneActionPopup.Initial
         LaunchedEffect(isInitialPopup) {
             if (isInitialPopup) swipeController.setFocus(EdgeEditorElement.ZoneActionSplit)
         }
+        // 캔버스 분할 모드: 대상 존 선택 시 선택 가능한 첫 분할 갯수 버튼으로 포커스 (SplitModeBar의 valid 판정과 동일)
+        val canvasSplitTarget = (canvasMode as? CanvasEditMode.Splitting)?.target
+        LaunchedEffect(canvasSplitTarget) {
+            if (canvasSplitTarget != null) {
+                workConfig.zonesFor(canvasSplitTarget.edge)
+                    .firstOrNull { it.startRatio == canvasSplitTarget.startRatio }
+                    ?.let { zone ->
+                        val edgeZoneCount = workConfig.zonesFor(canvasSplitTarget.edge).size
+                        val width = zone.endRatio - zone.startRatio
+                        val firstValidN = (2..5).firstOrNull { n ->
+                            edgeZoneCount + n - 1 <= EdgeSwipeConstants.MAX_ZONES_PER_EDGE.toInt() &&
+                                width / n >= EdgeSwipeConstants.MIN_ZONE_RATIO
+                        }
+                        if (firstValidN != null) {
+                            swipeController.setFocus(EdgeEditorElement.CanvasSplitChoice(firstValidN))
+                        }
+                    }
+            }
+        }
         // Initial → SplitChoosing 전환 시 첫 분할 버튼(2분할)으로 초기 포커스 → 진입 즉시 미리보기 표시
         val isSplitChoosing = zonePopup is ZoneActionPopup.SplitChoosing
         LaunchedEffect(isSplitChoosing) {
             if (isSplitChoosing) swipeController.setFocus(EdgeEditorElement.ZoneActionSplitN(2))
-        }
-        // Initial → MoveSelecting 전환 시 모드 토글 버튼으로 초기 포커스
-        val isMoveSelecting = zonePopup is ZoneActionPopup.MoveSelecting
-        LaunchedEffect(isMoveSelecting) {
-            if (isMoveSelecting) swipeController.setFocus(EdgeEditorElement.ZoneActionMoveModeToggle)
         }
         // Initial → MergeSelecting 전환 시 왼쪽 인접 존 버튼으로 초기 포커스
         val isMergeSelecting = zonePopup is ZoneActionPopup.MergeSelecting
@@ -670,13 +792,17 @@ fun EdgeZoneEditorScreen(
         }
     }
 
-    BackHandler(enabled = candidateLabelKeyboard != null || zonePopup !is ZoneActionPopup.None || selectedZone != null || selectedEdge != null) {
+    BackHandler(enabled = candidateLabelKeyboard != null || canvasMode !is CanvasEditMode.None || zonePopup !is ZoneActionPopup.None || selectedZone != null || selectedEdge != null) {
+        val cm = canvasMode
         if (candidateLabelKeyboard != null) candidateLabelKeyboard = null
+        // 이동 모드에서 존을 들어올린 상태면 먼저 picked만 해제(모드 유지)
+        else if (cm is CanvasEditMode.Moving && cm.picked != null) canvasMode = CanvasEditMode.Moving()
+        else if (canvasMode !is CanvasEditMode.None) canvasMode = CanvasEditMode.None
         else if (zonePopup !is ZoneActionPopup.None) zonePopup = ZoneActionPopup.None
         else { selectedZone = null; selectedEdge = null }
     }
 
-    val hasChanges = workConfig != initialConfig
+    val hasChanges = workConfig != initialConfig || cornerBlockedRatio != initialCornerBlockedRatio
     val hasInvalidRotation = listOf(
         workConfig.topZones, workConfig.bottomZones,
         workConfig.leftZones, workConfig.rightZones
@@ -911,6 +1037,7 @@ fun EdgeZoneEditorScreen(
                             ToastType.ERROR
                         )
                     } else {
+                        saveCornerBlockedRatio(context, cornerBlockedRatio)
                         onSave(workConfig, currentPresetId)
                     }
                 }
@@ -1001,69 +1128,727 @@ fun EdgeZoneEditorScreen(
             ) { editing ->
                 if (!editing) {
                     // ── 캔버스 씬 ──
+                    // 병합/분할/이동 stretch·shrink 보간 상태 (Phase 4.7.x).
+                    // 이동(cross-edge)은 출발·도착 두 엣지를 동시에 모핑하므로 리스트로 일반화.
+                    var zoneMorphs by remember { mutableStateOf<List<ZoneMorph>>(emptyList()) }
+                    // 이동 커밋 시 출발→도착으로 떠다니는 선택 존(이웃 reflow morph와 같은 progress로 구동).
+                    var moveFloat by remember { mutableStateOf<ZoneMoveFloat?>(null) }
+                    val morphProgress = remember { Animatable(0f) }
+                    LaunchedEffect(zoneMorphs) {
+                        if (zoneMorphs.isEmpty()) return@LaunchedEffect
+                        morphProgress.snapTo(0f)
+                        morphProgress.animateTo(
+                            1f,
+                            tween(EdgeSwipeConstants.EDGE_ZONE_MORPH_MS, easing = FastOutSlowInEasing)
+                        )
+                        // 떠다니는 존 제거와 displayConfig→workConfig 폴백을 같은 프레임에 맞춤(매끄러운 핸드오프).
+                        moveFloat = null
+                        zoneMorphs = emptyList()
+                    }
+                    // 비율 조정 되돌리기(롱프레스/취소) 경계 복원 보간 상태
+                    val revertProgress = remember { Animatable(0f) }
+                    LaunchedEffect(state.ratioMorph) {
+                        if (state.ratioMorph == null) return@LaunchedEffect
+                        revertProgress.snapTo(0f)
+                        revertProgress.animateTo(
+                            1f,
+                            tween(EdgeSwipeConstants.EDGE_ZONE_RATIO_MORPH_MS, easing = FastOutSlowInEasing)
+                        )
+                        state.ratioMorph = null
+                    }
+                    // 이동 모드 롱프레스 '되돌리고 나가기': 세션 내 이동을 한 단계씩 역순으로 되돌리며
+                    // 각 단계 morph(ratioMorph→revertProgress)가 끝날 때까지 대기한 뒤, 모드 선택 화면으로 복귀.
+                    LaunchedEffect(state.moveRevertRequested) {
+                        if (!state.moveRevertRequested) return@LaunchedEffect
+                        // 들어올린 존이 있으면 먼저 내려놓아 드롭 슬롯/고스트를 정리
+                        (canvasMode as? CanvasEditMode.Moving)?.let {
+                            if (it.picked != null) canvasMode = CanvasEditMode.Moving()
+                        }
+                        while (state.canRevertMove()) {
+                            val from = workConfig
+                            state.popMoveUndo()
+                            if (from != workConfig) {
+                                state.ratioMorph = ConfigMorph(from, workConfig)
+                                // 위 ratioMorph LaunchedEffect가 애니메이션 후 null로 정리할 때까지 대기
+                                snapshotFlow { state.ratioMorph }.first { it == null }
+                            }
+                        }
+                        canvasMode = CanvasEditMode.None
+                        state.moveRevertRequested = false
+                    }
+                    // NORMAL 비율 프리셋 2단계 적용: 첫 탭에 미리보기로 armed된 프리셋 비율(재탭 시 확정). 엣지가 바뀌면 해제.
+                    var pendingPreviewRatios by remember { mutableStateOf<List<Float>?>(null) }
+                    val resizeEdge = (canvasMode as? CanvasEditMode.Resizing)?.edge
+                    LaunchedEffect(resizeEdge) { pendingPreviewRatios = null }
+                    // 비율 조정 프리셋 미리보기: 대상 엣지에 미리보기 비율을 임시 적용해 경계 변형을 보여준다.
+                    // SWIPE = 프리셋 칩 포커스 기반, NORMAL = 첫 탭으로 armed된 pendingPreviewRatios 기반.
+                    val previewConfig: EdgeZoneConfig? = run {
+                        when (val m = canvasMode) {
+                            is CanvasEditMode.Resizing -> {
+                                val e = m.edge ?: return@run null
+                                val ratios = if (inputMode == InputMode.SWIPE) {
+                                    val focus = swipeController.currentFocus as? EdgeEditorElement.CanvasRatioPreset ?: return@run null
+                                    EdgeZoneActionResolver.ratioPresetsFor(workConfig.zonesFor(e).size)
+                                        .firstOrNull { it.first == focus.label }?.second
+                                } else {
+                                    pendingPreviewRatios
+                                } ?: return@run null
+                                state.computeRatioZones(workConfig.zonesFor(e), ratios)?.let { workConfig.withZones(e, it) }
+                            }
+                            // SWIPE 분할: 분할 갯수 버튼 포커스 시 대상 존을 n등분한 미리보기
+                            is CanvasEditMode.Splitting -> {
+                                if (inputMode != InputMode.SWIPE) return@run null
+                                val t = m.target ?: return@run null
+                                val n = (swipeController.currentFocus as? EdgeEditorElement.CanvasSplitChoice)?.n ?: return@run null
+                                val zone = workConfig.zonesFor(t.edge).firstOrNull { it.startRatio == t.startRatio } ?: return@run null
+                                state.computeSplitZones(zone, n)?.let { workConfig.withZones(t.edge, it) }
+                            }
+                            else -> null
+                        }
+                    }
+                    // 분할 미리보기 애니메이션(SWIPE): 포커스된 분할 갯수가 바뀔 때마다 대상 존이 n등분되는 모핑 재생.
+                    // 모핑이 끝나면 zoneMorph는 null로 비워지고 previewConfig(n등분 결과)가 그 상태를 유지한다.
+                    val splitPreviewN: Int? = (canvasMode as? CanvasEditMode.Splitting)?.let { m ->
+                        if (inputMode != InputMode.SWIPE || m.target == null) null
+                        else (swipeController.currentFocus as? EdgeEditorElement.CanvasSplitChoice)?.n
+                    }
+                    val splitTargetKey = (canvasMode as? CanvasEditMode.Splitting)?.target
+                    // 직전 미리보기 (대상 키, 갯수). 같은 대상에서 갯수만 바뀌면 이전 갯수→새 갯수로 자연스럽게 증감.
+                    val lastSplitPreview = remember { mutableStateOf<Pair<ZoneKey, Int>?>(null) }
+                    LaunchedEffect(splitPreviewN, splitTargetKey) {
+                        val n = splitPreviewN
+                        val t = splitTargetKey
+                        if (n == null || t == null) {
+                            lastSplitPreview.value = null
+                            return@LaunchedEffect
+                        }
+                        val zone = workConfig.zonesFor(t.edge).firstOrNull { it.startRatio == t.startRatio } ?: return@LaunchedEffect
+                        val prev = lastSplitPreview.value
+                        // 같은 대상의 이전 갯수에서 출발(없으면 통째 존=1에서 분할)
+                        val fromN = if (prev != null && prev.first == t) prev.second else 1
+                        if (fromN != n) {
+                            buildSplitCountMorph(workConfig.zonesFor(t.edge), t.edge, zone.startRatio, zone.endRatio, fromN, n)
+                                ?.let { zoneMorphs = listOf(it) }
+                        }
+                        lastSplitPreview.value = t to n
+                    }
+                    // ── 이동 중 실시간 미리보기(들림 고스트 + 밀림) ──
+                    // 활성 드롭 대상을 (edge, insertIndex)로 통일: SWIPE=포커스된 드롭 슬롯, NORMAL 드래그=dropTarget.
+                    // NORMAL 탭은 추적이 없으므로 미리보기를 만들지 않음(고스트 미적용, 후보 마커 유지).
+                    // NORMAL 드래그 앤 드롭은 SWIPE 이동 미리보기 경로(이웃 reflow lerp + 떠다니는 float)에 합류한다.
+                    val isDragMove = effectiveMoveMethod == ZoneMoveMethod.DRAG_AND_DROP
+                    val useFloatMovePreview = inputMode == InputMode.SWIPE || isDragMove
+                    val pickedKey = (canvasMode as? CanvasEditMode.Moving)?.picked
+                    val activeMoveTarget: Pair<EntryEdge, Int>? = (canvasMode as? CanvasEditMode.Moving)?.let { mv ->
+                        val picked = mv.picked ?: return@let null
+                        if (inputMode == InputMode.SWIPE) {
+                            (swipeController.currentFocus as? EdgeEditorElement.CanvasDropSlot)?.let { it.edge to it.insertIndex }
+                        } else if (effectiveMoveMethod == ZoneMoveMethod.DRAG_AND_DROP) {
+                            mv.dropTarget?.let { it.edge to state.dropInsertIndex(it.edge, it.ratio, picked) }
+                        } else null
+                    }
+                    // 검증 통과 시 computeMove 결과(드래그 중 spring 금지 — 순수 계산 즉시 반영). 실패 시 null(원본 유지).
+                    val movingPreview: EdgeZoneConfig? = activeMoveTarget?.let { (edge, insertIndex) ->
+                        val picked = (canvasMode as? CanvasEditMode.Moving)?.picked ?: return@let null
+                        if (state.validateMove(picked, edge, insertIndex, disabledEdges.keys) != null) null
+                        else state.computeMove(picked, edge, insertIndex)
+                    }
+                    // ── SWIPE 이동 미리보기: picked는 떠다니는 오버레이가 직전 슬롯→새 슬롯으로 점프(translate),
+                    //    이웃은 picked 제외 config를 직전→현재로 lerp해 공간을 열고 닫는다(단일 previewAnim 동기). ──
+                    val previewAnim = remember { Animatable(1f) }
+                    val prevNeighbor = remember { mutableStateOf<EdgeZoneConfig?>(null) }
+                    val curNeighbor = remember { mutableStateOf<EdgeZoneConfig?>(null) }
+                    val prevLanding = remember { mutableStateOf<ZoneStrip?>(null) }
+                    val curLanding = remember { mutableStateOf<ZoneStrip?>(null) }
+                    val floatMeta = remember { mutableStateOf<Pair<Int, String>?>(null) }  // colorIndex, label
+                    // NORMAL 드래그 들어올림(pick)/내려놓기(settle) 진행도 + settle 완료까지 commit 보류.
+                    val liftProgress = remember { Animatable(0f) }
+                    val pendingDrop = remember { mutableStateOf<Triple<ZoneKey, EntryEdge, Int>?>(null) }
+                    LaunchedEffect(movingPreview, pickedKey) {
+                        val mv = movingPreview
+                        val picked = (canvasMode as? CanvasEditMode.Moving)?.picked
+                        val pz = if (picked != null) workConfig.zonesFor(picked.edge).firstOrNull { it.startRatio == picked.startRatio } else null
+                        val meta: Pair<Int, String>? = if (picked != null && pz != null) {
+                            val colorIndex = workConfig.zonesFor(picked.edge).indexOfFirst { it.startRatio == picked.startRatio }.coerceAtLeast(0)
+                            val label = pz.label.ifEmpty {
+                                if (pz.trigger is EdgeZoneTrigger.SingleAction && pz.action !is EdgeZoneAction.Unassigned) pz.action.defaultLabel() else ""
+                            }
+                            colorIndex to label
+                        } else null
+                        when {
+                            // 드롭 후보 있음(SWIPE 포커스 슬롯 / NORMAL 드래그 dropTarget): 이웃 reflow + float 슬라이드
+                            useFloatMovePreview && mv != null && picked != null && pz != null -> {
+                                prevNeighbor.value = curNeighbor.value ?: stripPicked(workConfig, pz.trigger)
+                                curNeighbor.value = stripPicked(mv, pz.trigger)
+                                prevLanding.value = curLanding.value ?: ZoneStrip(picked.edge, pz.startRatio, pz.endRatio)
+                                curLanding.value = landingStrip(mv, pz.trigger)
+                                floatMeta.value = meta
+                                previewAnim.snapTo(0f)
+                                previewAnim.animateTo(1f, tween(EdgeSwipeConstants.EDGE_ZONE_MOVE_ANIM_MS, easing = FastOutSlowInEasing))
+                            }
+                            // NORMAL 드래그 pick 직후/무효 슬롯: picked를 현재 위치(rest)에 띄움(이웃은 gap 유지)
+                            isDragMove && picked != null && pz != null -> {
+                                val rest = ZoneStrip(picked.edge, pz.startRatio, pz.endRatio)
+                                prevNeighbor.value = stripPicked(workConfig, pz.trigger)
+                                curNeighbor.value = stripPicked(workConfig, pz.trigger)
+                                prevLanding.value = rest
+                                curLanding.value = rest
+                                floatMeta.value = meta
+                                previewAnim.snapTo(1f)
+                            }
+                            else -> {
+                                prevNeighbor.value = null; curNeighbor.value = null
+                                prevLanding.value = null; curLanding.value = null
+                                previewAnim.snapTo(1f)
+                            }
+                        }
+                    }
+                    // 들어올림(pick): 0→1. 취소/거부/빈드래그: 즉시 0 (settle 중 1→0은 아래 effect가 소유).
+                    LaunchedEffect(pickedKey, isDragMove) {
+                        when {
+                            pickedKey != null && isDragMove ->
+                                liftProgress.animateTo(1f, tween(EdgeSwipeConstants.EDGE_ZONE_LIFT_MS, easing = FastOutSlowInEasing))
+                            pickedKey == null && pendingDrop.value == null ->
+                                liftProgress.snapTo(0f)
+                        }
+                    }
+                    // 내려놓기(settle): 현재 슬롯에서 제자리 안착(lift 1→0) 후 commit (미리보기==최종 기하 → 무점프).
+                    LaunchedEffect(pendingDrop.value) {
+                        val d = pendingDrop.value ?: return@LaunchedEffect
+                        previewAnim.animateTo(1f, tween(EdgeSwipeConstants.EDGE_ZONE_MOVE_ANIM_MS, easing = FastOutSlowInEasing))
+                        liftProgress.animateTo(0f, tween(EdgeSwipeConstants.EDGE_ZONE_SETTLE_MS, easing = FastOutSlowInEasing))
+                        state.commitMove(d.first, d.second, d.third)
+                        canvasMode = CanvasEditMode.Moving()
+                        pendingDrop.value = null
+                    }
+                    val previewNeighborConfig: EdgeZoneConfig? = when {
+                        useFloatMovePreview && curNeighbor.value != null && prevNeighbor.value != null ->
+                            lerpConfig(prevNeighbor.value!!, curNeighbor.value!!, previewAnim.value)
+                        else -> curNeighbor.value
+                    }
+                    // 떠다니는 오버레이로 picked를 표시(직전 위치→현재 위치 translate). SWIPE + NORMAL 드래그 공용.
+                    val previewFloat: ZoneMoveFloat? = run {
+                        if (!useFloatMovePreview) return@run null
+                        val tgt = curLanding.value ?: return@run null
+                        val (ci, lbl) = floatMeta.value ?: (0 to "")
+                        ZoneMoveFloat(source = prevLanding.value ?: tgt, target = tgt, colorIndex = ci, label = lbl)
+                    }
+                    // float 경로(SWIPE·NORMAL 드래그)=이웃만(picked는 떠다니는 오버레이), NORMAL 탭=picked 포함 미리보기(들림 고스트).
+                    val movingDisplay: EdgeZoneConfig? = if (useFloatMovePreview) previewNeighborConfig else movingPreview
+                    val displayConfig = state.ratioMorph
+                        ?.let { lerpConfig(it.from, it.to, revertProgress.value) }
+                        ?: zoneMorphs.takeIf { it.isNotEmpty() }
+                            ?.fold(workConfig) { cfg, m -> cfg.withZones(m.edge, m.frame(morphProgress.value)) }
+                        ?: movingDisplay
+                        ?: previewConfig
+                        ?: workConfig
+                    // 들림 고스트 식별(NORMAL 탭 한정 — float 경로는 떠다니는 오버레이가 picked 표시).
+                    val liftedKey: ZoneKey? = run {
+                        if (useFloatMovePreview || movingDisplay == null) return@run null
+                        val pk = (canvasMode as? CanvasEditMode.Moving)?.picked ?: return@run null
+                        val trg = workConfig.zonesFor(pk.edge).firstOrNull { it.startRatio == pk.startRatio }?.trigger ?: return@run null
+                        EntryEdge.entries.firstNotNullOfOrNull { e ->
+                            displayConfig.zonesFor(e).firstOrNull { it.trigger === trg }?.key()
+                        }
+                    }
+
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            // 비율 프리셋 미리보기 중에는 대상 엣지 존 강조를 파랗게 표시 (SWIPE 포커스 / NORMAL 첫 탭 armed 공통).
+                            // 분할 미리보기는 분할 기하 자체가 미리보기이므로 파란 강조는 적용하지 않음.
+                            val previewActive = previewConfig != null && canvasMode is CanvasEditMode.Resizing
+                            val canvasBorderColor = canvasMode.kind?.accentColor()
                             BoxWithConstraints(
                                 modifier = Modifier
                                     .padding(12.dp)
                                     .aspectRatio(touchpadAspectRatio, matchHeightConstraintsFirst = true)
+                                    .border(2.dp, canvasBorderColor ?: Color.Transparent, RoundedCornerShape(12.dp))
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(Color(0xFF1A1A1A))
                             ) {
+                                // ── 이동 모드 콜백 (Phase 4.7.x) ──
+                                // 존 선택(들어올림). 출발 엣지가 1개뿐이면 거부. settle 진행 중이면 재터치 무시.
+                                val movingPick: (EdgeZone) -> Unit = { zone ->
+                                    if (pendingDrop.value != null) {
+                                        // 직전 이동의 안착 애니메이션이 끝날 때까지 새 들어올림을 무시(in-flight 상태 보호)
+                                    } else if (workConfig.zonesFor(zone.edge).size <= 1) {
+                                        ToastController.show(EdgeZoneEditorState.MoveRejection.SourceLastZone.message, ToastType.WARNING)
+                                    } else {
+                                        canvasMode = CanvasEditMode.Moving(picked = zone.key())
+                                    }
+                                }
+                                // 이동 커밋 공용: 이웃 reflow morph + 떠다니는 선택 존(출발→도착)을 동시 구동.
+                                // 검증 통과를 가정(호출부가 validateMove로 사전 확인). 연속 이동을 위해 picked만 해제.
+                                val runMoveCommit: (ZoneKey, EntryEdge, Int) -> Unit = { picked, edge, insertIndex ->
+                                    val before = workConfig
+                                    val pickedZone = before.zonesFor(picked.edge).firstOrNull { it.startRatio == picked.startRatio }
+                                    val colorIndex = before.zonesFor(picked.edge).indexOfFirst { it.startRatio == picked.startRatio }
+                                    val morphs = state.commitMove(picked, edge, insertIndex)
+                                    if (workConfig != before && pickedZone != null) {
+                                        zoneMorphs = morphs
+                                        // 도착 위치는 trigger 참조(===)로 after(=workConfig)에서 탐색 (liftedKey와 동일 패턴)
+                                        val tgtStrip = EntryEdge.entries.firstNotNullOfOrNull { e ->
+                                            workConfig.zonesFor(e).firstOrNull { it.trigger === pickedZone.trigger }
+                                                ?.let { ZoneStrip(e, it.startRatio, it.endRatio) }
+                                        }
+                                        if (tgtStrip != null) {
+                                            val label = pickedZone.label.ifEmpty {
+                                                if (pickedZone.trigger is EdgeZoneTrigger.SingleAction && pickedZone.action !is EdgeZoneAction.Unassigned)
+                                                    pickedZone.action.defaultLabel() else ""
+                                            }
+                                            moveFloat = ZoneMoveFloat(
+                                                source = ZoneStrip(picked.edge, pickedZone.startRatio, pickedZone.endRatio),
+                                                target = tgtStrip,
+                                                colorIndex = colorIndex.coerceAtLeast(0),
+                                                label = label,
+                                            )
+                                        }
+                                    }
+                                    canvasMode = CanvasEditMode.Moving()
+                                }
+                                // 탭 드롭 확정 (경계/양 끝 → insertIndex).
+                                val movingDropTap: (EntryEdge, Float) -> Unit = { edge, ratio ->
+                                    val picked = (canvasMode as? CanvasEditMode.Moving)?.picked
+                                    if (picked != null) {
+                                        val insertIndex = state.dropInsertIndex(edge, ratio, picked)
+                                        val rej = state.validateMove(picked, edge, insertIndex, disabledEdges.keys)
+                                        if (rej != null) ToastController.show(rej.message, ToastType.WARNING)
+                                        else runMoveCommit(picked, edge, insertIndex)
+                                    }
+                                }
+                                // SWIPE 드롭 슬롯 확정 (insertIndex 직접).
+                                // 미리보기 자체가 최종 상태(이웃 + 떠다니는 존)이므로 commit은 무점프 스냅. morph/float 미사용.
+                                val movingSlotDrop: (EntryEdge, Int) -> Unit = { edge, insertIndex ->
+                                    val picked = (canvasMode as? CanvasEditMode.Moving)?.picked
+                                    if (picked != null) {
+                                        val rej = state.validateMove(picked, edge, insertIndex, disabledEdges.keys)
+                                        if (rej != null) ToastController.show(rej.message, ToastType.WARNING)
+                                        else {
+                                            state.commitMove(picked, edge, insertIndex)
+                                            canvasMode = CanvasEditMode.Moving()
+                                        }
+                                    }
+                                }
+                                // 드래그 중 드롭 위치 갱신 (실시간 미리보기는 displayConfig가 반영).
+                                val movingDrag: (DropTarget) -> Unit = { dt ->
+                                    (canvasMode as? CanvasEditMode.Moving)?.let { canvasMode = it.copy(dropTarget = dt) }
+                                }
+                                // 드래그 릴리스: 유효하면 안착 애니메이션(settle effect)이 끝난 뒤 commit하도록 pendingDrop만 설정.
+                                val movingDragEnd: () -> Unit = {
+                                    val mv = canvasMode as? CanvasEditMode.Moving
+                                    val picked = mv?.picked
+                                    val dt = mv?.dropTarget
+                                    if (picked != null && dt != null) {
+                                        val insertIndex = state.dropInsertIndex(dt.edge, dt.ratio, picked)
+                                        val rej = state.validateMove(picked, dt.edge, insertIndex, disabledEdges.keys)
+                                        if (rej == null) pendingDrop.value = Triple(picked, dt.edge, insertIndex)
+                                        else { ToastController.show(rej.message, ToastType.WARNING); canvasMode = CanvasEditMode.Moving() }
+                                    } else canvasMode = CanvasEditMode.Moving()
+                                }
+                                val movingCancel: () -> Unit = { canvasMode = CanvasEditMode.Moving() }
+
+                                // 모드별 존 상호작용: None=편집 진입, Deleting=선택 토글, Moving=픽
+                                val onZoneInteract: (EdgeZone) -> Unit = { zone ->
+                                    when (val m = canvasMode) {
+                                        is CanvasEditMode.None -> { selectedZone = zone; selectedEdge = zone.edge }
+                                        is CanvasEditMode.Deleting -> {
+                                            val k = zone.key()
+                                            if (k in m.selected) {
+                                                canvasMode = m.copy(selected = m.selected - k)
+                                            } else if (workConfig.zonesFor(zone.edge).size <= 1) {
+                                                ToastController.show("엣지에 존이 하나뿐이라 삭제할 수 없어요", ToastType.WARNING)
+                                            } else {
+                                                canvasMode = m.copy(selected = m.selected + k)
+                                            }
+                                        }
+                                        is CanvasEditMode.Splitting -> {
+                                            // 이미 최대 존 개수인 엣지는 더 나눌 수 없으므로 갯수 선택 화면으로 진입하지 않고 안내 토스트
+                                            if (workConfig.zonesFor(zone.edge).size >= EdgeSwipeConstants.MAX_ZONES_PER_EDGE.toInt()) {
+                                                ToastController.show("존이 ${EdgeSwipeConstants.MAX_ZONES_PER_EDGE.toInt()}개로 가득 차 더 나눌 수 없어요", ToastType.WARNING)
+                                            } else {
+                                                // 분할 대상 존 지정 (재탭으로 변경 가능)
+                                                canvasMode = m.copy(target = zone.key())
+                                            }
+                                        }
+                                        is CanvasEditMode.Resizing -> {
+                                            // 존이 2개 이상인 엣지만 비율 프리셋 대상으로 선택 가능
+                                            if (workConfig.zonesFor(zone.edge).size >= 2) {
+                                                // 새 엣지를 선택하는 순간 스냅샷 — 이후 프리셋 적용을 패널 취소로 일괄 되돌릴 수 있게
+                                                if (m.edge != zone.edge) state.beginResizeSession()
+                                                canvasMode = m.copy(edge = zone.edge)
+                                            } else {
+                                                ToastController.show("존이 하나뿐인 가장자리는 비율을 나눌 수 없어요", ToastType.WARNING)
+                                            }
+                                        }
+                                        is CanvasEditMode.Merging -> {
+                                            val e = m.edge
+                                            val base = m.base
+                                            when {
+                                                // 첫 선택 = 기준(base) 존
+                                                e == null || base == null -> canvasMode = m.copy(edge = zone.edge, base = zone.startRatio)
+                                                // 다른 엣지 존은 선택 불가
+                                                zone.edge != e -> ToastController.show("같은 가장자리의 인접한 존만 선택할 수 있어요", ToastType.WARNING)
+                                                // 기준 존 재탭 → 선택 초기화
+                                                zone.startRatio == base -> canvasMode = CanvasEditMode.Merging()
+                                                else -> {
+                                                    // 현재 선택 구간 [lo, hi]에 인접한 존만 확장/축소 허용
+                                                    val zones = workConfig.zonesFor(e)
+                                                    val tapIdx = zones.indexOfFirst { it.startRatio == zone.startRatio }
+                                                    val selIndices = (m.selected + base)
+                                                        .mapNotNull { sr -> zones.indexOfFirst { it.startRatio == sr }.takeIf { it >= 0 } }
+                                                        .sorted()
+                                                    val lo = selIndices.firstOrNull() ?: -1
+                                                    val hi = selIndices.lastOrNull() ?: -1
+                                                    when {
+                                                        tapIdx < 0 -> {}
+                                                        // 구간 양 끝 바깥 인접 → 추가
+                                                        tapIdx == lo - 1 || tapIdx == hi + 1 ->
+                                                            canvasMode = m.copy(selected = m.selected + zone.startRatio)
+                                                        // 구간 양 끝(기준 제외) → 해제
+                                                        tapIdx == lo || tapIdx == hi ->
+                                                            canvasMode = m.copy(selected = m.selected - zone.startRatio)
+                                                        // 비인접(멀거나 구간 내부) → 거부 + 안내
+                                                        else -> ToastController.show("인접한 존만 선택할 수 있어요", ToastType.WARNING)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        is CanvasEditMode.Moving -> {
+                                            // 캔버스 탭(SWIPE hit overlay 포함): picked 없을 때만 들어올림. 드롭은 전용 경로.
+                                            if (m.picked == null) movingPick(zone)
+                                        }
+                                        else -> {}
+                                    }
+                                }
                                 EdgeZoneEditorPreviewCanvas(
-                                    config = workConfig,
-                                    selectedZone = selectedZone,
+                                    config = displayConfig,
+                                    highlightKeys = when {
+                                        // 병합 모드는 존별 개별 강조 대신 아래 MergeSelectionOverlay가 연속 영역을 애니메이션으로 강조
+                                        canvasMode is CanvasEditMode.Merging -> emptySet()
+                                        // 분할 미리보기: 대상 존이 나뉜 모든 조각을 녹색 강조 (part0만 강조되던 문제 해소)
+                                        splitPreviewN != null && splitTargetKey != null -> {
+                                            val t = splitTargetKey
+                                            val orig = workConfig.zonesFor(t.edge).firstOrNull { it.startRatio == t.startRatio }
+                                            if (orig != null) {
+                                                displayConfig.zonesFor(t.edge)
+                                                    .filter { val c = (it.startRatio + it.endRatio) / 2f; c > orig.startRatio && c < orig.endRatio }
+                                                    .map { it.key() }.toSet()
+                                            } else canvasHighlightKeys(canvasMode, selectedZone, displayConfig)
+                                        }
+                                        else -> canvasHighlightKeys(canvasMode, selectedZone, displayConfig)
+                                    },
+                                    resizeMode = canvasMode is CanvasEditMode.Resizing,
+                                    highlightAsPreview = previewActive,
+                                    liftedKey = liftedKey,
+                                    interactive = zoneMorphs.isEmpty() && state.ratioMorph == null,
                                     disabledEdges = disabledEdges,
                                     bottomLeftButtonLabel = bottomLeftButtonLabel,
                                     bottomRightButtonLabel = bottomRightButtonLabel,
-                                    onZoneTapped = { selectedZone = it; selectedEdge = it.edge },
+                                    onZoneTapped = onZoneInteract,
                                     onCornerPriorityToggled = { corner ->
                                         state.pushUndo()
                                         workConfig = workConfig.toggleCornerPriority(corner)
                                         currentPresetId = null
                                     },
+                                    blockedRatio = cornerBlockedRatio,
                                     modifier = Modifier.fillMaxSize()
                                 )
 
-                                // ── SWIPE 모드 캔버스 hit 영역 오버레이 (NORMAL에서는 미렌더) ──
-                                // 존 단위로 분해. 비활성 엣지만 등록 생략 (Unassigned 존은 포함).
-                                // 코너는 별도 hit 영역으로 제공하지 않는다.
-                                if (inputMode == InputMode.SWIPE && !editing) {
-                                    ZoneCanvasHitOverlay(
-                                        workConfig = workConfig,
-                                        disabledEdges = disabledEdges,
-                                        bottomLeftButtonLabel = bottomLeftButtonLabel,
-                                        bottomRightButtonLabel = bottomRightButtonLabel,
-                                        canvasWidth = maxWidth,
-                                        canvasHeight = maxHeight,
-                                        onZoneSelected = { zone ->
-                                            selectedZone = zone
-                                            selectedEdge = zone.edge
-                                        },
-                                    )
-                                }
-                                if (!editing) {
-                                    Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.TouchApp,
-                                                contentDescription = null,
-                                                tint = cs.onSurfaceVariant.copy(alpha = 0.4f),
-                                                modifier = Modifier.size(36.dp)
-                                            )
-                                            Text(
-                                                text = "존을 탭해 편집",
-                                                fontSize = 13.sp,
-                                                color = cs.onSurfaceVariant,
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                // ── 떠다니는 선택 존 (캔버스 위에 그림) ──
+                                // float 미리보기(SWIPE·NORMAL 드래그): 직전 슬롯→현재 슬롯 점프(previewAnim) + lift(들어올림/안착).
+                                // NORMAL 탭 커밋: 출발→도착(morphProgress), lift 미적용.
+                                (previewFloat?.let { Triple(it, previewAnim.value, if (isDragMove) liftProgress.value else 1f) }
+                                    ?: moveFloat?.let { Triple(it, morphProgress.value, 1f) })
+                                    ?.let { (f, p, lift) ->
+                                        ZoneMoveFloatingOverlay(
+                                            float = f,
+                                            progress = p,
+                                            canvasWidth = maxWidth,
+                                            canvasHeight = maxHeight,
+                                            cornerPriority = workConfig.cornerPriority,
+                                            hasBottomLeft = bottomLeftButtonLabel != null,
+                                            hasBottomRight = bottomRightButtonLabel != null,
+                                            lift = lift,
+                                            blockedRatio = cornerBlockedRatio,
+                                        )
+                                    }
+
+                                // ── 병합 모드: 연속 선택 구간을 애니메이션 영역 박스로 강조 (NORMAL/SWIPE 공통) ──
+                                (canvasMode as? CanvasEditMode.Merging)?.let { mm ->
+                                    val mEdge = mm.edge
+                                    val mBase = mm.base
+                                    if (mEdge != null && mBase != null) {
+                                        val sel = mm.selected + mBase
+                                        val selZones = displayConfig.zonesFor(mEdge).filter { it.startRatio in sel }
+                                        if (selZones.isNotEmpty()) {
+                                            MergeSelectionOverlay(
+                                                edge = mEdge,
+                                                regionStartRatio = selZones.minOf { it.startRatio },
+                                                regionEndRatio = selZones.maxOf { it.endRatio },
+                                                canvasWidth = maxWidth,
+                                                canvasHeight = maxHeight,
+                                                hasBottomLeft = bottomLeftButtonLabel != null,
+                                                hasBottomRight = bottomRightButtonLabel != null,
+                                                blockedRatio = cornerBlockedRatio,
                                             )
                                         }
                                     }
+                                }
+
+                                // ── SWIPE 모드 캔버스 hit 영역 오버레이 (NORMAL에서는 미렌더) ──
+                                // 존 단위로 분해. 비활성 엣지만 등록 생략 (Unassigned 존은 포함).
+                                if (inputMode == InputMode.SWIPE && !editing) {
+                                    if (canvasMode is CanvasEditMode.Resizing) {
+                                        // 비율 조정: 존 hit(엣지 선택용)을 먼저, 경계 manipulation을 위에 렌더
+                                        ZoneCanvasHitOverlay(
+                                            workConfig = workConfig,
+                                            disabledEdges = disabledEdges,
+                                            bottomLeftButtonLabel = bottomLeftButtonLabel,
+                                            bottomRightButtonLabel = bottomRightButtonLabel,
+                                            canvasWidth = maxWidth,
+                                            canvasHeight = maxHeight,
+                                            onZoneSelected = onZoneInteract,
+                                            focusBackground = true,
+                                            blockedRatio = cornerBlockedRatio,
+                                        )
+                                        ZoneCanvasResizeOverlay(
+                                            workConfig = displayConfig,
+                                            disabledEdges = disabledEdges,
+                                            canvasWidth = maxWidth,
+                                            canvasHeight = maxHeight,
+                                            onAdjust = { edge, leftIdx, ratio -> state.adjustBoundary(edge, leftIdx, ratio) },
+                                            hasBottomLeft = bottomLeftButtonLabel != null,
+                                            hasBottomRight = bottomRightButtonLabel != null,
+                                            blockedRatio = cornerBlockedRatio,
+                                        )
+                                        // 경계 탭 확정(MANIPULATION) 시 해당 엣지 옆에 이동 데모(화살표+손가락)를 잠시 표시
+                                        val fb = swipeController.currentFocus as? EdgeEditorElement.CanvasBoundary
+                                        if (swipeController.mode == SwipeMode.MANIPULATION && fb != null) {
+                                            workConfig.zonesFor(fb.edge).getOrNull(fb.leftIndex + 1)?.startRatio?.let { br ->
+                                                // key: 경계가 바뀌면(새 MANIPULATION 진입) 힌트를 재생성해 타이머/이동감지 리셋
+                                                androidx.compose.runtime.key(fb.edge, fb.leftIndex) {
+                                                    BoundaryManipulationHint(
+                                                        edge = fb.edge,
+                                                        boundaryRatio = br,
+                                                        canvasWidth = maxWidth,
+                                                        canvasHeight = maxHeight,
+                                                        hasBottomLeft = bottomLeftButtonLabel != null,
+                                                        hasBottomRight = bottomRightButtonLabel != null,
+                                                        blockedRatio = cornerBlockedRatio,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        val movingPicked = (canvasMode as? CanvasEditMode.Moving)?.picked
+                                        if (movingPicked != null) {
+                                            // 이동 모드 2단계: 드롭 슬롯(경계+양 끝)을 포커스 대상으로 렌더
+                                            ZoneCanvasDropOverlay(
+                                                workConfig = workConfig,
+                                                picked = movingPicked,
+                                                disabledEdges = disabledEdges,
+                                                canvasWidth = maxWidth,
+                                                canvasHeight = maxHeight,
+                                                isValidSlot = { edge, insertIndex ->
+                                                    state.validateMove(movingPicked, edge, insertIndex, disabledEdges.keys) == null
+                                                },
+                                                onSlotDrop = movingSlotDrop,
+                                                showMarker = false,  // 들림 고스트가 위치를 대신 표시
+                                                hasBottomLeft = bottomLeftButtonLabel != null,
+                                                hasBottomRight = bottomRightButtonLabel != null,
+                                                blockedRatio = cornerBlockedRatio,
+                                            )
+                                        } else {
+                                            // 1단계(존 선택) 또는 그 외 모드: 존 hit 오버레이
+                                            ZoneCanvasHitOverlay(
+                                                workConfig = workConfig,
+                                                disabledEdges = disabledEdges,
+                                                bottomLeftButtonLabel = bottomLeftButtonLabel,
+                                                bottomRightButtonLabel = bottomRightButtonLabel,
+                                                canvasWidth = maxWidth,
+                                                canvasHeight = maxHeight,
+                                                onZoneSelected = onZoneInteract,
+                                                blockedRatio = cornerBlockedRatio,
+                                            )
+                                        }
+                                    }
+                                }
+                                // ── NORMAL 이동 탭: 드롭 후보 시각 힌트 (탭 감지는 inputModifier가 담당) ──
+                                // SwipeFocusable은 NORMAL에서 컨트롤러가 null이라 마커만 렌더되고 클릭은 통과한다.
+                                if (inputMode == InputMode.NORMAL && effectiveMoveMethod == ZoneMoveMethod.TAP && !editing) {
+                                    (canvasMode as? CanvasEditMode.Moving)?.picked?.let { picked ->
+                                        ZoneCanvasDropOverlay(
+                                            workConfig = workConfig,
+                                            picked = picked,
+                                            disabledEdges = disabledEdges,
+                                            canvasWidth = maxWidth,
+                                            canvasHeight = maxHeight,
+                                            isValidSlot = { edge, insertIndex ->
+                                                state.validateMove(picked, edge, insertIndex, disabledEdges.keys) == null
+                                            },
+                                            onSlotDrop = { _, _ -> },  // NORMAL은 inputModifier가 처리
+                                            hasBottomLeft = bottomLeftButtonLabel != null,
+                                            hasBottomRight = bottomRightButtonLabel != null,
+                                            blockedRatio = cornerBlockedRatio,
+                                        )
+                                    }
+                                }
+                                if (!editing) {
+                                    // 코너 버튼 차단 영역 크기 조절 (캔버스 씬, 모드 미진입 시). 조절 즉시 저장 + 미리보기 갱신.
+                                    if (canvasMode is CanvasEditMode.None) {
+                                        Column(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = 30.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                        ) {
+                                            Text(
+                                                "코너 버튼 크기",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                            )
+                                            Box(modifier = Modifier.padding(top = 1.dp).width(150.dp)) {
+                                                CustomTrackSlider(
+                                                    value = cornerBlockedRatio,
+                                                    onValueChange = { cornerBlockedRatio = it },
+                                                    valueRange = 0.05f..0.30f,
+                                                    valueLabel = "${(cornerBlockedRatio * 100).roundToInt()}%",
+                                                    labelWidth = 34.dp,
+                                                    snap = { (it * 100).roundToInt() / 100f },
+                                                    minorTickStep = 0.05f,
+                                                    labelFontWeight = FontWeight.Bold,
+                                                    element = EdgeEditorElement.CornerBlockedSlider,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    EdgeZoneCanvasModeOverlay(
+                                        canvasMode = canvasMode,
+                                        blockedRatio = cornerBlockedRatio,
+                                        manipulating = inputMode == InputMode.SWIPE &&
+                                            swipeController.mode == SwipeMode.MANIPULATION &&
+                                            swipeController.currentFocus is EdgeEditorElement.CanvasBoundary,
+                                        onModeChange = { newMode ->
+                                            // 비율 조정 모드 진입 시점 스냅샷 — 안내 카드 '취소'로 경계 드래그까지 일괄 원복
+                                            if (canvasMode !is CanvasEditMode.Resizing && newMode is CanvasEditMode.Resizing) {
+                                                state.beginResizeMode()
+                                            }
+                                            // 이동 모드 진입 시점 기록 — 롱프레스 '되돌리고 나가기'가 이 시점까지 역순 복원
+                                            if (canvasMode is CanvasEditMode.None && newMode is CanvasEditMode.Moving) {
+                                                state.beginMoveMode()
+                                            }
+                                            canvasMode = newMode
+                                        },
+                                        onConfirm = {
+                                            when (val m = canvasMode) {
+                                                is CanvasEditMode.Deleting -> {
+                                                    state.deleteZones(m.selected)
+                                                    canvasMode = CanvasEditMode.None
+                                                }
+                                                is CanvasEditMode.Merging -> {
+                                                    val e = m.edge
+                                                    val b = m.base
+                                                    if (e != null && b != null) {
+                                                        // 병합 직전 상태 캡처 (애니메이션 before 프레임)
+                                                        val beforeZones = workConfig.zonesFor(e)
+                                                        if (state.mergeContiguous(e, b, m.selected + b)) {
+                                                            // mergeContiguous가 selectedZone에 병합 결과를 담음 → 포커스용으로 캡처
+                                                            val merged = selectedZone
+                                                            canvasMode = CanvasEditMode.None
+                                                            // 병합 직후 편집 씬으로 전환되지 않도록 선택 해제
+                                                            selectedZone = null
+                                                            selectedEdge = null
+                                                            // stretch 애니메이션 시작
+                                                            buildMergeMorph(beforeZones, e, b, m.selected + b)?.let { zoneMorphs = listOf(it) }
+                                                            // SWIPE: 방금 병합된 존에 포커스
+                                                            if (merged != null) {
+                                                                val idx = workConfig.zonesFor(e).indexOfFirst { it.startRatio == merged.startRatio }
+                                                                if (idx >= 0) swipeController.setFocus(EdgeEditorElement.CanvasZone(e, idx))
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                // 이동 모드 '확인': 지금까지의 이동을 유지한 채 모드 선택 화면으로 복귀
+                                                is CanvasEditMode.Moving -> {
+                                                    canvasMode = CanvasEditMode.None
+                                                }
+                                                else -> {}
+                                            }
+                                        },
+                                        config = workConfig,
+                                        disabledEdges = disabledEdges,
+                                        bottomLeftButtonLabel = bottomLeftButtonLabel,
+                                        bottomRightButtonLabel = bottomRightButtonLabel,
+                                        onZoneInteract = onZoneInteract,
+                                        moveMethod = effectiveMoveMethod,
+                                        onMovingPick = movingPick,
+                                        onMovingDropTap = movingDropTap,
+                                        onMovingDrag = movingDrag,
+                                        onMovingDragEnd = movingDragEnd,
+                                        onMovingCancel = movingCancel,
+                                        onMovingLongCancel = {
+                                            // 롱프레스: 세션 내 이동을 역순 애니메이션으로 모두 되돌린 뒤 모드 선택 화면으로 복귀
+                                            state.moveRevertRequested = true
+                                        },
+                                        movingRevertInProgress = state.moveRevertRequested,
+                                        onSplitInto = { n ->
+                                            val t = (canvasMode as? CanvasEditMode.Splitting)?.target
+                                            if (t != null) {
+                                                val zone = workConfig.zonesFor(t.edge).firstOrNull { it.startRatio == t.startRatio }
+                                                if (zone != null) {
+                                                    // 분할 전 비율 캡처 (애니메이션 before 프레임)
+                                                    val origStart = zone.startRatio
+                                                    val origEnd = zone.endRatio
+                                                    if (state.splitInto(zone, n)) {
+                                                        canvasMode = CanvasEditMode.None
+                                                        // 분할 직후 편집 씬 전환 방지
+                                                        selectedZone = null
+                                                        selectedEdge = null
+                                                        // shrink→grow 애니메이션 시작
+                                                        val afterZones = workConfig.zonesFor(t.edge)
+                                                        buildSplitMorph(afterZones, t.edge, origStart, origEnd, n)?.let { zoneMorphs = listOf(it) }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onResizeStart = {
+                                            // 경계 직접 드래그 시작 → armed된 프리셋 미리보기 해제
+                                            pendingPreviewRatios = null
+                                            state.pushUndo()
+                                        },
+                                        onResize = { edge, leftIdx, ratio -> state.adjustBoundary(edge, leftIdx, ratio) },
+                                        previewedRatios = if (inputMode == InputMode.SWIPE) null else pendingPreviewRatios,
+                                        onApplyPreset = { edge, ratios ->
+                                            // 공통: 현재 보이는 config에서 적용 결과로 부드럽게 전환(미리보기가 이미 결과면 before==after → 점프 없음).
+                                            val commit: () -> Unit = {
+                                                val before = displayConfig
+                                                state.applyRatioPreset(edge, ratios)
+                                                if (before != workConfig) state.ratioMorph = ConfigMorph(before, workConfig)
+                                            }
+                                            if (inputMode == InputMode.SWIPE) {
+                                                // SWIPE: 포커스가 미리보기 역할 → 탭이 곧 확정. 적용 후 안내 카드 단계로 이동하고 '확인' 포커스.
+                                                commit()
+                                                canvasMode = CanvasEditMode.Resizing()
+                                                swipeController.setFocus(EdgeEditorElement.CanvasModeConfirm)
+                                            } else if (pendingPreviewRatios == ratios) {
+                                                // NORMAL 2단계: 같은 프리셋 재탭 → 확정 후 안내 카드 단계로 복귀
+                                                commit()
+                                                pendingPreviewRatios = null
+                                                canvasMode = CanvasEditMode.Resizing()
+                                            } else {
+                                                // NORMAL 2단계: 첫 탭 → 미리보기(armed). 현재 표시 config에서 미리보기 비율로 부드럽게 전환.
+                                                val before = displayConfig
+                                                val previewCfg = state.computeRatioZones(workConfig.zonesFor(edge), ratios)
+                                                    ?.let { workConfig.withZones(edge, it) }
+                                                pendingPreviewRatios = ratios
+                                                if (previewCfg != null && before != previewCfg) state.ratioMorph = ConfigMorph(before, previewCfg)
+                                            }
+                                        },
+                                        onResizeSessionDiscard = { state.discardResizeSession() },
+                                        onResizeModeConfirm = { state.commitResizeMode(); canvasMode = CanvasEditMode.None },
+                                        onResizeModeCancel = { state.discardResizeMode(); canvasMode = CanvasEditMode.None },
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
                                 }
                             }
                     }
@@ -1140,27 +1925,10 @@ fun EdgeZoneEditorScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
 
-                            ZoneRatioSection(
-                                state = state,
-                                overlayUi = overlayUi,
-                                zonePopupState = zonePopupState,
-                                sel = sel,
-                                edgeForStrip = edgeForStrip,
-                                zoneList = zoneList,
-                                zoneIdx = zoneIdx,
-                                minRatio = minRatio,
-                                maxZones = maxZones,
-                                stripBlockedStart = stripBlockedStart,
-                                stripBlockedStartLabel = stripBlockedStartLabel,
-                                stripBlockedEnd = stripBlockedEnd,
-                                stripBlockedEndLabel = stripBlockedEndLabel,
-                                swipeController = swipeController,
-                                onRatioBtnBoundsChange = { ratioBtnBoundsInWindow = it },
-                            )
+                            // 비율 섹션(EdgeStripEditor·프리셋·병합/분할/이동/삭제 팝업)은 캔버스 모드로 이전됨(Phase 4.7.x).
+                            // 편집 씬에는 라벨/액션/아이콘 편집만 남긴다.
 
                             if (sel != null) {
-                                HorizontalDivider(color = cs.outline.copy(alpha = 0.2f))
-
                                 // ── 2. 액션 타입 페이지 네비게이션 ──
                                 val isSingleAction = sel.trigger is EdgeZoneTrigger.SingleAction
                                 Row(
@@ -1505,6 +2273,7 @@ fun EdgeZoneEditorScreen(
             localCustomPresets = localCustomPresets,
             updateSelectedZone = { updateSelectedZone(it) },
             zonePopupState = zonePopupState,
+            canvasModeState = canvasModeState,
         )
         // ── 커스텀 다이나믹스 프리셋 편집기 오버레이 ──
         if (dynamicsEditorVisible) {
@@ -1575,6 +2344,7 @@ fun EdgeZoneEditorScreen(
                     ToastType.ERROR
                 )
             } else {
+                saveCornerBlockedRatio(context, cornerBlockedRatio)
                 onSave(workConfig, currentPresetId)
             }
             showDiscardDialog = false

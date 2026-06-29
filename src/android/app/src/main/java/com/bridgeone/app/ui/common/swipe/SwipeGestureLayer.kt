@@ -107,7 +107,7 @@ fun SwipeGestureLayer(
                         when (controller.mode) {
                             SwipeMode.MANIPULATION -> {
                                 if (moveDelta != Offset.Zero) {
-                                    controller.manipulate(moveDelta.x, size.width.toFloat())
+                                    controller.manipulate(moveDelta.x, moveDelta.y, size.width.toFloat(), size.height.toFloat())
                                     anyManipulationFired = true
                                 }
                             }
@@ -151,7 +151,7 @@ fun SwipeGestureLayer(
                         }
                     } else if (controller.mode == SwipeMode.MANIPULATION && moveDelta != Offset.Zero) {
                         // MANIPULATION 모드에서는 touchSlop 미만 이동도 즉시 조작으로 처리
-                        controller.manipulate(moveDelta.x, size.width.toFloat())
+                        controller.manipulate(moveDelta.x, moveDelta.y, size.width.toFloat(), size.height.toFloat())
                         anyManipulationFired = true
                     }
 

@@ -78,6 +78,7 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
     localCustomPresets: List<CustomPointerDynamicsPreset>,
     updateSelectedZone: (EdgeZone) -> Unit,
     zonePopupState: MutableState<ZoneActionPopup>,
+    canvasModeState: MutableState<CanvasEditMode>,
 ) {
     val inputMode = LocalInputMode.current
     val cs = MaterialTheme.colorScheme
@@ -137,6 +138,7 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
     var localCustomShortcutPresets by overlayUi.localCustomShortcutPresetsState
     var localCustomMacroPresets by overlayUi.localCustomMacroPresetsState
     var zonePopup by zonePopupState
+    var canvasMode by canvasModeState
 
         // ── SWIPE 모드: StripBoundary 조작 안내 힌트 ──
         if (inputMode == InputMode.SWIPE) {
@@ -635,6 +637,13 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
                 modifier = Modifier.matchParentSize(),
                 onLongPress = {
                     when {
+                        swipeController.mode == SwipeMode.MANIPULATION &&
+                            swipeController.currentFocus is EdgeEditorElement.CanvasBoundary -> {
+                            // 경계 조작 중 롱프레스: 이번 이동을 되돌리고 SELECTION으로 복귀 (경계 복원 애니메이션 동반)
+                            state.revertBoundaryManipulation()
+                            swipeController.exitManipulation()
+                            true
+                        }
                         showPresetPopup -> {
                             // 프리셋 팝업: 단계별 뒤로가기 / 닫기
                             when (presetPopupStage) {
@@ -737,13 +746,6 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
                             swipeController.setFocus(EdgeEditorElement.ZoneActionMerge)
                             true
                         }
-                        // MoveSelecting 상태에서 롱프레스 → Initial 복귀
-                        zonePopup is ZoneActionPopup.MoveSelecting -> {
-                            val ms = zonePopup as ZoneActionPopup.MoveSelecting
-                            zonePopup = ZoneActionPopup.Initial(ms.zone, ms.anchor)
-                            swipeController.setFocus(EdgeEditorElement.ZoneActionMove)
-                            true
-                        }
                         // SplitChoosing 상태에서 분할 개수 버튼 포커스 + 롱프레스 → Initial 복귀
                         swipeController.currentFocus is EdgeEditorElement.ZoneActionSplitN -> {
                             swipeController.activateAlt()
@@ -778,6 +780,11 @@ internal fun BoxScope.EdgeZoneOverlayLayer(
                                 ToastController.show("커스텀 프리셋만 수정하거나 삭제할 수 있습니다", ToastType.INFO)
                                 true
                             }
+                        }
+                        // 이동 모드: 롱프레스로 세션 내 이동을 역순 애니메이션으로 모두 되돌린 뒤 모드 선택 화면으로 복귀
+                        canvasMode is CanvasEditMode.Moving -> {
+                            state.moveRevertRequested = true
+                            true
                         }
                         else -> false
                     }

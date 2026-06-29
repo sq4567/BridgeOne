@@ -89,6 +89,9 @@ class SwipeFocusController {
     fun boundsOf(element: FocusableElement?): androidx.compose.ui.geometry.Rect? =
         if (element != null) entries[element]?.bounds else null
 
+    /** 현재 활성 scope의 등록 요소 목록. [moveInterceptor] 커스텀 공간 네비게이션용. */
+    fun activeEntries(): List<FocusableEntry> = entries.values.filter { it.scope == activeScope }
+
     /** [SwipeFocusable]이 dispose될 때 호출. */
     fun unregister(element: FocusableElement) {
         entries.remove(element)
@@ -238,11 +241,20 @@ class SwipeFocusController {
         mode = SwipeMode.SELECTION
     }
 
-    /** 조작 모드에서 스와이프 거리를 현재 포커스 요소에 전달. */
-    fun manipulate(deltaPx: Float, screenWidthPx: Float) {
+    /**
+     * 조작 모드에서 스와이프 변위(2D)를 현재 포커스 요소에 전달.
+     * 요소의 [FocusableEntry.manipulationAxis]에 따라 가로(deltaX/너비) 또는 세로(deltaY/높이) 성분을 골라
+     * onManipulate(delta, 정규화기준)로 넘긴다. 가로 슬라이더는 HORIZONTAL(기본), 세로 엣지 경계는 VERTICAL.
+     */
+    fun manipulate(deltaX: Float, deltaY: Float, screenWidthPx: Float, screenHeightPx: Float) {
         if (mode != SwipeMode.MANIPULATION) return
         val entry = entries[currentFocus] ?: return
-        entry.onManipulate(deltaPx, screenWidthPx)
+        val (delta, norm) = if (entry.manipulationAxis == ManipulationAxis.VERTICAL) {
+            deltaY to screenHeightPx
+        } else {
+            deltaX to screenWidthPx
+        }
+        entry.onManipulate(delta, norm)
     }
 
     /** 메뉴/팝업 진입 시 호출. 새 scope로 전환되며 포커스는 초기화. */
@@ -287,6 +299,9 @@ enum class Direction {
     UP, DOWN, LEFT, RIGHT,
 }
 
+/** 조작(MANIPULATION) 모드에서 어느 축의 스와이프 성분을 사용할지. */
+enum class ManipulationAxis { HORIZONTAL, VERTICAL }
+
 /** 포커스 가능한 요소를 식별하기 위한 마커 인터페이스. 화면별로 sealed class 등으로 구현. */
 interface FocusableElement
 
@@ -314,6 +329,7 @@ data class FocusableEntry(
     val onManipulate: (deltaPx: Float, screenWidthPx: Float) -> Unit,
     val gridRow: Int? = null,
     val gridCol: Int? = null,
+    val manipulationAxis: ManipulationAxis = ManipulationAxis.HORIZONTAL,
 )
 
 private val Rect.center: Offset get() = Offset((left + right) / 2f, (top + bottom) / 2f)

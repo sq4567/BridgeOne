@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Alignment
@@ -106,6 +107,8 @@ import com.bridgeone.app.ui.components.touchpad.MacroStep
 import com.bridgeone.app.ui.components.touchpad.PageNav
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneDetector
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneOverlay
+import com.bridgeone.app.ui.components.touchpad.unmapFromValid
+import com.bridgeone.app.ui.pages.standard.loadCornerBlockedRatio
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneTrigger
 import com.bridgeone.app.ui.components.touchpad.EntryEdge
 import com.bridgeone.app.ui.components.touchpad.NormalScrollButtons
@@ -210,6 +213,12 @@ fun TouchpadWrapper(
     val latestOnJumpToPage by rememberUpdatedState(onJumpToPage)
     var pendingImeCheckMacro: EdgeZoneAction.SendMacro? by remember { mutableStateOf(null) }
     val latestConfig by rememberUpdatedState(buttonVisibility.controlButtonConfig)
+
+    // 코너 버튼 차단 영역 크기(전역 설정) + 좌/우하 버튼 유무 — 존 비율 유효 영역 매핑에 사용.
+    val context = LocalContext.current
+    val cornerBlockedRatio = remember { loadCornerBlockedRatio(context) }
+    val latestHasBottomLeft by rememberUpdatedState(buttonVisibility.showDynamicsButton)
+    val latestHasBottomRight by rememberUpdatedState(buttonVisibility.showModePresetButton)
 
     // ── 커서 모드 상태 (기존) ──
     val currentTouchPosition = remember { mutableStateOf(Offset.Zero) }
@@ -866,8 +875,11 @@ fun TouchpadWrapper(
                                                     EntryEdge.TOP, EntryEdge.BOTTOM -> size.width.toFloat()
                                                     null -> 1f
                                                 }
-                                                val zoneAlongRatio = if (zoneEdgeLen > 0f) fingerAlongEdgePx / zoneEdgeLen else 0f
-                                                val curZone = if (entryEdge != null && !(entryEdge == EntryEdge.TOP && latestConfig.hasControlButtons))
+                                                // 손가락 raw 비율을 존 비율로 역매핑(코너 버튼 차단 영역이면 null → 존 없음).
+                                                val zoneAlongRatio = if (zoneEdgeLen > 0f && entryEdge != null)
+                                                    unmapFromValid(entryEdge!!, fingerAlongEdgePx / zoneEdgeLen, latestHasBottomLeft, latestHasBottomRight, cornerBlockedRatio)
+                                                else null
+                                                val curZone = if (zoneAlongRatio != null && entryEdge != null && !(entryEdge == EntryEdge.TOP && latestConfig.hasControlButtons))
                                                     EdgeZoneDetector.findActiveZone(latestAssignment.config, entryEdge!!, zoneAlongRatio)
                                                 else null
                                                 val curZoneKey = curZone?.let { it.startRatio to it.endRatio }
@@ -1279,8 +1291,10 @@ fun TouchpadWrapper(
                                 EntryEdge.TOP, EntryEdge.BOTTOM -> size.width.toFloat()
                                 null -> 1f
                             }
-                            val alongRatio = if (edgeLen > 0f) fingerAlongEdgePx / edgeLen else 0f
-                            val activeZone = if (entryEdge != null && !(entryEdge == EntryEdge.TOP && latestConfig.hasControlButtons))
+                            val alongRatio = if (edgeLen > 0f && entryEdge != null)
+                                unmapFromValid(entryEdge!!, fingerAlongEdgePx / edgeLen, latestHasBottomLeft, latestHasBottomRight, cornerBlockedRatio)
+                            else null
+                            val activeZone = if (alongRatio != null && entryEdge != null && !(entryEdge == EntryEdge.TOP && latestConfig.hasControlButtons))
                                 EdgeZoneDetector.findActiveZone(latestAssignment.config, entryEdge!!, alongRatio)
                             else null
                             if (activeZone != null) {
@@ -1670,6 +1684,9 @@ fun TouchpadWrapper(
                     touchpadHeightPx = hPx,
                     isZoneArmed = isZoneArmed,
                     rotationIndex = rotationIndex,
+                    hasBottomLeft = buttonVisibility.showDynamicsButton,
+                    hasBottomRight = buttonVisibility.showModePresetButton,
+                    blockedRatio = cornerBlockedRatio,
                     modifier = Modifier.fillMaxSize()
                 )
             }

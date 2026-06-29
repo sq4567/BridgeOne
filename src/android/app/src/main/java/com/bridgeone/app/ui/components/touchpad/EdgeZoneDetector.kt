@@ -1,7 +1,5 @@
 package com.bridgeone.app.ui.components.touchpad
 
-import com.bridgeone.app.ui.common.EdgeSwipeConstants
-
 /**
  * (entryEdge, alongEdgeRatio) 쌍을 받아 활성 EdgeZone을 반환한다.
  */
@@ -30,23 +28,4 @@ object EdgeZoneDetector {
         return zones.dropLast(1).map { it.endRatio }
     }
 
-    /**
-     * 비율이 모서리 버튼 차단 구간에 속하는지 확인한다.
-     * 차단 구간: 0.0~CORNER_BUTTON_BLOCKED_RATIO 또는 (1-RATIO)~1.0
-     */
-    fun isBlockedByCornerButton(
-        edge: EntryEdge,
-        ratio: Float,
-        hasBottomLeftButton: Boolean,
-        hasBottomRightButton: Boolean
-    ): Boolean {
-        val blocked = EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO
-        return when (edge) {
-            EntryEdge.LEFT   -> hasBottomLeftButton && ratio > (1f - blocked)
-            EntryEdge.RIGHT  -> hasBottomRightButton && ratio > (1f - blocked)
-            EntryEdge.BOTTOM -> (hasBottomLeftButton && ratio < blocked) ||
-                                (hasBottomRightButton && ratio > (1f - blocked))
-            EntryEdge.TOP    -> false
-        }
-    }
 }

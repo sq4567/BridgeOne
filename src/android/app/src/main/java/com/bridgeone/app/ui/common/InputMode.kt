@@ -28,9 +28,20 @@ enum class InputMode {
  */
 val LocalInputMode = compositionLocalOf { InputMode.NORMAL }
 
+/**
+ * 존 이동 모드의 조작 방식.
+ *
+ * - [TAP]: 존을 탭해 선택(들어올림) 후, 다른 존 경계/엣지 양 끝을 탭해 그 위치로 이동
+ * - [DRAG_AND_DROP]: 존을 잡고 끌면 다른 존이 밀려나며, 손가락을 떼면 가까운 경계에 안착
+ *
+ * SWIPE 레이어에서는 항상 [TAP]으로 강제되며 설정 UI에 노출되지 않는다.
+ */
+enum class ZoneMoveMethod { TAP, DRAG_AND_DROP }
+
 private const val INPUT_MODE_PREF_NAME = "input_mode_prefs"
 private const val INPUT_MODE_KEY = "input_mode"
 private const val SWIPE_WRAP_EDGE_KEY = "swipe_wrap_edge"
+private const val ZONE_MOVE_METHOD_KEY = "zone_move_method"
 
 /** 저장된 [InputMode]를 로드. 없으면 [InputMode.NORMAL] 반환. 기본값: NORMAL */
 fun loadInputMode(context: Context): InputMode {
@@ -57,5 +68,20 @@ fun saveSwipeWrapEdge(context: Context, enabled: Boolean) {
     context.getSharedPreferences(INPUT_MODE_PREF_NAME, Context.MODE_PRIVATE)
         .edit()
         .putBoolean(SWIPE_WRAP_EDGE_KEY, enabled)
+        .apply()
+}
+
+/** 저장된 존 이동 방식을 로드. 없으면 [ZoneMoveMethod.TAP] 반환. 기본값: TAP */
+fun loadZoneMoveMethod(context: Context): ZoneMoveMethod {
+    val name = context.getSharedPreferences(INPUT_MODE_PREF_NAME, Context.MODE_PRIVATE)
+        .getString(ZONE_MOVE_METHOD_KEY, ZoneMoveMethod.TAP.name) ?: ZoneMoveMethod.TAP.name
+    return ZoneMoveMethod.entries.firstOrNull { it.name == name } ?: ZoneMoveMethod.TAP
+}
+
+/** 존 이동 방식을 SharedPreferences에 저장. */
+fun saveZoneMoveMethod(context: Context, method: ZoneMoveMethod) {
+    context.getSharedPreferences(INPUT_MODE_PREF_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(ZONE_MOVE_METHOD_KEY, method.name)
         .apply()
 }

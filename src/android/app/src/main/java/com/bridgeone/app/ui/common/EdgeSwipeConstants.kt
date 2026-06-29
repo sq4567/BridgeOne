@@ -78,11 +78,17 @@ object EdgeSwipeConstants {
     /** 존 최소 크기 비율. 기본값: 0.10f */
     const val MIN_ZONE_RATIO = 0.10f
 
-    /** 엣지당 최대 존 수. 기본값: 4 */
-    const val MAX_ZONES_PER_EDGE = 4f
+    /** 엣지당 최대 존 수. 기본값: 5 */
+    const val MAX_ZONES_PER_EDGE = 5f
 
     /** 편집기 경계선 드래그 히트박스 (dp). 기본값: 24f */
     const val ZONE_BOUNDARY_DRAG_HIT_DP = 24f
+
+    /** 이동 모드 탭 드롭에서 '엣지 양 끝'으로 인정하는 가장자리 비율 영역. 기본값: 0.12f */
+    const val EDGE_END_DROP_RATIO = 0.12f
+
+    /** SWIPE 경계 조작(MANIPULATION) 진입 시 이동 데모(화살표+손가락)를 표시하는 시간 (ms). 기본값: 2500 */
+    const val ZONE_BOUNDARY_HINT_VISIBLE_MS = 2500
 
     /** 모서리에 모드 변경 버튼이 있을 때 해당 엣지 끝에서 차단되는 비율. 기본값: 0.15f */
     const val CORNER_BUTTON_BLOCKED_RATIO = 0.15f
@@ -114,6 +120,9 @@ object EdgeSwipeConstants {
 
     /** 캔버스 내 존 라벨 폰트 크기 (sp). 기본값: 9f */
     const val ZONE_LABEL_FONT_SIZE_SP = 9f
+
+    /** 존 편집 캔버스의 포커스/선택(picked) 테두리 두께 (dp). 파란 포커스·주황 떠다니는 존 공통. 기본값: 2.5f */
+    const val EDGE_ZONE_FOCUS_BORDER_DP = 2.5f
 
     // ── 엣지 스트립 에디터 (Phase 4.6.2+) ──
 
@@ -179,6 +188,10 @@ object EdgeSwipeConstants {
     const val EDGE_ZONE_LABEL_KEYBOARD_ANIM_MS = 280
     /** 엣지 존 이동(재배치) 시 블록 슬라이드 애니메이션 길이 (ms). 기본값: 220 */
     const val EDGE_ZONE_MOVE_ANIM_MS = 220
+    /** 엣지 존 드래그 들어올림(pick) 애니메이션 길이 (ms). 기본값: 150 */
+    const val EDGE_ZONE_LIFT_MS = 150
+    /** 엣지 존 드래그 내려놓기(settle) 애니메이션 길이 (ms). 기본값: 180 */
+    const val EDGE_ZONE_SETTLE_MS = 180
     /** 엣지 존 라벨 키보드 시각 컨텐츠 높이 (dp), 폼 하단 여백 계산용. 기본값: 440 */
     const val EDGE_ZONE_LABEL_KEYBOARD_VISUAL_HEIGHT_DP = 440
 
@@ -242,4 +255,27 @@ object EdgeSwipeConstants {
     const val EDGE_ZONE_EDIT_ENTER_SCALE = 0.96f
     /** 편집 enter를 캔버스 exit보다 늦게 시작시키는 지연 (ms). "그 이후에" 느낌. 기본값: 60 */
     const val EDGE_ZONE_EDIT_ENTER_DELAY_MS = 60
+
+    // ── 캔버스 존 병합/분할 stretch·shrink 애니메이션 ──
+
+    /** 존 병합/분할 stretch·shrink 보간 길이 (ms). 기본값: 220 */
+    const val EDGE_ZONE_MORPH_MS = 220
+
+    /** 비율 조정 경계 전환(되돌리기·프리셋 적용) 보간 애니메이션 길이 (ms). 기본값: 220 */
+    const val EDGE_ZONE_RATIO_MORPH_MS = 220
+
+    // ── 캔버스 모드 버튼 순차 전환 (AnimatedVisibility per-button stagger) ──
+
+    /** 모드 버튼 개별 퇴장 애니메이션 길이 (ms). 기본값: 100 */
+    const val EDGE_ZONE_MODE_BTN_EXIT_MS = 100
+    /** 모드 버튼 개별 등장 애니메이션 길이 (ms). 기본값: 200 */
+    const val EDGE_ZONE_MODE_BTN_ENTER_MS = 200
+    /** 모드 버튼 순차 퇴장/등장 간격 (ms). 기본값: 35 */
+    const val EDGE_ZONE_MODE_BTN_STAGGER_MS = 35
+    /** 모드 취소 후 버튼 등장 시작 기저 지연 (ms). 기본값: 60 */
+    const val EDGE_ZONE_MODE_BTN_ENTER_BASE_DELAY_MS = 60
+    /** 모드 진행 UI enter 지연 (ms). 마지막 버튼 퇴장 완료 시점 근방. 기본값: 230 */
+    const val EDGE_ZONE_MODE_UI_ENTER_DELAY_MS = 230
+    /** 모드 전환 시 scale 시작/목표 배율. 기본값: 0.88f */
+    const val EDGE_ZONE_MODE_SWITCH_SCALE = 0.88f
 }

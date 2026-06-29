@@ -59,7 +59,7 @@ class EdgeZoneActionResolverTest {
 
     @Test
     fun ratioPresetsFor_allRatiosSumToOne() {
-        for (n in 2..4) {
+        for (n in 2..5) {
             EdgeZoneActionResolver.ratioPresetsFor(n).forEach { (name, ratios) ->
                 assertEquals("$n-$name 비율 합", 1f, ratios.sum(), 1e-5f)
                 assertEquals("$n-$name 개수", n, ratios.size)
@@ -68,12 +68,22 @@ class EdgeZoneActionResolverTest {
     }
 
     @Test
-    fun ratioPresetsFor_n5_onlyUniform() {
-        // startHeavy null + 양 끝/가운데 분기 없음 → 균등만
+    fun ratioPresetsFor_n5_hasFivePresets() {
         val presets = EdgeZoneActionResolver.ratioPresetsFor(5)
-        assertEquals(1, presets.size)
-        assertEquals("균등", presets[0].first)
-        assertEquals(1f, presets[0].second.sum(), 1e-5f)
+        assertEquals(5, presets.size)
+        assertEquals(listOf("균등", "왼쪽 크게", "오른쪽 크게", "양 끝 크게", "가운데 크게"), presets.map { it.first })
+    }
+
+    @Test
+    fun ratioPresetsFor_allRatiosAtLeastMinZoneRatio() {
+        // 모든 프리셋 값이 MIN_ZONE_RATIO(0.10) 이상이어야 분할 적용이 거부되지 않음
+        for (n in 2..5) {
+            EdgeZoneActionResolver.ratioPresetsFor(n).forEach { (name, ratios) ->
+                ratios.forEach { r ->
+                    assertTrue("$n-$name 값 $r ≥ 0.10", r >= 0.10f - 1e-5f)
+                }
+            }
+        }
     }
 
     // ============================================================

@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -109,6 +110,7 @@ internal fun CustomTrackSlider(
     gridCol: Int? = null,
     majorTickStep: Float? = null,
     minorTickStep: Float? = null,
+    labelFontWeight: FontWeight? = null,
 ) {
     val cs = MaterialTheme.colorScheme
     val controller = LocalSwipeFocusController.current
@@ -117,6 +119,9 @@ internal fun CustomTrackSlider(
     val normalLayer = controller == null
 
     // pointerInput key를 안정값(Unit)으로 고정하고 최신 콜백을 참조 → 드래그 중 리컴포지션으로 인한 제스처 취소 방지
+    // onManipulate(SWIPE 조작)는 onGloballyPositioned 시점에 컨트롤러로 등록돼 조작 중엔 재등록되지 않으므로,
+    // value를 직접 캡처하면 조작 시작 시점 값에 고정된다. latestValue로 매번 최신 값을 읽어 증분 누적이 끊기지 않게 함.
+    val latestValue by rememberUpdatedState(value)
     val latestOnValueChange by rememberUpdatedState(onValueChange)
     val latestSnap by rememberUpdatedState(snap)
     val latestOnBefore by rememberUpdatedState(onBeforeChange)
@@ -230,6 +235,7 @@ internal fun CustomTrackSlider(
             Text(
                 valueLabel,
                 fontSize = 13.sp,
+                fontWeight = labelFontWeight,
                 color = cs.onSurface,
                 modifier = Modifier.width(labelWidth),
                 textAlign = TextAlign.End,
@@ -246,8 +252,8 @@ internal fun CustomTrackSlider(
             manipulatable = true,
             onManipulate = { deltaPx, screenWidthPx ->
                 val delta = (deltaPx / screenWidthPx) * (max - min)
-                onBeforeChange?.invoke()
-                onValueChange(snap((value + delta).coerceIn(min, max)))
+                latestOnBefore?.invoke()
+                latestOnValueChange(latestSnap((latestValue + delta).coerceIn(min, max)))
             },
             gridRow = gridRow,
             gridCol = gridCol,

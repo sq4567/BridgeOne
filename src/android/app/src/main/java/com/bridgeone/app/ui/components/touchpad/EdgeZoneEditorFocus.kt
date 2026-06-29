@@ -68,14 +68,27 @@ sealed class EdgeEditorElement : FocusableElement {
     data class UndoHistoryItem(val index: Int) : EdgeEditorElement()
     data class PresetItem(val id: String) : EdgeEditorElement()
 
+    // ── 캔버스 구조 변경 모드 (Phase 4.7.x) ──
+    /** 캔버스 중앙 모드 진입 버튼 (병합/분할/이동/삭제/비율). */
+    data class CanvasModeButton(val kind: CanvasModeKind) : EdgeEditorElement()
+    /** 모드 진행 중 중앙 확인 버튼 (병합/삭제 일괄 적용, 이동 내려놓기 등). */
+    object CanvasModeConfirm : EdgeEditorElement()
+    /** 모드 취소(나가기) 버튼. */
+    object CanvasModeCancel : EdgeEditorElement()
+    /** 분할 갯수 선택 (2~5). */
+    data class CanvasSplitChoice(val n: Int) : EdgeEditorElement()
+    /** 비율 조정 모드의 존 경계 (manipulatable). leftIndex와 leftIndex+1 존 사이. */
+    data class CanvasBoundary(val edge: EntryEdge, val leftIndex: Int) : EdgeEditorElement()
+    /** 이동 모드의 드롭 슬롯 (경계 + 양 끝 통일). insertIndex: 0=맨 앞 … size=맨 끝. */
+    data class CanvasDropSlot(val edge: EntryEdge, val insertIndex: Int) : EdgeEditorElement()
+    /** 비율 조정 모드의 비율 프리셋 칩. */
+    data class CanvasRatioPreset(val label: String) : EdgeEditorElement()
+    /** 코너 버튼 차단 영역 크기 조절 슬라이더 (캔버스 씬). */
+    object CornerBlockedSlider : EdgeEditorElement()
+
     // ZoneActionPopup
     object ZoneActionMerge : EdgeEditorElement()
     object ZoneActionSplit : EdgeEditorElement()
-    object ZoneActionMove : EdgeEditorElement()           // Initial 팝업의 "이동" 버튼
-    object ZoneActionMoveModeToggle : EdgeEditorElement()  // 폭째/액션만 토글
-    object ZoneActionMoveLeft : EdgeEditorElement()
-    object ZoneActionMoveRight : EdgeEditorElement()
-    object ZoneActionMoveConfirm : EdgeEditorElement()
     object ZoneActionDelete : EdgeEditorElement()
     object ZoneActionMergeCancel : EdgeEditorElement()
     object ZoneActionMergeConfirm : EdgeEditorElement()
@@ -203,6 +216,8 @@ sealed class EdgeEditorScope {
     /** SwipeKeyboardOverlay에 위임된 상태 (hex 색상 입력). controller는 이 scope에서 휴면. */
     object ColorKeyboard : EdgeEditorScope()
     object ZoneActionPopup : EdgeEditorScope()
+    /** 캔버스 구조 변경 모드 진입 후. controller는 모드 버튼/존 hit/확인·취소만 포커스. */
+    object CanvasMode : EdgeEditorScope()
     object DiscardDialog : EdgeEditorScope()
     /** SwipeKeyboardOverlay에 위임된 상태. controller는 이 scope에서 휴면. */
     object LabelKeyboard : EdgeEditorScope()

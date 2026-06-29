@@ -1,14 +1,22 @@
 package com.bridgeone.app.ui.components.touchpad
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
+import com.bridgeone.app.ui.common.swipe.LocalSwipeFocused
 import com.bridgeone.app.ui.common.swipe.SwipeFocusable
+
+/** 비율 조정 모드에서 포커스된 존 배경(파랑)의 투명도. 기본값: 0.35f */
+private const val ZONE_FOCUS_BG_ALPHA = 0.35f
 
 /**
  * SWIPE 모드 캔버스 hit 영역 오버레이 (Phase 4.7.5-D, EdgeZoneEditorScreen에서 추출).
@@ -29,12 +37,16 @@ internal fun ZoneCanvasHitOverlay(
     canvasWidth: Dp,
     canvasHeight: Dp,
     onZoneSelected: (EdgeZone) -> Unit,
+    // true면 포커스 시 박스 테두리 대신 존 영역을 파란 배경으로 강조 (비율 조정 모드)
+    focusBackground: Boolean = false,
+    blockedRatio: Float = EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO,
 ) {
     val edgeDp = EdgeSwipeConstants.EDGE_HIT_WIDTH_DP.dp
     val hasBottomLeft = bottomLeftButtonLabel != null
     val hasBottomRight = bottomRightButtonLabel != null
-    val blockedRatio = EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO
     fun cp(c: CornerOverlap) = workConfig.cornerPriority[c] ?: defaultCornerEdge(c)
+    // 존 비율을 코너 버튼 차단 제외 유효 영역으로 매핑(EdgeZoneEditorPreviewCanvas의 zoneRect와 동일).
+    fun mv(edge: EntryEdge, r: Float) = mapToValid(edge, r, hasBottomLeft, hasBottomRight, blockedRatio)
 
     val selectZoneAction: (EdgeZone) -> () -> Unit = { zone ->
         {
@@ -52,46 +64,37 @@ internal fun ZoneCanvasHitOverlay(
             val rectOffsetY: androidx.compose.ui.unit.Dp
             val rectWidth: androidx.compose.ui.unit.Dp
             val rectHeight: androidx.compose.ui.unit.Dp
+            // 버튼 차단은 mv()(유효 영역 매핑)가 처리. 여기선 코너 겹침(edgeDp)만 추가 클리핑.
             when (edge) {
                 EntryEdge.TOP -> {
-                    var l = canvasWidth * zone.startRatio
-                    var r = canvasWidth * zone.endRatio
+                    var l = canvasWidth * mv(EntryEdge.TOP, zone.startRatio)
+                    var r = canvasWidth * mv(EntryEdge.TOP, zone.endRatio)
                     if (cp(CornerOverlap.TOP_LEFT) != EntryEdge.TOP) l = maxOf(l, edgeDp)
                     if (cp(CornerOverlap.TOP_RIGHT) != EntryEdge.TOP) r = minOf(r, canvasWidth - edgeDp)
                     rectOffsetX = l; rectOffsetY = 0.dp
                     rectWidth = r - l; rectHeight = edgeDp
                 }
                 EntryEdge.BOTTOM -> {
-                    val minX = when {
-                        hasBottomLeft -> canvasWidth * blockedRatio
-                        cp(CornerOverlap.BOTTOM_LEFT) != EntryEdge.BOTTOM -> edgeDp
-                        else -> 0.dp
-                    }
-                    val maxX = when {
-                        hasBottomRight -> canvasWidth * (1f - blockedRatio)
-                        cp(CornerOverlap.BOTTOM_RIGHT) != EntryEdge.BOTTOM -> canvasWidth - edgeDp
-                        else -> canvasWidth
-                    }
-                    val l = maxOf(canvasWidth * zone.startRatio, minX)
-                    val r = minOf(canvasWidth * zone.endRatio, maxX)
+                    var l = canvasWidth * mv(EntryEdge.BOTTOM, zone.startRatio)
+                    var r = canvasWidth * mv(EntryEdge.BOTTOM, zone.endRatio)
+                    if (cp(CornerOverlap.BOTTOM_LEFT) != EntryEdge.BOTTOM) l = maxOf(l, edgeDp)
+                    if (cp(CornerOverlap.BOTTOM_RIGHT) != EntryEdge.BOTTOM) r = minOf(r, canvasWidth - edgeDp)
                     rectOffsetX = l; rectOffsetY = canvasHeight - edgeDp
                     rectWidth = r - l; rectHeight = edgeDp
                 }
                 EntryEdge.LEFT -> {
-                    var t = canvasHeight * zone.startRatio
-                    var b = canvasHeight * zone.endRatio
+                    var t = canvasHeight * mv(EntryEdge.LEFT, zone.startRatio)
+                    var b = canvasHeight * mv(EntryEdge.LEFT, zone.endRatio)
                     if (cp(CornerOverlap.TOP_LEFT) != EntryEdge.LEFT) t = maxOf(t, edgeDp)
-                    if (hasBottomLeft) b = minOf(b, canvasHeight * (1f - blockedRatio))
-                    else if (cp(CornerOverlap.BOTTOM_LEFT) != EntryEdge.LEFT) b = minOf(b, canvasHeight - edgeDp)
+                    if (cp(CornerOverlap.BOTTOM_LEFT) != EntryEdge.LEFT) b = minOf(b, canvasHeight - edgeDp)
                     rectOffsetX = 0.dp; rectOffsetY = t
                     rectWidth = edgeDp; rectHeight = b - t
                 }
                 EntryEdge.RIGHT -> {
-                    var t = canvasHeight * zone.startRatio
-                    var b = canvasHeight * zone.endRatio
+                    var t = canvasHeight * mv(EntryEdge.RIGHT, zone.startRatio)
+                    var b = canvasHeight * mv(EntryEdge.RIGHT, zone.endRatio)
                     if (cp(CornerOverlap.TOP_RIGHT) != EntryEdge.RIGHT) t = maxOf(t, edgeDp)
-                    if (hasBottomRight) b = minOf(b, canvasHeight * (1f - blockedRatio))
-                    else if (cp(CornerOverlap.BOTTOM_RIGHT) != EntryEdge.RIGHT) b = minOf(b, canvasHeight - edgeDp)
+                    if (cp(CornerOverlap.BOTTOM_RIGHT) != EntryEdge.RIGHT) b = minOf(b, canvasHeight - edgeDp)
                     rectOffsetX = canvasWidth - edgeDp; rectOffsetY = t
                     rectWidth = edgeDp; rectHeight = b - t
                 }
@@ -107,13 +110,27 @@ internal fun ZoneCanvasHitOverlay(
             SwipeFocusable(
                 element = EdgeEditorElement.CanvasZone(edge, idx),
                 shape = RoundedCornerShape(4.dp),
-                showBorderHighlight = true,
+                // 비율 조정 모드는 박스 테두리 대신 존 배경을 파랗게 (focusBackground)
+                showBorderHighlight = !focusBackground,
+                // 떠다니는 선택 존(주황)과 두께 통일
+                highlightBorderWidth = EdgeSwipeConstants.EDGE_ZONE_FOCUS_BORDER_DP.dp,
                 onActivate = selectZoneAction(zone),
                 gridRow = gridRow,
                 modifier = Modifier
                     .offset(x = rectOffsetX, y = rectOffsetY)
                     .size(width = rectWidth, height = rectHeight),
-            ) {}
+            ) {
+                if (focusBackground && LocalSwipeFocused.current) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                MaterialTheme.colorScheme.primary.copy(alpha = ZONE_FOCUS_BG_ALPHA),
+                                RoundedCornerShape(4.dp),
+                            )
+                    )
+                }
+            }
         }
     }
 }

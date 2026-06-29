@@ -55,6 +55,7 @@ fun SwipeFocusable(
     element: FocusableElement,
     scope: Any = ROOT_SCOPE,
     manipulatable: Boolean = false,
+    manipulationAxis: ManipulationAxis = ManipulationAxis.HORIZONTAL,
     onActivate: () -> Unit = {},
     onActivateAlt: () -> Unit = onActivate,
     onManipulate: (deltaPx: Float, screenWidthPx: Float) -> Unit = { _, _ -> },
@@ -131,6 +132,7 @@ fun SwipeFocusable(
                         onManipulate = rememberedManipulate,
                         gridRow = gridRow,
                         gridCol = gridCol,
+                        manipulationAxis = manipulationAxis,
                     )
                 )
             }

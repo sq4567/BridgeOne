@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.common.ColorCodec
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
+import com.bridgeone.app.ui.theme.PretendardFontFamily
 
 /**
  * ZONE 모드에서 터치패드에 렌더링되는 시각 오버레이.
@@ -40,6 +41,9 @@ fun EdgeZoneOverlay(
     touchpadHeightPx: Float,
     isZoneArmed: Boolean = false,
     rotationIndex: Int = 0,
+    hasBottomLeft: Boolean = false,
+    hasBottomRight: Boolean = false,
+    blockedRatio: Float = EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -56,8 +60,11 @@ fun EdgeZoneOverlay(
     val activeZoneInfo: Pair<EntryEdge, EdgeZone>? = if (isEntryActive && entryEdge != null) {
         val edgeLen = if (entryEdge == EntryEdge.LEFT || entryEdge == EntryEdge.RIGHT)
             touchpadHeightPx else touchpadWidthPx
-        val alongRatio = if (edgeLen > 0f) fingerAlongEdgePx / edgeLen else 0f
-        EdgeZoneDetector.findActiveZone(config, entryEdge, alongRatio)?.let { entryEdge to it }
+        // 손가락 raw 비율을 존 비율로 역매핑(차단 영역이면 null → 활성 존 없음).
+        val zoneRatio = if (edgeLen > 0f)
+            unmapFromValid(entryEdge, fingerAlongEdgePx / edgeLen, hasBottomLeft, hasBottomRight, blockedRatio)
+        else null
+        zoneRatio?.let { EdgeZoneDetector.findActiveZone(config, entryEdge, it)?.let { z -> entryEdge to z } }
     } else null
 
     Canvas(modifier = modifier.fillMaxSize()) {
@@ -73,8 +80,9 @@ fun EdgeZoneOverlay(
             val zones = config.zonesFor(edge)
 
             zones.forEachIndexed { idx, zone ->
-                val zStart = zone.startRatio
-                val zEnd = zone.endRatio
+                // 존 비율을 코너 버튼 차단 제외 유효 영역으로 매핑.
+                val zStart = mapToValid(edge, zone.startRatio, hasBottomLeft, hasBottomRight, blockedRatio)
+                val zEnd = mapToValid(edge, zone.endRatio, hasBottomLeft, hasBottomRight, blockedRatio)
                 val zoneTopLeft: Offset
                 val zoneSize: Size
                 when (edge) {
@@ -130,7 +138,7 @@ fun EdgeZoneOverlay(
 
             // 존 경계선 (alpha 상향)
             zones.dropLast(1).forEach { zone ->
-                val ratio = zone.endRatio
+                val ratio = mapToValid(edge, zone.endRatio, hasBottomLeft, hasBottomRight, blockedRatio)
                 when (edge) {
                     EntryEdge.LEFT   -> drawLine(Color.White.copy(alpha = lineAlpha), Offset(0f, ratio * h), Offset(edgePx, ratio * h), 1.5f)
                     EntryEdge.RIGHT  -> drawLine(Color.White.copy(alpha = lineAlpha), Offset(w - edgePx, ratio * h), Offset(w, ratio * h), 1.5f)
@@ -145,7 +153,9 @@ fun EdgeZoneOverlay(
         if (inwardDistancePx < EdgeSwipeConstants.DROPLET_APPEAR_THRESHOLD_DP) return@Canvas
 
         val edgeLen = if (entryEdge == EntryEdge.LEFT || entryEdge == EntryEdge.RIGHT) h else w
-        val alongRatio = if (edgeLen > 0f) fingerAlongEdgePx / edgeLen else 0f
+        val alongRatio = if (edgeLen > 0f)
+            unmapFromValid(entryEdge, fingerAlongEdgePx / edgeLen, hasBottomLeft, hasBottomRight, blockedRatio) ?: return@Canvas
+        else return@Canvas
         val activeZone = EdgeZoneDetector.findActiveZone(config, entryEdge, alongRatio) ?: return@Canvas
 
         val trigger = activeZone.trigger
@@ -168,9 +178,9 @@ fun EdgeZoneOverlay(
             }
         }
 
-        // 활성 존 스트립 영역
-        val zStart = activeZone.startRatio
-        val zEnd = activeZone.endRatio
+        // 활성 존 스트립 영역 (유효 영역 매핑)
+        val zStart = mapToValid(entryEdge, activeZone.startRatio, hasBottomLeft, hasBottomRight, blockedRatio)
+        val zEnd = mapToValid(entryEdge, activeZone.endRatio, hasBottomLeft, hasBottomRight, blockedRatio)
         val activeTopLeft: Offset
         val activeSize: Size
         when (entryEdge) {
@@ -192,6 +202,7 @@ fun EdgeZoneOverlay(
         val textLayout = textMeasurer.measure(
             textToDraw,
             style = TextStyle(
+                fontFamily = PretendardFontFamily,
                 fontSize = EdgeSwipeConstants.ZONE_LABEL_FONT_SIZE_SP.sp,
                 color = Color.White.copy(alpha = 0.9f),
                 textAlign = if (isVertical) TextAlign.Center else TextAlign.Start

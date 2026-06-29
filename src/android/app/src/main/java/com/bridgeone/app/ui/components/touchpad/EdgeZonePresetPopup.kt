@@ -289,7 +289,6 @@ fun EdgeZonePresetPopup(
                                         ) {
                                             EdgeZoneEditorPreviewCanvas(
                                                 config = preset.config,
-                                                selectedZone = null,
                                                 bottomLeftButtonLabel = null,
                                                 bottomRightButtonLabel = null,
                                                 structureOnly = true,

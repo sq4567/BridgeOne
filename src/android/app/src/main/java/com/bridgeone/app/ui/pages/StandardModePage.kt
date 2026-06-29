@@ -52,9 +52,11 @@ import com.bridgeone.app.ui.common.loadInputMode
 import com.bridgeone.app.ui.common.loadSwipeWrapEdge
 import com.bridgeone.app.ui.common.loadTtsGender
 import com.bridgeone.app.ui.common.loadTtsRate
+import com.bridgeone.app.ui.common.loadZoneMoveMethod
 import com.bridgeone.app.ui.common.saveAudioFeedbackEnabled
 import com.bridgeone.app.ui.common.saveInputMode
 import com.bridgeone.app.ui.common.saveSwipeWrapEdge
+import com.bridgeone.app.ui.common.saveZoneMoveMethod
 import com.bridgeone.app.ui.common.saveTtsGender
 import com.bridgeone.app.ui.common.saveTtsRate
 import com.bridgeone.app.ui.components.touchpad.DynamicsCurveEditor
@@ -216,6 +218,12 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     var swipeWrapEdge by remember { mutableStateOf(loadSwipeWrapEdge(context)) }
     LaunchedEffect(swipeWrapEdge) {
         saveSwipeWrapEdge(context, swipeWrapEdge)
+    }
+
+    // 존 이동 방식 (탭/드래그 앤 드롭). SharedPreferences에서 복원.
+    var zoneMoveMethod by remember { mutableStateOf(loadZoneMoveMethod(context)) }
+    LaunchedEffect(zoneMoveMethod) {
+        saveZoneMoveMethod(context, zoneMoveMethod)
     }
 
     // 존 음성 안내 ON/OFF. SharedPreferences에서 복원. (Phase 4.6.4)
@@ -439,6 +447,8 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onInputModeChange = { inputMode = it },
                         swipeWrapEdge = swipeWrapEdge,
                         onSwipeWrapEdgeChange = { swipeWrapEdge = it },
+                        zoneMoveMethod = zoneMoveMethod,
+                        onZoneMoveMethodChange = { zoneMoveMethod = it },
                         audioFeedbackEnabled = audioFeedbackEnabled,
                         onAudioFeedbackEnabledChange = { audioFeedbackEnabled = it },
                         ttsRate = ttsRate,

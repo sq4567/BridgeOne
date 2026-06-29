@@ -172,6 +172,7 @@ internal object EdgeZoneActionResolver {
             2 -> listOf(0.65f, 0.35f)
             3 -> listOf(0.50f, 0.30f, 0.20f)
             4 -> listOf(0.40f, 0.30f, 0.20f, 0.10f)
+            5 -> listOf(0.30f, 0.25f, 0.20f, 0.15f, 0.10f)
             else -> null
         }
         if (startHeavy != null) {
@@ -186,6 +187,10 @@ internal object EdgeZoneActionResolver {
             4 -> {
                 add("양 끝 크게" to listOf(0.35f, 0.15f, 0.15f, 0.35f))
                 add("가운데 크게" to listOf(0.15f, 0.35f, 0.35f, 0.15f))
+            }
+            5 -> {
+                add("양 끝 크게" to listOf(0.30f, 0.13f, 0.14f, 0.13f, 0.30f))
+                add("가운데 크게" to listOf(0.20f, 0.10f, 0.40f, 0.10f, 0.20f))
             }
         }
     }

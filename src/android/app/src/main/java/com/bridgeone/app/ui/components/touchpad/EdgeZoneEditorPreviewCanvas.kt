@@ -30,15 +30,39 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.common.AppIcons
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
+import com.bridgeone.app.ui.theme.PretendardFontFamily
 import com.bridgeone.app.ui.components.touchpad.defaultCornerEdge
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.util.lerp
+import kotlin.math.roundToInt
 
 // 존 색상 팔레트 — EdgeZone.kt의 ZONE_COLORS / zoneColor() 공용 함수 사용
+
+/** 미리보기 강조 존 테두리 바깥 글로우의 겹 수. 기본값: 4 */
+private const val PREVIEW_GLOW_LAYERS = 4
+/** 미리보기 글로우 각 겹의 확장 간격 (dp). 기본값: 2f */
+private const val PREVIEW_GLOW_STEP_DP = 2f
+/** 미리보기 글로우 기본 투명도(안쪽 겹). 바깥 겹일수록 옅어진다. 기본값: 0.45f */
+private const val PREVIEW_GLOW_BASE_ALPHA = 0.45f
+
+/** 이동 모드 들림 고스트 채움 투명도. 기본값: 0.35f */
+private const val LIFTED_GHOST_ALPHA = 0.35f
+/** 들림 고스트 드롭섀도 오프셋 (dp). 기본값: 3f */
+private const val LIFTED_GHOST_SHADOW_OFFSET_DP = 3f
+/** 들림 고스트 드롭섀도 투명도. 기본값: 0.35f */
+private const val LIFTED_GHOST_SHADOW_ALPHA = 0.35f
+/** 이동 모드 강조색(주황, CanvasModeKind.MOVE accent와 동일). */
+private val LIFTED_GHOST_BORDER_COLOR = Color(0xFFB84A00)
 
 /**
  * 터치패드 모형을 Canvas로 렌더링하고 존 탭을 처리하는 편집기 미리보기.
  *
  * @param config                 현재 (편집 중) 존 설정
- * @param selectedZone           현재 선택된 존 (테두리 강조)
+ * @param highlightKeys          강조(초록 테두리)할 존 키 집합. 단일 선택·다중 선택 모두 같은 렌더 경로로 처리.
  * @param bottomLeftButtonLabel  좌하 모서리 버튼 사유 (null = 버튼 없음)
  * @param bottomRightButtonLabel 우하 모서리 버튼 사유 (null = 버튼 없음)
  * @param disabledEdges          탭 불가 + 시스템 비활성 스타일로 표시할 엣지 → 사유 맵
@@ -50,22 +74,28 @@ import com.bridgeone.app.ui.components.touchpad.defaultCornerEdge
 @Composable
 fun EdgeZoneEditorPreviewCanvas(
     config: EdgeZoneConfig,
-    selectedZone: EdgeZone?,
+    highlightKeys: Set<ZoneKey> = emptySet(),
     bottomLeftButtonLabel: String? = "다이나믹스",
     bottomRightButtonLabel: String? = "모드 프리셋",
     disabledEdges: Map<EntryEdge, String> = emptyMap(),
     structureOnly: Boolean = false,
     interactive: Boolean = true,
+    resizeMode: Boolean = false,
+    // true면 highlightKeys 존 테두리를 초록 대신 파랑(primary)으로 — SWIPE 프리셋 미리보기 표시용
+    highlightAsPreview: Boolean = false,
+    // 이동 모드에서 "들어올린" 존의 키. 해당 존은 반투명 + 드롭섀도 + 주황 보더로 떠 있는 듯 렌더.
+    liftedKey: ZoneKey? = null,
     onZoneTapped: (EdgeZone) -> Unit = {},
     onCornerPriorityToggled: (CornerOverlap) -> Unit = {},
+    blockedRatio: Float = EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
+    val previewBorderColor = androidx.compose.material3.MaterialTheme.colorScheme.primary
     val textMeasurer = rememberTextMeasurer()
     val dynamicsPainter = rememberVectorPainter(AppIcons.DynamicsStandard.staticIcon)
     val modePresetPainter = rememberVectorPainter(AppIcons.ModePresetStandard.staticIcon)
     val edgeWidthDp = EdgeSwipeConstants.EDGE_HIT_WIDTH_DP.dp
-    val blockedRatio = EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO
 
     val interactionModifier = Modifier.pointerInput(config, bottomLeftButtonLabel, bottomRightButtonLabel, disabledEdges) {
         val edgePx = density.run { edgeWidthDp.toPx() }
@@ -87,7 +117,8 @@ fun EdgeZoneEditorPreviewCanvas(
                 downPos, config, w, h, edgePx,
                 disabledEdges.keys,
                 hasBottomLeft = bottomLeftButtonLabel != null,
-                hasBottomRight = bottomRightButtonLabel != null
+                hasBottomRight = bottomRightButtonLabel != null,
+                blockedRatio = blockedRatio,
             ) else null
 
             var ev = awaitPointerEvent()
@@ -102,6 +133,18 @@ fun EdgeZoneEditorPreviewCanvas(
     }
 
     val activeInteractionModifier = if (interactive) interactionModifier else Modifier
+
+    // 존별 선택 progress(0→1=선택, 0=비선택)를 animateFloatAsState로 보간.
+    // highlightKeys만 바뀔 때(삭제/선택 토글 등)는 존 수가 유지되어 Compose 호출 위치가 안정적.
+    val selAnimSpec = tween<Float>(EdgeSwipeConstants.EDGE_ZONE_MORPH_MS, easing = FastOutSlowInEasing)
+    val allZones = EntryEdge.entries.flatMap { config.zonesFor(it) }
+    val selectionProgress = HashMap<ZoneKey, Float>(allZones.size)
+    for (zone in allZones) {
+        val key = zone.key()
+        val target = if (key != liftedKey && key in highlightKeys) 1f else 0f
+        selectionProgress[key] =
+            animateFloatAsState(target, selAnimSpec, label = "zoneSel_${key.edge}_${key.startRatio}").value
+    }
 
     Canvas(modifier = modifier.then(activeInteractionModifier).fillMaxSize()) {
         val w = size.width
@@ -128,11 +171,12 @@ fun EdgeZoneEditorPreviewCanvas(
             val zones = config.zonesFor(edge)
             val isEdgeDisabled = edge in disabledEdges.keys
             zones.forEachIndexed { idx, zone ->
-                val rawZr = zoneRect(zone, w, h, edgePx)
-                val zr = clipZoneRect(rawZr, edge, w, h, blockedRatio, hasBottomLeft, hasBottomRight, config.cornerPriority, edgePx)
+                val rawZr = zoneRect(zone, w, h, edgePx, hasBottomLeft, hasBottomRight, blockedRatio)
+                val zr = clipZoneRect(rawZr, edge, w, h, config.cornerPriority, edgePx)
                 if (zr.size.width <= 0f || zr.size.height <= 0f) return@forEachIndexed
 
-                val isSelected = zone == selectedZone
+                val isLifted = liftedKey != null && zone.key() == liftedKey
+                val sel = selectionProgress[zone.key()] ?: 0f
                 val isInactive = !isEdgeDisabled && zone.action is EdgeZoneAction.Unassigned
 
                 if (structureOnly) {
@@ -159,12 +203,21 @@ fun EdgeZoneEditorPreviewCanvas(
                         else -> zoneColor(idx)
                     }
 
+                    // 들림 고스트: 존 rect 뒤에 오프셋 드롭섀도를 먼저 그려 "떠 있는" 느낌
+                    if (isLifted) {
+                        val off = LIFTED_GHOST_SHADOW_OFFSET_DP.dp.toPx()
+                        drawRect(
+                            color = Color.Black.copy(alpha = LIFTED_GHOST_SHADOW_ALPHA),
+                            topLeft = Offset(zr.left + off, zr.top + off),
+                            size = zr.size
+                        )
+                    }
                     drawRect(
                         color = baseColor.copy(alpha = when {
                             isEdgeDisabled -> 0.95f
-                            isSelected -> 0.85f
-                            isInactive -> 0.60f
-                            else -> 0.50f
+                            isLifted -> LIFTED_GHOST_ALPHA
+                            isInactive -> lerp(0.60f, 0.85f, sel)
+                            else -> lerp(0.50f, 0.85f, sel)
                         }),
                         topLeft = zr.topLeft,
                         size = zr.size
@@ -173,17 +226,35 @@ fun EdgeZoneEditorPreviewCanvas(
                     if (isEdgeDisabled) {
                         drawDisabledEdgeHatch(zr.topLeft, zr.size)
                     }
-                    // 보더
+                    // 선택 강조: 테두리 바깥으로 점점 옅어지는 글로우 (미리보기=파랑, 일반 선택=초록).
+                    // sel(0→1)에 비례해 확장폭과 alpha가 함께 자라며 부드럽게 나타나고 사라진다.
+                    if (sel > 0f) {
+                        val glowColor = if (highlightAsPreview) previewBorderColor else Color(0xFF4CAF50)
+                        val stepPx = PREVIEW_GLOW_STEP_DP.dp.toPx()
+                        for (layer in PREVIEW_GLOW_LAYERS downTo 1) {
+                            val e = layer * stepPx * sel
+                            drawRect(
+                                color = glowColor.copy(alpha = PREVIEW_GLOW_BASE_ALPHA / (layer + 1) * sel),
+                                topLeft = Offset(zr.left - e, zr.top - e),
+                                size = Size(zr.size.width + 2 * e, zr.size.height + 2 * e),
+                                style = Stroke(width = stepPx * 1.5f),
+                            )
+                        }
+                    }
+                    // 보더: 선택(초록)·들림 고스트(주황) 테두리는 dp 기준으로 통일(px 직접 지정 시 밀도에 따라 얇아지는 문제 방지).
+                    // sel(0→1)에 비례해 테두리 색·두께가 보간되어 부드럽게 강조된다.
+                    val accentBorderColor = if (highlightAsPreview) previewBorderColor else Color(0xFF4CAF50)
+                    val baseBorderColor = if (isInactive) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.20f)
+                    val focusBorderPx = EdgeSwipeConstants.EDGE_ZONE_FOCUS_BORDER_DP.dp.toPx()
                     drawRect(
                         color = when {
                             isEdgeDisabled -> Color(0xFFCC4444).copy(alpha = 0.35f)
-                            isSelected -> Color(0xFF4CAF50)
-                            isInactive -> Color.White.copy(alpha = 0.10f)
-                            else -> Color.White.copy(alpha = 0.20f)
+                            isLifted -> LIFTED_GHOST_BORDER_COLOR
+                            else -> lerp(baseBorderColor, accentBorderColor, sel)
                         },
                         topLeft = zr.topLeft,
                         size = zr.size,
-                        style = Stroke(width = if (isSelected) 2.5f else 1f)
+                        style = Stroke(width = if (isLifted) focusBorderPx else lerp(1f, focusBorderPx, sel))
                     )
 
                     val displayZoneLabel = zone.label.ifEmpty {
@@ -204,6 +275,7 @@ fun EdgeZoneEditorPreviewCanvas(
                         val textLayout = textMeasurer.measure(
                             displayText,
                             style = TextStyle(
+                                fontFamily = PretendardFontFamily,
                                 fontSize = EdgeSwipeConstants.ZONE_LABEL_FONT_SIZE_SP.sp,
                                 color = Color.White.copy(alpha = 0.85f),
                                 textAlign = if (isVerticalEdge) TextAlign.Center else TextAlign.Start
@@ -233,6 +305,7 @@ fun EdgeZoneEditorPreviewCanvas(
             val textLayout = textMeasurer.measure(
                 reason,
                 style = TextStyle(
+                    fontFamily = PretendardFontFamily,
                     fontSize = EdgeSwipeConstants.ZONE_LABEL_FONT_SIZE_SP.sp,
                     color = Color(0xFF1E1E1E),
                     textAlign = TextAlign.Center
@@ -285,18 +358,21 @@ fun EdgeZoneEditorPreviewCanvas(
             )
         }
 
-        // 존 경계선 (차단 구역 내 선은 제외)
+        // 존 경계선 (차단 구역 내 선은 제외). 비율 조정 모드면 두껍게 강조해 드래그 핸들임을 명확히 표시.
+        val boundaryColor = if (resizeMode) Color.White.copy(alpha = 0.95f) else Color.White.copy(alpha = 0.45f)
+        val boundaryWidth = if (resizeMode) 7f else 1.5f
         EntryEdge.entries.forEach { edge ->
             val zones = config.zonesFor(edge)
             EdgeZoneDetector.boundaryRatios(zones).forEach { ratio ->
-                val isBlocked = EdgeZoneDetector.isBlockedByCornerButton(edge, ratio, hasBottomLeft, hasBottomRight)
-                if (isBlocked) return@forEach
-                if (isInLostCornerBand(edge, ratio, config.cornerPriority, w, h, edgePx, hasBottomLeft, hasBottomRight)) return@forEach
+                // 존 경계 비율을 유효 영역으로 매핑(버튼 차단 제외). 코너 겹침(edgePx) 밴드만 별도로 제외.
+                val mapped = mapToValid(edge, ratio, hasBottomLeft, hasBottomRight, blockedRatio)
+                if (isInLostCornerBand(edge, mapped, config.cornerPriority, w, h, edgePx, hasBottomLeft, hasBottomRight)) return@forEach
+                // 정수 픽셀 스냅 → 선폭이 sub-pixel 위치에 따라 달라 보이는 현상 방지
                 when (edge) {
-                    EntryEdge.LEFT   -> drawLine(Color.White.copy(alpha = 0.45f), Offset(0f, ratio * h), Offset(edgePx, ratio * h), 1.5f)
-                    EntryEdge.RIGHT  -> drawLine(Color.White.copy(alpha = 0.45f), Offset(w - edgePx, ratio * h), Offset(w, ratio * h), 1.5f)
-                    EntryEdge.TOP    -> drawLine(Color.White.copy(alpha = 0.45f), Offset(ratio * w, 0f), Offset(ratio * w, edgePx), 1.5f)
-                    EntryEdge.BOTTOM -> drawLine(Color.White.copy(alpha = 0.45f), Offset(ratio * w, h - edgePx), Offset(ratio * w, h), 1.5f)
+                    EntryEdge.LEFT   -> { val y = (mapped * h).roundToInt().toFloat(); drawLine(boundaryColor, Offset(0f, y), Offset(edgePx, y), boundaryWidth) }
+                    EntryEdge.RIGHT  -> { val y = (mapped * h).roundToInt().toFloat(); drawLine(boundaryColor, Offset(w - edgePx, y), Offset(w, y), boundaryWidth) }
+                    EntryEdge.TOP    -> { val x = (mapped * w).roundToInt().toFloat(); drawLine(boundaryColor, Offset(x, 0f), Offset(x, edgePx), boundaryWidth) }
+                    EntryEdge.BOTTOM -> { val x = (mapped * w).roundToInt().toFloat(); drawLine(boundaryColor, Offset(x, h - edgePx), Offset(x, h), boundaryWidth) }
                 }
             }
         }
@@ -405,63 +481,6 @@ private fun DrawScope.drawBlockedRegion(topLeft: Offset, size: Size) {
     }
 }
 
-private fun zoneRect(zone: EdgeZone, w: Float, h: Float, edgePx: Float): Rect = when (zone.edge) {
-    EntryEdge.LEFT   -> Rect(Offset(0f, zone.startRatio * h), Size(edgePx, (zone.endRatio - zone.startRatio) * h))
-    EntryEdge.RIGHT  -> Rect(Offset(w - edgePx, zone.startRatio * h), Size(edgePx, (zone.endRatio - zone.startRatio) * h))
-    EntryEdge.TOP    -> Rect(Offset(zone.startRatio * w, 0f), Size((zone.endRatio - zone.startRatio) * w, edgePx))
-    EntryEdge.BOTTOM -> Rect(Offset(zone.startRatio * w, h - edgePx), Size((zone.endRatio - zone.startRatio) * w, edgePx))
-}
-
-private fun clipZoneRect(
-    raw: Rect,
-    edge: EntryEdge,
-    w: Float,
-    h: Float,
-    blockedRatio: Float,
-    hasBottomLeft: Boolean,
-    hasBottomRight: Boolean,
-    cornerPriority: Map<CornerOverlap, EntryEdge> = emptyMap(),
-    edgePx: Float = 0f
-): Rect {
-    fun p(c: CornerOverlap) = cornerPriority[c] ?: defaultCornerEdge(c)
-    return when (edge) {
-        EntryEdge.TOP -> {
-            var l = raw.left
-            var r = raw.right
-            if (edgePx > 0f && p(CornerOverlap.TOP_LEFT) != EntryEdge.TOP)  l = l.coerceAtLeast(edgePx)
-            if (edgePx > 0f && p(CornerOverlap.TOP_RIGHT) != EntryEdge.TOP) r = r.coerceAtMost(w - edgePx)
-            Rect(Offset(l, raw.top), Size((r - l).coerceAtLeast(0f), raw.height))
-        }
-        EntryEdge.LEFT -> {
-            var t = raw.top
-            var b = raw.bottom
-            if (edgePx > 0f && p(CornerOverlap.TOP_LEFT) != EntryEdge.LEFT) t = t.coerceAtLeast(edgePx)
-            if (hasBottomLeft) b = b.coerceAtMost((1f - blockedRatio) * h)
-            else if (edgePx > 0f && p(CornerOverlap.BOTTOM_LEFT) != EntryEdge.LEFT) b = b.coerceAtMost(h - edgePx)
-            Rect(Offset(raw.left, t), Size(raw.width, (b - t).coerceAtLeast(0f)))
-        }
-        EntryEdge.RIGHT -> {
-            var t = raw.top
-            var b = raw.bottom
-            if (edgePx > 0f && p(CornerOverlap.TOP_RIGHT) != EntryEdge.RIGHT) t = t.coerceAtLeast(edgePx)
-            if (hasBottomRight) b = b.coerceAtMost((1f - blockedRatio) * h)
-            else if (edgePx > 0f && p(CornerOverlap.BOTTOM_RIGHT) != EntryEdge.RIGHT) b = b.coerceAtMost(h - edgePx)
-            Rect(Offset(raw.left, t), Size(raw.width, (b - t).coerceAtLeast(0f)))
-        }
-        EntryEdge.BOTTOM -> {
-            val minX = if (hasBottomLeft) blockedRatio * w
-                       else if (edgePx > 0f && p(CornerOverlap.BOTTOM_LEFT) != EntryEdge.BOTTOM) edgePx
-                       else 0f
-            val maxX = if (hasBottomRight) (1f - blockedRatio) * w
-                       else if (edgePx > 0f && p(CornerOverlap.BOTTOM_RIGHT) != EntryEdge.BOTTOM) w - edgePx
-                       else w
-            val l = raw.left.coerceAtLeast(minX)
-            val r = raw.right.coerceAtMost(maxX)
-            Rect(Offset(l, raw.top), Size((r - l).coerceAtLeast(0f), raw.height))
-        }
-    }
-}
-
 private fun isInLostCornerBand(
     edge: EntryEdge,
     ratio: Float,
@@ -492,29 +511,6 @@ private fun isInLostCornerBand(
     }
 }
 
-/** 코너 겹침 영역 탭 감지. 차단되지 않은 코너이고 두 엣지 모두 활성인 경우에만 반환. */
-private fun findCornerAt(
-    pos: Offset,
-    w: Float,
-    h: Float,
-    edgePx: Float,
-    disabledEdges: Set<EntryEdge>,
-    hasBottomLeft: Boolean,
-    hasBottomRight: Boolean
-): CornerOverlap? {
-    val inLeft   = pos.x < edgePx
-    val inRight  = pos.x > w - edgePx
-    val inTop    = pos.y < edgePx
-    val inBottom = pos.y > h - edgePx
-    return when {
-        inLeft && inTop    && EntryEdge.LEFT !in disabledEdges && EntryEdge.TOP    !in disabledEdges -> CornerOverlap.TOP_LEFT
-        inRight && inTop   && EntryEdge.RIGHT !in disabledEdges && EntryEdge.TOP   !in disabledEdges -> CornerOverlap.TOP_RIGHT
-        inLeft && inBottom && !hasBottomLeft  && EntryEdge.LEFT !in disabledEdges && EntryEdge.BOTTOM !in disabledEdges -> CornerOverlap.BOTTOM_LEFT
-        inRight && inBottom && !hasBottomRight && EntryEdge.RIGHT !in disabledEdges && EntryEdge.BOTTOM !in disabledEdges -> CornerOverlap.BOTTOM_RIGHT
-        else -> null
-    }
-}
-
 /** 코너 중심점에 우선 엣지 방향을 나타내는 쉐브론 화살표를 그린다. */
 private fun DrawScope.drawCornerPriorityIndicator(
     cx: Float, cy: Float,
@@ -532,34 +528,3 @@ private fun DrawScope.drawCornerPriorityIndicator(
     }
 }
 
-private fun findZoneAt(
-    pos: Offset,
-    config: EdgeZoneConfig,
-    w: Float,
-    h: Float,
-    edgePx: Float,
-    disabledEdges: Set<EntryEdge> = emptySet(),
-    hasBottomLeft: Boolean = false,
-    hasBottomRight: Boolean = false
-): EdgeZone? {
-    for (edge in EntryEdge.entries) {
-        if (edge in disabledEdges) continue
-        val edgeLen = if (edge == EntryEdge.LEFT || edge == EntryEdge.RIGHT) h else w
-        val inEdge = when (edge) {
-            EntryEdge.LEFT   -> pos.x < edgePx
-            EntryEdge.RIGHT  -> pos.x > w - edgePx
-            EntryEdge.TOP    -> pos.y < edgePx
-            EntryEdge.BOTTOM -> pos.y > h - edgePx
-        }
-        if (inEdge) {
-            val along = when (edge) {
-                EntryEdge.LEFT, EntryEdge.RIGHT -> pos.y
-                EntryEdge.TOP, EntryEdge.BOTTOM -> pos.x
-            }
-            val ratio = along / edgeLen
-            if (EdgeZoneDetector.isBlockedByCornerButton(edge, ratio, hasBottomLeft, hasBottomRight)) return null
-            return EdgeZoneDetector.findActiveZone(config, edge, ratio)
-        }
-    }
-    return null
-}
