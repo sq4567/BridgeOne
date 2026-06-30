@@ -15,15 +15,19 @@ updated: "2026-05-03"
 
 **핵심 성과물**:
 - `ScrollPadWrapper.kt` 신규 컴포넌트 (수직 + 수평 스크롤, NORMAL + INFINITE 모드)
-- `StandardModePage.kt` 내 `MacrosPlaceholder` 제거 및 `ScrollPadWrapper` 배치
+- `ActionsPanel.kt`(`ui/pages/standard/components/`) 내 `MacrosPlaceholder` 제거 및 `ScrollPadWrapper` 배치 + `MacrosPlaceholder.kt` 파일 삭제
 - `styleframe-page1.md` §2.2-C 갱신 완료 (Phase 4.13 시작 전 기완료)
 - `component-scrollpad.md` 신규 명세서 작성 완료 (Phase 4.13 시작 전 기완료)
 
 **선행 조건**: Phase 4.2 (Page 1 Actions 패널) 완료
 
+> **⚠️ Phase 4.7.4-A 변경사항**: Phase 4.7.4에서 `StandardModePage`가 분해되어 Actions 패널 관련 코드가 별도 파일로 이동했다. 매크로 영역은 더 이상 `StandardModePage.kt`에 없고 `ui/pages/standard/components/ActionsPanel.kt`(LazyColumn 본체)와 `ui/pages/standard/components/MacrosPlaceholder.kt`(internal 함수 정의)에 있다. 아래 모든 줄 번호(`StandardModePage.kt:643-678` 등)는 폐기하고 본문의 교체된 위치를 따를 것.
+
+> **⚠️ Phase 간 순서 주의**: Phase 4.15.4가 `ActionsPanel`을 동적 렌더링(`DefaultPageTemplates`)으로 흡수할 예정이다. Phase 4.13을 4.15보다 먼저 구현하면 4.15.7 컴포넌트 카탈로그에 `SCROLL_PAD` 타입 추가가 필요하다.
+
 **재사용 자산** (수정 없음):
 - `TouchpadMode.kt` — `ScrollMode`, `ScrollAxis`, `ScrollSensitivity`
-- `ScrollConstants.kt` — 모든 스크롤 튜닝 상수
+- `ScrollConstants.kt` — 스크롤 튜닝 상수 (단, Phase 4.7.1에서 엣지 스와이프 상수는 `EdgeSwipeConstants.kt`로 분리됨 — ScrollPad가 엣지 상수를 참조하면 import 경로 주의)
 - `DeltaCalculator.kt` — `determineRightAngleAxis`, `applyDeadZone`, `convertDpToPixels`
 - `ClickDetector.kt` — `createWheelFrame`, `createHorizontalWheelFrame`, `sendFrame`
 - `ScrollGuideline.kt` — 축 가이드라인 시각화
@@ -50,13 +54,18 @@ updated: "2026-05-03"
    - 빈 `Box`, `fillMaxWidth()` + `fillMaxHeight()`
    - 배경 `#1A1A1A`, 라운드 코너 12dp, 테두리 `#2A2A2A` 1dp
    - "스크롤 패드" 텍스트 표시 (임시, 이후 제거)
-2. `StandardModePage.kt` 변경:
-   - `MacrosPlaceholder()` 함수 삭제 (`StandardModePage.kt:643-678`)
-   - `ActionsPanel` LazyColumn에서 "매크로" 그룹 헤더 + `item { MacrosPlaceholder() }` 제거 (`StandardModePage.kt:494-506`)
-   - 해당 위치에 "스크롤 패드" 그룹 헤더 + `item { ScrollPadWrapper() }` 배치
+2. 매크로 영역 제거 및 ScrollPad 배치:
+   - `ActionsPanel.kt`(`ui/pages/standard/components/`)의 LazyColumn에서 "매크로" 그룹 헤더 `item {}` + `item { MacrosPlaceholder() }` 제거 (현재 "── Macros 그룹 ──" 블록)
+   - 같은 위치에 "스크롤 패드" 그룹 헤더 + `item { ScrollPadWrapper() }` 배치
+   - `MacrosPlaceholder.kt` 파일 삭제 (`ui/pages/standard/components/MacrosPlaceholder.kt`)
+   - `StandardModePage.kt`는 수정 불필요
 
 **수정 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/StandardModePage.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/standard/components/ActionsPanel.kt`
+  — "매크로" 그룹 → "스크롤 패드" 그룹 교체
+
+**삭제 파일**:
+- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/standard/components/MacrosPlaceholder.kt`
 
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/scrollpad/ScrollPadWrapper.kt`
@@ -98,7 +107,7 @@ updated: "2026-05-03"
 - `ui/common/ScrollConstants.kt`
 
 **참조 코드 패턴**:
-- `TouchpadWrapper.kt:925-957` (단위 송출 루프)
+- `TouchpadWrapper.kt` 단위 송출 루프 (Phase 4.7.1/4.7.3로 줄 번호가 이동했으니 `:925-957`은 근사치 — 함수명/패턴으로 탐색)
 
 **검증**:
 - [ ] 빌드 성공
@@ -163,9 +172,11 @@ updated: "2026-05-03"
 **참조 문서**:
 - `docs/android/component-scrollpad.md` §1.3, §1.4, §3.3, §3.4, §4.3
 
+> **⚠️ Phase 4.7.3-B 변경사항**: 관성/드래그 햅틱은 인라인 `vibrate()`가 아니라 `ui/common/HapticFeedbackHelper.vibrateByVelocity()`로 단일화됐다. ScrollPad가 관성 햅틱이 필요하면 인라인 재작성 말고 이 헬퍼를 재사용할 것. 아래 줄 번호는 4.7.1/4.7.3로 시프트됨.
+
 **참조 코드 패턴**:
-- `TouchpadWrapper.kt:1169-1217` (관성 코루틴)
-- `TouchpadWrapper.kt:413-417` (관성 중 DOWN → 즉시 정지)
+- `TouchpadWrapper.kt` 관성 코루틴 (`:1169-1217`은 근사치 — 함수명/패턴으로 탐색)
+- `TouchpadWrapper.kt` 관성 중 DOWN → 즉시 정지 (`:413-417` 근사치)
 
 **검증**:
 - [ ] 빌드 성공
@@ -182,7 +193,7 @@ updated: "2026-05-03"
 
 **세부 목표**:
 1. ScrollPad 높이 확보:
-   - `ActionsPanel` LazyColumn에서 ScrollPad 그룹이 잔여 높이를 사용하도록 조정
+   - `ActionsPanel.kt`(`ui/pages/standard/components/`) LazyColumn에서 ScrollPad 그룹이 잔여 높이를 사용하도록 조정
    - `item { ScrollPadWrapper(modifier = Modifier.fillParentMaxHeight()) }` 또는 `weight(1f)` 패턴 적용
    - Special Keys + Shortcuts 그룹이 고정 높이 차지, 나머지를 ScrollPad가 사용
 2. 전반적인 시각 점검:
@@ -190,7 +201,7 @@ updated: "2026-05-03"
    - 세 그룹이 스크롤 없이 화면에 모두 보이는지 확인
 
 **수정 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/StandardModePage.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/standard/components/ActionsPanel.kt`
 
 **참조 문서**:
 - `docs/android/styleframe-page1.md` §2.2, §5

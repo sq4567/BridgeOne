@@ -92,7 +92,7 @@ Page 3 — AbsolutePointingPad
 
 **수정 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/protocol/FrameBuilder.kt` (buildAbsoluteFrame 추가)
-- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/StandardModePage.kt` (placeholder → AbsolutePointingPad 교체)
+- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/StandardModePage.kt` (분기 `when(page % PAGE_COUNT)` line 357에서 Page 3 placeholder → AbsolutePointingPad 교체)
 
 **참조 문서**:
 - `docs/android/component-design-guide-app.md` §4 (AbsolutePointingPad 컴포넌트 설계)
@@ -103,6 +103,8 @@ Page 3 — AbsolutePointingPad
 > **⚠️ Phase 4.1.7 변경사항**: Page 2 레이아웃은 `AppState.Active` 박스 내 `padding(top=40dp, bottom=40dp)` 적용 영역 안에서 렌더링됨. PointingArea 16:9 비율 계산 시 유효 화면 높이 = 전체 높이 − 80dp 기준 사용.
 
 > **⚠️ Phase 4.1.8 변경사항**: 커스텀 토스트 시스템 도입. `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)` 로 표시.
+
+> **⚠️ Phase 4.7.4-A / 4.7.2 변경사항**: 교체 대상 placeholder는 `StandardModePage.kt` 인라인 함수가 아니라 독립 파일이다(`ui/pages/standard/`; 4.8 페이지 재배치 후 Page 3 = 절대좌표). 신규 `AbsolutePointingPad.kt`는 `ui/components/`에 둘 것. `AbsoluteCoordinateCalculator`는 순수 함수이므로 추출과 **동시에 단위 테스트** 작성(`EdgeGeometryTest` 선례). 줌 레벨/전송 스로틀(30Hz) 등 신규 상수는 인라인 금지, 별도 `*Constants.kt`에 기본값 주석과 함께 중앙화(4.7.1).
 
 **검증**:
 - [ ] PointingArea 16:9 비율 유지 (letterbox/pillarbox 정상)

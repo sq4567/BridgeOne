@@ -106,6 +106,8 @@ Page 5 — Minecraft
 > 2. **다중 토스트 스태킹**: 기존 토스트 표시 중 새 토스트 표시 시 → 새 토스트가 위에서 아래로 슬라이드인(350ms) → 완료 후 기존 토스트가 위로 슬라이드아웃(300ms). 두 토스트가 잠시 동시에 표시됨.
 > 3. **중복 제거**: `ToastMessage.equals()`가 message·type·durationMs 내용 기준(내부 id 제외). 동일 내용의 `show()` 연속 호출 → StateFlow 충돌 방지 → 단일 토스트만 표시.
 
+> **⚠️ Phase 4.7 변경사항 (경로·상수·햅틱)**: ① 신규 파일 경로(`ui/pages/standard/Page4Minecraft.kt`, `ui/components/DPad.kt`)는 적합. 교체 대상 placeholder 실제 파일명은 `ui/pages/standard/Page4MinecraftPlaceholder.kt`(목표 구조가 `Page5MinecraftPlaceholder`로 칭하나 4.8 페이지 재배치와 함께 정합 필요 — 분기 `StandardModePage.kt` `when(page % PAGE_COUNT)` line 357). ② WASD HID 코드는 **이미 `HidConstants.kt`에 `KEY_W`(0x1A)/`KEY_A`(0x04)/`KEY_S`(0x16)/`KEY_D`(0x07)로 정의돼 있음** — 재사용할 것, 인라인 리터럴(`0x1A` 등) 금지. ③ DPad 탭의 **이산(1회) 햅틱**은 속도 기반 `HapticFeedbackHelper.vibrateByVelocity()`(스크롤/관성 전용)를 쓰지 말 것. 기존 이산 햅틱 경로인 `view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)` 또는 `HidConstants.triggerHaptic(context)`(`HidConstants.kt:142`)를 따를 것.
+
 **검증**:
 - [ ] 2열 50/50 레이아웃 정상
 - [ ] 터치패드 + DPad 상하 배치 (60/40)
@@ -120,6 +122,8 @@ Page 5 — Minecraft
 **목표**: DPad Sticky Hold, 드래그 방향 전환, 대각선 입력 구현
 
 **개발 기간**: 1.5일
+
+> **⚠️ Phase 4.7.4 권장사항**: DPad 입력 상태(`currentStickyDirection`/`lastTapTime`/`lastTapDirection` + 드래그 전환·대각선 조합)가 복잡하므로, 순수 상태 전이 로직을 `DPad.kt` 컴포넌트 인라인에 두기보다 별도 상태 홀더로 분리하고 단위 테스트를 작성하길 권장(`StandardModePageState`/`EdgeZoneEditorState` 선례, 4.7.2 컨벤션). DPad가 단일 인스턴스라 필수는 아니나, Sticky+드래그+대각선 조합의 경계 케이스 회귀 방지에 유리.
 
 **세부 목표**:
 1. **Sticky Hold (더블탭)**:
@@ -168,7 +172,7 @@ Page 5 — Minecraft
 
 **개발 기간**: 0.5-1일
 
-> **⚠️ Phase 4.8.1 변경사항**: `KeyDisplayRegistry`가 도입됨. Movement 버튼(Jump=Space, Sneak=Shift, Sprint=Ctrl)에 `KeyboardKeyButton`을 사용할 경우 `useRegistry = true`로 아이콘 자동 표시 활용 가능. 단, 게임 맥락에서는 "Jump", "Sneak" 등 게임 용어 레이블이 더 적절할 수 있으므로 `keyLabel` 수동 지정이 나을 수 있음 — 구현 시 판단.
+> **⚠️ Phase 4.10.1 변경사항**: `KeyDisplayRegistry`가 도입됨(도입 Phase는 4.10.1 — 이전 "4.8.1" 표기는 오기). Movement 버튼(Jump=Space, Sneak=Shift, Sprint=Ctrl)에 `KeyboardKeyButton`을 사용할 경우 `useRegistry = true`로 아이콘 자동 표시 활용 가능. 단, 게임 맥락에서는 "Jump", "Sneak" 등 게임 용어 레이블이 더 적절할 수 있으므로 `keyLabel` 수동 지정이 나을 수 있음 — 구현 시 판단.
 
 **세부 목표**:
 1. **Combat & Use** (우측 상단):

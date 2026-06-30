@@ -38,8 +38,11 @@ updated: "2026-04-05"
    - 설정 카테고리별 키 정의 (아래 설정 항목 참조)
    - 각 설정값을 `StateFlow`로 노출
    - 기본값은 현재 상수 파일의 값을 그대로 사용
-3. 기존 `SharedPreferences` 사용부 (`StandardModePage.kt`의 DPI 레벨) → DataStore로 마이그레이션
-4. 싱글톤 제공: `Application` 클래스 또는 수동 싱글톤
+3. 기존 `SharedPreferences` 사용부 → DataStore로 마이그레이션
+
+   > **⚠️ Phase 4.7.4-A / 4.7.1 변경사항**: DPI prefs 헬퍼(`loadDpiLevel`/`saveDpiLevel`)는 `StandardModePage.kt`가 아니라 `ui/pages/standard/StandardModePrefs.kt`에 있다. prefs가 여러 파일로 분산됐으므로 마이그레이션 대상은 다음을 포함: `ui/pages/standard/StandardModePrefs.kt`(DPI 등), `ui/common/InputMode.kt`(input mode·zone move method), `ui/common/ShortcutEditorPrefs.kt`, `ui/common/AudioFeedbackPrefs.kt`. 또한 설정 항목의 **기본값 출처 상수도 4.7.1에서 여러 파일로 분산**됐다 — 포인터 가속/데드존 → `PointerDynamicsConstants.kt`, 스크롤 → `ScrollConstants.kt`, Safe Zone → `LayoutConstants.kt`, 엣지 스와이프 → `EdgeSwipeConstants.kt`. 항목별 기본값 출처를 정확히 매핑할 것.
+
+4. 싱글톤 제공: `Application` 클래스 또는 수동 싱글톤 (Phase 4.7이 ViewModel/Hilt를 채택하지 않았으므로 DI 라이브러리 없이 수동 싱글톤 권장)
 
 **설정 항목 목록** (Phase 4.14.2에서 UI로 노출):
 
@@ -75,6 +78,8 @@ updated: "2026-04-05"
 **개발 기간**: 1-1.5일
 
 **목표**: 카테고리별 설정 항목을 스크롤 목록으로 표시하는 일반 설정 페이지를 구현합니다. Android 기본 설정 패턴을 따르되, 모든 조작을 슬라이더와 토글로 수행할 수 있도록 합니다 (텍스트 직접 입력 불필요).
+
+> **⚠️ Phase 4.7.8-D 재사용 기회**: Enum 설정 항목(포인터 가속 프리셋, 스크롤 감도 등)을 세그먼트 선택 UI로 표현할 경우, 새로 만들지 말고 `ui/pages/standard/SettingsSegmentedChip.kt`의 `SegmentedChipSelector<T>`(제네릭, 파일명과 함수명이 다름에 주의)를 재사용할 것 — 존 페이지/이동 방식/TTS 성별 선택에서 이미 쓰이는 공통 컴포넌트.
 
 **UI 구조**:
 ```
@@ -220,6 +225,8 @@ updated: "2026-04-05"
 
 **목표**: `SettingsRepository`의 StateFlow를 각 컴포넌트에 연결하여, 설정 변경이 터치패드/스크롤/레이아웃 등 실제 동작에 실시간으로 반영되도록 합니다.
 
+> **⚠️ Phase 4.7.3-B 변경사항 (햅틱 이중 경로)**: 햅틱 경로가 둘로 분리됐다 — (1) 이산 햅틱: `HidConstants.triggerHaptic()` 및 `view.performHapticFeedback(...)`, (2) 속도 기반 스크롤/관성 햅틱: `ui/common/HapticFeedbackHelper.vibrateByVelocity()`. 햅틱 토글로 "모든 진동 정지"(아래 검증 항목)를 달성하려면 **두 경로 모두** 게이트해야 한다 — `HapticFeedbackHelper`에도 enable 플래그를 주입할 것. Phase 4.16.2가 같은 헬퍼에 시간 게이트를 추가하므로, enable 플래그와 시간 게이트를 한 지점에서 함께 처리하면 충돌이 없다.
+
 **구현 항목**:
 1. **터치패드 바인딩**:
    - `DeltaCalculator` → 포인터 가속 프리셋, 데드존 임계값
@@ -229,8 +236,9 @@ updated: "2026-04-05"
    - `ScrollDirectionBoost` → 방향별 속도 보정 값
 3. **레이아웃 바인딩**:
    - `BridgeOneApp.kt` → Safe Zone 값 (`LayoutConstants` 대신 StateFlow 참조)
-4. **피드백 바인딩**:
-   - `HidConstants.triggerHaptic()` → 햅틱 토글에 따라 진동 on/off
+4. **피드백 바인딩** (두 햅틱 경로 모두 게이트):
+   - 이산 햅틱: `HidConstants.triggerHaptic()` + `view.performHapticFeedback(...)` → 햅틱 토글에 따라 on/off
+   - 속도 햅틱: `HapticFeedbackHelper.vibrateByVelocity()` → 동일 토글로 게이트 (enable 플래그 주입)
 5. 바인딩 방식:
    - 각 컴포넌트에서 `SettingsRepository.xxxFlow.collectAsState()`로 현재값 수집
    - 하드코딩된 상수 참조를 StateFlow 값으로 교체
@@ -240,7 +248,8 @@ updated: "2026-04-05"
 - `DeltaCalculator.kt`, `ClickDetector.kt`, `TouchpadWrapper.kt`
 - `ScrollHandler` 관련 코드
 - `BridgeOneApp.kt` (Safe Zone)
-- `HidConstants.kt` (햅틱 토글)
+- `HidConstants.kt` (이산 햅틱 토글)
+- `ui/common/HapticFeedbackHelper.kt` (속도 햅틱 enable 플래그)
 
 **검증**:
 - [ ] 설정에서 클릭 판정 시간 변경 → 즉시 반영 확인

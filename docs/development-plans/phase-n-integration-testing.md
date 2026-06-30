@@ -40,6 +40,8 @@ updated: "2025-10-20"
 
 **목표**: 전체 시스템 (Android + ESP32-S3 + Windows)의 통합 안정성 및 상호운용성 검증
 
+> **⚠️ Phase 4.7.7 안전망 (참고)**: Phase 4.7 리팩토링이 Android 측에 14 suites / 222개 단위 테스트(`DeltaCalculator`/`ClickDetector`/`MacroFrameSequencer`/`EdgeGeometry`/`EdgeZone*` 등 순수 로직)를 구축했다. 통합 회귀 검증 시 `.\gradlew test`를 기준선으로 먼저 돌려 입력 계산·프레임 시퀀싱·존 로직의 단위 수준 무결성을 확인한 뒤 시스템 통합 테스트로 넘어가면 원인 격리가 쉬워진다.
+
 #### Phase n.1.1: 전체 시스템 시작/종료 시퀀스 검증
 
 **세부 목표**:

@@ -168,6 +168,8 @@ Page 3
 
 > **⚠️ Phase 4.2.2 변경사항**: `StandardModePage.kt`에서 `KeyboardPage` Composable 및 `showKeyboard` 상태 관리 로직이 **완전 삭제됨**. 기존 코드에서 참조 불가. `Page3KeyboardCentric`은 `StandardModePage.kt`의 `HorizontalPager` page=3 분기에서 렌더링되며 (Phase 4.6 이후 5페이지 구조), 현재는 `Page4KeyboardPlaceholder()`로 대체 중. Phase 4.10 구현 시 이 placeholder를 `Page4KeyboardCentric` Composable로 교체하면 됨. 수정자 키 추적(`activeModifierKeys`)은 Page 4 내부에서 새로 선언해야 함.
 
+> **⚠️ Phase 4.7.4 변경사항**: 교체 대상 placeholder의 실제 파일명은 `ui/pages/standard/Page3KeyboardPlaceholder.kt`이다(위 노트가 `Page4KeyboardPlaceholder`로 칭하나 4.8 페이지 재배치와 함께 정합 필요 — 분기는 `StandardModePage.kt`의 `when(page % PAGE_COUNT)` line 357). 신규 페이지 파일은 `ui/pages/standard/`에 둘 것(경로 적합). 3단계 Sticky 모디파이어 상태(탭/더블탭/롱프레스 + 자동해제 타이머, `activeModifierKeys`)는 Composable 인라인이 아니라 `StandardModePageState` 패턴의 상태 홀더로 분리 권장 — 페이지 전환 자동 해제 로직을 캡슐화하고 단위 테스트가 가능해진다. 자동해제(800ms)·롱프레스(400ms) 등 임계값은 `HidConstants.kt` 또는 신규 `KeyboardConstants.kt`에 기본값 주석과 함께 중앙화(4.7.1, 인라인 금지).
+
 **검증**:
 - [ ] 4개 모디파이어 키 렌더링
 - [ ] 탭 → 일시 고정 (다음 키와 조합 후 해제)

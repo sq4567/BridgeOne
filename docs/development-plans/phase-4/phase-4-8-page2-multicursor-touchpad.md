@@ -17,7 +17,7 @@ updated: "2026-04-01"
 - HorizontalPager 4 → 5페이지 확장 + Page 2 Placeholder
 - 풀 와이드 터치패드 레이아웃 (Actions 패널 없음, 터치패드가 전체 너비 점유)
 - `CursorModeButton` 활성화 + `CursorCountPopup` (2~4개 선택)
-- `MultiCursorState` + `PadModeState` 앱 수준 ViewModel 구조
+- `MultiCursorState` + `PadModeState` 앱 수준 상태 홀더(`MultiCursorPageState`) 구조
 - 그리드 분할 레이아웃 모드 (N개 영역 자동 분할)
 - 직접 전환 버튼 레이아웃 모드 (`PadSwitchButtonPanel`)
 - 소리 감지 패드 전환 (AudioRecord + 주파수 감지)
@@ -79,7 +79,10 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
    - **레이아웃**: `TouchpadWrapper`가 전체 너비(100%) × 전체 높이 점유 (Page 1의 64% 비율 없음)
    - `CursorModeButton` 표시 활성화 (`showCursorModeButton = true` 파라미터)
    - 이 Phase에서는 싱글 커서 동작만 (멀티 커서 로직은 이후 Phase에서 추가)
-3. 기존 Placeholder 함수명 일괄 수정:
+3. 기존 Placeholder 페이지 재배치:
+
+   > **⚠️ Phase 4.7.4-A 변경사항**: Placeholder들은 더 이상 `StandardModePage.kt` 내부 함수가 아니라 각각 **독립 파일**이다 — `ui/pages/standard/Page3KeyboardPlaceholder.kt`, `ui/pages/standard/Page4MinecraftPlaceholder.kt` (현재 Page 2 자리는 `Page2TestTouchpad.kt`). 페이지 재배치/rename 시 파일명·함수명과 함께 분기 `StandardModePage.kt`의 `when(page % PAGE_COUNT)`(line 357, 현 `PAGE_COUNT=5`)를 함께 수정할 것. 신규 파일은 같은 `ui/pages/standard/`에 둘 것.
+
    - `Page2AbsolutePointingPlaceholder` → `Page3AbsolutePointingPlaceholder`
    - `Page3KeyboardPlaceholder` → `Page4KeyboardPlaceholder`
    - `Page4MinecraftPlaceholder` → `Page5MinecraftPlaceholder`
@@ -103,13 +106,15 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
-## Phase 4.8.2: CursorModeButton 활성화 + CursorCountPopup + MultiCursorState ViewModel
+## Phase 4.8.2: CursorModeButton 활성화 + CursorCountPopup + MultiCursor 상태 홀더
 
-**목표**: CursorModeButton 탭 시 커서 수 선택 팝업을 표시하고, 멀티 커서 활성화 흐름을 구현합니다. `MultiCursorState`를 앱 수준 ViewModel로 관리하는 구조도 이 Phase에서 확립합니다.
+> **⚠️ Phase 4.7.4 결정사항 (아키텍처)**: Phase 4.7은 **AndroidX ViewModel/Hilt를 채택하지 않고** 평범한 클래스 상태 홀더 + `remember` 패턴(`StandardModePageState`, `EdgeZoneEditorState` 선례)을 코드베이스 전반에 확립했다. 따라서 이 Phase의 멀티 커서 상태도 ViewModel이 아니라 **`MultiCursorPageState` 상태 홀더**로 구현한다. "페이지를 넘나들어도 상태 유지" 요구는 `StandardModePage`(페이저) **상위**에서 `remember { MultiCursorPageState() }`로 생성해 페이저 바깥에 hoist하면 ViewModel 싱글톤과 동일하게 달성된다. 사이드이펙트(sendFrame, 토스트 등)는 홀더에 넣지 말고 Composable 콜백에 둔다(4.7.4-C 철학). `MultiCursorState`/`PadModeState` data class는 그대로 유지한다.
+
+**목표**: CursorModeButton 탭 시 커서 수 선택 팝업을 표시하고, 멀티 커서 활성화 흐름을 구현합니다. `MultiCursorState`를 앱 수준 상태 홀더(`MultiCursorPageState`)로 관리하는 구조도 이 Phase에서 확립합니다.
 
 **개발 기간**: 1.5일
 
-**쉬운 설명**: 상단 버튼을 눌러 "커서 2개? 3개? 4개?" 를 고르면 멀티 커서 모드로 진입합니다. 멀티 커서 상태는 페이지를 왔다 갔다 해도 유지되어야 하므로, 앱 전체에서 하나의 상태로 관리합니다.
+**쉬운 설명**: 상단 버튼을 눌러 "커서 2개? 3개? 4개?" 를 고르면 멀티 커서 모드로 진입합니다. 멀티 커서 상태는 페이지를 왔다 갔다 해도 유지되어야 하므로, 페이지들보다 한 단계 위에서 하나의 상태 홀더로 관리합니다.
 
 **세부 목표**:
 1. **`CursorCountPopup` Composable** (`ControlButtonContainer.kt` 또는 별도 파일):
@@ -118,14 +123,16 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
    - 구성: "2", "3", "4" 버튼 3개 — 탭 시 즉시 팝업 닫힘 + 선택 커서 수로 멀티 커서 활성화
    - 취소: 팝업 외부 탭 시 닫힘 (멀티 커서 미활성화)
    - 참조: `docs/android/component-touchpad.md` §1.6 (CursorCountPopup 설계)
-2. **`MultiCursorViewModel`** (앱 수준 ViewModel, `viewmodel/` 또는 `ui/` 상위에 위치):
-   - `MultiCursorState` 싱글톤 상태 관리
-   - `PadModeState` 리스트 (`List<PadModeState>`, N개)
+2. **`MultiCursorPageState`** (상태 홀더, `ui/pages/`에 위치 — `StandardModePageState`와 동일 계층):
+   - 평범한 클래스, `StandardModePage` 상위에서 `remember`로 1회 생성 후 페이저 바깥에 hoist (페이지 전환에도 인스턴스 유지)
+   - `MultiCursorState`를 `mutableStateOf`로 보유 (또는 개별 `MutableState` 필드)
+   - `padModeStates: List<PadModeState>` (N개)
    - `activePadIndex: Int` (현재 조작 중인 패드)
    - `cursorCount: Int` (2~4)
    - `isMultiCursorActive: Boolean`
    - `layoutMode: MultiCursorLayoutMode` (GRID / DIRECT_SWITCH)
-   - 주요 함수: `activateMultiCursor(count)`, `deactivateMultiCursor()`, `switchPad(index)`
+   - 주요 메서드: `activateMultiCursor(count)`, `deactivateMultiCursor()`, `switchPad(index)`
+   - 사이드이펙트 금지: 서버 명령 전송·토스트는 홀더가 아니라 호출 측 Composable 콜백에서 처리(4.7.4-C 철학)
 3. **`MultiCursorState` + `PadModeState` 데이터 구조** (`TouchpadMode.kt` 또는 별도 파일):
    ```kotlin
    data class PadModeState(
@@ -145,22 +152,23 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
    enum class MultiCursorLayoutMode { GRID, DIRECT_SWITCH }
    ```
-4. **`TouchpadWrapper` → `MultiCursorViewModel` 연결**:
-   - Page 2 터치패드가 `MultiCursorViewModel`의 상태를 구독
+4. **`TouchpadWrapper` → `MultiCursorPageState` 연결**:
+   - Page 2 터치패드가 `MultiCursorPageState`의 상태를 읽음 (Compose 상태 구독)
    - `ControlButtonContainer`의 버튼 상태가 `activePad`의 `PadModeState`를 반영
 5. **멀티 커서 비활성화** (멀티 → 싱글 복귀):
    - `CursorModeButton` 재탭 → 즉시 팝업 없이 싱글 커서 복귀
-   - `deactivateMultiCursor()` 호출 → Windows 서버에 `hide_virtual_cursor` 전송 (Phase 4.8.6)
+   - `deactivateMultiCursor()` 호출 (상태만 갱신) → 호출 측 Composable이 Windows 서버에 `hide_virtual_cursor` 전송 (Phase 4.8.6)
 6. **싱글 커서 상태에서 `TouchpadState` 우선 사용**:
    - 싱글 커서 모드: 기존 `TouchpadState` 그대로 사용
    - 멀티 커서 모드: `MultiCursorState.activePad.PadModeState`를 참조
 
 **신규 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/viewmodel/MultiCursorViewModel.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/MultiCursorPageState.kt` (상태 홀더 — `StandardModePageState.kt`와 동일 계층)
 
 **수정 파일**:
 - `TouchpadMode.kt` (`MultiCursorState`, `PadModeState`, `MultiCursorLayoutMode` 추가)
-- `Page2MultiCursorTouchpad.kt` (ViewModel 연결, CursorCountPopup 통합)
+- `StandardModePage.kt` (상위에서 `remember { MultiCursorPageState() }` 생성 후 Page 2에 전달 — 페이저 바깥 hoist)
+- `Page2MultiCursorTouchpad.kt` (상태 홀더 연결, CursorCountPopup 통합)
 - `ControlButtonContainer.kt` (`CursorModeButton` 활성화, `PadModeState` 반영)
 
 **참조 문서**:
@@ -173,7 +181,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 - [ ] 2/3/4 선택 후 멀티 커서 활성화 (isMultiCursorActive = true)
 - [ ] CursorModeButton 재탭 → 싱글 커서 복귀
 - [ ] ControlButtonContainer 버튼이 activePad의 PadModeState 반영 확인
-- [ ] 페이지 전환 후 복귀 시 멀티 커서 상태 유지 (ViewModel 싱글톤 확인)
+- [ ] 페이지 전환 후 복귀 시 멀티 커서 상태 유지 (페이저 바깥 `remember` hoist 확인)
 - [ ] `ModePresetButton` 프리셋 적용이 활성 패드(`activePadIndex`)에만 적용되고, 다른 패드의 `PadModeState`는 유지 확인
 
 ---
@@ -188,6 +196,9 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 **세부 목표**:
 1. **N개 패드 영역 계산 알고리즘** (`MultiCursorLayoutCalculator.kt`):
+
+   > **⚠️ Phase 4.7.2 컨벤션**: 순수 기하 함수(`RectF` 경계 계산)는 추출과 **동시에 단위 테스트**를 작성할 것(`EdgeGeometryTest`/`EdgeZoneCanvasGeometryTest` 선례, JUnit4 `assertEquals`). 입력 좌표→영역 매핑이 순수 함수이므로 테스트 비용이 낮고 회귀 안전망 가치가 크다.
+
    - 2개: 좌/우 50/50 분할
    - 3개: 좌 50% / 우상 50%×50% / 우하 50%×50% (L자형)
    - 4개: 2×2 그리드
@@ -199,7 +210,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
    - Selected(활성) 패드: 테두리 표시 (`§2.2` 색상 규칙 적용)
    - Unselected 패드: 테두리 없음 + 약한 dim 오버레이 (`alpha = 0.3f`)
 3. **패드 전환 (그리드 분할 모드)**:
-   - 비활성 패드 영역 탭 → `MultiCursorViewModel.switchPad(index)` 호출
+   - 비활성 패드 영역 탭 → `MultiCursorPageState.switchPad(index)` 호출
    - 활성 패드 전환 시 `ControlButtonContainer` 버튼 상태 즉시 갱신
    - 전환 시 300ms `ease-out` 애니메이션 (테두리 이동)
 4. **분할 경계선 표시**:
@@ -245,11 +256,11 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
    - 구성: N개 버튼 (`Pad 1`~`Pad N`)
    - 활성 버튼: 강조색 배경 + 볼드 텍스트
    - 비활성 버튼: 반투명 배경
-   - 탭: `MultiCursorViewModel.switchPad(index)` 즉시 호출
+   - 탭: `MultiCursorPageState.switchPad(index)` 즉시 호출
    - 이벤트 소비: `down.changes.forEach { it.consume() }` — TouchpadWrapper 제스처 차단
 2. **레이아웃 모드 전환 UI**:
    - `ControlButtonContainer`에 레이아웃 모드 버튼 추가 (또는 설정 메뉴) — 설계 확정 후 반영
-   - `MultiCursorViewModel.layoutMode`를 `GRID` ↔ `DIRECT_SWITCH` 전환
+   - `MultiCursorPageState.layoutMode`를 `GRID` ↔ `DIRECT_SWITCH` 전환
 3. **직접 전환 버튼 모드에서 터치패드 입력**:
    - 전체 면적이 활성 패드의 입력 영역
    - 하단 버튼 패널 영역은 터치패드 입력 제외 (이미 이벤트 소비)
@@ -283,6 +294,9 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 **세부 목표**:
 1. **`SoundPadSwitchDetector`** (신규):
+
+   > **⚠️ Phase 4.7.1 컨벤션**: 주파수(~784Hz)·쿨다운(500ms)·볼륨 임계값 등은 인라인 리터럴 금지. 신규 `MultiCursorConstants.kt`(또는 `ui/common`)에 기본값 주석(`기본값: {값}`)과 함께 중앙화할 것.
+
    - `AudioRecord` API로 마이크 입력 실시간 분석
    - FFT 기반 주파수 분석 (솔 근방: ~784Hz)
    - 볼륨 임계값 AND 주파수 임계값 동시 만족 시 트리거
@@ -292,7 +306,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
    - `MultiCursorState.isActive == true`이고 설정에서 소리 감지 옵션 활성화된 경우에만 동작
    - 멀티 커서 비활성화 시 즉시 중지
 3. **패드 전환 동작**:
-   - 감지 → `MultiCursorViewModel.switchPad((activePadIndex + 1) % cursorCount)` 순환
+   - 감지 → `MultiCursorPageState.switchPad((activePadIndex + 1) % cursorCount)` 순환
    - 전환 시 햅틱 피드백 + `ToastController.show("패드 ${n} 전환", ToastType.INFO, 1000L)`
 
 **신규 파일**:
@@ -344,7 +358,8 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
    - Windows 서버 미연결 시 `show_virtual_cursor` 전송 스킵 — 앱 내에서만 멀티 커서 상태 관리
 
 **수정 파일**:
-- `MultiCursorViewModel.kt` (서버 명령 전송 로직)
+- `Page2MultiCursorTouchpad.kt` 또는 호출 측 Composable (서버 명령 전송 로직 — 상태 홀더가 아니라 Composable 콜백에서 처리, 4.7.4-C 철학)
+- `MultiCursorPageState.kt` (전송 트리거가 되는 상태 변경 메서드는 여기, 단 전송 자체는 콜백으로 위임)
 - `src/android/app/src/main/java/com/bridgeone/app/protocol/FrameBuilder.kt` (멀티 커서 커스텀 명령 생성)
 
 **참조 문서**:
