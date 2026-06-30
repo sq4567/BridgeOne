@@ -1,28 +1,17 @@
 package com.bridgeone.app.ui.components.touchpad
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import com.bridgeone.app.ui.common.swipe.LocalSwipeFocused
 import com.bridgeone.app.ui.common.swipe.SwipeFocusable
 
-/** 포커스된 드롭 슬롯을 강조하는 선의 두께 (dp). 기본값: 3f */
-private const val DROP_LINE_THICKNESS_DP = 3f
 
 /**
  * SWIPE 이동 모드의 드롭 슬롯 오버레이 (Phase 4.7.x).
@@ -68,32 +57,11 @@ internal fun ZoneCanvasDropOverlay(
             }
             // 슬롯 위치를 코너 버튼 차단 제외 유효 영역으로 매핑(캔버스 존 배치와 정합).
             val ratio = mapToValid(edge, rawRatio, hasBottomLeft, hasBottomRight, blockedRatio)
-            val offsetX: Dp
-            val offsetY: Dp
-            val width: Dp
-            val height: Dp
-            when (edge) {
-                EntryEdge.TOP -> {
-                    offsetX = canvasWidth * ratio - handleDp / 2; offsetY = 0.dp
-                    width = handleDp; height = edgeDp
-                }
-                EntryEdge.BOTTOM -> {
-                    offsetX = canvasWidth * ratio - handleDp / 2; offsetY = canvasHeight - edgeDp
-                    width = handleDp; height = edgeDp
-                }
-                EntryEdge.LEFT -> {
-                    offsetX = 0.dp; offsetY = canvasHeight * ratio - handleDp / 2
-                    width = edgeDp; height = handleDp
-                }
-                EntryEdge.RIGHT -> {
-                    offsetX = canvasWidth - edgeDp; offsetY = canvasHeight * ratio - handleDp / 2
-                    width = edgeDp; height = handleDp
-                }
-            }
+            val (offsetX, offsetY, width, height) = edgeHandleRect(edge, canvasWidth, canvasHeight, edgeDp, handleDp, ratio)
             val vertical = edge == EntryEdge.LEFT || edge == EntryEdge.RIGHT
             SwipeFocusable(
                 element = EdgeEditorElement.CanvasDropSlot(edge, insertIndex),
-                shape = RoundedCornerShape(4.dp),
+                shape = RoundedCornerShape(EdgeSwipeConstants.CANVAS_OVERLAY_HANDLE_CORNER_DP.dp),
                 showBorderHighlight = false,
                 onActivate = { onSlotDrop(edge, insertIndex) },
                 modifier = Modifier
@@ -104,14 +72,8 @@ internal fun ZoneCanvasDropOverlay(
                 if (showMarker) {
                     // 포커스 시 더 밝게, 비포커스 슬롯도 옅은 마커로 위치를 안내
                     val focused = LocalSwipeFocused.current
-                    val lineColor = if (focused) lerp(accent, Color.White, 0.5f) else accent.copy(alpha = 0.6f)
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Box(
-                            (if (vertical) Modifier.fillMaxWidth().height(DROP_LINE_THICKNESS_DP.dp)
-                             else Modifier.fillMaxHeight().width(DROP_LINE_THICKNESS_DP.dp))
-                                .background(lineColor)
-                        )
-                    }
+                    val lineColor = if (focused) brightenForState(accent, 0.5f) else accent.copy(alpha = 0.6f)
+                    EdgeMarkerLine(vertical, EdgeSwipeConstants.CANVAS_OVERLAY_LINE_THICKNESS_DP.dp, lineColor)
                 }
             }
         }

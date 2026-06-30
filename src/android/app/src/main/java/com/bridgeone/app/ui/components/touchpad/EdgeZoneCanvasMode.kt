@@ -1,5 +1,16 @@
 package com.bridgeone.app.ui.components.touchpad
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallMerge
+import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.bridgeone.app.ui.common.EdgeSwipeConstants
+import com.bridgeone.app.ui.common.InputMode
+import com.bridgeone.app.ui.common.ZoneMoveMethod
 import com.bridgeone.app.ui.common.swipe.Direction
 import com.bridgeone.app.ui.common.swipe.FocusableElement
 import com.bridgeone.app.ui.common.swipe.SwipeFocusController
@@ -106,10 +117,10 @@ internal fun canvasSpatialNav(
         val cx = (it.bounds.left + it.bounds.right) / 2f
         val cy = (it.bounds.top + it.bounds.bottom) / 2f
         when (dir) {
-            Direction.LEFT  -> cx < ccx - 1f
-            Direction.RIGHT -> cx > ccx + 1f
-            Direction.UP    -> cy < ccy - 1f
-            Direction.DOWN  -> cy > ccy + 1f
+            Direction.LEFT  -> cx < ccx - EdgeSwipeConstants.CANVAS_NAV_DEADZONE_PX
+            Direction.RIGHT -> cx > ccx + EdgeSwipeConstants.CANVAS_NAV_DEADZONE_PX
+            Direction.UP    -> cy < ccy - EdgeSwipeConstants.CANVAS_NAV_DEADZONE_PX
+            Direction.DOWN  -> cy > ccy + EdgeSwipeConstants.CANVAS_NAV_DEADZONE_PX
         }
     }
     val next = half.minByOrNull {
@@ -117,9 +128,10 @@ internal fun canvasSpatialNav(
         val cy = (it.bounds.top + it.bounds.bottom) / 2f
         val dx = kotlin.math.abs(cx - ccx)
         val dy = kotlin.math.abs(cy - ccy)
+        val penalty = EdgeSwipeConstants.CANVAS_NAV_CROSS_AXIS_PENALTY
         when (dir) {
-            Direction.LEFT, Direction.RIGHT -> dx + dy * 2.5f
-            Direction.UP, Direction.DOWN    -> dy + dx * 2.5f
+            Direction.LEFT, Direction.RIGHT -> dx + dy * penalty
+            Direction.UP, Direction.DOWN    -> dy + dx * penalty
         }
     }
     return if (next != null) { controller.setFocus(next.element); true } else false
@@ -260,4 +272,49 @@ internal fun canvasHighlightKeys(mode: CanvasEditMode, selectedZone: EdgeZone?, 
     is CanvasEditMode.Moving    -> emptySet()
     // 비율 조정: 대상 엣지 선택 시 그 엣지의 모든 존을 강조해 적용 대상을 명확히 표시
     is CanvasEditMode.Resizing  -> mode.edge?.let { e -> config.zonesFor(e).map { it.key() }.toSet() } ?: emptySet()
+}
+
+// ── 모드 메타데이터 (아이콘·강조색·안내 문구) ──
+
+/** 모드 진입 버튼에 표시할 아이콘. */
+internal fun CanvasModeKind.icon(): ImageVector = when (this) {
+    CanvasModeKind.MERGE  -> Icons.AutoMirrored.Filled.CallMerge
+    CanvasModeKind.SPLIT  -> Icons.AutoMirrored.Filled.CallSplit
+    CanvasModeKind.MOVE   -> Icons.Filled.OpenWith
+    CanvasModeKind.DELETE -> Icons.Filled.DeleteOutline
+    CanvasModeKind.RESIZE -> Icons.Filled.BarChart
+}
+
+/** 모드별 고유 강조 색 (병합=그린, 분할=블루, 이동=오렌지, 삭제=레드, 비율=퍼플). */
+internal fun CanvasModeKind.accentColor(): Color = when (this) {
+    CanvasModeKind.MERGE  -> Color(0xFF1A7A3A)
+    CanvasModeKind.SPLIT  -> Color(0xFF1565A8)
+    CanvasModeKind.MOVE   -> Color(0xFFB84A00)
+    CanvasModeKind.DELETE -> Color(0xFF9E2A2A)
+    CanvasModeKind.RESIZE -> Color(0xFF5E3A9E)
+}
+
+/** 모드 활성 시 캔버스 중앙에 띄우는 안내 메시지. */
+internal fun guideText(
+    mode: CanvasEditMode,
+    moveMethod: ZoneMoveMethod = ZoneMoveMethod.TAP,
+    inputMode: InputMode = InputMode.NORMAL,
+): String = when (mode) {
+    is CanvasEditMode.Merging  ->
+        if (mode.base == null) "병합 대상으로 삼고 싶은 존을 선택하세요." else "병합할 인접한 존을 선택하세요."
+    is CanvasEditMode.Deleting  -> "삭제할 존을 선택하세요."
+    is CanvasEditMode.Splitting ->
+        if (mode.target == null) "분할할 존을 선택하세요." else "분할 갯수를 선택하세요."
+    is CanvasEditMode.Moving    -> when {
+        moveMethod == ZoneMoveMethod.DRAG_AND_DROP && mode.picked != null -> ""
+        moveMethod == ZoneMoveMethod.DRAG_AND_DROP -> "옮길 존을 끌어다 놓으세요."
+        inputMode == InputMode.SWIPE && mode.picked != null -> "스와이프로 위치를 정하고 탭으로 확정\n롱프레스로 되돌리고 나가기"
+        inputMode == InputMode.SWIPE -> "스와이프로 옮길 존을 정하고 탭\n롱프레스로 되돌리고 나가기"
+        mode.picked != null -> "놓을 위치(존 사이 경계 또는 끝)를 탭하세요.\n롱프레스로 되돌리고 나가기"
+        else -> "이동할 존을 선택하세요.\n롱프레스로 되돌리고 나가기"
+    }
+    is CanvasEditMode.Resizing  ->
+        if (mode.edge == null) "경계를 드래그하거나, 존을 탭해 프리셋을 선택하세요."
+        else "비율 프리셋을 선택하거나 경계를 드래그하세요."
+    CanvasEditMode.None         -> ""
 }

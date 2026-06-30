@@ -56,16 +56,7 @@ internal fun MergeSelectionOverlay(
     val mEnd = mapToValid(edge, animEnd, hasBottomLeft, hasBottomRight, blockedRatio)
     val span = (mEnd - mStart).coerceAtLeast(0f)
 
-    val offX: Dp
-    val offY: Dp
-    val boxW: Dp
-    val boxH: Dp
-    when (edge) {
-        EntryEdge.TOP -> { offX = canvasWidth * mStart; offY = 0.dp; boxW = canvasWidth * span; boxH = edgeDp }
-        EntryEdge.BOTTOM -> { offX = canvasWidth * mStart; offY = canvasHeight - edgeDp; boxW = canvasWidth * span; boxH = edgeDp }
-        EntryEdge.LEFT -> { offX = 0.dp; offY = canvasHeight * mStart; boxW = edgeDp; boxH = canvasHeight * span }
-        EntryEdge.RIGHT -> { offX = canvasWidth - edgeDp; offY = canvasHeight * mStart; boxW = edgeDp; boxH = canvasHeight * span }
-    }
+    val (offX, offY, boxW, boxH) = edgeStripRect(edge, canvasWidth, canvasHeight, edgeDp, mStart, span)
 
     Box(
         Modifier

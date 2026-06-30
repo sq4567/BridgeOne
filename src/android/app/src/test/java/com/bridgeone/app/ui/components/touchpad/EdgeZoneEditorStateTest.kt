@@ -1,6 +1,7 @@
 package com.bridgeone.app.ui.components.touchpad
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -315,5 +316,435 @@ class EdgeZoneEditorStateTest {
         val morphs = state.commitMove(ZoneKey(EntryEdge.TOP, a.startRatio), EntryEdge.TOP, 0)
         assertTrue(morphs.isEmpty())
         assertTrue(state.undoStack.isEmpty())
+    }
+
+    // ============================================================
+    // deleteZones (Phase 4.7.8-D)
+    // ============================================================
+
+    @Test
+    fun deleteZones_oneOfTwo_neighborAbsorbsRatio() {
+        val z0 = zone(EntryEdge.TOP, 0f, 0.5f)
+        val z1 = zone(EntryEdge.TOP, 0.5f, 1f)
+        val state = newState(topConfig(listOf(z0, z1)))
+
+        state.deleteZones(setOf(ZoneKey(EntryEdge.TOP, z0.startRatio)))
+
+        val top = state.workConfig.topZones
+        assertEquals(1, top.size)
+        // z0.startRatio(0f)를 남은 z1이 흡수
+        assertEquals(0f, top[0].startRatio, 1e-5f)
+        assertEquals(1f, top[0].endRatio, 1e-5f)
+        assertNull(state.currentPresetId)
+        assertEquals(1, state.undoStack.size)
+    }
+
+    @Test
+    fun deleteZones_bothOfTwo_preservesLast() {
+        // 2개 중 2개 삭제 요청 → 최소 1개 보존 규칙으로 하나만 삭제됨
+        val z0 = zone(EntryEdge.TOP, 0f, 0.5f)
+        val z1 = zone(EntryEdge.TOP, 0.5f, 1f)
+        val state = newState(topConfig(listOf(z0, z1)))
+
+        state.deleteZones(setOf(
+            ZoneKey(EntryEdge.TOP, z0.startRatio),
+            ZoneKey(EntryEdge.TOP, z1.startRatio),
+        ))
+
+        // 내림차순 삭제: z1 먼저 시도(size>1 → 삭제 가능), z0 시도(size==1 → 보존)
+        // 결과: z0 1개 남음
+        assertEquals(1, state.workConfig.topZones.size)
+    }
+
+    @Test
+    fun deleteZones_onlyZone_noOp() {
+        val only = zone(EntryEdge.TOP, 0f, 1f)
+        val state = newState(topConfig(listOf(only)))
+
+        state.deleteZones(setOf(ZoneKey(EntryEdge.TOP, only.startRatio)))
+
+        assertEquals(1, state.workConfig.topZones.size)
+        // 최소 1 보존 규칙: undo는 pushUndo()가 먼저 호출되므로 1개 쌓임
+        // (실제 삭제가 일어나지 않아도 undo는 push됨)
+    }
+
+    @Test
+    fun deleteZones_emptySet_noOp() {
+        val state = newState(topConfig(listOf(zone(EntryEdge.TOP, 0f, 1f))))
+        state.deleteZones(emptySet())
+        assertTrue(state.undoStack.isEmpty())
+    }
+
+    @Test
+    fun deleteZones_threeOfThree_preservesOne() {
+        val z0 = zone(EntryEdge.TOP, 0f, 0.33f, label = "A")
+        val z1 = zone(EntryEdge.TOP, 0.33f, 0.66f, label = "B")
+        val z2 = zone(EntryEdge.TOP, 0.66f, 1f, label = "C")
+        val state = newState(topConfig(listOf(z0, z1, z2)))
+
+        state.deleteZones(setOf(
+            ZoneKey(EntryEdge.TOP, z0.startRatio),
+            ZoneKey(EntryEdge.TOP, z1.startRatio),
+            ZoneKey(EntryEdge.TOP, z2.startRatio),
+        ))
+
+        // 내림차순: z2→z1→z0 순 삭제 시도. z2 삭제(3→2), z1 삭제(2→1), z0 보존(1==1)
+        assertEquals(1, state.workConfig.topZones.size)
+        // 남은 존은 z0(startRatio=0, endRatio=1로 흡수됨)
+        assertEquals(0f, state.workConfig.topZones[0].startRatio, 1e-5f)
+        assertEquals(1f, state.workConfig.topZones[0].endRatio, 1e-5f)
+    }
+
+    // ============================================================
+    // mergeContiguous (Phase 4.7.8-D)
+    // ============================================================
+
+    @Test
+    fun mergeContiguous_twoAdjacent_mergesWithBaseTrigger() {
+        val z0 = zone(EntryEdge.TOP, 0f, 0.5f, EdgeZoneAction.SendMacro(), label = "base")
+        val z1 = zone(EntryEdge.TOP, 0.5f, 1f)
+        val state = newState(topConfig(listOf(z0, z1)))
+
+        val result = state.mergeContiguous(EntryEdge.TOP, z0.startRatio, setOf(z0.startRatio, z1.startRatio))
+
+        assertTrue(result)
+        val top = state.workConfig.topZones
+        assertEquals(1, top.size)
+        assertEquals(0f, top[0].startRatio, 1e-5f)
+        assertEquals(1f, top[0].endRatio, 1e-5f)
+        // base trigger(z0) 유지
+        assertEquals(EdgeZoneAction.SendMacro(), (top[0].trigger as EdgeZoneTrigger.SingleAction).action)
+        assertEquals("base", top[0].label)
+        assertEquals(top[0], state.selectedZone)
+        assertNull(state.currentPresetId)
+    }
+
+    @Test
+    fun mergeContiguous_lessThanTwo_returnsFalse() {
+        val z0 = zone(EntryEdge.TOP, 0f, 0.5f)
+        val state = newState(topConfig(listOf(z0, zone(EntryEdge.TOP, 0.5f, 1f))))
+        val result = state.mergeContiguous(EntryEdge.TOP, z0.startRatio, setOf(z0.startRatio))
+        assertFalse(result)
+        assertTrue(state.undoStack.isEmpty())
+    }
+
+    @Test
+    fun mergeContiguous_nonContiguous_returnsFalse() {
+        val z0 = zone(EntryEdge.TOP, 0f, 0.33f)
+        val z1 = zone(EntryEdge.TOP, 0.33f, 0.66f)
+        val z2 = zone(EntryEdge.TOP, 0.66f, 1f)
+        val state = newState(topConfig(listOf(z0, z1, z2)))
+        // z0(idx=0)와 z2(idx=2) → 인덱스 0,2 → last-first=2 ≠ size-1=1 → 거부
+        val result = state.mergeContiguous(EntryEdge.TOP, z0.startRatio, setOf(z0.startRatio, z2.startRatio))
+        assertFalse(result)
+        assertEquals(3, state.workConfig.topZones.size)
+    }
+
+    @Test
+    fun mergeContiguous_threeContiguous_mergesAll() {
+        val z0 = zone(EntryEdge.TOP, 0f, 0.33f, label = "A")
+        val z1 = zone(EntryEdge.TOP, 0.33f, 0.66f, label = "B")
+        val z2 = zone(EntryEdge.TOP, 0.66f, 1f, label = "C")
+        val state = newState(topConfig(listOf(z0, z1, z2)))
+
+        val result = state.mergeContiguous(
+            EntryEdge.TOP, z1.startRatio,
+            setOf(z0.startRatio, z1.startRatio, z2.startRatio),
+        )
+
+        assertTrue(result)
+        val top = state.workConfig.topZones
+        assertEquals(1, top.size)
+        assertEquals(0f, top[0].startRatio, 1e-5f)
+        assertEquals(1f, top[0].endRatio, 1e-5f)
+        assertEquals("B", top[0].label)  // base=z1 trigger
+    }
+
+    // ============================================================
+    // adjustBoundary (Phase 4.7.8-D)
+    // ============================================================
+
+    @Test
+    fun adjustBoundary_validMove_updatesBothZones() {
+        val z0 = zone(EntryEdge.TOP, 0f, 0.5f)
+        val z1 = zone(EntryEdge.TOP, 0.5f, 1f)
+        val state = newState(topConfig(listOf(z0, z1)))
+
+        state.adjustBoundary(EntryEdge.TOP, 0, 0.7f)
+
+        val top = state.workConfig.topZones
+        assertEquals(0.7f, top[0].endRatio, 1e-5f)
+        assertEquals(0.7f, top[1].startRatio, 1e-5f)
+        assertNull(state.currentPresetId)
+        // adjustBoundary는 undo를 직접 push하지 않음 (호출부가 드래그 시작 시 1회 push)
+        assertTrue(state.undoStack.isEmpty())
+    }
+
+    @Test
+    fun adjustBoundary_clampedByMinZoneRatio_leftSide() {
+        // MIN_ZONE_RATIO = 0.10f
+        // z0.startRatio=0f → clamp 하한: 0f + 0.10f = 0.10f
+        val z0 = zone(EntryEdge.TOP, 0f, 0.5f)
+        val z1 = zone(EntryEdge.TOP, 0.5f, 1f)
+        val state = newState(topConfig(listOf(z0, z1)))
+
+        state.adjustBoundary(EntryEdge.TOP, 0, 0.02f)  // 너무 작음
+
+        assertEquals(0.10f, state.workConfig.topZones[0].endRatio, 1e-5f)
+        assertEquals(0.10f, state.workConfig.topZones[1].startRatio, 1e-5f)
+    }
+
+    @Test
+    fun adjustBoundary_clampedByMinZoneRatio_rightSide() {
+        // z1.endRatio=1f → clamp 상한: 1f - 0.10f = 0.90f
+        val z0 = zone(EntryEdge.TOP, 0f, 0.5f)
+        val z1 = zone(EntryEdge.TOP, 0.5f, 1f)
+        val state = newState(topConfig(listOf(z0, z1)))
+
+        state.adjustBoundary(EntryEdge.TOP, 0, 0.98f)  // 너무 큼
+
+        assertEquals(0.90f, state.workConfig.topZones[0].endRatio, 1e-5f)
+        assertEquals(0.90f, state.workConfig.topZones[1].startRatio, 1e-5f)
+    }
+
+    @Test
+    fun adjustBoundary_invalidLeftIndex_noOp() {
+        val z0 = zone(EntryEdge.TOP, 0f, 0.5f)
+        val z1 = zone(EntryEdge.TOP, 0.5f, 1f)
+        val state = newState(topConfig(listOf(z0, z1)))
+
+        state.adjustBoundary(EntryEdge.TOP, -1, 0.6f)
+        state.adjustBoundary(EntryEdge.TOP, 1, 0.6f)  // 경계는 0..size-2 = 0만 유효
+
+        // 변경 없음
+        assertEquals(0.5f, state.workConfig.topZones[0].endRatio, 1e-5f)
+    }
+
+    // ============================================================
+    // computeSplitZones (Phase 4.7.8-D)
+    // ============================================================
+
+    @Test
+    fun computeSplitZones_threeEqual_returnsThreeParts() {
+        val original = zone(EntryEdge.TOP, 0f, 0.6f, EdgeZoneAction.SendMacro(), label = "원본")
+        val other = zone(EntryEdge.TOP, 0.6f, 1f)
+        val state = newState(topConfig(listOf(original, other)))
+
+        val result = state.computeSplitZones(original, 3)!!
+
+        // 전체 존 목록 반환(original 자리에 3개 삽입)
+        assertEquals(4, result.size)
+        // 첫 조각
+        assertEquals(0f, result[0].startRatio, 1e-5f)
+        assertEquals(0.2f, result[0].endRatio, 1e-5f)
+        assertEquals(EdgeZoneAction.SendMacro(), (result[0].trigger as EdgeZoneTrigger.SingleAction).action)
+        // 마지막 조각은 original.endRatio에 정확히 맞춤
+        assertEquals(0.4f, result[2].startRatio, 1e-3f)
+        assertEquals(0.6f, result[2].endRatio, 1e-5f)
+        // workConfig는 변경되지 않음 (순수 계산)
+        assertEquals(2, state.workConfig.topZones.size)
+    }
+
+    @Test
+    fun computeSplitZones_unknownZone_returnsNull() {
+        val state = newState(topConfig(listOf(zone(EntryEdge.TOP, 0f, 1f))))
+        val foreign = zone(EntryEdge.TOP, 0.2f, 0.8f)
+        assertNull(state.computeSplitZones(foreign, 2))
+    }
+
+    @Test
+    fun computeSplitZones_intoOne_returnsUnchangedList() {
+        val z = zone(EntryEdge.TOP, 0f, 0.5f, label = "A")
+        val z2 = zone(EntryEdge.TOP, 0.5f, 1f, label = "B")
+        val state = newState(topConfig(listOf(z, z2)))
+
+        val result = state.computeSplitZones(z, 1)!!
+
+        assertEquals(2, result.size)
+        assertEquals("A", result[0].label)
+        assertEquals(0f, result[0].startRatio, 1e-5f)
+        assertEquals(0.5f, result[0].endRatio, 1e-5f)
+    }
+
+    // ============================================================
+    // mergeTapDecision (4.7.8-E)
+    // ============================================================
+
+    /** TOP 5개 균등 존 config: A(0~0.2) B(0.2~0.4) C(0.4~0.6) D(0.6~0.8) E(0.8~1.0). */
+    private fun top5Config(): EdgeZoneConfig = topConfig(listOf(
+        zone(EntryEdge.TOP, 0.0f, 0.2f, label = "A"),
+        zone(EntryEdge.TOP, 0.2f, 0.4f, label = "B"),
+        zone(EntryEdge.TOP, 0.4f, 0.6f, label = "C"),
+        zone(EntryEdge.TOP, 0.6f, 0.8f, label = "D"),
+        zone(EntryEdge.TOP, 0.8f, 1.0f, label = "E"),
+    ))
+
+    @Test
+    fun mergeTapDecision_adjacentAboveHi_returnsAdd() {
+        // base=A(idx=0), selected={}, lo=hi=0 → tap B(idx=1) == hi+1 → Add
+        val state = newState(top5Config())
+        val result = state.mergeTapDecision(EntryEdge.TOP, base = 0.0f, selected = emptySet(), tapStartRatio = 0.2f)
+        assertTrue(result is EdgeZoneEditorState.MergeTap.Add)
+        assertEquals(0.2f, (result as EdgeZoneEditorState.MergeTap.Add).startRatio, 1e-5f)
+    }
+
+    @Test
+    fun mergeTapDecision_adjacentBelowLo_returnsAdd() {
+        // base=C(idx=2), selected={D(0.6)}, selIndices=[2,3] lo=2,hi=3 → tap B(idx=1)==lo-1 → Add
+        val state = newState(top5Config())
+        val result = state.mergeTapDecision(EntryEdge.TOP, base = 0.4f, selected = setOf(0.6f), tapStartRatio = 0.2f)
+        assertTrue(result is EdgeZoneEditorState.MergeTap.Add)
+        assertEquals(0.2f, (result as EdgeZoneEditorState.MergeTap.Add).startRatio, 1e-5f)
+    }
+
+    @Test
+    fun mergeTapDecision_endpointHi_returnsRemove() {
+        // base=C(idx=2), selected={D(0.6)}, lo=2,hi=3 → tap D(idx=3)==hi → Remove
+        val state = newState(top5Config())
+        val result = state.mergeTapDecision(EntryEdge.TOP, base = 0.4f, selected = setOf(0.6f), tapStartRatio = 0.6f)
+        assertTrue(result is EdgeZoneEditorState.MergeTap.Remove)
+        assertEquals(0.6f, (result as EdgeZoneEditorState.MergeTap.Remove).startRatio, 1e-5f)
+    }
+
+    @Test
+    fun mergeTapDecision_endpointLo_returnsRemove() {
+        // base=C(idx=2), selected={B(0.2)}, selIndices=[1,2] lo=1,hi=2 → tap B(idx=1)==lo → Remove
+        val state = newState(top5Config())
+        val result = state.mergeTapDecision(EntryEdge.TOP, base = 0.4f, selected = setOf(0.2f), tapStartRatio = 0.2f)
+        assertTrue(result is EdgeZoneEditorState.MergeTap.Remove)
+    }
+
+    @Test
+    fun mergeTapDecision_nonAdjacentFar_returnsReject() {
+        // base=A(idx=0), selected={}, lo=hi=0 → tap C(idx=2), neither lo-1 nor hi+1 → Reject
+        val state = newState(top5Config())
+        val result = state.mergeTapDecision(EntryEdge.TOP, base = 0.0f, selected = emptySet(), tapStartRatio = 0.4f)
+        assertEquals(EdgeZoneEditorState.MergeTap.Reject, result)
+    }
+
+    @Test
+    fun mergeTapDecision_interior_returnsReject() {
+        // base=A(idx=0), selected={B(0.2),C(0.4)}, selIndices=[0,1,2] lo=0,hi=2
+        // tap B(idx=1): not lo-1, not hi+1, not lo, not hi → Reject
+        val state = newState(top5Config())
+        val result = state.mergeTapDecision(EntryEdge.TOP, base = 0.0f, selected = setOf(0.2f, 0.4f), tapStartRatio = 0.2f)
+        assertEquals(EdgeZoneEditorState.MergeTap.Reject, result)
+    }
+
+    @Test
+    fun mergeTapDecision_unknownRatio_returnsIgnore() {
+        val state = newState(top5Config())
+        val result = state.mergeTapDecision(EntryEdge.TOP, base = 0.0f, selected = emptySet(), tapStartRatio = 0.999f)
+        assertEquals(EdgeZoneEditorState.MergeTap.Ignore, result)
+    }
+
+    // ============================================================
+    // resolveDisplayConfig (4.7.8-E)
+    // ============================================================
+
+    @Test
+    fun resolveDisplayConfig_ratioMorphPresent_returnsLerp() {
+        val from = topConfig(listOf(zone(EntryEdge.TOP, 0f, 0.4f), zone(EntryEdge.TOP, 0.4f, 1f)))
+        val to   = topConfig(listOf(zone(EntryEdge.TOP, 0f, 0.6f), zone(EntryEdge.TOP, 0.6f, 1f)))
+        val morph = ConfigMorph(from, to)
+
+        // p=0.5 → lerp(0.4, 0.6, 0.5) = 0.5
+        val result = resolveDisplayConfig(morph, 0.5f, emptyList(), 0f, null, null, from)
+
+        assertEquals(0.5f, result.topZones[0].endRatio, 1e-5f)
+    }
+
+    @Test
+    fun resolveDisplayConfig_movingDisplayOnly_returnsMoving() {
+        val workCfg = topConfig(listOf(zone(EntryEdge.TOP, 0f, 1f)))
+        val moving  = topConfig(listOf(zone(EntryEdge.TOP, 0f, 0.3f), zone(EntryEdge.TOP, 0.3f, 1f)))
+
+        val result = resolveDisplayConfig(null, 0f, emptyList(), 0f, moving, null, workCfg)
+
+        assertEquals(0.3f, result.topZones[0].endRatio, 1e-5f)
+    }
+
+    @Test
+    fun resolveDisplayConfig_previewConfigOnly_returnsPreview() {
+        val workCfg = topConfig(listOf(zone(EntryEdge.TOP, 0f, 1f)))
+        val preview = topConfig(listOf(zone(EntryEdge.TOP, 0f, 0.5f), zone(EntryEdge.TOP, 0.5f, 1f)))
+
+        val result = resolveDisplayConfig(null, 0f, emptyList(), 0f, null, preview, workCfg)
+
+        assertEquals(preview, result)
+    }
+
+    @Test
+    fun resolveDisplayConfig_allNull_returnsWorkConfig() {
+        val workCfg = topConfig(listOf(zone(EntryEdge.TOP, 0f, 1f)))
+
+        val result = resolveDisplayConfig(null, 0f, emptyList(), 0f, null, null, workCfg)
+
+        assertEquals(workCfg, result)
+    }
+
+    // ============================================================
+    // liftedKeyFor (4.7.8-E)
+    // ============================================================
+
+    @Test
+    fun liftedKeyFor_floatPath_returnsNull() {
+        val cfg = topConfig(listOf(zone(EntryEdge.TOP, 0f, 1f)))
+        assertNull(liftedKeyFor(cfg, cfg, null, useFloatMovePreview = true, movingDisplay = cfg))
+    }
+
+    @Test
+    fun liftedKeyFor_movingDisplayNull_returnsNull() {
+        val z = zone(EntryEdge.TOP, 0f, 1f)
+        val cfg = topConfig(listOf(z))
+        assertNull(liftedKeyFor(cfg, cfg, z.key(), useFloatMovePreview = false, movingDisplay = null))
+    }
+
+    @Test
+    fun liftedKeyFor_triggerMatchInDisplayConfig_returnsKey() {
+        val z  = zone(EntryEdge.TOP, 0f, 0.5f, label = "X")
+        val z2 = zone(EntryEdge.TOP, 0.5f, 1f)
+        val cfg = topConfig(listOf(z, z2))
+        // displayConfig == workConfig → trigger === 일치, z.key() 반환
+        val result = liftedKeyFor(cfg, cfg, z.key(), useFloatMovePreview = false, movingDisplay = cfg)
+        assertEquals(z.key(), result)
+    }
+
+    // ============================================================
+    // buildCommitFloat (4.7.8-E)
+    // ============================================================
+
+    @Test
+    fun buildCommitFloat_triggerFoundInAfter_returnsFloatWithCorrectFields() {
+        val z  = zone(EntryEdge.TOP, 0f, 0.5f, label = "X")
+        val z2 = zone(EntryEdge.TOP, 0.5f, 1f)
+        val before = topConfig(listOf(z, z2))
+        // after: z가 RIGHT 엣지로 이동 (copy → 동일 trigger 인스턴스 === 보존)
+        val zOnRight = z.copy(edge = EntryEdge.RIGHT, startRatio = 0f, endRatio = 1f)
+        val after = EdgeZoneConfig(
+            topZones    = listOf(z2),
+            bottomZones = listOf(zone(EntryEdge.BOTTOM, 0f, 1f)),
+            leftZones   = listOf(zone(EntryEdge.LEFT, 0f, 1f)),
+            rightZones  = listOf(zOnRight),
+        )
+
+        val result = buildCommitFloat(before, after, z.key(), z)
+
+        assertTrue(result != null)
+        assertEquals(ZoneStrip(EntryEdge.TOP, 0f, 0.5f), result!!.source)
+        assertEquals(ZoneStrip(EntryEdge.RIGHT, 0f, 1f), result.target)
+        assertEquals(0, result.colorIndex)   // before.TOP에서 z가 idx=0
+        assertEquals("X", result.label)
+    }
+
+    @Test
+    fun buildCommitFloat_triggerNotInAfter_returnsNull() {
+        val z  = zone(EntryEdge.TOP, 0f, 0.5f, label = "X")
+        val z2 = zone(EntryEdge.TOP, 0.5f, 1f)
+        val before = topConfig(listOf(z, z2))
+        // after에 z의 trigger가 없음 (z2만 남음)
+        val after = topConfig(listOf(z2))
+
+        assertNull(buildCommitFloat(before, after, z.key(), z))
     }
 }

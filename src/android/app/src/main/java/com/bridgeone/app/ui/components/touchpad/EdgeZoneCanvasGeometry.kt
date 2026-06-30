@@ -3,6 +3,8 @@ package com.bridgeone.app.ui.components.touchpad
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -133,6 +135,43 @@ internal fun clipZoneRect(
     }
 }
 
+// ── Dp 공간 헬퍼 (오버레이 배치용) ──
+
+/** Dp 공간에서 엣지 위의 사각형 위치·크기 (오버레이 배치용). */
+data class EdgeZoneDpRect(val offsetX: Dp, val offsetY: Dp, val width: Dp, val height: Dp)
+
+/**
+ * 핸들 사각형 Dp 위치: 경계/슬롯 ratio 지점을 중심으로 [handleDp] × [edgeDp] 사각형.
+ * [ratio]는 [mapToValid]로 이미 유효 범위로 매핑된 값(0~1).
+ */
+internal fun edgeHandleRect(
+    edge: EntryEdge,
+    canvasWidth: Dp, canvasHeight: Dp,
+    edgeDp: Dp, handleDp: Dp,
+    ratio: Float,
+): EdgeZoneDpRect = when (edge) {
+    EntryEdge.TOP    -> EdgeZoneDpRect(canvasWidth * ratio - handleDp / 2, 0.dp, handleDp, edgeDp)
+    EntryEdge.BOTTOM -> EdgeZoneDpRect(canvasWidth * ratio - handleDp / 2, canvasHeight - edgeDp, handleDp, edgeDp)
+    EntryEdge.LEFT   -> EdgeZoneDpRect(0.dp, canvasHeight * ratio - handleDp / 2, edgeDp, handleDp)
+    EntryEdge.RIGHT  -> EdgeZoneDpRect(canvasWidth - edgeDp, canvasHeight * ratio - handleDp / 2, edgeDp, handleDp)
+}
+
+/**
+ * 스트립 사각형 Dp 위치: [alongStart]~[alongStart]+[alongLen] 비율 구간의 엣지 밴드.
+ * 머지 선택 오버레이처럼 연속 구간 표시에 사용.
+ */
+internal fun edgeStripRect(
+    edge: EntryEdge,
+    canvasWidth: Dp, canvasHeight: Dp,
+    edgeDp: Dp,
+    alongStart: Float, alongLen: Float,
+): EdgeZoneDpRect = when (edge) {
+    EntryEdge.TOP    -> EdgeZoneDpRect(canvasWidth * alongStart, 0.dp, canvasWidth * alongLen, edgeDp)
+    EntryEdge.BOTTOM -> EdgeZoneDpRect(canvasWidth * alongStart, canvasHeight - edgeDp, canvasWidth * alongLen, edgeDp)
+    EntryEdge.LEFT   -> EdgeZoneDpRect(0.dp, canvasHeight * alongStart, edgeDp, canvasHeight * alongLen)
+    EntryEdge.RIGHT  -> EdgeZoneDpRect(canvasWidth - edgeDp, canvasHeight * alongStart, edgeDp, canvasHeight * alongLen)
+}
+
 /** 코너 겹침 영역 탭 감지. 차단되지 않은 코너이고 두 엣지 모두 활성인 경우에만 반환. */
 internal fun findCornerAt(
     pos: Offset,
@@ -168,26 +207,9 @@ internal fun findZoneAt(
     hasBottomRight: Boolean = false,
     blockedRatio: Float = EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO,
 ): EdgeZone? {
-    for (edge in EntryEdge.entries) {
-        if (edge in disabledEdges) continue
-        val edgeLen = if (edge == EntryEdge.LEFT || edge == EntryEdge.RIGHT) h else w
-        val inEdge = when (edge) {
-            EntryEdge.LEFT   -> pos.x < edgePx
-            EntryEdge.RIGHT  -> pos.x > w - edgePx
-            EntryEdge.TOP    -> pos.y < edgePx
-            EntryEdge.BOTTOM -> pos.y > h - edgePx
-        }
-        if (inEdge) {
-            val along = when (edge) {
-                EntryEdge.LEFT, EntryEdge.RIGHT -> pos.y
-                EntryEdge.TOP, EntryEdge.BOTTOM -> pos.x
-            }
-            // raw 비율을 존 비율로 역매핑. 차단 영역(유효 범위 밖)이면 null.
-            val zoneRatio = unmapFromValid(edge, along / edgeLen, hasBottomLeft, hasBottomRight, blockedRatio) ?: return null
-            return EdgeZoneDetector.findActiveZone(config, edge, zoneRatio)
-        }
-    }
-    return null
+    val (edge, zoneRatio) = edgeAlongRatioAt(pos, w, h, edgePx, disabledEdges, hasBottomLeft, hasBottomRight, blockedRatio)
+        ?: return null
+    return EdgeZoneDetector.findActiveZone(config, edge, zoneRatio)
 }
 
 /**

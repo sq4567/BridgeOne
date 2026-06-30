@@ -4,7 +4,7 @@ description: "BridgeOne 프로젝트 Phase 4.7 - Phase 4.1~4.6 산출물의 외�
 tags: ["android", "refactoring", "architecture", "mvvm", "code-quality"]
 version: "v1.0"
 owner: "Chatterbones"
-updated: "2026-06-19"
+updated: "2026-06-30"
 ---
 
 # BridgeOne Phase 4.7: Android 코드베이스 리팩토링
@@ -448,3 +448,142 @@ Page 5 설정 렌더링:
 - [x] **(실기기)** 리팩토링 전후 사용자 체감 동작 차이 없음
 - [x] **(실기기)** 4.7.4-C 미체크 잔여: 페이지 1/2 전환 시 터치패드 모드·DPI 공유 유지
 - [ ] **(기존 버그, 별도 추적)** 마우스 홀드 ON 상태 앱 종료 시 PC 버튼 잔류 없음(DisposableEffect 해제) — 리팩토링 전부터 존재, 본 Phase 범위 밖
+
+---
+
+## Phase 4.7.8: 존 이동/캔버스 모드 신규 코드 정리 (커밋 799f11c 후속)
+
+> **⚠️ 적용 범위**: 커밋 `799f11c`로 추가된 존 이동 방식·캔버스 편집 모드 코드 한정. 4.7.1~4.7.7과 동일하게 **외부 동작 100% 유지**가 불변 조건. 동작 변경 위험이 있는 항목(아래 "별도 추적")은 본 Phase에서 제외한다.
+
+**목표**: 신규 기능 도입으로 재비대화된 `EdgeZoneEditorScreen.kt`와 928줄 단일 오버레이를 분해하고, 오버레이 6개 파일의 기하/렌더 중복을 공통 유틸로 흡수하며, 흩어진 상수를 정리합니다. 저위험(상수·중복)부터 고위험(Screen 상태/이펙트 추출) 순으로 진행하며 각 서브단계는 독립 빌드·커밋됩니다.
+
+**현재 상태 (커밋 직후)**:
+
+| 파일 | 줄 수 | 문제 |
+|---|---|---|
+| `EdgeZoneEditorScreen.kt` | 2,509 (메인 Composable ~2,350) | 존 이동 미리보기 애니메이션 엔진·커밋 콜백 7종·`onZoneInteract` 71줄 모드 분기가 인라인 |
+| `EdgeZoneCanvasModeOverlay.kt` | 928 (신규) | 제스처/hit-test(140줄)+비율 패널+모드 바 혼재, AnimatedVisibility 트랜지션 7회·포커스 Surface 버튼 6회 중복 |
+| `EdgeZoneCanvasMode.kt` | 248 (신규) | 모델 타입 + 공간 네비 알고리즘 공존, `2.5f`/`1f` 튜닝값 리터럴 |
+| `EdgeZoneCanvasGeometry.kt` | 278 (신규) | `findZoneAt`/`edgeAlongRatioAt` 엣지밴드 판정 루프 중복 (양호한 편) |
+| 오버레이 6종 (`BoundaryManipulationHint`/`MergeSelectionOverlay`/`ZoneCanvasDropOverlay`/`ZoneCanvasResizeOverlay`/`ZoneMoveFloatingOverlay`/`EdgeZoneMorph`) | 77~241 | 엣지 스트립 `when(edge)` 기하 5파일 반복, 두께/shape/알파 상수 분산 |
+| `Page5Settings.kt` | +54 | 세그먼트 선택 칩 UI 3중 복제 (존 페이지·존 이동 방식·TTS 성별) |
+| `EdgeZoneEditorState.kt` | 422 (+263) | **모범** — 순수 로직 잘 분리, 일부 메서드 테스트 미커버 |
+| `InputMode.kt` | +26 | `ZoneMoveMethod` enum·영속화 — 이상 없음 |
+
+---
+
+### 4.7.8-A (저위험): 상수 정리 + 모드 색상 enum 귀속
+
+**작업 항목**:
+- 캔버스 모드 5색(`EdgeZoneCanvasModeOverlay.kt` L510~514: MERGE/SPLIT/MOVE/DELETE/RESIZE) + ResizeGuide 퍼플(L785)을 `CanvasModeKind` 멤버 프로퍼티 또는 `touchpad/` 내 `CanvasModeColors` object로 귀속 (색은 도메인 enum 종속이라 `EdgeSwipeConstants`보다 응집도 우월)
+- 반복 dp/알파/sp를 `EdgeSwipeConstants`의 기존 `EDGE_ZONE_MODE_*` 그룹(L267~280)에 추가: 모드 카드 `76.dp`(L288/304)·`RoundedCornerShape(14.dp)`·안내 배경 `0.55f`(L344/721/739 3회)·구분선 `0.15f` 등. 상수 기본값 주석 정책 준수
+- 캔버스 네비 튜닝값 상수화: `EdgeZoneCanvasMode.kt` L121/123 cross-axis penalty `2.5f`(주석에 "2.5배"로 명시된 핵심 튜닝값), L109~112 deadzone `1f` → `CANVAS_NAV_*` 그룹
+- 오버레이 두께/형상 단일화: `DROP_LINE_THICKNESS_DP`(ZoneCanvasDropOverlay L25)+`BOUNDARY_LINE_THICKNESS_DP`(ZoneCanvasResizeOverlay L29) 둘 다 `3f` → 단일 상수, `RoundedCornerShape(4.dp)`(Drop L96/Resize L89) 공통화, 기존 `EDGE_ZONE_FOCUS_BORDER_DP`(=2.5f) 재사용
+
+**검증**:
+- [x] `.\gradlew assembleDebug` 통과, 신규 경고 없음
+- [x] 분리 전후 상수 값 동일
+
+---
+
+### 4.7.8-B (저위험): 오버레이 기하/렌더 공통 유틸 추출
+
+**작업 항목**:
+- **엣지 스트립 기하 헬퍼** (최대 효과): Drop L75~92·Resize L68~85(거의 바이트 동일)·Merge L63~68·Hint L83~88·`ZoneMoveFloatingOverlay.clippedStripDpRect` L66~95가 공유하는 "EDGE_HIT_WIDTH 두께 엣지 스트립 + along축 비율 위치" 계산을 `EdgeZoneCanvasGeometry.kt`(이미 `mapToValid`/`edgeValidRange` 보유)에 `edgeStripRect(...)`/`edgeHandleRect(...)`로 추출. `StripRect`(ZoneMoveFloatingOverlay L48 private)를 공용 반환 타입으로 승격
+- **`EdgeLineMarker(vertical, thickness, color)` 컴포저블**: Drop L108~114 + Resize L110~116 동일 구조 통합
+- **`brighten(color, fraction)` 헬퍼**: Drop L107(`lerp(accent, White, 0.5f)`) + Resize L109(`lerp(base, White, 0.45f)`) 통합 + 계수 상수화
+- **`CornerClip(hasBottomLeft, hasBottomRight, blockedRatio)` 데이터 클래스**: 5개 Composable에 반복되는 코너 클리핑 3-파라미터 시그니처 축소
+- **`EdgeZoneCanvasGeometry` 엣지밴드 루프 통합**: `findZoneAt`(L160~191)을 `edgeAlongRatioAt`(L209~231) 위에 재구성 (현재 each 독립 구현). `findBoundaryAt`은 이미 재사용 중
+
+**검증**:
+- [x] `.\gradlew testDebugUnitTest`(`edgeStripRect`/`edgeHandleRect` 단위 테스트 12건 추가) + `.\gradlew assembleDebug` 통과, 신규 경고 없음
+- [ ] 경계 리사이즈·드롭 라인 마커·머지 선택 오버레이 시각 회귀 (실기기)
+
+---
+
+### 4.7.8-C (중위험): EdgeZoneCanvasModeOverlay.kt 928줄 분해
+
+`touchpad/` 직하로 분리 (4.7.5~4.7.6 선례 일관, `internal` 승격으로 cross-file 접근):
+
+| 신규 파일 | 추출 대상 | 줄 범위 |
+|---|---|---|
+| `EdgeZoneCanvasGestures.kt` | `inputModifier` when-블록 → `Modifier.canvasModeInput(...)` 확장. Geometry 함수만 의존 | L118~256 |
+| `EdgeZoneCanvasRatioPanel.kt` | `ResizeGuideCard`/`ManipulationGuideBubble`/`ResizeGuideRow`/`RatioPresetEdgeBar`/`PanelCancelButton`/`RatioPresetChip` | L717~928 |
+| `EdgeZoneCanvasModeBars.kt` | `ModeActiveBar`/`SplitModeBar`/`CancelButton`/`ConfirmButton` | L559~714 |
+| `EdgeZoneCanvasModeButtons.kt` | `ModeCard` + 진입 버튼 2행 | L517~557 |
+| `EdgeZoneCanvasMode.kt`(기존)로 이동 | `icon()`/`accentColor()`/`guideText()` — 모드 메타데이터를 kind/toMode와 동거 | L474~515 |
+
+**중복 헬퍼화 (구현 결과)**:
+- `canvasModeEnter(delay)`/`canvasModeExit()`: AnimatedVisibility 트랜지션 7회 → `internal` 헬퍼 2개로 통합 (`EdgeZoneCanvasModeOverlay.kt` 잔류, 동일 패키지 파일들이 직접 호출)
+- `CanvasPillButton` 통합 생략: `CancelButton`/`ConfirmButton`(fontSize 12sp, padding 14/4)과 `SplitModeBar` 번호 버튼(fontSize 14sp, padding 12/5)이 스타일이 달라 통합 시 동작 변경 위험 → 개별 유지 (무리한 통합보다 동작 동등성 우선)
+- 지역 `fun zoneAt(offset)` 람다: `findZoneAt` 5회 호출 → `EdgeZoneCanvasGestures.kt` 내 로컬 헬퍼로 통합
+- 제스처 추출 시 토스트 직접 호출 → `onEdgeBlocked: (EntryEdge) -> Unit` 콜백으로 호이스트 (4.7.4-B 사이드이펙트 격리 철학 일관)
+
+결과: `EdgeZoneCanvasModeOverlay`는 오케스트레이션만 남아 ~250줄로 축소 (공유 헬퍼 포함). 신규 파일 4개 + 기존 파일 1개(`EdgeZoneCanvasMode.kt`) 보강.
+
+**검증**:
+- [x] `.\gradlew assembleDebug` 통과, 신규 경고 없음
+- [x] 제스처 byte-identical 대조 (토스트 콜백화·zoneAt 헬퍼화 외 변경 없음)
+- [x] **(실기기 · NORMAL)** 캔버스 씬 진입 시 모드 버튼 5개(병합/분할/이동/삭제/비율) 순차 등장, 탭으로 각 모드 진입
+- [x] **(실기기 · NORMAL)** 병합: 존 탭 → 인접 존 탭 → 확인 버튼으로 병합 완료. 선택 부족 시 확인 버튼 비활성
+- [x] **(실기기 · NORMAL)** 분할: 존 탭 → 갯수 버튼(2~5, 불가한 수는 회색) 등장 → 탭으로 분할
+- [x] **(실기기 · NORMAL)** 이동(탭): 존 탭으로 들어올림 → 경계/끝 탭으로 드롭. 롱프레스로 되돌리기 후 모드 선택 복귀
+- [x] **(실기기 · NORMAL)** 이동(드래그앤드롭): 존 드래그 → 릴리스로 드롭. 확인/취소 버튼 노출, 취소 탭으로 역순 되돌리기
+- [x] **(실기기 · NORMAL)** 삭제: 존 탭 다중 선택 → 확인으로 삭제. 선택 0개 시 확인 비활성
+- [x] **(실기기 · NORMAL)** 비율: 안내 카드+확인/취소 버튼 표시 → 경계 드래그로 비율 조정 → 확인 적용/취소 원복
+- [x] **(실기기 · NORMAL)** 비율: 엣지 탭 → 엣지 옆 프리셋 칩 패널 등장 → 칩 탭으로 적용. 비활성 엣지 탭 시 토스트 표시
+- [x] **(실기기 · SWIPE)** 스와이프로 모드 버튼에 포커스 이동, 탭으로 모드 진입
+- [x] **(실기기 · SWIPE)** 각 모드 진입 후 취소 버튼에 초기 포커스, 스와이프로 확인/갯수 버튼 이동 및 탭 실행
+- [x] **(실기기 · SWIPE)** 비율 프리셋 패널 진입 시 포커스가 칩·취소 버튼으로 한정되고 캔버스 존으로 새지 않음
+
+---
+
+### 4.7.8-D (저위험): 설정 칩 추출 + State 테스트 보강
+
+**작업 항목**:
+- **`SegmentedChipSelector(options, selected, onSelect)` 추출**: `Page5Settings.kt` 3중 복제(존 페이지 L184~201 / 존 이동 방식 L239~263 / TTS 성별 L331~355) 통합. 색상 리터럴은 추출 시 테마 상수화. `SettingsToggleRow`(L593)는 토글 전용이라 별개
+- **`EdgeZoneEditorState` 테스트 보강**: 이미 순수 분리된 `deleteZones`/`mergeContiguous`/`adjustBoundary`/`computeSplitZones`가 미커버 → `EdgeZoneEditorStateTest`에 케이스 추가 (코드 수정 없이 테스트만)
+
+**검증**:
+- [x] `.\gradlew testDebugUnitTest`(State 보강 테스트 그린, `deleteZones` 5건·`mergeContiguous` 3건·`adjustBoundary` 4건·`computeSplitZones` 3건 = 15건 추가) + `.\gradlew assembleDebug` 통과
+- [x] **(실기기)** 설정 페이지 세그먼트 칩 3종(존 페이지·존 이동 방식·TTS 성별) 선택 동작 동일
+
+---
+
+### 4.7.8-E: EdgeZoneEditorScreen.kt 존 이동 계층 추출 (컨벤션 부합 변형)
+
+> **계획 명세(rememberZoneMovePreviewState 홀더 / ZoneMoveController 클래스)와 다르게 컨벤션 부합 순수 추출로 진행.**
+> 이유: (1) 이 프로젝트엔 LaunchedEffect/Animatable을 내부에 품는 remember 홀더 선례 없음, (2) `EdgeZoneOverlayUiState` KDoc이 "로더는 화면에 남긴다" 규칙 명시, (3) 추출 대상 상태가 onZoneInteract뿐 아니라 onConfirm·onSplitInto·settle effect까지 양방향으로 읽고 써 노출 ~12개 + 쓰기훅 3개로 홀더가 캡슐화가 아닌 파라미터 셔플이 됨.
+> → 순수 로직만 State/Morph로 추출 + 단위 테스트. Animatable/LaunchedEffect 안무와 얇은 디스패처 콜백은 Screen 인라인 유지.
+
+**산출물**:
+- `EdgeZoneEditorState`: `InteractRejection` sealed class (토스트 5종), `MergeTap` sealed class + `mergeTapDecision()` 순수 메서드
+- `EdgeZoneMorph.kt`: `resolveDisplayConfig()` / `liftedKeyFor()` / `buildCommitFloat()` 순수 함수 3종
+- `EdgeZoneEditorScreen.kt`: 호출부 치환 (토스트 인라인 문자열 → `InteractRejection`, Merging else 블록 → `mergeTapDecision`, displayConfig/liftedKey/moveFloat 구성 → 순수 함수 위임)
+- `EdgeZoneEditorStateTest.kt`: `mergeTapDecision` 7건 + `resolveDisplayConfig` 4건 + `liftedKeyFor` 3건 + `buildCommitFloat` 2건 = 16건 추가
+
+**검증**:
+- [x] `.\gradlew testDebugUnitTest` + `.\gradlew assembleDebug` 통과, 신규 경고 없음
+- [x] **(실기기 · InteractRejection 토스트)** 삭제 모드: 1개 존만 있는 엣지 탭 → "엣지에 존이 하나뿐이라 삭제할 수 없어요" 토스트
+- [x] **(실기기 · InteractRejection 토스트)** 분할 모드: 존이 최대 개수인 엣지 탭 → "존이 N개로 가득 차 더 나눌 수 없어요" 토스트 (N은 실제 MAX_ZONES_PER_EDGE 값)
+- [x] **(실기기 · InteractRejection 토스트)** 비율 모드: 1개 존만 있는 엣지 탭 → "존이 하나뿐인 가장자리는 비율을 나눌 수 없어요" 토스트
+- [x] **(실기기 · InteractRejection 토스트)** 병합 모드: 다른 엣지 존 탭 → "같은 가장자리의 인접한 존만 선택할 수 있어요" 토스트
+- [x] **(실기기 · InteractRejection 토스트)** 병합 모드: 구간에서 멀거나 내부 존 탭 → "인접한 존만 선택할 수 있어요" 토스트
+- [x] **(실기기 · mergeTapDecision)** 병합 모드 NORMAL: 첫 존 탭 → 기준 설정, 인접 존 탭 → 선택 추가, 반대편 인접 존 탭 → 반대쪽으로도 추가, 끝점 재탭 → 해제, 확인 → 병합 완료
+- [x] **(실기기 · mergeTapDecision)** 병합 모드 SWIPE: 스와이프로 존 포커스 이동 후 탭으로 동일한 추가/해제/거부 동작
+- [x] **(실기기 · resolveDisplayConfig)** 존 이동 커밋(NORMAL 탭/드래그) 직후: morph 애니메이션(stretch·shrink) 재생 후 최종 위치에 존 안착
+- [x] **(실기기 · resolveDisplayConfig)** 비율 조정 롱프레스 '되돌리고 나가기': 각 단계마다 ratioMorph 보간 애니메이션이 끊김 없이 재생되고 원래 비율로 복원
+- [x] **(실기기 · resolveDisplayConfig)** 분할 모드 SWIPE: 분할 갯수 버튼 포커스 이동 시 previewConfig 기반 n등분 미리보기가 실시간 업데이트
+- [x] **(실기기 · liftedKeyFor)** NORMAL 탭 이동: 픽 후 캔버스에 들림 고스트(반투명)가 해당 존 위치에 정확히 표시, 드롭 시 사라짐
+- [x] **(실기기 · liftedKeyFor)** SWIPE 이동 / NORMAL 드래그앤드롭: 들림 고스트 없이 떠다니는 float 오버레이만 표시
+- [x] **(실기기 · buildCommitFloat)** NORMAL 탭 이동 커밋: float 오버레이가 출발 위치에서 도착 위치로 슬라이드하며 morph와 동기
+- [x] **(실기기 · buildCommitFloat)** cross-edge 이동(예: TOP→RIGHT): float가 출발 엣지→도착 엣지로 올바르게 이동, 라벨 있는 존은 float에 라벨 표시
+- [x] **(실기기)** 삭제·분할·비율·이동 모드 취소(취소 버튼) 및 모드 선택 복귀 정상
+- [x] **(실기기)** SWIPE·NORMAL 전환 시 위 모든 동작 동일
+
+---
+
+**별도 추적 (본 Phase 범위 밖 — 동작 변경 위험)**:
+- `MergeSelectionOverlay.MERGE_REGION_COLOR`(`0xFF4CAF50`)와 `CanvasModeKind.MERGE.accentColor()`(`0xFF1A7A3A`) 초록색 불일치 — 단일화는 색 변경이라 의도 확인 필요
+- `StandardModePrefs.saveCornerBlockedRatio` clamp `coerceIn(0.05f, 0.30f)` 매직넘버 상수화 — 슬라이더 UI와 범위 공유 필요. 이 기능은 "존 이동 방식"과 무관하게 같은 커밋에 혼입됨
+- `MAX_ZONES_PER_EDGE` 4f→5f 변경은 이번 커밋의 의도된 동작 변경 (리팩토링 대상 아님)

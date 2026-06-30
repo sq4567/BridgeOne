@@ -239,3 +239,82 @@ fun lerpConfig(from: EdgeZoneConfig, to: EdgeZoneConfig, p: Float): EdgeZoneConf
     }
     return cfg
 }
+
+/**
+ * 디스플레이 config 우선순위 결정 (Phase 4.7.8-E).
+ *
+ * 우선순위: ratioMorph > zoneMorphs > movingDisplay > previewConfig > workConfig.
+ * Screen 캔버스 씬의 인라인 폴백 사다리를 순수 함수로 추출.
+ */
+fun resolveDisplayConfig(
+    ratioMorph: ConfigMorph?,
+    revertProgress: Float,
+    zoneMorphs: List<ZoneMorph>,
+    morphProgress: Float,
+    movingDisplay: EdgeZoneConfig?,
+    previewConfig: EdgeZoneConfig?,
+    workConfig: EdgeZoneConfig,
+): EdgeZoneConfig =
+    ratioMorph
+        ?.let { lerpConfig(it.from, it.to, revertProgress) }
+        ?: zoneMorphs.takeIf { it.isNotEmpty() }
+            ?.fold(workConfig) { cfg, m -> cfg.withZones(m.edge, m.frame(morphProgress)) }
+        ?: movingDisplay
+        ?: previewConfig
+        ?: workConfig
+
+/**
+ * NORMAL 탭 이동의 들림 고스트 키 결정 (Phase 4.7.8-E).
+ *
+ * float 경로(SWIPE·NORMAL 드래그)이면 null (떠다니는 오버레이가 picked 표시).
+ * NORMAL 탭 경로에서 displayConfig 내 trigger 참조(===)로 들림 존의 ZoneKey를 탐색.
+ */
+fun liftedKeyFor(
+    displayConfig: EdgeZoneConfig,
+    workConfig: EdgeZoneConfig,
+    pickedKey: ZoneKey?,
+    useFloatMovePreview: Boolean,
+    movingDisplay: EdgeZoneConfig?,
+): ZoneKey? {
+    if (useFloatMovePreview || movingDisplay == null) return null
+    val pk = pickedKey ?: return null
+    val trg = workConfig.zonesFor(pk.edge).firstOrNull { it.startRatio == pk.startRatio }?.trigger ?: return null
+    return EntryEdge.entries.firstNotNullOfOrNull { e ->
+        displayConfig.zonesFor(e).firstOrNull { it.trigger === trg }?.key()
+    }
+}
+
+/**
+ * 이동 커밋 시 떠다니는 float 오버레이 생성 (Phase 4.7.8-E).
+ *
+ * trigger === 로 도착 위치를 after에서 탐색해 [ZoneMoveFloat]를 구성한다.
+ * 도착 위치를 찾지 못하면 null.
+ *
+ * @param before     이동 전 config (출발 엣지 colorIndex 계산용)
+ * @param after      이동 후 config (도착 strip 탐색용, 보통 commitMove 직후 workConfig)
+ * @param picked     들어올린 존 키
+ * @param pickedZone 들어올린 존 (trigger·label·비율 접근용; before에서 꺼낸 스냅샷)
+ */
+fun buildCommitFloat(
+    before: EdgeZoneConfig,
+    after: EdgeZoneConfig,
+    picked: ZoneKey,
+    pickedZone: EdgeZone,
+): ZoneMoveFloat? {
+    val tgtStrip = EntryEdge.entries.firstNotNullOfOrNull { e ->
+        after.zonesFor(e).firstOrNull { it.trigger === pickedZone.trigger }
+            ?.let { ZoneStrip(e, it.startRatio, it.endRatio) }
+    } ?: return null
+    val colorIndex = before.zonesFor(picked.edge)
+        .indexOfFirst { it.startRatio == picked.startRatio }.coerceAtLeast(0)
+    val label = pickedZone.label.ifEmpty {
+        if (pickedZone.trigger is EdgeZoneTrigger.SingleAction && pickedZone.action !is EdgeZoneAction.Unassigned)
+            pickedZone.action.defaultLabel() else ""
+    }
+    return ZoneMoveFloat(
+        source = ZoneStrip(picked.edge, pickedZone.startRatio, pickedZone.endRatio),
+        target = tgtStrip,
+        colorIndex = colorIndex,
+        label = label,
+    )
+}

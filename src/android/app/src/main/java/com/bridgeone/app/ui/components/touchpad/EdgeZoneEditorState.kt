@@ -125,6 +125,15 @@ class EdgeZoneEditorState(
         object DisabledEdge   : MoveRejection("이 엣지에는 놓을 수 없어요")
     }
 
+    /** 존 캔버스 탭 상호작용 거부 사유. message는 토스트에 그대로 노출. */
+    sealed class InteractRejection(val message: String) {
+        object DeleteLastZone   : InteractRejection("엣지에 존이 하나뿐이라 삭제할 수 없어요")
+        data class SplitFull(val max: Int) : InteractRejection("존이 ${max}개로 가득 차 더 나눌 수 없어요")
+        object ResizeSingleZone : InteractRejection("존이 하나뿐인 가장자리는 비율을 나눌 수 없어요")
+        object MergeCrossEdge   : InteractRejection("같은 가장자리의 인접한 존만 선택할 수 있어요")
+        object MergeNonAdjacent : InteractRejection("인접한 존만 선택할 수 있어요")
+    }
+
     /**
      * 드롭 지점 비율(0~1)을 [targetEdge]의 삽입 인덱스(0=맨 앞 … size=맨 끝)로 변환.
      * 같은 엣지로 옮길 때는 [excludePicked]를 제외한 리스트 기준으로 계산한다.
@@ -457,5 +466,51 @@ class EdgeZoneEditorState(
         zones.removeAt(idx)
         zones.addAll(idx, parts)
         return zones
+    }
+
+    // ── 캔버스 병합 모드 탭 판정 ──
+
+    /** 병합 모드 탭 결과. [mergeTapDecision]의 반환 타입. */
+    sealed class MergeTap {
+        /** 구간 바깥 인접 → [startRatio]를 selected에 추가. */
+        data class Add(val startRatio: Float)    : MergeTap()
+        /** 구간 끝점(기준 제외) → [startRatio]를 selected에서 제거. */
+        data class Remove(val startRatio: Float) : MergeTap()
+        /** 비인접·구간 내부 → 거부 (InteractRejection.MergeNonAdjacent 토스트). */
+        object Reject : MergeTap()
+        /** tapStartRatio가 zones 리스트에 없음 → no-op. */
+        object Ignore : MergeTap()
+    }
+
+    /**
+     * 병합 모드에서 존 탭 시 인접성 판정 (순수 인덱스 계산).
+     *
+     * 현재 선택 구간 [lo, hi]에 대해 탭한 존이 추가/제거/거부/무시 중 어느 경우인지 반환한다.
+     * 첫 선택·기준 재탭·엣지 교차 같은 상위 분기는 호출부가 처리한다.
+     *
+     * @param edge          대상 엣지
+     * @param base          기준 존 startRatio
+     * @param selected      현재 선택된 startRatio 집합 (base 미포함)
+     * @param tapStartRatio 탭한 존의 startRatio
+     */
+    fun mergeTapDecision(
+        edge: EntryEdge,
+        base: Float,
+        selected: Set<Float>,
+        tapStartRatio: Float,
+    ): MergeTap {
+        val zones = workConfig.zonesFor(edge)
+        val tapIdx = zones.indexOfFirst { it.startRatio == tapStartRatio }
+        val selIndices = (selected + base)
+            .mapNotNull { sr -> zones.indexOfFirst { it.startRatio == sr }.takeIf { it >= 0 } }
+            .sorted()
+        val lo = selIndices.firstOrNull() ?: -1
+        val hi = selIndices.lastOrNull() ?: -1
+        return when {
+            tapIdx < 0                            -> MergeTap.Ignore
+            tapIdx == lo - 1 || tapIdx == hi + 1 -> MergeTap.Add(tapStartRatio)
+            tapIdx == lo || tapIdx == hi          -> MergeTap.Remove(tapStartRatio)
+            else                                  -> MergeTap.Reject
+        }
     }
 }

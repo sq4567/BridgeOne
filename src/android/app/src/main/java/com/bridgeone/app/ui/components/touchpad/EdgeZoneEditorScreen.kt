@@ -1349,22 +1349,15 @@ fun EdgeZoneEditorScreen(
                     }
                     // float 경로(SWIPE·NORMAL 드래그)=이웃만(picked는 떠다니는 오버레이), NORMAL 탭=picked 포함 미리보기(들림 고스트).
                     val movingDisplay: EdgeZoneConfig? = if (useFloatMovePreview) previewNeighborConfig else movingPreview
-                    val displayConfig = state.ratioMorph
-                        ?.let { lerpConfig(it.from, it.to, revertProgress.value) }
-                        ?: zoneMorphs.takeIf { it.isNotEmpty() }
-                            ?.fold(workConfig) { cfg, m -> cfg.withZones(m.edge, m.frame(morphProgress.value)) }
-                        ?: movingDisplay
-                        ?: previewConfig
-                        ?: workConfig
+                    val displayConfig = resolveDisplayConfig(
+                        state.ratioMorph, revertProgress.value,
+                        zoneMorphs, morphProgress.value,
+                        movingDisplay, previewConfig, workConfig,
+                    )
                     // 들림 고스트 식별(NORMAL 탭 한정 — float 경로는 떠다니는 오버레이가 picked 표시).
-                    val liftedKey: ZoneKey? = run {
-                        if (useFloatMovePreview || movingDisplay == null) return@run null
-                        val pk = (canvasMode as? CanvasEditMode.Moving)?.picked ?: return@run null
-                        val trg = workConfig.zonesFor(pk.edge).firstOrNull { it.startRatio == pk.startRatio }?.trigger ?: return@run null
-                        EntryEdge.entries.firstNotNullOfOrNull { e ->
-                            displayConfig.zonesFor(e).firstOrNull { it.trigger === trg }?.key()
-                        }
-                    }
+                    val liftedKey: ZoneKey? = liftedKeyFor(
+                        displayConfig, workConfig, pickedKey, useFloatMovePreview, movingDisplay,
+                    )
 
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             // 비율 프리셋 미리보기 중에는 대상 엣지 존 강조를 파랗게 표시 (SWIPE 포커스 / NORMAL 첫 탭 armed 공통).
@@ -1395,27 +1388,10 @@ fun EdgeZoneEditorScreen(
                                 val runMoveCommit: (ZoneKey, EntryEdge, Int) -> Unit = { picked, edge, insertIndex ->
                                     val before = workConfig
                                     val pickedZone = before.zonesFor(picked.edge).firstOrNull { it.startRatio == picked.startRatio }
-                                    val colorIndex = before.zonesFor(picked.edge).indexOfFirst { it.startRatio == picked.startRatio }
                                     val morphs = state.commitMove(picked, edge, insertIndex)
                                     if (workConfig != before && pickedZone != null) {
                                         zoneMorphs = morphs
-                                        // 도착 위치는 trigger 참조(===)로 after(=workConfig)에서 탐색 (liftedKey와 동일 패턴)
-                                        val tgtStrip = EntryEdge.entries.firstNotNullOfOrNull { e ->
-                                            workConfig.zonesFor(e).firstOrNull { it.trigger === pickedZone.trigger }
-                                                ?.let { ZoneStrip(e, it.startRatio, it.endRatio) }
-                                        }
-                                        if (tgtStrip != null) {
-                                            val label = pickedZone.label.ifEmpty {
-                                                if (pickedZone.trigger is EdgeZoneTrigger.SingleAction && pickedZone.action !is EdgeZoneAction.Unassigned)
-                                                    pickedZone.action.defaultLabel() else ""
-                                            }
-                                            moveFloat = ZoneMoveFloat(
-                                                source = ZoneStrip(picked.edge, pickedZone.startRatio, pickedZone.endRatio),
-                                                target = tgtStrip,
-                                                colorIndex = colorIndex.coerceAtLeast(0),
-                                                label = label,
-                                            )
-                                        }
+                                        moveFloat = buildCommitFloat(before, workConfig, picked, pickedZone)
                                     }
                                     canvasMode = CanvasEditMode.Moving()
                                 }
@@ -1469,7 +1445,7 @@ fun EdgeZoneEditorScreen(
                                             if (k in m.selected) {
                                                 canvasMode = m.copy(selected = m.selected - k)
                                             } else if (workConfig.zonesFor(zone.edge).size <= 1) {
-                                                ToastController.show("엣지에 존이 하나뿐이라 삭제할 수 없어요", ToastType.WARNING)
+                                                ToastController.show(EdgeZoneEditorState.InteractRejection.DeleteLastZone.message, ToastType.WARNING)
                                             } else {
                                                 canvasMode = m.copy(selected = m.selected + k)
                                             }
@@ -1477,7 +1453,7 @@ fun EdgeZoneEditorScreen(
                                         is CanvasEditMode.Splitting -> {
                                             // 이미 최대 존 개수인 엣지는 더 나눌 수 없으므로 갯수 선택 화면으로 진입하지 않고 안내 토스트
                                             if (workConfig.zonesFor(zone.edge).size >= EdgeSwipeConstants.MAX_ZONES_PER_EDGE.toInt()) {
-                                                ToastController.show("존이 ${EdgeSwipeConstants.MAX_ZONES_PER_EDGE.toInt()}개로 가득 차 더 나눌 수 없어요", ToastType.WARNING)
+                                                ToastController.show(EdgeZoneEditorState.InteractRejection.SplitFull(EdgeSwipeConstants.MAX_ZONES_PER_EDGE.toInt()).message, ToastType.WARNING)
                                             } else {
                                                 // 분할 대상 존 지정 (재탭으로 변경 가능)
                                                 canvasMode = m.copy(target = zone.key())
@@ -1490,7 +1466,7 @@ fun EdgeZoneEditorScreen(
                                                 if (m.edge != zone.edge) state.beginResizeSession()
                                                 canvasMode = m.copy(edge = zone.edge)
                                             } else {
-                                                ToastController.show("존이 하나뿐인 가장자리는 비율을 나눌 수 없어요", ToastType.WARNING)
+                                                ToastController.show(EdgeZoneEditorState.InteractRejection.ResizeSingleZone.message, ToastType.WARNING)
                                             }
                                         }
                                         is CanvasEditMode.Merging -> {
@@ -1500,29 +1476,15 @@ fun EdgeZoneEditorScreen(
                                                 // 첫 선택 = 기준(base) 존
                                                 e == null || base == null -> canvasMode = m.copy(edge = zone.edge, base = zone.startRatio)
                                                 // 다른 엣지 존은 선택 불가
-                                                zone.edge != e -> ToastController.show("같은 가장자리의 인접한 존만 선택할 수 있어요", ToastType.WARNING)
+                                                zone.edge != e -> ToastController.show(EdgeZoneEditorState.InteractRejection.MergeCrossEdge.message, ToastType.WARNING)
                                                 // 기준 존 재탭 → 선택 초기화
                                                 zone.startRatio == base -> canvasMode = CanvasEditMode.Merging()
-                                                else -> {
-                                                    // 현재 선택 구간 [lo, hi]에 인접한 존만 확장/축소 허용
-                                                    val zones = workConfig.zonesFor(e)
-                                                    val tapIdx = zones.indexOfFirst { it.startRatio == zone.startRatio }
-                                                    val selIndices = (m.selected + base)
-                                                        .mapNotNull { sr -> zones.indexOfFirst { it.startRatio == sr }.takeIf { it >= 0 } }
-                                                        .sorted()
-                                                    val lo = selIndices.firstOrNull() ?: -1
-                                                    val hi = selIndices.lastOrNull() ?: -1
-                                                    when {
-                                                        tapIdx < 0 -> {}
-                                                        // 구간 양 끝 바깥 인접 → 추가
-                                                        tapIdx == lo - 1 || tapIdx == hi + 1 ->
-                                                            canvasMode = m.copy(selected = m.selected + zone.startRatio)
-                                                        // 구간 양 끝(기준 제외) → 해제
-                                                        tapIdx == lo || tapIdx == hi ->
-                                                            canvasMode = m.copy(selected = m.selected - zone.startRatio)
-                                                        // 비인접(멀거나 구간 내부) → 거부 + 안내
-                                                        else -> ToastController.show("인접한 존만 선택할 수 있어요", ToastType.WARNING)
-                                                    }
+                                                // 현재 선택 구간 [lo, hi]에 인접한 존만 확장/축소 허용 (순수 판정은 state.mergeTapDecision으로 위임)
+                                                else -> when (val d = state.mergeTapDecision(e, base, m.selected, zone.startRatio)) {
+                                                    is EdgeZoneEditorState.MergeTap.Add    -> canvasMode = m.copy(selected = m.selected + d.startRatio)
+                                                    is EdgeZoneEditorState.MergeTap.Remove -> canvasMode = m.copy(selected = m.selected - d.startRatio)
+                                                    EdgeZoneEditorState.MergeTap.Reject    -> ToastController.show(EdgeZoneEditorState.InteractRejection.MergeNonAdjacent.message, ToastType.WARNING)
+                                                    EdgeZoneEditorState.MergeTap.Ignore    -> {}
                                                 }
                                             }
                                         }

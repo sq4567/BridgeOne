@@ -1,21 +1,12 @@
 package com.bridgeone.app.ui.components.touchpad
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
@@ -25,8 +16,6 @@ import com.bridgeone.app.ui.common.swipe.ManipulationAxis
 import com.bridgeone.app.ui.common.swipe.SwipeFocusable
 import com.bridgeone.app.ui.common.swipe.SwipeMode
 
-/** 포커스된 존 경계를 강조하는 파란 선의 두께 (dp). 기본값: 3f */
-private const val BOUNDARY_LINE_THICKNESS_DP = 3f
 
 /**
  * SWIPE 비율 조정 모드의 캔버스 경계 오버레이 (Phase 4.7.x).
@@ -61,32 +50,11 @@ internal fun ZoneCanvasResizeOverlay(
             val boundaryRatio = zones[i].startRatio
             val mapped = mapToValid(edge, boundaryRatio, hasBottomLeft, hasBottomRight, blockedRatio)
             val leftIndex = i - 1
-            val offsetX: Dp
-            val offsetY: Dp
-            val width: Dp
-            val height: Dp
-            when (edge) {
-                EntryEdge.TOP -> {
-                    offsetX = canvasWidth * mapped - handleDp / 2; offsetY = 0.dp
-                    width = handleDp; height = edgeDp
-                }
-                EntryEdge.BOTTOM -> {
-                    offsetX = canvasWidth * mapped - handleDp / 2; offsetY = canvasHeight - edgeDp
-                    width = handleDp; height = edgeDp
-                }
-                EntryEdge.LEFT -> {
-                    offsetX = 0.dp; offsetY = canvasHeight * mapped - handleDp / 2
-                    width = edgeDp; height = handleDp
-                }
-                EntryEdge.RIGHT -> {
-                    offsetX = canvasWidth - edgeDp; offsetY = canvasHeight * mapped - handleDp / 2
-                    width = edgeDp; height = handleDp
-                }
-            }
+            val (offsetX, offsetY, width, height) = edgeHandleRect(edge, canvasWidth, canvasHeight, edgeDp, handleDp, mapped)
             val vertical = edge == EntryEdge.LEFT || edge == EntryEdge.RIGHT
             SwipeFocusable(
                 element = EdgeEditorElement.CanvasBoundary(edge, leftIndex),
-                shape = RoundedCornerShape(4.dp),
+                shape = RoundedCornerShape(EdgeSwipeConstants.CANVAS_OVERLAY_HANDLE_CORNER_DP.dp),
                 manipulatable = true,
                 // 세로 엣지(좌/우)는 위아래 스와이프, 가로 엣지(상/하)는 좌우 스와이프로 경계 이동
                 manipulationAxis = if (vertical) ManipulationAxis.VERTICAL else ManipulationAxis.HORIZONTAL,
@@ -106,14 +74,8 @@ internal fun ZoneCanvasResizeOverlay(
                     // 탭으로 확정(MANIPULATION 진입)해 경계를 움직일 수 있는 상태면 선을 약간 밝게 표시.
                     val manipulating = LocalSwipeFocusController.current?.mode == SwipeMode.MANIPULATION
                     val baseColor = MaterialTheme.colorScheme.primary
-                    val lineColor = if (manipulating) lerp(baseColor, Color.White, 0.45f) else baseColor
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Box(
-                            (if (vertical) Modifier.fillMaxWidth().height(BOUNDARY_LINE_THICKNESS_DP.dp)
-                             else Modifier.fillMaxHeight().width(BOUNDARY_LINE_THICKNESS_DP.dp))
-                                .background(lineColor)
-                        )
-                    }
+                    val lineColor = if (manipulating) brightenForState(baseColor, 0.45f) else baseColor
+                    EdgeMarkerLine(vertical, EdgeSwipeConstants.CANVAS_OVERLAY_LINE_THICKNESS_DP.dp, lineColor)
                 }
             }
         }

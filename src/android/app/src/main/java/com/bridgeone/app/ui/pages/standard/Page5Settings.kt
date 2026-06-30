@@ -176,33 +176,14 @@ internal fun Page5Settings(
                     )
                 }
                 item {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        sortedPages.forEach { pageIdx ->
-                            val isSelected = pageIdx == selectedZonePage
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Color(0xFF2979FF).copy(alpha = 0.2f) else Color(0xFF2A2A2A))
-                                    .border(
-                                        width = if (isSelected) 1.5.dp else 0.5.dp,
-                                        color = if (isSelected) Color(0xFF2979FF) else Color(0xFF444444),
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { onSelectedZonePageChange(pageIdx) }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "페이지 ${pageIdx + 1}",
-                                    fontSize = 13.sp,
-                                    color = if (isSelected) Color(0xFF2979FF) else Color(0xFFCCCCCC)
-                                )
-                            }
-                        }
-                    }
+                    SegmentedChipSelector(
+                        options = sortedPages.map { it to "페이지 ${it + 1}" },
+                        selected = selectedZonePage,
+                        onSelect = onSelectedZonePageChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        chipSpacing = 6.dp,
+                        chipPaddingH = 14.dp,
+                    )
                 }
             }
 
@@ -235,36 +216,14 @@ internal fun Page5Settings(
                                     color = Color(0xFF888888)
                                 )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf(
+                            SegmentedChipSelector(
+                                options = listOf(
                                     ZoneMoveMethod.TAP to "탭",
-                                    ZoneMoveMethod.DRAG_AND_DROP to "드래그 앤 드롭"
-                                ).forEach { (method, label) ->
-                                    val isSelected = zoneMoveMethod == method
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(
-                                                if (isSelected) Color(0xFF2979FF).copy(alpha = 0.2f)
-                                                else Color(0xFF2A2A2A)
-                                            )
-                                            .border(
-                                                width = if (isSelected) 1.5.dp else 0.5.dp,
-                                                color = if (isSelected) Color(0xFF2979FF) else Color(0xFF444444),
-                                                shape = RoundedCornerShape(8.dp)
-                                            )
-                                            .clickable { onZoneMoveMethodChange(method) }
-                                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = label,
-                                            fontSize = 13.sp,
-                                            color = if (isSelected) Color(0xFF2979FF) else Color(0xFFCCCCCC)
-                                        )
-                                    }
-                                }
-                            }
+                                    ZoneMoveMethod.DRAG_AND_DROP to "드래그 앤 드롭",
+                                ),
+                                selected = zoneMoveMethod,
+                                onSelect = onZoneMoveMethodChange,
+                            )
                         }
                     }
                 }
@@ -325,38 +284,14 @@ internal fun Page5Settings(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(text = "음성 성별", fontSize = 14.sp, color = Color(0xFFE0E0E0))
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                listOf(
+                            SegmentedChipSelector(
+                                options = listOf(
                                     TtsGender.FEMALE to "여성",
-                                    TtsGender.MALE to "남성"
-                                ).forEach { (g, label) ->
-                                    val isSelected = ttsGender == g
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(
-                                                if (isSelected) Color(0xFF2979FF).copy(alpha = 0.2f)
-                                                else Color(0xFF2A2A2A)
-                                            )
-                                            .border(
-                                                width = if (isSelected) 1.5.dp else 0.5.dp,
-                                                color = if (isSelected) Color(0xFF2979FF) else Color(0xFF444444),
-                                                shape = RoundedCornerShape(8.dp)
-                                            )
-                                            .clickable { onTtsGenderChange(g) }
-                                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = label,
-                                            fontSize = 13.sp,
-                                            color = if (isSelected) Color(0xFF2979FF) else Color(0xFFCCCCCC)
-                                        )
-                                    }
-                                }
-                            }
+                                    TtsGender.MALE to "남성",
+                                ),
+                                selected = ttsGender,
+                                onSelect = onTtsGenderChange,
+                            )
                         }
                     }
                 }

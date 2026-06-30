@@ -278,4 +278,29 @@ object EdgeSwipeConstants {
     const val EDGE_ZONE_MODE_UI_ENTER_DELAY_MS = 230
     /** 모드 전환 시 scale 시작/목표 배율. 기본값: 0.88f */
     const val EDGE_ZONE_MODE_SWITCH_SCALE = 0.88f
+
+    // ── 캔버스 편집 모드 UI ──
+
+    /** 캔버스 모드 진입 버튼 카드의 축소 크기 (dp). 기본값: 76f */
+    const val EDGE_ZONE_MODE_CARD_SIZE_DP = 76f
+    /** 캔버스 모드 카드·비율 프리셋 패널 모서리 반경 (dp). 기본값: 14f */
+    const val EDGE_ZONE_MODE_CARD_CORNER_DP = 14f
+    /** 캔버스 안내 버블 배경 알파 (Black 기준). 기본값: 0.55f */
+    const val EDGE_ZONE_MODE_GUIDE_BG_ALPHA = 0.55f
+    /** 캔버스 안내 버블·패널 구분선 알파 (White 기준). 기본값: 0.15f */
+    const val EDGE_ZONE_MODE_DIVIDER_ALPHA = 0.15f
+
+    // ── 캔버스 오버레이 (드롭 슬롯·리사이즈 핸들) ──
+
+    /** 드롭 슬롯·리사이즈 경계 강조 선 두께 (dp). 기본값: 3f */
+    const val CANVAS_OVERLAY_LINE_THICKNESS_DP = 3f
+    /** 드롭 슬롯·리사이즈 핸들 SwipeFocusable 모서리 반경 (dp). 기본값: 4f */
+    const val CANVAS_OVERLAY_HANDLE_CORNER_DP = 4f
+
+    // ── 캔버스 공간 네비게이션 알고리즘 ──
+
+    /** 공간 네비에서 이동 방향 수직 성분에 부과하는 거리 패널티 배율. 기본값: 2.5f */
+    const val CANVAS_NAV_CROSS_AXIS_PENALTY = 2.5f
+    /** 공간 네비 반평면 필터의 데드존 (px). 중심 좌표 차이가 이 값 이하이면 같은 위치로 간주. 기본값: 1f */
+    const val CANVAS_NAV_DEADZONE_PX = 1f
 }
