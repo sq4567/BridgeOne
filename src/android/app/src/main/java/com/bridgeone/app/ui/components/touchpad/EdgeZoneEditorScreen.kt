@@ -358,9 +358,12 @@ fun EdgeZoneEditorScreen(
         // 편집 씬 진입 시 해제하여 기존 폼 traversal 복원.
         val isCanvasScene = selectedZone == null && selectedEdge == null
         val movingForNav = canvasMode as? CanvasEditMode.Moving
-        // 0=편집 씬, 1=일반 캔버스(전체 spatial), 2=이동 픽(존 전용), 3=이동 드롭(슬롯 전용)
+        // 비율 조정 모드에서 엣지 선택 후 프리셋 패널이 열린 상태 (포커스를 패널 항목으로 한정)
+        val resizingPanelEdge = (canvasMode as? CanvasEditMode.Resizing)?.edge
+        // 0=편집 씬, 1=일반 캔버스(전체 spatial), 2=이동 픽(존 전용), 3=이동 드롭(슬롯 전용), 4=비율 프리셋 패널
         val navMode = when {
             !isCanvasScene -> 0
+            resizingPanelEdge != null -> 4
             movingForNav == null -> 1
             movingForNav.picked == null -> 2
             else -> 3
@@ -370,9 +373,20 @@ fun EdgeZoneEditorScreen(
                 1 -> { dir -> canvasSpatialNav(swipeController, dir) }
                 2 -> { dir -> movingPickNav(swipeController, dir) }
                 3 -> { dir -> movingDropNav(swipeController, dir) }
+                4 -> { dir -> ratioPresetPanelNav(swipeController, dir) }
                 else -> null  // 편집 씬: 기본 폼 traversal
             }
             onDispose { swipeController.moveInterceptor = null }
+        }
+        // 비율 프리셋 패널 진입(엣지 선택) 시 포커스를 첫 프리셋 칩으로 시드 → 엣지 스트립이 아닌 패널에 한정
+        LaunchedEffect(resizingPanelEdge) {
+            val edge = resizingPanelEdge ?: return@LaunchedEffect
+            val firstLabel = EdgeZoneActionResolver
+                .ratioPresetsFor(workConfig.zonesFor(edge).size)
+                .firstOrNull()?.first
+            if (firstLabel != null) {
+                swipeController.setFocus(EdgeEditorElement.CanvasRatioPreset(firstLabel))
+            }
         }
 
     }

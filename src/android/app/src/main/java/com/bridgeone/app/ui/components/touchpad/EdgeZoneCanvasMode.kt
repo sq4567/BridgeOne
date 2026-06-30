@@ -126,6 +126,21 @@ internal fun canvasSpatialNav(
 }
 
 /**
+ * 비율 조정 모드에서 엣지 선택 후 프리셋 패널이 열린 상태의 방향 네비게이션
+ * ([SwipeFocusController.moveInterceptor]에 설치).
+ *
+ * 포커스를 프리셋 칩([EdgeEditorElement.CanvasRatioPreset])과 패널 취소 버튼
+ * ([EdgeEditorElement.CanvasModeCancel])로만 한정한다. 캔버스 존 hit·경계 핸들로 새지
+ * 않도록 **항상 true를 반환**해 기본 traversal 폴백을 차단한다.
+ */
+internal fun ratioPresetPanelNav(controller: SwipeFocusController, dir: Direction): Boolean {
+    canvasSpatialNav(controller, dir) {
+        it is EdgeEditorElement.CanvasRatioPreset || it == EdgeEditorElement.CanvasModeCancel
+    }
+    return true
+}
+
+/**
  * 엣지 축 정렬 네비게이션. 캔버스 내부 요소(존/드롭 슬롯)에만 포커스를 한정하고(TopAppBar 등 제외),
  * 현재 요소가 속한 엣지의 축과 **평행한** 방향(세로 엣지=상하, 가로 엣지=좌우)은 같은 엣지 안에서 이동하되,
  * 끝(맨 처음/마지막 슬롯)에 도달하면 그 방향의 **인접 엣지(코너 너머)로 전환**한다
