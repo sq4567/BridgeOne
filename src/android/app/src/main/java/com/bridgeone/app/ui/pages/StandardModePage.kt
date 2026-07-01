@@ -69,7 +69,7 @@ import com.bridgeone.app.ui.components.touchpad.ScrollMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.ui.pages.standard.Page1TouchpadActions
-import com.bridgeone.app.ui.pages.standard.Page2TestTouchpad
+import com.bridgeone.app.ui.pages.standard.Page2MultiCursorTouchpad
 import com.bridgeone.app.ui.pages.standard.Page3KeyboardPlaceholder
 import com.bridgeone.app.ui.pages.standard.Page4MinecraftPlaceholder
 import com.bridgeone.app.ui.pages.standard.Page5Settings
@@ -423,7 +423,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         },
                         onModePresetDismiss = { modePresetPopupVisible = false }
                     )
-                    1 -> Page2TestTouchpad(
+                    1 -> Page2MultiCursorTouchpad(
                         touchpadState = pageState.touchpadState,
                         edgeZoneAssignment = standardAssignments[1] ?: TouchpadEdgeZoneAssignment.default(),
                         onEdgeZoneAssignmentChange = { updated -> standardAssignments = standardAssignments + (1 to updated) },

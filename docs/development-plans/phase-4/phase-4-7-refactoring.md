@@ -182,7 +182,7 @@ updated: "2026-06-30"
 `ui/pages/standard/` 신설. 페이지 래퍼와 재사용 컴포넌트를 구분해 분리합니다.
 
 **페이지 래퍼** (4.15.4에서 `DynamicPage`로 대체될 임시 구조. 각 래퍼의 레이아웃 비율/배치 로직이 4.15.2 `DefaultPageTemplates` 데이터화의 기준이 됨):
-- `Page1TouchpadActions.kt` / `Page2TestTouchpad.kt` / `Page3KeyboardPlaceholder.kt` / `Page4MinecraftPlaceholder.kt` / `Page5Settings.kt`(+`SettingsInputModeSection`/`SettingsEdgeInteractionModeSection`/`ZoneEditorEntryRow`/`SettingsButtonVisibilitySection`/`SettingsToggleRow`)
+- `Page1TouchpadActions.kt` / `Page2MultiCursorTouchpad.kt`(Phase 4.8.1에서 `Page2TestTouchpad.kt`→rename) / `Page3KeyboardPlaceholder.kt` / `Page4MinecraftPlaceholder.kt` / `Page5Settings.kt`(+`SettingsInputModeSection`/`SettingsEdgeInteractionModeSection`/`ZoneEditorEntryRow`/`SettingsButtonVisibilitySection`/`SettingsToggleRow`)
 - `PageIndicator.kt` — 이미 `pageCount` 파라미터를 받으므로 단순 이동, 4.15 영향 없음
 - `StandardModePrefs.kt`: SharedPreferences 헬퍼(`loadDpiLevel`/`saveDpiLevel`/`loadEdgeInteractionMode`/`saveEdgeInteractionMode`) + 상수(`PREF_NAME`/`KEY_DPI_LEVEL`/`KEY_EDGE_INTERACTION_MODE`) 이동 — 전역 설정이라 4.15 영향 없음
 

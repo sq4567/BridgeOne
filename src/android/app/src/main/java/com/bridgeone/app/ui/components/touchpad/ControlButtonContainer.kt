@@ -253,7 +253,7 @@ fun ControlButtonContainer(
                     }
                 }
 
-                // 4. CursorModeButton: Disabled (Phase 4+ 멀티 커서 미구현)
+                // 4. CursorModeButton: 탭 활성 (Phase 4.8.1), 동작 연결은 4.8.2
                 if (config.showCursorMode) {
                     Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
                         ControlButton(
@@ -265,8 +265,8 @@ fun ControlButtonContainer(
                                 ColorPurple else ColorBlue,
                             buttonWidth = buttonWidth,
                             buttonHeight = buttonHeight,
-                            enabled = false,
-                            onClick = { /* Phase 4+: 멀티 커서 미구현 */ }
+                            enabled = true,
+                            onClick = { /* Phase 4.8.2: 커서 수 선택 팝업 연결 예정 */ }
                         )
                     }
                 }

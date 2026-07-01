@@ -106,11 +106,13 @@ Wrapper 구성 요소:
 - 기능: 제어 버튼들을 담는 컨테이너 역할
 - 위치: `TouchpadAreaWrapper` 상단에 겹쳐진 오버레이 영역
 
+> **⚠️ Page 2 예외 (Phase 4.8.1)**: 위 "터치패드 너비" 규칙은 터치패드 자체가 화면 분할 컬럼(Page 1)일 때 기준이다. Page 2는 터치패드가 전체 화면 너비를 차지하므로, `ControlButtonContainer`를 터치패드 전체 너비가 아니라 **Page 1의 터치패드 컬럼 폭과 동일한 비율(화면 폭 360dp 미만 60%, 그 외 64%)로 축소하고 터치패드 좌우 중앙에 정렬**한다. 버튼 개수와 무관하게 컨테이너 전체가 중앙에 위치해야 한다. 근거: 풀 와이드 터치패드에서 5개 버튼이 화면 전체 너비로 늘어나면 버튼 폭이 과도하게 커져 다른 페이지와 시각적 일관성이 깨짐.
+
 **버튼 구성 독립성**: `ControlButtonContainer`의 각 버튼은 터치패드 인스턴스별로 표시/숨김 및 기본 상태를 독립적으로 설정할 수 있습니다. 어떤 버튼을 활성화할지는 해당 터치패드를 배치할 때 결정합니다.
 
 현재 배치 구성:
 - **Page 1 터치패드**: `CursorModeButton` 비표시, 나머지 버튼(`ClickModeButton`, `MoveModeButton`, `ScrollModeButton`, `DPIControlButton`, `ScrollSensitivityButton`) 모두 표시
-- **Page 2 터치패드**: 모든 버튼 표시 (`CursorModeButton` 포함) — 멀티 커서 기능이 활성화된 풀 와이드 터치패드
+- **Page 2 터치패드**: 모든 버튼 표시 (`CursorModeButton` 포함) — 멀티 커서 기능이 활성화된 풀 와이드 터치패드. 컨테이너 폭은 위 Page 2 예외 규칙 적용
 
 #### 1.3.1 터치패드 모드 제어 버튼
 

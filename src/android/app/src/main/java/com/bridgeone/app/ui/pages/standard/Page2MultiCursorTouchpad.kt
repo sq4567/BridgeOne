@@ -3,11 +3,13 @@ package com.bridgeone.app.ui.pages.standard
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import com.bridgeone.app.protocol.BridgeMode
 import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
@@ -23,11 +25,11 @@ import com.bridgeone.app.ui.components.touchpad.PageNav
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 
 // ============================================================
-// Page 2: 테스트 터치패드 (제어 버튼 없는 풀스크린 터치패드)
+// Page 2: 멀티 커서 홈 — 풀 와이드 터치패드 (Phase 4.8)
 // ============================================================
 
 @Composable
-internal fun Page2TestTouchpad(
+internal fun Page2MultiCursorTouchpad(
     touchpadState: TouchpadState,
     edgeZoneAssignment: TouchpadEdgeZoneAssignment = TouchpadEdgeZoneAssignment.default(),
     onEdgeZoneAssignmentChange: (TouchpadEdgeZoneAssignment) -> Unit = {},
@@ -42,6 +44,9 @@ internal fun Page2TestTouchpad(
     buttonVisibility: TouchpadButtonVisibility = TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(1)),
     onDpiLongPress: () -> Unit = {}
 ) {
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val touchpadWidthFraction = if (screenWidthDp < 360) 0.60f else 0.64f
+
     Box(modifier = Modifier.fillMaxSize()) {
         TouchpadWrapper(
             touchpadId = TouchpadIds.standardPage(1),
@@ -72,7 +77,7 @@ internal fun Page2TestTouchpad(
                 onDpiLongPress = onDpiLongPress,
                 config = buttonVisibility.controlButtonConfig,
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth(touchpadWidthFraction)
                     .align(Alignment.TopCenter)
             )
         }

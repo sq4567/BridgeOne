@@ -24,7 +24,8 @@ data class TouchpadButtonVisibility(
         /** 페이지별 초기 기본값 — 영속 데이터 없을 때 사용하며 기존 동작을 보존한다 */
         fun defaultFor(touchpadId: String): TouchpadButtonVisibility = when (touchpadId) {
             TouchpadIds.standardPage(1) -> TouchpadButtonVisibility(
-                showControlButtons = false,
+                showControlButtons = true,
+                controlButtonConfig = ControlButtonConfig(showCursorMode = true),
                 showDynamicsButton = false,
                 showModePresetButton = false,
                 showScrollButtons = true,

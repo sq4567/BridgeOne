@@ -64,19 +64,26 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 3. 터치패드는 전체 너비 × 전체 높이 유지 (Page 1의 분할 비율 없음).
 4. 파일/함수 rename(`Page2TestTouchpad` → 멀티 커서 홈에 맞는 이름) 여부는 세션 판단. rename 시 `StandardModePage.kt`의 `when(page % PAGE_COUNT)` 분기도 함께 수정.
 
+> **계획과 다르게 구현된 부분**: 원 계획에는 없었으나, 구현 중 `ControlButtonContainer`가 화면 전체 너비로 늘어나면 버튼이 과도하게 커져 시각적 일관성이 깨지는 문제가 발견되어 폭을 조정했다. `ControlButtonContainer`를 터치패드 전체 너비가 아니라 Page 1의 터치패드 컬럼 폭과 동일한 비율(화면 폭 360dp 미만 60%, 그 외 64%)로 축소하고 터치패드 좌우 중앙(`Alignment.TopCenter`)에 정렬했다. 설계 문서 `docs/android/component-touchpad.md` §1.3에 Page 2 예외로 반영 완료.
+
 **참조 문서**:
 - `docs/android/component-touchpad.md` §1.2 (터치패드 영역 구조)
-- `docs/android/component-touchpad.md` §1.3 (버튼 구성 독립성 원칙)
+- `docs/android/component-touchpad.md` §1.3 (버튼 구성 독립성 원칙 + Page 2 폭 예외)
 
 **검증**:
-- [ ] Page 2에 상단 제어 버튼 + `CursorModeButton` 표시, Page 1에서는 `CursorModeButton` 비표시
-- [ ] Page 2 터치패드가 전체 너비 점유
-- [ ] `CursorModeButton` 탭 가능(다음 Phase 전까지 동작은 미연결이어도 무방)
-- [ ] 기존 싱글 커서 동작 정상 유지
+- [x] Page 2에 상단 제어 버튼 + `CursorModeButton` 표시, Page 1에서는 `CursorModeButton` 비표시
+- [x] Page 2 터치패드가 전체 너비 점유
+- [x] 기존 싱글 커서 동작 정상 유지
+- [x] `ControlButtonContainer`가 Page 1 비율 폭으로 축소되고 터치패드 좌우 중앙에 정렬
 
 ---
 
 ## Phase 4.8.2: 멀티 커서 상태 구조 + 상태 홀더 + 커서 수 선택 팝업
+
+> **⚠️ Phase 4.8.1 변경사항**:
+> - `Page2TestTouchpad` → `Page2MultiCursorTouchpad`로 rename (`Page2MultiCursorTouchpad.kt`).
+> - `ControlButtonContainer`의 CursorModeButton `onClick`은 현재 no-op(`{ }`) 상태. 이 Phase에서 팝업 콜백(`onCursorModeClick`)을 `ControlButtonContainer`에 추가하고 `Page2MultiCursorTouchpad` → `StandardModePage`까지 hoist.
+> - `defaultFor(standardPage(1))`이 `showControlButtons = true`, `controlButtonConfig = ControlButtonConfig(showCursorMode = true)`로 변경됨 → 이 Phase에서 별도 설정 변경 불필요.
 
 > **⚠️ 아키텍처 (Phase 4.7.4 결정)**: 멀티 커서 상태는 AndroidX ViewModel이 아니라 **평범한 클래스 상태 홀더 + `remember`**로 구현한다(`StandardModePageState` 선례). "페이지를 넘나들어도 상태 유지" 요구는 상태 홀더를 페이저 **상위**에서 `remember`로 1회 생성해 페이저 바깥에 hoist하면 달성된다. 사이드이펙트(서버 명령 전송·토스트 등)는 홀더에 넣지 않고 Composable 콜백에 둔다(4.7.4-C 철학).
 
