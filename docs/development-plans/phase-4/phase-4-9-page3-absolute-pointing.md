@@ -56,6 +56,8 @@ Page 3 — AbsolutePointingPad
 
 **목표**: 절대좌표 패드 기본 포인팅 + 클릭 기능 구현
 
+> **⚠️ Phase 4.16(가로 지원) 대비**: 실제 가로 레이아웃은 Phase 4.16에서 일괄 추가한다. 16:9 매핑 영역(PointingArea)의 letterbox/pillarbox 계산을 방향 무관하게 짜서 가로에서도 올바른 종횡비가 유지되도록 할 것. `AbsoluteCoordinateCalculator`의 비율→절대좌표 변환은 방향 중립적으로 유지.
+
 **개발 기간**: 1.5일
 
 **세부 목표**:

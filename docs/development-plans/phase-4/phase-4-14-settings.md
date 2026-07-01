@@ -225,7 +225,7 @@ updated: "2026-04-05"
 
 **목표**: `SettingsRepository`의 StateFlow를 각 컴포넌트에 연결하여, 설정 변경이 터치패드/스크롤/레이아웃 등 실제 동작에 실시간으로 반영되도록 합니다.
 
-> **⚠️ Phase 4.7.3-B 변경사항 (햅틱 이중 경로)**: 햅틱 경로가 둘로 분리됐다 — (1) 이산 햅틱: `HidConstants.triggerHaptic()` 및 `view.performHapticFeedback(...)`, (2) 속도 기반 스크롤/관성 햅틱: `ui/common/HapticFeedbackHelper.vibrateByVelocity()`. 햅틱 토글로 "모든 진동 정지"(아래 검증 항목)를 달성하려면 **두 경로 모두** 게이트해야 한다 — `HapticFeedbackHelper`에도 enable 플래그를 주입할 것. Phase 4.16.2가 같은 헬퍼에 시간 게이트를 추가하므로, enable 플래그와 시간 게이트를 한 지점에서 함께 처리하면 충돌이 없다.
+> **⚠️ Phase 4.7.3-B 변경사항 (햅틱 이중 경로)**: 햅틱 경로가 둘로 분리됐다 — (1) 이산 햅틱: `HidConstants.triggerHaptic()` 및 `view.performHapticFeedback(...)`, (2) 속도 기반 스크롤/관성 햅틱: `ui/common/HapticFeedbackHelper.vibrateByVelocity()`. 햅틱 토글로 "모든 진동 정지"(아래 검증 항목)를 달성하려면 **두 경로 모두** 게이트해야 한다 — `HapticFeedbackHelper`에도 enable 플래그를 주입할 것. Phase 4.17.2가 같은 헬퍼에 시간 게이트를 추가하므로, enable 플래그와 시간 게이트를 한 지점에서 함께 처리하면 충돌이 없다.
 
 **구현 항목**:
 1. **터치패드 바인딩**:

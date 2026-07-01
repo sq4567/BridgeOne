@@ -24,7 +24,7 @@ updated: "2026-06-18"
 
 **에뮬레이터 호환성**: 레이아웃·편집 UI는 에뮬레이터에서 개발 가능. USB 동작 및 터치패드 제스처 회귀 확인은 실기기 필요.
 
-**성능 최적화와의 관계**: 본 Phase는 모든 기능 완성 후 진행하는 `phase-4-16-performance.md`보다 먼저 완료된다. PageLayoutRepository의 전체 JSON 저장은 4.15.2에서 debounce를 기본 포함하며, 더 깊은 부분 저장 최적화는 4.16에서 다룬다.
+**성능 최적화와의 관계**: 본 Phase는 모든 기능 완성 후 진행하는 `phase-4-17-performance.md`보다 먼저 완료된다. PageLayoutRepository의 전체 JSON 저장은 4.15.2에서 debounce를 기본 포함하며, 더 깊은 부분 저장 최적화는 4.17에서 다룬다.
 
 **설계 문서**: `docs/android/technical-specification-app.md` §2.11, `docs/android/design-guide-app.md` §9
 

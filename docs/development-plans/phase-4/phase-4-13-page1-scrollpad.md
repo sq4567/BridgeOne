@@ -49,6 +49,8 @@ updated: "2026-05-03"
 
 **개발 기간**: 0.5일
 
+> **⚠️ Phase 4.16(가로 지원) 대비**: ScrollPad는 Page 1 Actions 패널에 들어가므로 Page 1 가로 레이아웃(Phase 4.16.4)에서 ScrollPad 배치도 함께 다뤄진다. ScrollPad 자체 크기를 상하단 Safe Zone이나 세로 비율에 고정하지 말고 잔여 영역 기반(`weight`/`fillMaxHeight`)으로 두어 가로에서도 적응되게 할 것.
+
 **세부 목표**:
 1. `ui/components/scrollpad/ScrollPadWrapper.kt` 신규 파일 생성
    - 빈 `Box`, `fillMaxWidth()` + `fillMaxHeight()`

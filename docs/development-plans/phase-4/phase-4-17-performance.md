@@ -1,28 +1,30 @@
 ---
-title: "BridgeOne Phase 4.16: 성능 최적화"
-description: "BridgeOne 프로젝트 Phase 4.16 - 전반적 입력 지연 및 렉 원인 조사 및 수정"
+title: "BridgeOne Phase 4.17: 성능 최적화"
+description: "BridgeOne 프로젝트 Phase 4.17 - 전반적 입력 지연 및 렉 원인 조사 및 수정"
 tags: ["android", "performance", "haptic", "recomposition", "input-latency"]
 version: "v1.0"
 owner: "Chatterbones"
 updated: "2026-04-11"
 ---
 
-# BridgeOne Phase 4.16: 성능 최적화
+# BridgeOne Phase 4.17: 성능 최적화
 
 **개발 기간**: 미정
 
 **목표**: 실기기에서 체감되는 전반적 느림(입력 지연, UI 렉)의 원인을 프로파일링으로 특정한 후 수정합니다.
 
+**선행 조건**: Phase 4.16(가로 방향 지원) 포함 **모든 기능·레이아웃 작업 완료**. 가로 지원이 새 레이아웃을 대거 추가하여 리컴포지션·성능 양상을 바꾸므로, 성능 최적화는 가로까지 들어간 최종 상태에서 프로파일링해야 한다 — 따라서 Phase 4 전체에서 **가장 마지막**(Phase n 직전)에 진행합니다.
+
 | 하위 Phase | 내용 | 상태 |
 |-----------|------|------|
-| 4.16.1 | 프로파일링 및 병목 특정 | 미시작 |
-| 4.16.2 | 햅틱 호출 빈도 최적화 | 미시작 |
-| 4.16.3 | Compose 리컴포지션 최소화 | 미시작 |
-| 4.16.4 | 제스처 루프 내 불필요한 작업 제거 | 미시작 |
+| 4.17.1 | 프로파일링 및 병목 특정 | 미시작 |
+| 4.17.2 | 햅틱 호출 빈도 최적화 | 미시작 |
+| 4.17.3 | Compose 리컴포지션 최소화 | 미시작 |
+| 4.17.4 | 제스처 루프 내 불필요한 작업 제거 | 미시작 |
 
 ---
 
-## Phase 4.16.1: 프로파일링 및 병목 특정
+## Phase 4.17.1: 프로파일링 및 병목 특정
 
 **개발 기간**: 0.5일
 
@@ -67,13 +69,13 @@ updated: "2026-04-11"
 - [ ] Compose Recomposition 카운트 확인 완료
 - [ ] Frame Timing 캡처 완료 및 jank 비율 기록
 - [ ] 조사 결과 표 작성 완료
-- [ ] 병목 항목 특정 완료 → 해당 Phase(4.16.2~4.16.4) 진행 여부 결정
+- [ ] 병목 항목 특정 완료 → 해당 Phase(4.17.2~4.17.4) 진행 여부 결정
 
 ---
 
-## Phase 4.16.2: 햅틱 호출 빈도 최적화
+## Phase 4.17.2: 햅틱 호출 빈도 최적화
 
-> **선행 조건**: Phase 4.16.1 조사 A에서 `vibrate()` 가 병목으로 확인된 경우에만 진행.
+> **선행 조건**: Phase 4.17.1 조사 A에서 `vibrate()` 가 병목으로 확인된 경우에만 진행.
 
 > **⚠️ Phase 4.7.3-B 변경사항**: 드래그/관성 햅틱의 인라인 `vibrator.vibrate(...)` 2개 호출부가 `src/android/app/src/main/java/com/bridgeone/app/ui/common/HapticFeedbackHelper.kt`의 `vibrateByVelocity()` **단일 지점**으로 통합됨. 따라서 시간 게이트(`HAPTIC_MIN_INTERVAL_MS` + `lastHapticTimestampMs`)는 `TouchpadWrapper`가 아니라 **`HapticFeedbackHelper` 한 곳**에 추가하면 두 호출부에 동시 적용된다. `lastHapticTimestampMs`는 헬퍼 내부 필드로 보유(remember 상태 불필요). `HAPTIC_MIN_INTERVAL_MS` 상수는 `ScrollConstants.kt`에 유지 가능.
 > 추가 주의: 햅틱 enable 토글(Phase 4.14.4)도 이 헬퍼를 게이트하므로, 시간 게이트와 enable 플래그를 같은 지점에서 함께 처리하면 충돌이 없다.
@@ -108,15 +110,15 @@ updated: "2026-04-11"
 
 **검증**:
 - [ ] 무한 스크롤 빠른 드래그 중 햅틱 체감 유지되는지 확인 (진동 느낌 여전히 있음)
-- [ ] Phase 4.16.1 System Trace 재측정 → `vibrate()` 호출 빈도 감소 확인
+- [ ] Phase 4.17.1 System Trace 재측정 → `vibrate()` 호출 빈도 감소 확인
 - [ ] 메인 스레드 점유 시간 감소 확인
 - [ ] 일반 스크롤 CLOCK_TICK 햅틱에는 영향 없음 확인 (별도 경로)
 
 ---
 
-## Phase 4.16.3: Compose 리컴포지션 최소화
+## Phase 4.17.3: Compose 리컴포지션 최소화
 
-> **선행 조건**: Phase 4.16.1 조사 B에서 과잉 리컴포지션이 병목으로 확인된 경우에만 진행.
+> **선행 조건**: Phase 4.17.1 조사 B에서 과잉 리컴포지션이 병목으로 확인된 경우에만 진행.
 
 > **⚠️ Phase 4.7.3 변경사항**: `TouchpadWrapper`의 제스처 루프(`pointerInput`)는 4.7.3에서 **의도적으로 분해하지 않음**(코루틴·부작용·콜백이 강결합된 상태머신). 따라서 이 Phase의 리컴포지션 조사 대상 구조는 그대로 유효하나, 순수 기하 함수는 `EdgeGeometry.kt`로, 햅틱은 `HapticFeedbackHelper.kt`로 외부 추출되어 `TouchpadWrapper.kt` 내부 줄 번호는 이동했다 — 위치는 함수명/패턴으로 탐색할 것. 조사 B 목록의 `EdgeSwipeOverlay`는 실재 파일(`ui/components/touchpad/EdgeSwipeOverlay.kt`)로 유효.
 
@@ -136,14 +138,14 @@ MOVE 이벤트마다 `guidelineTarget`(Float 상태), `guidelineVisible`(Boolean
 **수정 파일**: 조사 결과 확인 후 결정
 
 **검증**:
-- [ ] Phase 4.16.1 Recomposition 카운트 재측정 → 빈도 감소 확인
+- [ ] Phase 4.17.1 Recomposition 카운트 재측정 → 빈도 감소 확인
 - [ ] 가이드라인·산봉우리 애니메이션 시각적 동작 동일 확인 (기능 회귀 없음)
 
 ---
 
-## Phase 4.16.4: 제스처 루프 내 불필요한 작업 제거
+## Phase 4.17.4: 제스처 루프 내 불필요한 작업 제거
 
-> **선행 조건**: Phase 4.16.1 조사 A에서 `pointerInput` 람다 실행 시간이 병목으로 확인된 경우에만 진행.
+> **선행 조건**: Phase 4.17.1 조사 A에서 `pointerInput` 람다 실행 시간이 병목으로 확인된 경우에만 진행.
 
 > **⚠️ Phase 4.7.3 변경사항**: MOVE 핸들러·`scheduleGuidelineHide()`는 `TouchpadWrapper.kt`에 그대로 잔류한다(제스처 루프 미분해). 단 import 정리·`EdgeGeometry`/햅틱 외부 추출로 줄 번호가 이동했으므로 본 Phase가 참조하는 위치는 함수명/패턴으로 재확인할 것. 기하 계산이 필요하면 `EdgeGeometry.kt`의 순수 함수를 호출(중복 구현 금지).
 
@@ -166,6 +168,6 @@ MOVE 이벤트마다 `guidelineTarget`(Float 상태), `guidelineVisible`(Boolean
 - `src/android/app/src/main/java/com/bridgeone/app/ui/components/TouchpadWrapper.kt`
 
 **검증**:
-- [ ] Phase 4.16.1 System Trace 재측정 → `pointerInput` 람다 실행 시간 감소 확인
+- [ ] Phase 4.17.1 System Trace 재측정 → `pointerInput` 람다 실행 시간 감소 확인
 - [ ] 가이드라인 숨김 타이밍 동일하게 동작 확인
 - [ ] 커서 이동·클릭·스크롤 기능 회귀 없음 확인
