@@ -466,6 +466,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                                 )
                             }
                         },
+                        onPadSwitch = { index -> multiCursor.switchPad(index) },
                         cursorCountPopupVisible = cursorCountPopupVisible,
                         onCursorCountSelected = { count ->
                             cursorCountPopupVisible = false

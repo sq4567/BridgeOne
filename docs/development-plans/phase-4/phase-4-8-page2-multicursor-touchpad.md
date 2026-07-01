@@ -144,18 +144,30 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 - `docs/android/technical-specification-app.md` §2.2.6.1 (N개 패드 영역 분할)
 - `docs/android/technical-specification-app.md` §2.2.6.2 (영역 전환 감지)
 
+> **계획과 다르게 구현된 부분**: 설계 문서 두 곳(`component-touchpad.md` §2.2.1과 §3.2.4.2)이 활성 패드 테두리 규칙을 서로 다르게 서술해 모순이 있었다(기능 모드 기반 vs 보라색 고정). **기능 모드 기반**(§2.2.1)으로 결정했다 — 활성 영역을 실제 `TouchpadWrapper` 인스턴스로 배치해 기존 테두리 로직을 그대로 재사용하고, 비활성 영역은 별도 dim 처리 `Box`로 렌더링하는 구조를 택했기 때문에 자연스럽게 이 방향과 맞았다. 또한 비활성 영역의 "반투명 처리"(§3.2.4.2) 구체 alpha 값이 설계 문서에 없어 신규 `MultiCursorConstants.kt`(`ui/common/`)에 `GRID_INACTIVE_PAD_DIM_ALPHA = 0.4f`, `GRID_PAD_SWITCH_ANIM_DURATION_MS = 200`로 확정해 기본값 주석과 함께 정의했다(초기에 함께 정의했던 구분 gap 두께 상수 `GRID_DIVIDER_WIDTH_DP`는 아래 피드백 ②에서 gap 자체를 없애며 삭제됨).
+>
+> 초기 구현 후 실기기 확인 결과 dim 처리만으로는 비활성 패드 구분이 눈에 잘 띄지 않는다는 피드백을 받아 시각 요소를 추가했다: 그리드 전체를 감싸는 외곽 테두리 1개(`GRID_OUTER_BORDER_WIDTH_DP = 2f`, 흰색 30% 불투명도)와, 비활성 패드마다 점선 테두리(`GRID_INACTIVE_BORDER_WIDTH_DP = 1.5f`, `GRID_DASH_ON_LENGTH_DP = 6f`, `GRID_DASH_OFF_LENGTH_DP = 4f`, 흰색 50% 불투명도)를 `MultiCursorConstants.kt`에 추가하고 `Page2MultiCursorTouchpad.kt`에서 `Modifier.drawBehind` + `PathEffect.dashPathEffect`로 그린다.
+>
+> 이어진 피드백 2건을 추가 반영했다. ① 비활성 패드의 점선이 그리드 외곽 실선과 겹쳐 보이는 문제 — 각 셀의 4변 중 그리드 바깥 경계와 맞닿는 변에는 점선을 그리지 않고, 다른 패드와 실제로 맞닿는 내부 경계에만 점선을 그리도록 수정(`rect.left/top/right/bottom`을 전체 폭/높이와 비교해 외곽 여부 판정 후 `drawLine` 4개를 조건부 호출). ② 패드 사이 여백 제거 — 각 셀에 있던 `padding(GRID_DIVIDER_WIDTH_DP.dp / 2)`를 제거해 인접 패드가 빈 공간 없이 완전히 맞닿도록 했고, 더 이상 쓰이지 않는 `GRID_DIVIDER_WIDTH_DP` 상수를 삭제했다.
+
 **검증**:
-- [ ] 커서 2/3/4개 각각 설계 문서대로 영역 분할 표시
-- [ ] 비활성 패드 탭 → 해당 패드로 즉시 전환 (테두리 이동)
-- [ ] 활성 패드에서만 커서 이동 프레임 전송 (비활성 입력 무시)
-- [ ] 패드 전환 시 제어 버튼 상태 갱신
-- [ ] 싱글 복귀 시 단일 터치패드로 즉시 복원
+- [x] 커서 2/3/4개 각각 설계 문서대로 영역 분할 표시
+- [x] 비활성 패드 탭 → 해당 패드로 즉시 전환 (테두리 이동)
+- [x] 활성 패드에서만 커서 이동 프레임 전송 (비활성 입력 무시 — 비활성 영역엔 `TouchpadWrapper` 자체가 마운트되지 않아 구조적으로 보장)
+- [x] 패드 전환 시 제어 버튼 상태 갱신 (`effectiveState` projection이 `activePadIndex`를 그대로 따라가므로 별도 처리 불필요)
+- [x] 싱글 복귀 시 단일 터치패드로 즉시 복원
 
 ---
 
 ## Phase 4.8.4: 직접 전환 버튼 레이아웃 모드 (PadSwitchButtonPanel)
 
 > **⚠️ Phase 4.8.2 변경사항**: `MultiCursorState.layoutMode`(`MultiCursorLayoutMode.GRID`/`DIRECT_BUTTON`)가 이미 정의되어 있다. `MultiCursorController`에 레이아웃 모드 전환 메서드가 아직 없으므로 이 Phase에서 추가하거나 `state.copy(layoutMode = ...)`를 직접 다루는 메서드를 신설할 것.
+
+> **⚠️ Phase 4.8.3 변경사항**:
+> - 신규 순수 함수 `divideGridAreas`/`hitTestPad`(`MultiCursorGridGeometry.kt`, `ui/components/touchpad/`)와 단위 테스트(`MultiCursorGridGeometryTest.kt`)가 추가됨. DIRECT_BUTTON 모드는 영역 분할이 아니라 하단 버튼 패널이라 이 함수들을 그대로 재사용하지는 않지만, 같은 파일/패키지에 유사 패턴(순수 기하 함수 + 단위 테스트)으로 추가할 것.
+> - `Page2MultiCursorTouchpad`에 `onPadSwitch: (Int) -> Unit` 파라미터가 추가되고 `StandardModePage`에서 `multiCursor.switchPad(index)`로 배선됨. DIRECT_BUTTON의 하단 버튼도 이 파라미터를 그대로 재사용해 탭 시 `onPadSwitch(index)` 호출.
+> - `Page2MultiCursorTouchpad`의 렌더 분기가 `multiCursorState.isEnabled && layoutMode == GRID`로 그리드 렌더와 else(단일 `TouchpadWrapper`) 두 갈래로 나뉨. DIRECT_BUTTON은 이 `if/else` 구조에 세 번째 분기(`layoutMode == DIRECT_BUTTON`)로 추가해야 함 — else 분기를 "싱글 커서 전용"으로 오인해 그대로 재사용하면 안 됨.
+> - 신규 상수 `MultiCursorConstants.kt`(`ui/common/`)에 `GRID_*` 상수 6개(`GRID_INACTIVE_PAD_DIM_ALPHA`, `GRID_PAD_SWITCH_ANIM_DURATION_MS`, `GRID_OUTER_BORDER_WIDTH_DP`, `GRID_INACTIVE_BORDER_WIDTH_DP`, `GRID_DASH_ON_LENGTH_DP`, `GRID_DASH_OFF_LENGTH_DP`) 정의됨. DIRECT_BUTTON 전용 상수(버튼 크기, 간격 등)는 이 파일에 `DIRECT_BUTTON_*` 접두사로 추가할 것 — 재정의 금지. 패드 간 gap 상수(`GRID_DIVIDER_WIDTH_DP`)는 시각 검토 후 제거되어 현재 셀들이 여백 없이 맞닿아 있다 — DIRECT_BUTTON은 분할 자체가 없어 해당 없음.
 
 **목표**: 터치패드 전체 면적을 유지하면서 하단에 N개 전환 버튼을 표시한다. 탭 1번으로 어떤 패드든 즉시 이동한다.
 

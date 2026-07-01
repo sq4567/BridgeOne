@@ -862,6 +862,8 @@ data class MultiCursorState(
 
 ##### 2.2.6.2 영역 전환 감지 및 신호 생성 로직
 
+> **Phase 4.8.3 구현 노트**: 아래 스니펫은 View 시스템 시절 개념 초안이라 `determineTouchpadArea`에 `touchX`만 전달한다. 실제 Compose 구현(`ui/components/touchpad/MultiCursorGridGeometry.kt`의 `hitTestPad`)은 N=4(2×2)에서 상하 구분이 필요하므로 x/y 좌표(`Offset`)를 모두 받아 판정한다.
+
 **터치 이벤트 처리 플로우**:
 ```kotlin
 override fun onTouchEvent(event: MotionEvent): Boolean {
