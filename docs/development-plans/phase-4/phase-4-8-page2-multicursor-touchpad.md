@@ -203,11 +203,17 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ## Phase 4.8.5: 서버 연동 사전 준비 (전송 훅 + 서버 미연결 완결 동작)
 
-> **⚠️ Phase 4.8.2 변경사항**: 활성화(`onCursorCountSelected`)/비활성화(`onCursorModeClick`의 disable 분기)가 `StandardModePage`에 이미 배선되어 있다. `show_virtual_cursor`/`hide_virtual_cursor` 전송 훅은 이 두 콜백 안에, `switch_cursor` 훅은 `MultiCursorController.switchPad` 호출 지점(4.8.3에서 연결됨)에 추가할 것. `MultiCursorState`에는 아직 서버 왕복용 필드(`padCursorPositions`/`isPendingAck` 등)가 없으므로 이 Phase에서 필요 시 확장.
+> **⚠️ Phase 4.8.2 변경사항**: 활성화(`onCursorCountSelected`)/비활성화(`onCursorModeClick`의 disable 분기)가 `StandardModePage`에 이미 배선되어 있다. `show_virtual_cursor`/`hide_virtual_cursor` 전송 훅은 이 두 콜백 안에, `multi_cursor_switch` 훅은 `MultiCursorController.switchPad` 호출 지점(4.8.3에서 연결됨)에 추가할 것. `MultiCursorState`에는 아직 서버 왕복용 필드(`padCursorPositions`/`isPendingAck` 등)가 없으므로 이 Phase에서 필요 시 확장.
 
 > **⚠️ Phase 4.8.4 변경사항**:
 > - `MultiCursorController`에 `toggleLayoutMode()` 신규 — `CursorModeButton` 롱프레스로 GRID↔DIRECT_BUTTON 토글. `switch_cursor` 전송 훅과 별개로, 레이아웃 모드 전환 자체는 서버 전송 대상이 아니다(로컬 UI 상태). 다만 `switch_cursor` 훅은 DIRECT_BUTTON 모드의 `PadSwitchButtonPanel.onPadSwitch`에서도 동일하게 호출되어야 한다 — `onPadSwitch`가 그리드/직접 전환 두 모드에서 동일 콜백(`multiCursor.switchPad(index)`)을 공유하므로 훅 배치 지점은 하나로 충분하다.
 > - `PadSwitchButtonPanel.kt`(`ui/components/touchpad/`), `DIRECT_BUTTON_*` 상수(`MultiCursorConstants.kt`) 신규 — 전송 훅과 직접 관련은 없으나 참고.
+
+> **계획과 다르게 구현된 부분**:
+> - **패드 전환 명령 규격 확정**: 계획서 초안은 `switch_cursor` + `pad_index`로 서술했으나, 기술명세 4종(`technical-specification-app.md` §2.2.6.3, `technical-specification.md` §4.4.3, `technical-specification-server.md` §3.6, `esp32s3-code-implementation-guide.md` §4.1.1)과 Windows 서버 구현 명세가 모두 `multi_cursor_switch` + `touchpad_id`("pad1" 등) + `cursor_position{x,y}` 규격으로 일치되어 있어, 이 규격으로 통일했다(`switch_cursor` 문구는 계획서·`styleframe-page2.md` 2곳뿐이라 이쪽을 수정). `cursor_position`은 Android가 PC 화면 크기를 몰라 값을 채울 수 없으므로 이번엔 필드 자리만(`null`) 두고 Phase 5(`show_virtual_cursor` ACK로 초기 위치 수신)에서 채운다.
+> - **전송 훅 구현 수준 = JSON 빌더 + 로그**: 실제 UART write는 하지 않는다(ESP32 0xFF 중계 왕복은 에뮬레이터로 검증 불가, Phase 5에서 실기기 검증). 신규 `protocol/MultiCursorCommand.kt`에 페이로드를 구성하는 순수 함수 3개(`buildShowVirtualCursor`/`buildHideVirtualCursor`/`buildMultiCursorSwitch`)를 두고, `StandardModePage.kt`의 `sendMultiCursorCommand` 콜백이 `UsbSerialManager.bridgeMode`로 서버 연결 여부를 확인해 `BridgeMode.STANDARD`면 `Log.d`, `ESSENTIAL`이면 스킵 로그만 남긴다.
+> - **timestamp = epoch millis 문자열**: `Instant.now()`(API 26+)는 minSdk 24에 desugaring 미적용이라 사용 불가. `System.currentTimeMillis().toString()`으로 대체(로그 수준이므로 ISO8601 엄밀성보다 호환성 우선). Phase 5에서 실제 전송 포맷을 정할 때 재검토 필요.
+> - **훅 배치 지점**: `onCursorCountSelected`(`multiCursor.enable` 직후), `onCursorModeClick`의 disable 분기(`multiCursor.disable` 직후), `onPadSwitch`(`multiCursor.switchPad` 직후) 3곳. `onCursorModeLongPress`(레이아웃 모드 토글)는 로컬 UI 상태라 서버 전송 대상에서 제외.
 
 **목표**: Windows 서버가 준비되기 전 단계로, 멀티 커서 활성/비활성/패드 전환 시 서버에 명령을 보낼 **전송 지점(콜백 훅)과 프로토콜 자리만** 마련한다. 서버가 없어도 앱 내부 상태만으로 멀티 커서가 완결적으로 동작해야 한다. 실제 서버 왕복과 PC 화면 가상 커서는 Phase 5에서 완성한다.
 
@@ -234,9 +240,9 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 - `docs/windows/technical-specification-server.md` §3.6 (Windows 서버 N-1개 가상 커서 — Phase 5)
 
 **검증**:
-- [ ] 활성/비활성/패드 전환 시 전송 콜백 훅 호출 확인 (로그 또는 no-op)
-- [ ] 서버 미연결 상태에서 멀티 커서 UI·전환 완결 동작, 크래시 없음
-- [ ] 명령/페이로드 형식이 설계 문서와 일치
+- [x] 활성/비활성/패드 전환 시 전송 콜백 훅 호출 확인 (로그 또는 no-op) — 에뮬레이터 실기 테스트로 Logcat 확인 완료(`StandardModePage` 태그)
+- [x] 서버 미연결 상태에서 멀티 커서 UI·전환 완결 동작, 크래시 없음 — 에뮬레이터에서 활성화(2)→패드 전환→비활성화 흐름 후 앱 프로세스 생존, `AndroidRuntime:E` 크래시 로그 없음 확인
+- [x] 명령/페이로드 형식이 설계 문서와 일치 — 로그 페이로드가 `command`/`cursor_count`/`touchpad_id`/`cursor_position`/`timestamp` 필드로 출력됨을 확인
 
 ---
 

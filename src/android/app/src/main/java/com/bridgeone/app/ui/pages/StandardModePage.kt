@@ -28,7 +28,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import android.util.Log
 import com.bridgeone.app.protocol.BridgeMode
+import com.bridgeone.app.protocol.MultiCursorCommand
+import com.bridgeone.app.usb.UsbSerialManager
 import com.bridgeone.app.ui.common.AudioController
 import com.bridgeone.app.ui.common.CustomPointerDynamicsPreset
 import com.bridgeone.app.ui.common.CustomPresetsRepository
@@ -98,6 +101,8 @@ import kotlin.math.abs
  * - Page 3: 마인크래프트 (Phase 4.6에서 구현)
  * - 하단 페이지 인디케이터 (닷 4개)
  */
+private const val TAG = "StandardModePage"
+
 private const val PAGE_COUNT = 5
 // Int.MAX_VALUE / 2를 PAGE_COUNT의 배수로 내림 → 논리 페이지 0에서 시작, 양방향 무한 스크롤 가능
 private val PAGER_INITIAL_PAGE = (Int.MAX_VALUE / 2).let { mid -> mid - (mid % PAGE_COUNT) }
@@ -121,6 +126,16 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
 
     // Phase 4.8.2: 멀티 커서 상태 홀더. 페이저 바깥에서 1회 생성해 페이지 전환에도 유지된다.
     val multiCursor = remember { MultiCursorController() }
+
+    // Phase 4.8.5: 멀티 커서 서버(Windows) 명령 전송 훅. 서버가 없어도(ESSENTIAL) 앱 내부
+    // 상태만으로 완결 동작해야 하므로 전송을 스킵하고 로그만 남긴다. 실제 UART write는 Phase 5.
+    val sendMultiCursorCommand: (String) -> Unit = { json ->
+        if (UsbSerialManager.bridgeMode.value == BridgeMode.STANDARD) {
+            Log.d(TAG, "multiCursorCommand: $json")
+        } else {
+            Log.d(TAG, "multiCursorCommand skipped (ESSENTIAL): $json")
+        }
+    }
 
     // 모든 모드 변경을 인터셉트해 의미있는 변화를 히스토리에 push한 뒤 상태 교체.
     // onTouchpadStateChange 콜백 대신 이 람다를 사용한다.
@@ -453,6 +468,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                             if (multiCursor.state.isEnabled) {
                                 multiCursor.disable()
                                 pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.SINGLE)
+                                sendMultiCursorCommand(MultiCursorCommand.buildHideVirtualCursor())
                             } else {
                                 cursorCountPopupVisible = true
                             }
@@ -473,7 +489,15 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                                 )
                             }
                         },
-                        onPadSwitch = { index -> multiCursor.switchPad(index) },
+                        onPadSwitch = { index ->
+                            multiCursor.switchPad(index)
+                            sendMultiCursorCommand(
+                                MultiCursorCommand.buildMultiCursorSwitch(
+                                    touchpadId = MultiCursorCommand.padIndexToTouchpadId(index),
+                                    cursorPosition = null
+                                )
+                            )
+                        },
                         cursorCountPopupVisible = cursorCountPopupVisible,
                         onCursorCountSelected = { count ->
                             cursorCountPopupVisible = false
@@ -485,6 +509,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                             )
                             multiCursor.enable(count, seed)
                             pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.MULTI)
+                            sendMultiCursorCommand(MultiCursorCommand.buildShowVirtualCursor(count))
                         },
                         onCursorCountDismiss = { cursorCountPopupVisible = false },
                         onModePresetLongPress = { modePresetPopupVisible = true },

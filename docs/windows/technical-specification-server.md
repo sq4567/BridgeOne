@@ -389,6 +389,8 @@ public async Task ProcessNamedPipeMessageAsync(string messageText)
 - **동기화 메커니즘**: 실제 커서와 N-1개 가상 커서 간의 상태 일관성 보장
 - **성능 최적화**: 커서 전환 지연시간 50ms 이내 달성
 
+> **⚠️ Android 측 준비 상태 (Phase 4.8.5)**: Android 앱은 이미 `show_virtual_cursor`/`hide_virtual_cursor`/`multi_cursor_switch` 명령 전송 지점을 마련했다(`StandardModePage.kt`의 `onCursorCountSelected`/`onCursorModeClick`/`onPadSwitch` 3개 콜백 + 페이로드 빌더 `protocol/MultiCursorCommand.kt`). 현재는 실제 UART write 없이 `Log.d`로만 확인 가능한 상태이며(`UsbSerialManager.bridgeMode`로 ESSENTIAL/STANDARD 게이팅), Phase 5에서는 이 콜백 안의 로그를 실제 전송으로 교체하기만 하면 된다. `multi_cursor_switch`의 `cursor_position` 필드는 Android가 아직 값을 채우지 못해 `null`로 보내고 있으므로, `show_virtual_cursor_ack` 왕복으로 pad1~padN 초기 위치를 Android에 전달하는 것이 Phase 5의 선결 작업이다.
+
 #### 3.6.1 가상 커서 렌더링 시스템 구현 명세
 
 ##### 3.6.1.1 전체화면 투명 오버레이 윈도우 구현

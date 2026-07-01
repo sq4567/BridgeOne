@@ -193,7 +193,7 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 |--------|----------|
 | 멀티 커서 활성 | `{"command": "show_virtual_cursor", "cursor_count": N}` |
 | 멀티 커서 비활성 | `{"command": "hide_virtual_cursor"}` |
-| 패드 전환 | `{"command": "switch_cursor", "pad_index": N}` |
+| 패드 전환 | `{"command": "multi_cursor_switch", "touchpad_id": "padN", "cursor_position": {x,y}}` |
 
 - Essential 모드(서버 미연결): 전송 스킵, 앱 내 상태만 관리
 
