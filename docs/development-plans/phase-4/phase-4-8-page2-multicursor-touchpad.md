@@ -183,18 +183,31 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 - `docs/android/component-touchpad.md` §1.2.2 (직접 전환 버튼 — PadSwitchButtonPanel)
 - `docs/android/component-touchpad.md` §1.2.3 (멀티 커서 선택 상태 관리)
 
+> **계획과 다르게 구현된 부분**:
+> - **레이아웃 모드 전환 UI**: 설계 문서에 진입점이 명시돼 있지 않았다("설정에서 구성"으로만 서술). `CursorModeButton` 롱프레스로 그리드 분할 ↔ 직접 전환 버튼을 토글하는 방식으로 확정했다(별도 버튼 추가 없이 기존 버튼 재사용, ModePresetButton 롱프레스 패턴과 일관). `ControlButtonContainer`에 `onCursorModeLongPress: (() -> Unit)? = null` 파라미터를 추가하고 `ControlButton`의 기존 `onLongClick` 파라미터에 연결했다(`ControlButton` 자체는 이미 롱프레스를 지원해 수정 불필요). `MultiCursorController.toggleLayoutMode()` 신규 추가. 설계 문서(`component-touchpad.md` §1.2.3, `technical-specification-app.md` §2.2.6)에 진입점을 반영 완료.
+> - **PadSwitchButtonPanel 스펙 문서 충돌 해소**: `component-touchpad.md`(높이 48dp, 활성 보라색 `#B552F6`)와 `styleframe-page2.md`(높이 40dp, 활성 파란색 `#2196F3`)가 상충했다. **component-touchpad.md 기준(48dp)**으로 구현하되, 사용자 피드백에 따라 활성 색상은 파란색(`#2196F3`, `TouchpadColorBlue`)으로 확정했다(비활성 alpha 0.4는 styleframe 값을 그대로 채용). `MultiCursorConstants.kt`에 `DIRECT_BUTTON_PANEL_HEIGHT_DP = 48f`, `DIRECT_BUTTON_INACTIVE_ALPHA = 0.4f` 추가.
+> - **버튼 패널 모서리 둥글기**: 사용자 피드백("터치패드 모서리가 둥그니까 버튼도 둥글게") 반영 — 처음엔 버튼별 개별 `RoundedCornerShape` + 버튼 간 간격으로 구현했으나, 후속 피드백("버튼 하나하나가 아니라 버튼 묶음의 외곽만 둥글게")에 따라 패널 전체(`Row`)에 `clip(RoundedCornerShape(DIRECT_BUTTON_CORNER_RADIUS_DP.dp = 8f))`를 적용하는 방식으로 수정했다. 개별 버튼은 간격 없이 붙어 있고 각진 채로 유지되며, 패널 외곽 4모서리만 둥글다.
+> - **순수 기하 함수 미추출**: Phase 4.8.3 노트가 "순수 기하 함수 + 단위 테스트" 패턴을 권장했으나, DIRECT_BUTTON 모드는 좌표→인덱스 매핑이 필요 없다(Row + weight + clickable로 프레임워크가 히트 판정을 담당). 그리드 분할 특유의 요구사항이었으므로 이번 모드엔 해당 패턴을 적용하지 않았다 — `MultiCursorGridGeometry.kt`에 신규 함수 추가 없음.
+> - **신규 컴포넌트**: `PadSwitchButtonPanel.kt`(`ui/components/touchpad/`) 신규. `Row` + `weight(1f)` N등분(버튼 사이 간격 없음), 활성 패드 `TouchpadColorBlue` 배경, 비활성 패드 동일 색 `alpha=0.4f`, 패널 외곽 8dp 둥근 모서리(`clip`을 패널 `Row`에 적용, 개별 버튼엔 미적용), 탭 시 `onPadSwitch(index)` + 햅틱(`KEYBOARD_TAP`).
+> - **레이아웃 모드 전환 시 토스트 안내**: 사용자 피드백에 따라 `CursorModeButton` 롱프레스로 레이아웃 모드를 바꿀 때 `ToastController.show("그리드 분할 모드로 전환"/"직접 전환 버튼 모드로 전환", ToastType.INFO)`를 `StandardModePage.kt`의 `onCursorModeLongPress` 콜백에 추가했다.
+> - **`Page2MultiCursorTouchpad.kt` 렌더 분기 3분기화**: 기존 `if(showGrid) else` 2분기를 `if(showGrid) else if(showDirectButton) else` 3분기로 확장. DIRECT_BUTTON 분기는 `TouchpadWrapper`에 `Modifier.padding(bottom = 48dp)`로 하단 패널 공간을 비우고, `PadSwitchButtonPanel`을 `Alignment.BottomCenter`로 겹쳐 배치했다. `effectiveState`/`effectiveOnStateChange` projection과 `onPadSwitch` 파라미터는 그리드 분기와 동일하게 재사용 — 변경 없음.
+
 **검증**:
-- [ ] 직접 전환 모드에서 하단 N개 버튼 표시
-- [ ] 버튼 탭 → 해당 패드로 즉시 전환
-- [ ] 버튼 탭 시 터치패드 커서 이동 미발생 (이벤트 소비)
-- [ ] 버튼 패널 제외 전체 면적이 활성 패드 입력 영역
-- [ ] 그리드 분할 ↔ 직접 전환 모드 전환 시 레이아웃 즉시 반영
+- [x] 직접 전환 모드에서 하단 N개 버튼 표시
+- [x] 버튼 탭 → 해당 패드로 즉시 전환
+- [x] 버튼 탭 시 터치패드 커서 이동 미발생 (이벤트 소비 — `PadSwitchButtonPanel`이 자체 `clickable`로 소비, 하단 영역엔 `TouchpadWrapper`가 마운트되지 않아 구조적으로 보장)
+- [x] 버튼 패널 제외 전체 면적이 활성 패드 입력 영역 (`padding(bottom = 48dp)`로 `TouchpadWrapper` 영역이 패널을 침범하지 않음)
+- [x] 그리드 분할 ↔ 직접 전환 모드 전환 시 레이아웃 즉시 반영 (`CursorModeButton` 롱프레스 → `toggleLayoutMode()` → `when` 분기 즉시 재평가)
 
 ---
 
 ## Phase 4.8.5: 서버 연동 사전 준비 (전송 훅 + 서버 미연결 완결 동작)
 
 > **⚠️ Phase 4.8.2 변경사항**: 활성화(`onCursorCountSelected`)/비활성화(`onCursorModeClick`의 disable 분기)가 `StandardModePage`에 이미 배선되어 있다. `show_virtual_cursor`/`hide_virtual_cursor` 전송 훅은 이 두 콜백 안에, `switch_cursor` 훅은 `MultiCursorController.switchPad` 호출 지점(4.8.3에서 연결됨)에 추가할 것. `MultiCursorState`에는 아직 서버 왕복용 필드(`padCursorPositions`/`isPendingAck` 등)가 없으므로 이 Phase에서 필요 시 확장.
+
+> **⚠️ Phase 4.8.4 변경사항**:
+> - `MultiCursorController`에 `toggleLayoutMode()` 신규 — `CursorModeButton` 롱프레스로 GRID↔DIRECT_BUTTON 토글. `switch_cursor` 전송 훅과 별개로, 레이아웃 모드 전환 자체는 서버 전송 대상이 아니다(로컬 UI 상태). 다만 `switch_cursor` 훅은 DIRECT_BUTTON 모드의 `PadSwitchButtonPanel.onPadSwitch`에서도 동일하게 호출되어야 한다 — `onPadSwitch`가 그리드/직접 전환 두 모드에서 동일 콜백(`multiCursor.switchPad(index)`)을 공유하므로 훅 배치 지점은 하나로 충분하다.
+> - `PadSwitchButtonPanel.kt`(`ui/components/touchpad/`), `DIRECT_BUTTON_*` 상수(`MultiCursorConstants.kt`) 신규 — 전송 훅과 직접 관련은 없으나 참고.
 
 **목표**: Windows 서버가 준비되기 전 단계로, 멀티 커서 활성/비활성/패드 전환 시 서버에 명령을 보낼 **전송 지점(콜백 훅)과 프로토콜 자리만** 마련한다. 서버가 없어도 앱 내부 상태만으로 멀티 커서가 완결적으로 동작해야 한다. 실제 서버 왕복과 PC 화면 가상 커서는 Phase 5에서 완성한다.
 

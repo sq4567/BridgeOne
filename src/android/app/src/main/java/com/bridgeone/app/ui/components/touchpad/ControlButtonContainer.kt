@@ -120,6 +120,7 @@ data class ControlButtonConfig(
  * @param isStandardMode Standard 모드 여부 (Essential 모드 전환 시 컨테이너 전체 애니메이션)
  * @param onDpiLongPress DPI 버튼 롱프레스 콜백 (DpiAdjustPopup 표시용)
  * @param onCursorModeClick CursorModeButton 탭 콜백 (커서 수 선택 팝업 표시/멀티 해제용, Phase 4.8.2)
+ * @param onCursorModeLongPress CursorModeButton 롱프레스 콜백 (그리드 분할 ↔ 직접 전환 버튼 레이아웃 모드 토글, Phase 4.8.4)
  * @param modifier 외부 Modifier
  */
 @Composable
@@ -129,6 +130,7 @@ fun ControlButtonContainer(
     isStandardMode: Boolean = true,
     onDpiLongPress: (() -> Unit)? = null,
     onCursorModeClick: (() -> Unit)? = null,
+    onCursorModeLongPress: (() -> Unit)? = null,
     config: ControlButtonConfig = ControlButtonConfig(),
     modifier: Modifier = Modifier
 ) {
@@ -256,6 +258,7 @@ fun ControlButtonContainer(
                 }
 
                 // 4. CursorModeButton: 탭 시 싱글→멀티는 커서 수 선택 팝업, 멀티→싱글은 즉시 해제 (Phase 4.8.2)
+                // 롱프레스: 그리드 분할 ↔ 직접 전환 버튼 레이아웃 모드 토글 (Phase 4.8.4)
                 if (config.showCursorMode) {
                     Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
                         ControlButton(
@@ -268,7 +271,8 @@ fun ControlButtonContainer(
                             buttonWidth = buttonWidth,
                             buttonHeight = buttonHeight,
                             enabled = true,
-                            onClick = { onCursorModeClick?.invoke() }
+                            onClick = { onCursorModeClick?.invoke() },
+                            onLongClick = onCursorModeLongPress
                         )
                     }
                 }

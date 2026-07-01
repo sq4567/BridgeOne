@@ -66,6 +66,7 @@ import com.bridgeone.app.ui.components.touchpad.MacroStep
 import com.bridgeone.app.ui.components.touchpad.MouseButton
 import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
 import com.bridgeone.app.ui.components.touchpad.MultiCursorController
+import com.bridgeone.app.ui.components.touchpad.MultiCursorLayoutMode
 import com.bridgeone.app.ui.components.touchpad.PadModeState
 import com.bridgeone.app.ui.components.touchpad.PageNav
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
@@ -455,6 +456,12 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                             } else {
                                 cursorCountPopupVisible = true
                             }
+                        },
+                        onCursorModeLongPress = {
+                            multiCursor.toggleLayoutMode()
+                            val modeLabel = if (multiCursor.state.layoutMode == MultiCursorLayoutMode.GRID)
+                                "그리드 분할" else "직접 전환 버튼"
+                            ToastController.show("$modeLabel 모드로 전환", ToastType.INFO)
                         },
                         onActivePadModeChange = { newState ->
                             multiCursor.updateActivePadMode {

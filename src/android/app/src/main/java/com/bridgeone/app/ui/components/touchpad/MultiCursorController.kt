@@ -47,6 +47,16 @@ class MultiCursorController {
         state = state.copy(activePadIndex = index)
     }
 
+    /** 그리드 분할 ↔ 직접 전환 버튼 레이아웃 모드를 토글한다 (Phase 4.8.4). */
+    fun toggleLayoutMode() {
+        val next = if (state.layoutMode == MultiCursorLayoutMode.GRID) {
+            MultiCursorLayoutMode.DIRECT_BUTTON
+        } else {
+            MultiCursorLayoutMode.GRID
+        }
+        state = state.copy(layoutMode = next)
+    }
+
     /** 활성 패드의 모드 상태만 교체한다. 다른 패드 상태는 보존된다. */
     fun updateActivePadMode(transform: (PadModeState) -> PadModeState) {
         if (!state.isEnabled) return

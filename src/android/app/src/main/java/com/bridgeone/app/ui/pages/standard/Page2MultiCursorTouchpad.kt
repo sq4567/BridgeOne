@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -41,6 +42,7 @@ import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
 import com.bridgeone.app.ui.components.touchpad.ModePresetPopup
 import com.bridgeone.app.ui.components.touchpad.MultiCursorLayoutMode
 import com.bridgeone.app.ui.components.touchpad.MultiCursorState
+import com.bridgeone.app.ui.components.touchpad.PadSwitchButtonPanel
 import com.bridgeone.app.ui.components.touchpad.PageNav
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.components.touchpad.divideGridAreas
@@ -66,6 +68,7 @@ internal fun Page2MultiCursorTouchpad(
     onDpiLongPress: () -> Unit = {},
     multiCursorState: MultiCursorState = MultiCursorState(),
     onCursorModeClick: () -> Unit = {},
+    onCursorModeLongPress: () -> Unit = {},
     onActivePadModeChange: (TouchpadState) -> Unit = {},
     onPadSwitch: (Int) -> Unit = {},
     cursorCountPopupVisible: Boolean = false,
@@ -115,6 +118,7 @@ internal fun Page2MultiCursorTouchpad(
 
     Box(modifier = Modifier.fillMaxSize()) {
         val showGrid = multiCursorState.isEnabled && multiCursorState.layoutMode == MultiCursorLayoutMode.GRID
+        val showDirectButton = multiCursorState.isEnabled && multiCursorState.layoutMode == MultiCursorLayoutMode.DIRECT_BUTTON
         if (showGrid) {
             BoxWithConstraints(
                 modifier = Modifier
@@ -209,6 +213,38 @@ internal fun Page2MultiCursorTouchpad(
                     }
                 }
             }
+        } else if (showDirectButton) {
+            // Phase 4.8.4: 직접 전환 버튼 모드 — 터치패드 전체 면적(하단 패널 높이 제외) + 하단 전환 버튼 패널
+            TouchpadWrapper(
+                touchpadId = TouchpadIds.standardPage(1),
+                bridgeMode = BridgeMode.STANDARD,
+                touchpadState = effectiveState,
+                edgeZoneAssignment = edgeZoneAssignment,
+                onEdgeZoneAssignmentChange = onEdgeZoneAssignmentChange,
+                customPresets = customPresets,
+                onTouchpadStateChange = effectiveOnStateChange,
+                onRestorePrevious = onRestorePrevious,
+                onSendShortcut = onSendShortcut,
+                onSendMacro = onSendMacro,
+                onMouseHoldToggle = onMouseHoldToggle,
+                onCyclePage = onCyclePage,
+                onJumpToPage = onJumpToPage,
+                onModePresetLongPress = onModePresetLongPress,
+                buttonVisibility = buttonVisibility,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = MultiCursorConstants.DIRECT_BUTTON_PANEL_HEIGHT_DP.dp)
+                    .background(
+                        color = Color(0xFF1A1A1A),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+            )
+            PadSwitchButtonPanel(
+                cursorCount = multiCursorState.cursorCount,
+                activePadIndex = multiCursorState.activePadIndex,
+                onPadSwitch = onPadSwitch,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         } else {
             TouchpadWrapper(
                 touchpadId = TouchpadIds.standardPage(1),
@@ -240,6 +276,7 @@ internal fun Page2MultiCursorTouchpad(
                 onStateChange = effectiveOnStateChange,
                 onDpiLongPress = onDpiLongPress,
                 onCursorModeClick = onCursorModeClick,
+                onCursorModeLongPress = onCursorModeLongPress,
                 config = buttonVisibility.controlButtonConfig,
                 modifier = Modifier
                     .fillMaxWidth(touchpadWidthFraction)
