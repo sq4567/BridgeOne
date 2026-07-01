@@ -135,6 +135,42 @@ data class PadModeState(
 )
 
 // ============================================================
+// 멀티 커서 상태 (Phase 4.8.2)
+// ============================================================
+
+/** 멀티 커서 활성 시 터치패드 분할 방식 */
+enum class MultiCursorLayoutMode {
+    GRID,           // 터치패드를 N개 영역으로 분할 (Phase 4.8.3)
+    DIRECT_BUTTON   // 전체 면적 + 하단 전환 버튼 (Phase 4.8.4)
+}
+
+// 멀티 커서 수 하한/상한. 기본값: 2, 4
+const val MULTI_CURSOR_COUNT_MIN = 2
+const val MULTI_CURSOR_COUNT_MAX = 4
+
+/**
+ * 멀티 커서 활성 상태. 페이저 바깥에서 `remember`로 1회 생성되어
+ * 페이지 전환에도 유지된다 (Phase 4.7.4 상태 홀더 컨벤션).
+ *
+ * @property isEnabled       멀티 커서 활성 여부
+ * @property cursorCount     활성 커서 수 (2~4, 0 = 미선택)
+ * @property layoutMode      GRID / DIRECT_BUTTON. 기본값: GRID
+ * @property activePadIndex  현재 활성 패드 인덱스 (0-based, pad1 = 0)
+ * @property padModeStates   패드별 모드 상태 목록 (인덱스 = pad1~padN)
+ */
+data class MultiCursorState(
+    val isEnabled: Boolean = false,
+    val cursorCount: Int = 0,
+    val layoutMode: MultiCursorLayoutMode = MultiCursorLayoutMode.GRID,
+    val activePadIndex: Int = 0,
+    val padModeStates: List<PadModeState> = emptyList()
+) {
+    /** 현재 활성 패드의 모드 상태. 범위를 벗어나면 기본값 반환 */
+    val activePadModeState: PadModeState
+        get() = padModeStates.getOrElse(activePadIndex) { PadModeState() }
+}
+
+// ============================================================
 // 모드 프리셋 정의 (Phase 4.4.8)
 // ============================================================
 

@@ -59,11 +59,14 @@ import com.bridgeone.app.ui.common.saveSwipeWrapEdge
 import com.bridgeone.app.ui.common.saveZoneMoveMethod
 import com.bridgeone.app.ui.common.saveTtsGender
 import com.bridgeone.app.ui.common.saveTtsRate
+import com.bridgeone.app.ui.components.touchpad.CursorMode
 import com.bridgeone.app.ui.components.touchpad.DynamicsCurveEditor
 import com.bridgeone.app.ui.components.touchpad.DpiLevel
 import com.bridgeone.app.ui.components.touchpad.MacroStep
 import com.bridgeone.app.ui.components.touchpad.MouseButton
 import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
+import com.bridgeone.app.ui.components.touchpad.MultiCursorController
+import com.bridgeone.app.ui.components.touchpad.PadModeState
 import com.bridgeone.app.ui.components.touchpad.PageNav
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
@@ -114,6 +117,9 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
             )
         )
     }
+
+    // Phase 4.8.2: 멀티 커서 상태 홀더. 페이저 바깥에서 1회 생성해 페이지 전환에도 유지된다.
+    val multiCursor = remember { MultiCursorController() }
 
     // 모든 모드 변경을 인터셉트해 의미있는 변화를 히스토리에 push한 뒤 상태 교체.
     // onTouchpadStateChange 콜백 대신 이 람다를 사용한다.
@@ -307,12 +313,16 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     // Phase 4.4.8: 모드 프리셋 팝업 상태
     var modePresetPopupVisible by remember { mutableStateOf(false) }
 
+    // Phase 4.8.2: 커서 수 선택 팝업 상태
+    var cursorCountPopupVisible by remember { mutableStateOf(false) }
+
     // 페이지 전환 시 팝업 취소 (커스텀 값 미적용)
     LaunchedEffect(pagerState.currentPage) {
         if (dpiAdjustPopupVisible) dpiAdjustPopupVisible = false
         if (dynamicsPresetPopupVisible) dynamicsPresetPopupVisible = false
         if (modePresetPopupVisible) modePresetPopupVisible = false
         if (curveEditorVisible) curveEditorVisible = false
+        if (cursorCountPopupVisible) cursorCountPopupVisible = false
     }
 
     // 스크롤 모드 전환 시 다이나믹스 팝업 취소 (Phase 4.3.8)
@@ -436,7 +446,70 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onCyclePage = onCyclePage,
                         onJumpToPage = onJumpToPage,
                         buttonVisibility = standardButtonVisibility[1] ?: TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(1)),
-                        onDpiLongPress = { dpiAdjustPopupVisible = true }
+                        onDpiLongPress = { dpiAdjustPopupVisible = true },
+                        multiCursorState = multiCursor.state,
+                        onCursorModeClick = {
+                            if (multiCursor.state.isEnabled) {
+                                multiCursor.disable()
+                                pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.SINGLE)
+                            } else {
+                                cursorCountPopupVisible = true
+                            }
+                        },
+                        onActivePadModeChange = { newState ->
+                            multiCursor.updateActivePadMode {
+                                it.copy(
+                                    clickMode = newState.clickMode,
+                                    moveMode = newState.moveMode,
+                                    scrollMode = newState.scrollMode,
+                                    dpi = newState.dpiLevel
+                                )
+                            }
+                        },
+                        cursorCountPopupVisible = cursorCountPopupVisible,
+                        onCursorCountSelected = { count ->
+                            cursorCountPopupVisible = false
+                            val seed = PadModeState(
+                                clickMode = pageState.touchpadState.clickMode,
+                                moveMode = pageState.touchpadState.moveMode,
+                                scrollMode = pageState.touchpadState.scrollMode,
+                                dpi = pageState.touchpadState.dpiLevel
+                            )
+                            multiCursor.enable(count, seed)
+                            pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.MULTI)
+                        },
+                        onCursorCountDismiss = { cursorCountPopupVisible = false },
+                        onModePresetLongPress = { modePresetPopupVisible = true },
+                        modePresetPopupVisible = modePresetPopupVisible,
+                        onModePresetConfirmed = { index ->
+                            modePresetPopupVisible = false
+                            val preset = MODE_PRESETS[index]
+                            if (multiCursor.state.isEnabled) {
+                                multiCursor.updateActivePadMode {
+                                    it.copy(
+                                        clickMode = preset.padModeState.clickMode,
+                                        moveMode = preset.padModeState.moveMode,
+                                        scrollMode = preset.padModeState.scrollMode,
+                                        dpi = preset.padModeState.dpi
+                                    )
+                                }
+                                pageState.touchpadState = pageState.touchpadState.copy(
+                                    dynamicsPresetIndex = preset.dynamicsPresetIndex,
+                                    modePresetIndex = index
+                                )
+                            } else {
+                                pageState.touchpadState = pageState.touchpadState.copy(
+                                    clickMode = preset.padModeState.clickMode,
+                                    moveMode = preset.padModeState.moveMode,
+                                    scrollMode = preset.padModeState.scrollMode,
+                                    dpiLevel = preset.padModeState.dpi,
+                                    customDpiMultiplier = null,
+                                    dynamicsPresetIndex = preset.dynamicsPresetIndex,
+                                    modePresetIndex = index
+                                )
+                            }
+                        },
+                        onModePresetDismiss = { modePresetPopupVisible = false }
                     )
                     2 -> Page3KeyboardPlaceholder()
                     3 -> Page4MinecraftPlaceholder()

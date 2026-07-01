@@ -92,7 +92,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 **개발 기간**: 1.5일
 
 **세부 목표**:
-1. **멀티 커서 상태 데이터 구조**: `MultiCursorState`(활성 여부, 커서 수, 활성 패드 인덱스, 패드별 모드 상태 목록, 레이아웃 모드)와 `MultiCursorLayoutMode`(GRID / DIRECT_SWITCH)를 신규 정의. **패드별 모드 상태는 기존 `PadModeState`(`TouchpadMode.kt`) 재사용 가능 여부를 먼저 검토**하고, 그대로 쓸 수 없을 때만 확장한다(재정의 금지).
+1. **멀티 커서 상태 데이터 구조**: `MultiCursorState`(활성 여부, 커서 수, 활성 패드 인덱스, 패드별 모드 상태 목록, 레이아웃 모드)와 `MultiCursorLayoutMode`(GRID / DIRECT_BUTTON, `technical-specification-app.md` §2.2.6 enum명과 통일)를 신규 정의. **패드별 모드 상태는 기존 `PadModeState`(`TouchpadMode.kt`) 재사용 가능 여부를 먼저 검토**하고, 그대로 쓸 수 없을 때만 확장한다(재정의 금지).
 2. **상태 홀더**: 페이저 바깥에 hoist하는 상태 홀더를 신규 생성(`StandardModePageState`와 동일 계층·패턴). 활성화/비활성화/패드 전환 메서드를 제공하되, 서버 전송·토스트는 호출 측 콜백으로 위임.
 3. **커서 수 선택 팝업**: `CursorModeButton` 탭(싱글→멀티 시도) 시 2/3/4 선택 팝업 표시, 선택 즉시 멀티 커서 활성화, 외부 탭 시 취소.
 4. **비활성화**: 멀티 커서 상태에서 `CursorModeButton` 재탭 시 즉시 싱글 커서 복귀.
@@ -105,16 +105,24 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 - `docs/android/technical-specification-app.md` §2.2.6 (멀티 커서 알고리즘 명세)
 
 **검증**:
-- [ ] `CursorModeButton` 탭 → 커서 수 선택 팝업 표시
-- [ ] 2/3/4 선택 후 멀티 커서 활성화
-- [ ] `CursorModeButton` 재탭 → 싱글 커서 복귀
-- [ ] 제어 버튼이 활성 패드의 모드 상태 반영
-- [ ] 페이지 전환 후 복귀 시 멀티 커서 상태 유지 (페이저 바깥 hoist)
-- [ ] 프리셋 적용이 활성 패드에만 반영되고 다른 패드 상태 보존
+- [x] `CursorModeButton` 탭 → 커서 수 선택 팝업 표시
+- [x] 2/3/4 선택 후 멀티 커서 활성화
+- [x] `CursorModeButton` 재탭 → 싱글 커서 복귀
+- [x] 제어 버튼이 활성 패드의 모드 상태 반영
+- [x] 페이지 전환 후 복귀 시 멀티 커서 상태 유지 (페이저 바깥 hoist)
+- [x] 프리셋 적용이 활성 패드에만 반영되고 다른 패드 상태 보존 (4.8.2 시점엔 pad1만 도달 가능, "다른 패드 보존"은 4.8.3 스위칭 UI 추가 후 실질 검증)
 
 ---
 
 ## Phase 4.8.3: 그리드 분할 레이아웃 모드
+
+> **⚠️ Phase 4.8.2 변경사항**:
+> - 신규 상태 구조: `MultiCursorState`/`MultiCursorLayoutMode`(`TouchpadMode.kt`), 상태 홀더 `MultiCursorController`(`MultiCursorController.kt`, `ui/components/touchpad/`). `StandardModePage`가 `remember { MultiCursorController() }`로 페이저 바깥에서 1회 생성해 보유. 그리드 분할 UI에서 재사용할 것 — 재정의 금지.
+> - `MultiCursorController.switchPad(index)`가 이미 정의되어 있으나 아직 어디서도 호출되지 않음. 이 Phase(비활성 영역 탭 → 패드 전환)에서 연결.
+> - `Page2MultiCursorTouchpad`가 `multiCursorState`를 받아 `ControlButtonContainer`/`TouchpadWrapper`에 **활성 패드의 4개 모드 필드로 projection한 `effectiveState`**를 전달하는 로직이 이미 구현됨(읽기/쓰기 모두). 그리드 분할 UI 추가 시 이 로직을 건드릴 필요 없음 — 영역별 렌더링만 추가하면 됨.
+> - `CursorCountSelectionPopup.kt` 신규(`ui/components/touchpad/`). `MULTI_CURSOR_COUNT_MIN/MAX` 상수도 `TouchpadMode.kt`에 정의됨.
+> - `ControlButtonContainer`에 `onCursorModeClick: (() -> Unit)? = null` 파라미터 추가됨.
+> - `Page2MultiCursorTouchpad`에 `onModePresetLongPress`/`modePresetPopupVisible`/`onModePresetConfirmed`/`onModePresetDismiss` 배선 및 `ModePresetPopup` 렌더 추가됨(Page1과 동일 패턴). 프리셋 confirm 시 멀티 활성이면 `multiCursor.updateActivePadMode`로, 아니면 기존 글로벌 경로로 라우팅.
 
 **목표**: 멀티 커서 활성 시 터치패드를 N개 영역으로 자동 분할한다. 활성 영역에서만 커서를 제어하고, 비활성 영역 탭으로 패드를 전환한다.
 
@@ -147,6 +155,8 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ## Phase 4.8.4: 직접 전환 버튼 레이아웃 모드 (PadSwitchButtonPanel)
 
+> **⚠️ Phase 4.8.2 변경사항**: `MultiCursorState.layoutMode`(`MultiCursorLayoutMode.GRID`/`DIRECT_BUTTON`)가 이미 정의되어 있다. `MultiCursorController`에 레이아웃 모드 전환 메서드가 아직 없으므로 이 Phase에서 추가하거나 `state.copy(layoutMode = ...)`를 직접 다루는 메서드를 신설할 것.
+
 **목표**: 터치패드 전체 면적을 유지하면서 하단에 N개 전환 버튼을 표시한다. 탭 1번으로 어떤 패드든 즉시 이동한다.
 
 **개발 기간**: 1일
@@ -154,7 +164,7 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 **세부 목표**:
 1. **전환 버튼 패널**: 터치패드 하단 오버레이로 N개 버튼(패드 1~N)을 배치. 활성 버튼 강조, 비활성 버튼 반투명. 버튼 크기·색상 등 값은 설계 문서 기준.
 2. **입력 소비**: 버튼 패널은 터치패드 제스처와 충돌하지 않도록 이벤트를 소비한다.
-3. **레이아웃 모드 전환**: `MultiCursorLayoutMode`를 GRID ↔ DIRECT_SWITCH로 전환하는 UI(제어 버튼 또는 설정). 전환 시 레이아웃 즉시 반영.
+3. **레이아웃 모드 전환**: `MultiCursorLayoutMode`를 GRID ↔ DIRECT_BUTTON으로 전환하는 UI(제어 버튼 또는 설정). 전환 시 레이아웃 즉시 반영.
 4. **입력 영역**: 직접 전환 모드에서 버튼 패널을 제외한 전체 면적이 활성 패드의 입력 영역.
 
 **참조 문서**:
@@ -171,6 +181,8 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 ---
 
 ## Phase 4.8.5: 서버 연동 사전 준비 (전송 훅 + 서버 미연결 완결 동작)
+
+> **⚠️ Phase 4.8.2 변경사항**: 활성화(`onCursorCountSelected`)/비활성화(`onCursorModeClick`의 disable 분기)가 `StandardModePage`에 이미 배선되어 있다. `show_virtual_cursor`/`hide_virtual_cursor` 전송 훅은 이 두 콜백 안에, `switch_cursor` 훅은 `MultiCursorController.switchPad` 호출 지점(4.8.3에서 연결됨)에 추가할 것. `MultiCursorState`에는 아직 서버 왕복용 필드(`padCursorPositions`/`isPendingAck` 등)가 없으므로 이 Phase에서 필요 시 확장.
 
 **목표**: Windows 서버가 준비되기 전 단계로, 멀티 커서 활성/비활성/패드 전환 시 서버에 명령을 보낼 **전송 지점(콜백 훅)과 프로토콜 자리만** 마련한다. 서버가 없어도 앱 내부 상태만으로 멀티 커서가 완결적으로 동작해야 한다. 실제 서버 왕복과 PC 화면 가상 커서는 Phase 5에서 완성한다.
 

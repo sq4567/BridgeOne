@@ -119,6 +119,7 @@ data class ControlButtonConfig(
  * @param onStateChange 상태 변경 콜백
  * @param isStandardMode Standard 모드 여부 (Essential 모드 전환 시 컨테이너 전체 애니메이션)
  * @param onDpiLongPress DPI 버튼 롱프레스 콜백 (DpiAdjustPopup 표시용)
+ * @param onCursorModeClick CursorModeButton 탭 콜백 (커서 수 선택 팝업 표시/멀티 해제용, Phase 4.8.2)
  * @param modifier 외부 Modifier
  */
 @Composable
@@ -127,6 +128,7 @@ fun ControlButtonContainer(
     onStateChange: (TouchpadState) -> Unit,
     isStandardMode: Boolean = true,
     onDpiLongPress: (() -> Unit)? = null,
+    onCursorModeClick: (() -> Unit)? = null,
     config: ControlButtonConfig = ControlButtonConfig(),
     modifier: Modifier = Modifier
 ) {
@@ -253,7 +255,7 @@ fun ControlButtonContainer(
                     }
                 }
 
-                // 4. CursorModeButton: 탭 활성 (Phase 4.8.1), 동작 연결은 4.8.2
+                // 4. CursorModeButton: 탭 시 싱글→멀티는 커서 수 선택 팝업, 멀티→싱글은 즉시 해제 (Phase 4.8.2)
                 if (config.showCursorMode) {
                     Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
                         ControlButton(
@@ -266,7 +268,7 @@ fun ControlButtonContainer(
                             buttonWidth = buttonWidth,
                             buttonHeight = buttonHeight,
                             enabled = true,
-                            onClick = { /* Phase 4.8.2: 커서 수 선택 팝업 연결 예정 */ }
+                            onClick = { onCursorModeClick?.invoke() }
                         )
                     }
                 }
