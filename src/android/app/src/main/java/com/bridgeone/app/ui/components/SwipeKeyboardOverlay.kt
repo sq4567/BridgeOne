@@ -309,6 +309,18 @@ fun SwipeKeyboardOverlay(
     /** 키보드를 화면 하단으로부터 위로 올릴 거리 (dp). 0이면 화면 하단에 붙음. */
     keyboardBottomPadding: Dp = 0.dp,
     overlay: (@Composable BoxScope.() -> Unit)? = null,
+    /**
+     * 히트 영역만 부모 크기 전체로 확장 (정렬/모양은 기존 TopCenter·bottom-rounded 로직 그대로 유지).
+     * gestureFullHeight와 달리 contentAlignment를 바꾸지 않음 — 인라인(TopCenter) 키보드의
+     * 스와이프 히트 영역만 넓히고 싶을 때 사용. 기본값: false
+     */
+    expandHitAreaOnly: Boolean = false,
+    /**
+     * TopCenter 정렬(showScrim=false && !gestureFullHeight)일 때 키보드 콘텐츠를 아래로
+     * 밀어낼 거리(dp). expandHitAreaOnly로 히트 영역만 넓히고 시각적 위치는 특정 y좌표에
+     * 그대로 유지하고 싶을 때 사용. 기본값: 0dp (기존 동작과 동일)
+     */
+    contentTopOffsetDp: Dp = 0.dp,
 ) {
     val original = remember { initialText }
     var composer by remember { mutableStateOf(ComposerState(committed = initialText)) }
@@ -523,7 +535,7 @@ fun SwipeKeyboardOverlay(
     Box(
         modifier = Modifier
             .then(
-                if (showScrim || gestureFullHeight || overlay != null) Modifier.fillMaxSize()
+                if (showScrim || gestureFullHeight || overlay != null || expandHitAreaOnly) Modifier.fillMaxSize()
                 else Modifier.fillMaxWidth().wrapContentHeight()
             )
             .background(if (showScrim) Color.Black.copy(alpha = 0.5f) else Color.Transparent)
@@ -576,7 +588,7 @@ fun SwipeKeyboardOverlay(
             visible = showKeyboard,
             enter = slideInVertically(tween(220)) { it } + fadeIn(tween(220)),
             exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(180)),
-            modifier = Modifier.offset(y = -keyboardBottomPadding),
+            modifier = Modifier.offset(y = contentTopOffsetDp - keyboardBottomPadding),
         ) {
         Column(
             modifier = Modifier

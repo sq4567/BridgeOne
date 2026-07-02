@@ -17,16 +17,22 @@ class CustomPresetsRepository(context: Context) {
 
     fun loadAll(): List<CustomPointerDynamicsPreset> {
         if (!file.exists()) {
-            // 최초 실행: 템플릿을 저장 후 반환
-            saveAll(CUSTOM_PRESET_TEMPLATES)
-            return CUSTOM_PRESET_TEMPLATES
+            // 최초 실행: 커스텀 프리셋 없음 (균형/정밀 우선/빠른 이동/손 떨림 방지는
+            // 템플릿 선택 화면에서만 제공, 자동 주입하지 않음)
+            return emptyList()
         }
-        return try {
+        val loaded = try {
             val arr = JSONArray(file.readText())
             (0 until arr.length()).map { parsePreset(arr.getJSONObject(it)) }
         } catch (_: Exception) {
             emptyList()
         }
+
+        // 마이그레이션: 과거 버전에서 자동 주입되어 저장된 템플릿 프리셋 정리
+        val templateIds = CUSTOM_PRESET_TEMPLATES.map { it.id }.toSet()
+        val migrated = loaded.filterNot { it.id in templateIds }
+        if (migrated.size != loaded.size) saveAll(migrated)
+        return migrated
     }
 
     fun saveAll(presets: List<CustomPointerDynamicsPreset>) {

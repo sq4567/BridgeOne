@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.key
@@ -38,6 +39,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.bridgeone.app.ui.components.SwipeKeyboardOverlay
@@ -260,6 +264,8 @@ fun DynamicsCurveEditor(
     val presetId = remember { initialPreset?.id ?: UUID.randomUUID().toString() }
     val nodeStepScale = CurveEditorConstants.NODE_STEP_SCALES[nodeStepIndex]
     var tabLabelHovered by remember { mutableStateOf(false) }
+    // 키보드 히트영역 확장 시, 그래프Box 상단이 새 컨테이너 기준 몇 px 아래인지 기록 (키보드 시각적 위치 고정용)
+    var graphBoxTopOffsetPx by remember { mutableFloatStateOf(0f) }
 
     // 서브메뉴 재진입 시 위치 유지
     var savedTemplateIndex by remember { mutableIntStateOf(0) }
@@ -508,6 +514,16 @@ fun DynamicsCurveEditor(
                 }
             )
 
+            // ── EditorHeader 아래 전체 영역. 내부 콘텐츠(Column)와 키보드 히트영역
+            //    오버레이(isKeyboardScreen일 때만)가 BoxScope 자식으로 겹쳐진다.
+            //    EditorHeader는 이 Box 바깥이라 오버레이에 덮이지 않음(뒤로가기/저장 버튼 보호). ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+
             // NodeEdit 모드: MetaCard 대신 NodeEditHeader (헤더 strip)
             // C3: gridContext 전환 시 fade 트랜지션
             if (isGraphScreen) {
@@ -575,6 +591,10 @@ fun DynamicsCurveEditor(
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(horizontal = 8.dp)
+                    .onGloballyPositioned { coords ->
+                        // 이 Box의 부모(위 새 컨테이너 Box) 기준 y 오프셋 — 키보드 오버레이 위치 고정용
+                        graphBoxTopOffsetPx = coords.positionInParent().y
+                    }
                     .pointerInput(gridContext, activeTab, currentCurve.size) {
                         // 선택 모드일 때만 그래프 위 직접 스와이프+탭 처리
                         if (gridContext !is GridContext.NodeEdit.Select) return@pointerInput
@@ -666,41 +686,7 @@ fun DynamicsCurveEditor(
                                 .padding(end = 10.dp, top = 6.dp)
                         )
                     }
-                    is EditorScreen.Keyboard -> {
-                        val isName = screen.target == FIELD_NAME
-                        val initialText = if (isName) name else description
-                        val maxLen = if (isName) NAME_MAX_LEN else DESC_MAX_LEN
-                        val targetSlot = if (isName) 1 else 2
-                        key(screen.target) {
-                            SwipeKeyboardOverlay(
-                                initialText = initialText,
-                                maxLength = maxLen,
-                                showScrim = false,
-                                suggestions = if (isName)
-                                    CurveEditorConstants.CURVE_NAME_SUGGESTIONS
-                                else
-                                    CurveEditorConstants.CURVE_DESC_SUGGESTIONS,
-                                onTextChange = { text ->
-                                    if (isName) name = text else description = text
-                                },
-                                onNext = if (isName) { _ ->
-                                    currentScreen = EditorScreen.Keyboard(FIELD_DESC)
-                                } else null,
-                                onPrev = if (!isName) { _ ->
-                                    currentScreen = EditorScreen.Keyboard(FIELD_NAME)
-                                } else null,
-                                onCancel = {
-                                    hoveredSlot = targetSlot; awaitingConfirm = true
-                                    currentScreen = EditorScreen.Graph
-                                },
-                                onDone = { result ->
-                                    if (isName) name = result else description = result
-                                    hoveredSlot = targetSlot; awaitingConfirm = true
-                                    currentScreen = EditorScreen.Graph
-                                }
-                            )
-                        }
-                    }
+                    // EditorScreen.Keyboard는 이 Box에서 더 이상 렌더하지 않음 — 아래 오버레이에서 처리
                     else -> {}
                 }
             }
@@ -749,6 +735,56 @@ fun DynamicsCurveEditor(
                     modifier = Modifier.fillMaxWidth().alpha(0.35f)
                 )
             }
+            } // end 내부 Column
+
+            // ── 키보드 히트영역 오버레이: 컨테이너 전체(fillMaxSize)를 히트영역으로 쓰되,
+            //    시각적으로는 그래프Box와 동일한 y위치/가로패딩으로 그려짐 ──
+            if (isKeyboardScreen) {
+                val screen = currentScreen as EditorScreen.Keyboard
+                val isName = screen.target == FIELD_NAME
+                val initialText = if (isName) name else description
+                val maxLen = if (isName) NAME_MAX_LEN else DESC_MAX_LEN
+                val targetSlot = if (isName) 1 else 2
+                val density = LocalDensity.current
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp)
+                ) {
+                    key(screen.target) {
+                        SwipeKeyboardOverlay(
+                            initialText = initialText,
+                            maxLength = maxLen,
+                            showScrim = false,
+                            expandHitAreaOnly = true,
+                            contentTopOffsetDp = with(density) { graphBoxTopOffsetPx.toDp() },
+                            suggestions = if (isName)
+                                CurveEditorConstants.CURVE_NAME_SUGGESTIONS
+                            else
+                                CurveEditorConstants.CURVE_DESC_SUGGESTIONS,
+                            onTextChange = { text ->
+                                if (isName) name = text else description = text
+                            },
+                            onNext = if (isName) { _ ->
+                                currentScreen = EditorScreen.Keyboard(FIELD_DESC)
+                            } else null,
+                            onPrev = if (!isName) { _ ->
+                                currentScreen = EditorScreen.Keyboard(FIELD_NAME)
+                            } else null,
+                            onCancel = {
+                                hoveredSlot = targetSlot; awaitingConfirm = true
+                                currentScreen = EditorScreen.Graph
+                            },
+                            onDone = { result ->
+                                if (isName) name = result else description = result
+                                hoveredSlot = targetSlot; awaitingConfirm = true
+                                currentScreen = EditorScreen.Graph
+                            }
+                        )
+                    }
+                }
+            }
+            } // end 컨테이너 Box
         }
 
         // ── 오버레이 레이어: 서브메뉴 활성 시 풀스크린으로 렌더 ──

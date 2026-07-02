@@ -33,6 +33,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,6 +65,7 @@ import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
 import com.bridgeone.app.ui.common.customPresetIconOrNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 // 스와이프 1단계 이동 임계값 (dp). 기본값: 30f
@@ -73,6 +76,12 @@ private const val TAP_THRESHOLD_DP = 8f
 
 // 롱프레스 판정 시간 (ms). 기본값: 500
 private const val LONG_PRESS_MS = 500L
+
+// GRID 단계 프리셋 그리드 열 수 (상하 스와이프 시 행 점프 단위). 기본값: 3
+private const val GRID_COLUMNS = 3
+
+// CONFIRM 단계 커스텀 프리셋 선택지 그리드 열 수 (적용/취소/편집/삭제 2x2). 기본값: 2
+private const val CONFIRM_GRID_COLUMNS = 2
 
 private enum class PopupPhase { GRID, CONFIRM, DELETE_CONFIRM }
 
@@ -114,6 +123,8 @@ fun DynamicsPresetPopup(
     var phase by remember { mutableStateOf(PopupPhase.GRID) }
     var tempIndex by remember { mutableIntStateOf(currentIndex) }
     var confirmOptionIndex by remember { mutableIntStateOf(0) }
+    // 삭제 확정 대상 스냅샷 (삭제 진행 중 customPresets 목록이 갱신돼도 화면 텍스트가 바뀌지 않도록 고정)
+    var deletingSnapshot by remember { mutableStateOf<CustomPointerDynamicsPreset?>(null) }
 
     // 범위 초과 피드백용 상태
     var borderColor by remember { mutableStateOf(Color.White) }
@@ -208,7 +219,8 @@ fun DynamicsPresetPopup(
                     val downPos = down.changes.first().position
                     var lastPos = downPos
                     var hasDragged = false
-                    var accumDrag = 0f
+                    var accumX = 0f
+                    var accumY = 0f
 
                     var moveEvent = awaitPointerEvent()
                     while (moveEvent.type == PointerEventType.Move) {
@@ -219,29 +231,71 @@ fun DynamicsPresetPopup(
                         val distFromDown = sqrt(fromDown.x * fromDown.x + fromDown.y * fromDown.y)
                         if (distFromDown > tapThresholdPx) hasDragged = true
 
-                        val dx = pos.x - lastPos.x
-                        accumDrag += dx
+                        accumX += pos.x - lastPos.x
+                        accumY += pos.y - lastPos.y
 
-                        val steps = (accumDrag / swipeStepPx).toInt()
-                        if (steps != 0) {
-                            accumDrag -= steps * swipeStepPx
+                        var stepsX = (accumX / swipeStepPx).toInt()
+                        var stepsY = (accumY / swipeStepPx).toInt()
+
+                        // 대각선 스와이프 시 우세한 축만 반영 (좌우/상하 동시 이동 방지)
+                        if (stepsX != 0 && stepsY != 0) {
+                            if (abs(accumX) >= abs(accumY)) stepsY = 0 else stepsX = 0
+                        }
+
+                        if (stepsX != 0) accumX -= stepsX * swipeStepPx
+                        if (stepsY != 0) accumY -= stepsY * swipeStepPx
+
+                        if (stepsX != 0 || stepsY != 0) {
                             when (phase) {
                                 PopupPhase.GRID -> {
-                                    val proposed = tempIndex + steps
+                                    // 좌우: 전체 선형 순회 / 상하: 행 단위(GRID_COLUMNS칸) 점프
+                                    val proposed = tempIndex + stepsX + stepsY * GRID_COLUMNS
                                     if (proposed < 0 || proposed > totalPresets) {
                                         triggerBoundaryFeedback()
-                                        accumDrag = 0f
+                                        accumX = 0f
+                                        accumY = 0f
                                     } else {
                                         tempIndex = proposed.coerceIn(0, totalPresets)
                                     }
                                 }
                                 PopupPhase.CONFIRM -> {
                                     val isCustomConfirm = tempIndex >= totalBuiltin
-                                    val optCount = if (isCustomConfirm) 4 else 2
-                                    confirmOptionIndex = (confirmOptionIndex + steps).coerceIn(0, optCount - 1)
+                                    if (isCustomConfirm) {
+                                        // 2x2 그리드 (적용/취소 위, 편집/삭제 아래)
+                                        // 좌우: 같은 행 안의 열만 이동 / 상하: 같은 열 안의 행만 이동 (행·열 경계 넘지 않음)
+                                        val row = confirmOptionIndex / CONFIRM_GRID_COLUMNS
+                                        val col = confirmOptionIndex % CONFIRM_GRID_COLUMNS
+                                        val proposedCol = col + stepsX
+                                        val proposedRow = row + stepsY
+                                        if (proposedCol < 0 || proposedCol > CONFIRM_GRID_COLUMNS - 1 ||
+                                            proposedRow < 0 || proposedRow > 1
+                                        ) {
+                                            triggerBoundaryFeedback()
+                                            accumX = 0f
+                                            accumY = 0f
+                                        } else {
+                                            confirmOptionIndex = proposedRow * CONFIRM_GRID_COLUMNS + proposedCol
+                                        }
+                                    } else {
+                                        val proposed = confirmOptionIndex + stepsX
+                                        if (proposed < 0 || proposed > 1) {
+                                            triggerBoundaryFeedback()
+                                            accumX = 0f
+                                            accumY = 0f
+                                        } else {
+                                            confirmOptionIndex = proposed
+                                        }
+                                    }
                                 }
                                 PopupPhase.DELETE_CONFIRM -> {
-                                    confirmOptionIndex = (confirmOptionIndex + steps).coerceIn(0, 1)
+                                    val proposed = confirmOptionIndex + stepsX
+                                    if (proposed < 0 || proposed > 1) {
+                                        triggerBoundaryFeedback()
+                                        accumX = 0f
+                                        accumY = 0f
+                                    } else {
+                                        confirmOptionIndex = proposed
+                                    }
                                 }
                             }
                         }
@@ -287,12 +341,13 @@ fun DynamicsPresetPopup(
                                         }
                                         3 -> if (cp != null) { // 삭제
                                             confirmOptionIndex = 0
+                                            deletingSnapshot = cp
                                             phase = PopupPhase.DELETE_CONFIRM
                                         }
                                     }
                                 }
                                 PopupPhase.DELETE_CONFIRM -> {
-                                    val cp = customPresets.getOrNull(tempIndex - totalBuiltin)
+                                    val cp = deletingSnapshot
                                     when (confirmOptionIndex) {
                                         0 -> if (cp != null) { // 삭제 확정
                                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -350,13 +405,16 @@ fun DynamicsPresetPopup(
                     PopupPhase.CONFIRM -> ConfirmPhaseContent(
                         tempIndex = tempIndex,
                         customPresets = customPresets,
-                        confirmOptionIndex = confirmOptionIndex
+                        confirmOptionIndex = confirmOptionIndex,
+                        borderColor = borderColor,
+                        shakeOffsetDp = shakeAnim.value
                     )
 
                     PopupPhase.DELETE_CONFIRM -> DeleteConfirmPhaseContent(
-                        tempIndex = tempIndex,
-                        customPresets = customPresets,
-                        confirmOptionIndex = confirmOptionIndex
+                        preset = deletingSnapshot,
+                        confirmOptionIndex = confirmOptionIndex,
+                        borderColor = borderColor,
+                        shakeOffsetDp = shakeAnim.value
                     )
                 }
             }
@@ -502,23 +560,11 @@ private fun GridPhaseContent(
         ) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.Start
             ) {
-                Text(
-                    text = "◀▶  스와이프로 이동",
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
-                Text(
-                    text = "현재 프리셋 탭 → 취소",
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
-                Text(
-                    text = "다른 프리셋 탭 → 변경",
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
+                HintLine(Icons.Filled.OpenWith, "스와이프로 상하좌우 이동")
+                HintLine(Icons.Filled.TouchApp, "현재 프리셋 탭 → 취소")
+                HintLine(Icons.Filled.TouchApp, "다른 프리셋 탭 → 변경")
             }
         }
 
@@ -534,8 +580,11 @@ private fun GridPhaseContent(
 private fun ConfirmPhaseContent(
     tempIndex: Int,
     customPresets: List<CustomPointerDynamicsPreset>,
-    confirmOptionIndex: Int
+    confirmOptionIndex: Int,
+    borderColor: Color,
+    shakeOffsetDp: Float
 ) {
+    val isFlashing = borderColor != Color.White
     val totalBuiltin = DYNAMICS_PRESETS.size
     val isCustom = tempIndex >= totalBuiltin
     val customPreset = if (isCustom) customPresets.getOrNull(tempIndex - totalBuiltin) else null
@@ -613,47 +662,58 @@ private fun ConfirmPhaseContent(
 
         Spacer(Modifier.height(16.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            options.forEachIndexed { i, opt ->
-                val isSelected = i == confirmOptionIndex
-                Text(
-                    text = opt.label,
-                    fontSize = if (isSelected) 16.sp else 14.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isSelected) opt.color else opt.color.copy(alpha = 0.35f)
-                )
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color.White.copy(alpha = 0.08f))
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-        ) {
+        if (isCustom) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.offset(x = shakeOffsetDp.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "◀▶  스와이프로 선택",
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
-                Text(
-                    text = "탭으로 확정",
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ConfirmOptionButton(options[0].label, options[0].color, confirmOptionIndex == 0, if (isFlashing && confirmOptionIndex == 0) borderColor else null)
+                    ConfirmOptionButton(options[1].label, options[1].color, confirmOptionIndex == 1, if (isFlashing && confirmOptionIndex == 1) borderColor else null)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ConfirmOptionButton(options[2].label, options[2].color, confirmOptionIndex == 2, if (isFlashing && confirmOptionIndex == 2) borderColor else null)
+                    ConfirmOptionButton(options[3].label, options[3].color, confirmOptionIndex == 3, if (isFlashing && confirmOptionIndex == 3) borderColor else null)
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.offset(x = shakeOffsetDp.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                options.forEachIndexed { i, opt ->
+                    ConfirmOptionButton(opt.label, opt.color, i == confirmOptionIndex, if (isFlashing && i == confirmOptionIndex) borderColor else null)
+                }
             }
         }
 
         Spacer(Modifier.weight(1f))
+    }
+}
+
+// ─────────────────────────────────────────────
+// 확인/삭제 단계 선택지 버튼 (컨테이너 스타일)
+// ─────────────────────────────────────────────
+
+@Composable
+private fun ConfirmOptionButton(label: String, color: Color, isSelected: Boolean, flashColor: Color? = null) {
+    val bgColor = flashColor ?: color
+    Box(
+        modifier = Modifier
+            .width(72.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor.copy(alpha = if (isSelected) 0.55f else 0.1f))
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            fontSize = if (isSelected) 14.sp else 13.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            color = if (isSelected) Color.White else color.copy(alpha = 0.6f),
+            textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -663,14 +723,14 @@ private fun ConfirmPhaseContent(
 
 @Composable
 private fun DeleteConfirmPhaseContent(
-    tempIndex: Int,
-    customPresets: List<CustomPointerDynamicsPreset>,
-    confirmOptionIndex: Int
+    preset: CustomPointerDynamicsPreset?,
+    confirmOptionIndex: Int,
+    borderColor: Color,
+    shakeOffsetDp: Float
 ) {
-    val totalBuiltin = DYNAMICS_PRESETS.size
-    val cp = customPresets.getOrNull(tempIndex - totalBuiltin)
-    val presetName = cp?.name ?: "프리셋"
-    val customIconDef = customPresetIconOrNull(cp?.iconKey ?: "")
+    val isFlashing = borderColor != Color.White
+    val presetName = preset?.name ?: "프리셋"
+    val customIconDef = customPresetIconOrNull(preset?.iconKey ?: "")
 
     data class DeleteOption(val label: String, val color: Color)
     val options = listOf(
@@ -729,42 +789,11 @@ private fun DeleteConfirmPhaseContent(
         Spacer(Modifier.height(16.dp))
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.offset(x = shakeOffsetDp.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             options.forEachIndexed { i, opt ->
-                val isSelected = i == confirmOptionIndex
-                Text(
-                    text = opt.label,
-                    fontSize = if (isSelected) 16.sp else 14.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isSelected) opt.color else opt.color.copy(alpha = 0.35f)
-                )
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color.White.copy(alpha = 0.08f))
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-        ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "◀▶  스와이프로 선택",
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
-                Text(
-                    text = "탭으로 확정",
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
+                ConfirmOptionButton(opt.label, opt.color, i == confirmOptionIndex, if (isFlashing && i == confirmOptionIndex) borderColor else null)
             }
         }
 
@@ -804,4 +833,26 @@ private fun PresetLabel(
             .wrapContentHeight()
             .padding(top = 4.dp)
     )
+}
+
+// ─────────────────────────────────────────────
+// 안내 카드 한 줄: 아이콘 + 텍스트
+// ─────────────────────────────────────────────
+
+@Composable
+private fun HintLine(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.6f),
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = text,
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.6f)
+        )
+    }
 }
