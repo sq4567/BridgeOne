@@ -47,6 +47,26 @@ class MultiCursorController {
         state = state.copy(activePadIndex = index)
     }
 
+    /**
+     * 멀티 커서 활성 중 커서 수를 변경한다 (Phase 4.8.6). [disable]과 달리 해제 없이 수만 바꾼다.
+     *
+     * 기존 [PadModeState]는 보존하며 늘어난 패드는 pad1 상태로 시드, 줄어든 패드는 뒤에서부터 절단한다.
+     * [MultiCursorState.activePadIndex]가 새 범위를 벗어나면 마지막 인덱스로 clamp한다.
+     */
+    fun changeCursorCount(count: Int) {
+        require(count in MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX) {
+            "count는 $MULTI_CURSOR_COUNT_MIN~$MULTI_CURSOR_COUNT_MAX 범위여야 함: $count"
+        }
+        if (!state.isEnabled || count == state.cursorCount) return
+        val seed = state.padModeStates.firstOrNull() ?: PadModeState()
+        val updatedPads = List(count) { index -> state.padModeStates.getOrNull(index) ?: seed }
+        state = state.copy(
+            cursorCount = count,
+            padModeStates = updatedPads,
+            activePadIndex = state.activePadIndex.coerceIn(0, count - 1)
+        )
+    }
+
     /** 그리드 분할 ↔ 직접 전환 버튼 레이아웃 모드를 토글한다 (Phase 4.8.4). */
     fun toggleLayoutMode() {
         val next = if (state.layoutMode == MultiCursorLayoutMode.GRID) {

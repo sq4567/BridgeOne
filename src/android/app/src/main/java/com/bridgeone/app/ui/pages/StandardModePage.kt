@@ -465,13 +465,9 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onDpiLongPress = { dpiAdjustPopupVisible = true },
                         multiCursorState = multiCursor.state,
                         onCursorModeClick = {
-                            if (multiCursor.state.isEnabled) {
-                                multiCursor.disable()
-                                pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.SINGLE)
-                                sendMultiCursorCommand(MultiCursorCommand.buildHideVirtualCursor())
-                            } else {
-                                cursorCountPopupVisible = true
-                            }
+                            // Phase 4.8.6: 활성 중에도 즉시 해제하지 않고 팝업을 띄워
+                            // 현재 수 강조 + 해제 버튼으로 커서 수 변경/해제를 함께 다룬다.
+                            cursorCountPopupVisible = true
                         },
                         onCursorModeLongPress = {
                             multiCursor.toggleLayoutMode()
@@ -501,17 +497,29 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         cursorCountPopupVisible = cursorCountPopupVisible,
                         onCursorCountSelected = { count ->
                             cursorCountPopupVisible = false
-                            val seed = PadModeState(
-                                clickMode = pageState.touchpadState.clickMode,
-                                moveMode = pageState.touchpadState.moveMode,
-                                scrollMode = pageState.touchpadState.scrollMode,
-                                dpi = pageState.touchpadState.dpiLevel
-                            )
-                            multiCursor.enable(count, seed)
-                            pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.MULTI)
-                            sendMultiCursorCommand(MultiCursorCommand.buildShowVirtualCursor(count))
+                            if (multiCursor.state.isEnabled) {
+                                // Phase 4.8.6: 활성 중 커서 수 변경 — 해제 없이 padModeStates 보존
+                                multiCursor.changeCursorCount(count)
+                                sendMultiCursorCommand(MultiCursorCommand.buildShowVirtualCursor(count))
+                            } else {
+                                val seed = PadModeState(
+                                    clickMode = pageState.touchpadState.clickMode,
+                                    moveMode = pageState.touchpadState.moveMode,
+                                    scrollMode = pageState.touchpadState.scrollMode,
+                                    dpi = pageState.touchpadState.dpiLevel
+                                )
+                                multiCursor.enable(count, seed)
+                                pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.MULTI)
+                                sendMultiCursorCommand(MultiCursorCommand.buildShowVirtualCursor(count))
+                            }
                         },
                         onCursorCountDismiss = { cursorCountPopupVisible = false },
+                        onCursorCountDisable = {
+                            cursorCountPopupVisible = false
+                            multiCursor.disable()
+                            pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.SINGLE)
+                            sendMultiCursorCommand(MultiCursorCommand.buildHideVirtualCursor())
+                        },
                         onModePresetLongPress = { modePresetPopupVisible = true },
                         modePresetPopupVisible = modePresetPopupVisible,
                         onModePresetConfirmed = { index ->

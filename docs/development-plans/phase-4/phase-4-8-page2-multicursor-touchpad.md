@@ -246,6 +246,39 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
+## Phase 4.8.6: UX/UI 보강 (패드 전환 애니메이션 + 다듬기)
+
+> **⚠️ Phase 4.8.3/4.8.4 변경사항**: 그리드 분할 모드의 dim `animateFloatAsState`(`Page2MultiCursorTouchpad.kt`)는 패드 전환 시 셀이 `TouchpadWrapper` 분기 ↔ dim Box 분기로 재마운트되어 tween이 실제로 재생되지 않는 죽은 애니메이션이었다. 이 Phase에서 dim 오버레이를 전 셀 상시 컴포지션 레이어로 분리하며 함께 수복했다.
+
+**목표**: 골격이 완성된 멀티 커서 UI에 패드 전환 애니메이션 2종과 출시 수준 다듬기를 적용한다.
+
+**세부 목표**:
+1. **그리드 분할 모드 — 하이라이트 슬라이드**: `Page2MultiCursorTouchpad.kt`의 GRID 분기를 3레이어로 재편(셀 본체 / dim 오버레이+번호 라벨 / 슬라이드 하이라이트). 활성 패드 강조가 이전 셀에서 새 셀로 `Animatable<Float>` 4개(left/top/right/bottom)로 250ms 슬라이드 이동 후, 도착 펄스(0.1초, 80% 불투명도 → 소멸)로 마무리한다. 도착 펄스는 `component-touchpad.md` §3.2.4.1의 미구현 "파란색 펄스" 스펙을 흡수 구현한 것이다. 하이라이트 레이어는 포인터 modifier가 없는 최상단 `drawBehind` Box라 히트 테스트에 관여하지 않으며, `TouchpadWrapper`의 마운트/입력 경로는 변경하지 않았다.
+2. **직접 전환 버튼 모드 — 터치패드 본체 슬라이드**: `AnimatedContent`는 `TouchpadWrapper`(수십 개 `remember` 상태 보유)를 재마운트시켜 관성 스크롤·엣지 팝업 상태가 끊기므로 채택하지 않았다. 대신 단일 `TouchpadWrapper` 인스턴스를 유지한 채 `graphicsLayer { translationX }`로만 이동시키고, 전환 중에는 이전 패드의 배경+테두리만 재현하는 경량 "유령 패널"을 반대 방향에서 함께 슬라이드시켜 페이저 감각을 낸다. `PadSwitchButtonPanel`의 활성 하이라이트도 `animateDpAsState`로 슬라이드하도록 별도 레이어로 재구성했다.
+3. **활성 중 커서 수 변경**: `CursorModeButton` 탭이 멀티 활성 중에도 즉시 해제하지 않고 `CursorCountSelectionPopup`을 띄우도록 변경(`StandardModePage.kt`). 팝업은 `currentCount`/`onDisable` 파라미터를 새로 받아 현재 수를 강조 표시하고 우측에 "해제" 버튼을 추가한다. `MultiCursorController.changeCursorCount(count)` 신규 — 기존 `padModeStates`를 보존하며 절단/확장(신규 패드는 pad1 상태로 시드), `activePadIndex`를 새 범위로 clamp한다. 수 변경 시에도 `show_virtual_cursor`(새 cursor_count) 훅을 재전송한다.
+4. **다듬기**: 그리드 비활성 셀 탭 시 햅틱 피드백 추가(`PadSwitchButtonPanel`과 일관), 그리드 비활성 셀에 패드 번호 라벨 표시, 직접 전환 버튼 패널과 터치패드 사이 간격(`DIRECT_BUTTON_PANEL_TOP_GAP_DP = 8f`) 추가, `CursorCountSelectionPopup` 퇴장 애니메이션(120ms, 등장의 역재생) 추가.
+
+> **계획과 다르게 구현된 부분 (사용자 스크린샷 확인 후 수정)**:
+> - **커서 수 뱃지 제거**: 세부 목표 3에서 계획했던 `CursorModeButton` 뱃지(`ControlButtonContainer`의 `multiCursorCursorCount` 파라미터)는 사용자 피드백으로 제거했다. `ControlButtonContainer`/`Page2MultiCursorTouchpad`에서 관련 파라미터·UI를 모두 되돌렸다.
+> - **`CursorCountSelectionPopup` 겹침 버그**: 팝업 카드가 `Alignment.TopCenter + padding(top = 56.dp)` 고정 오프셋을 쓰고 있었는데, `ControlButtonContainer`의 실제 높이(`controlHeight = (containerHeight * 0.15f).coerceIn(48.dp, 72.dp)`)가 화면에 따라 72dp까지 커져 56dp보다 큰 경우 팝업이 제어 버튼 아이콘을 가렸다. `Page2MultiCursorTouchpad.kt`에서 `ControlButtonContainer`에 `Modifier.onGloballyPositioned`를 붙여 실제 렌더 높이를 측정해 `anchorTopDp`로 팝업에 전달하도록 수정했다(하드코딩 오프셋 제거, 파일 로컬 여백 상수 `ANCHOR_TOP_GAP_DP = 8f`는 `CursorCountSelectionPopup.kt`에 정의).
+> - **선택 강조 스타일 통일**: 활성 중 재호출 시 현재 커서 수 버튼의 강조가 기존 `TouchpadColorBlue` 100% 불투명 단색 채움이었는데, `ModePresetPopup`의 "연한 배경 틴트 + 테두리" 컨벤션(현재 적용 항목은 45% alpha 틴트)과 스타일이 달라 유독 진하고 무거웠다. `TouchpadColorPurple.copy(alpha = 0.45f)` 배경 + `TouchpadColorPurple` 2dp 테두리로 변경했다 — 보라색은 `CursorModeButton`이 멀티 진입 시 이미 쓰는 대표색이라(`ControlButtonContainer.kt`) 트리거 버튼과 팝업의 색 언어가 일치한다. "해제" 버튼은 선택 상태가 아닌 독립 액션이라 기존 solid red 스타일을 유지했다.
+> - **선택/해제 직후 상태 플래시 버그**: 커서 수를 선택하거나 "해제"를 탭하면 부모(`multiCursorState`)가 즉시 바뀌는데, `CursorCountSelectionPopup`은 퇴장 애니메이션(120ms) 동안에도 `isActive = true`라 계속 리컴포지션되어 `currentCount`/`onDisable` 같은 살아있는 파라미터를 그대로 읽고 있었다. 그 결과 팝업이 사라지는 도중 "방금 바뀐 새 상태"(예: 방금 활성화된 커서 수+해제 버튼, 또는 방금 해제된 직후의 평범한 선택 화면)가 한 프레임 정도 비쳐 보이는 플래시가 발생했다. `CursorCountSelectionPopup.kt`에서 팝업이 열리는 순간의 `currentCount`/`onDisable`을 `remember` 상태로 스냅샷해 `frozenCurrentCount`/`frozenOnDisable`로 렌더링에 사용하도록 수정 — 퇴장 중에는 항상 "열렸을 때의 모습" 그대로 페이드아웃한다.
+> - **패드 전환 애니메이션 속도 2배 (사용자 피드백)**: `GRID_PAD_SWITCH_ANIM_DURATION_MS`(200→100), `GRID_HIGHLIGHT_SLIDE_DURATION_MS`(250→125), `GRID_HIGHLIGHT_FADE_OUT_MS`(100→50), `DIRECT_SLIDE_DURATION_MS`(250→125), `DIRECT_BUTTON_HIGHLIGHT_SLIDE_MS`(200→100)를 전부 절반으로 줄여 패드 전환이 더 빠르게 느껴지도록 조정. 이후 사용자 확인을 거쳐 이 값들을 신규 기본값으로 확정(`MultiCursorConstants.kt`의 `⚠️ 의도적 변경` 표기 제거).
+
+**신규 상수** (`MultiCursorConstants.kt`): `GRID_HIGHLIGHT_SLIDE_DURATION_MS`(250), `GRID_HIGHLIGHT_STROKE_WIDTH_DP`(3f), `GRID_HIGHLIGHT_CORNER_RADIUS_DP`(12f), `GRID_HIGHLIGHT_ARRIVAL_PULSE_ALPHA`(0.8f), `GRID_HIGHLIGHT_FADE_OUT_MS`(100), `GRID_CELL_LABEL_ALPHA`(0.35f), `DIRECT_SLIDE_DURATION_MS`(250), `DIRECT_BUTTON_HIGHLIGHT_SLIDE_MS`(200), `DIRECT_BUTTON_PANEL_TOP_GAP_DP`(8f).
+
+**참조 문서**:
+- `docs/android/component-touchpad.md` §1.7.2 (활성 중 모드), §3.2.4.1 (전환 효과)
+
+**검증**:
+- [x] `./gradlew assembleDebug` 빌드 성공
+- [x] 그리드 2/3/4에서 패드 전환 시 하이라이트 슬라이드+도착 펄스, dim fade, 번호 라벨, 탭 햅틱 동작 확인 (실기 확인 완료)
+- [x] 직접 전환 모드에서 본체 슬라이드 방향(인덱스 증가 시 왼쪽으로 밀림) + 패널 하이라이트 슬라이드 확인 (실기 확인 완료)
+- [x] 관성 스크롤 중 직접 전환 모드 패드 전환 시 관성이 끊기지 않는지 확인 (단일 인스턴스 보존 검증, 실기 확인 완료)
+- [x] 멀티 활성 중 `CursorModeButton` 탭 → 팝업(현재 수 강조+해제 버튼), 수 변경 시 패드 상태 보존, 해제 시 싱글 복귀 확인 (실기 확인 완료, 위치 겹침·상태 플래시 버그 수정 후 재확인)
+
+---
+
 ## Phase 4.8 완료 후 Page 2 구조
 
 ```

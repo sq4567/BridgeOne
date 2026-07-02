@@ -1,16 +1,24 @@
 package com.bridgeone.app.ui.components.touchpad
 
 import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,39 +52,64 @@ internal fun PadSwitchButtonPanel(
 
     val panelShape = RoundedCornerShape(MultiCursorConstants.DIRECT_BUTTON_CORNER_RADIUS_DP.dp)
 
-    Row(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .height(MultiCursorConstants.DIRECT_BUTTON_PANEL_HEIGHT_DP.dp)
             .clip(panelShape)
             .background(Color(0xFF1A1A1A))
     ) {
-        for (index in 0 until cursorCount) {
-            val isActive = index == activePadIndex
-            val interactionSource = remember { MutableInteractionSource() }
-            Row(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .weight(1f)
-                    .background(
-                        if (isActive) TouchpadColorBlue
-                        else TouchpadColorBlue.copy(alpha = MultiCursorConstants.DIRECT_BUTTON_INACTIVE_ALPHA)
-                    )
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null
-                    ) {
-                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                        onPadSwitch(index)
-                    },
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "${index + 1}",
-                    color = TouchpadColorButtonText,
-                    fontWeight = FontWeight.Bold
+        // 바닥 레이어: 비활성 색 셀 배경
+        Row(modifier = Modifier.fillMaxSize()) {
+            for (index in 0 until cursorCount) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .weight(1f)
+                        .background(TouchpadColorBlue.copy(alpha = MultiCursorConstants.DIRECT_BUTTON_INACTIVE_ALPHA))
                 )
+            }
+        }
+
+        // 중간 레이어: 활성 패드를 나타내며 슬라이드하는 하이라이트
+        val cellWidth = maxWidth / cursorCount
+        val highlightOffset by animateDpAsState(
+            targetValue = cellWidth * activePadIndex,
+            animationSpec = tween(MultiCursorConstants.DIRECT_BUTTON_HIGHLIGHT_SLIDE_MS),
+            label = "directButtonHighlightSlide"
+        )
+        Box(
+            modifier = Modifier
+                .offset(x = highlightOffset)
+                .width(cellWidth)
+                .fillMaxHeight()
+                .background(TouchpadColorBlue)
+        )
+
+        // 상단 레이어: 텍스트 + 입력 (배경 투명, 햅틱 유지)
+        Row(modifier = Modifier.fillMaxSize()) {
+            for (index in 0 until cursorCount) {
+                val interactionSource = remember { MutableInteractionSource() }
+                Row(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .weight(1f)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null
+                        ) {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            onPadSwitch(index)
+                        },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${index + 1}",
+                        color = TouchpadColorButtonText,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
