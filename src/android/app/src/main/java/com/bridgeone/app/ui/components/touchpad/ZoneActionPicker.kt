@@ -46,8 +46,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Adjust
+import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Loop
@@ -157,8 +160,8 @@ private val DEFAULT_DOMAIN_GROUPS = listOf(
         listOf(ActionDomain.SCROLL, ActionDomain.SCROLL_SPEED, ActionDomain.DPI, ActionDomain.DYNAMICS)),
     DomainGroup("KEY", "키 입력", "단축키·매크로", Icons.Filled.Keyboard,
         listOf(ActionDomain.COMBO, ActionDomain.MACRO)),
-    DomainGroup("MODE_NAV", "모드·탐색", "프리셋·되돌리기·페이지", Icons.Filled.Tune,
-        listOf(ActionDomain.MODE_PRESET, ActionDomain.HISTORY, ActionDomain.PAGE)),
+    DomainGroup("MODE_NAV", "모드·탐색", "프리셋·되돌리기·페이지·멀티 커서", Icons.Filled.Tune,
+        listOf(ActionDomain.MODE_PRESET, ActionDomain.HISTORY, ActionDomain.PAGE, ActionDomain.MULTI_CURSOR)),
 )
 
 // Phase 4.7.5-A: ActionDomain enum + domainOf → EdgeZoneActionResolver.kt로 이관
@@ -358,6 +361,24 @@ internal fun ActionDomainPicker(
                 for (i in 0 until pageCount) {
                     add(ActionOption("페이지 ${i + 1}", "${i + 1}번 페이지로 바로 이동",
                         Icons.AutoMirrored.Filled.ArrowForward, EdgeZoneAction.JumpToPage(i)))
+                }
+            }),
+        DomainInfo(ActionDomain.MULTI_CURSOR, "멀티 커서", "켜기·패드 전환·커서 수", Icons.Filled.Group,
+            EdgeZoneAction.ToggleMultiCursor, "토글", "멀티 커서 켜고 끄기",
+            buildList {
+                add(ActionOption("레이아웃 전환", "그리드↔직접 버튼", Icons.Filled.Autorenew,
+                    EdgeZoneAction.ToggleMultiCursorLayout))
+                for (count in MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX) {
+                    add(ActionOption("커서 ${count}개", "커서 수 ${count}로 설정", Icons.Filled.Tune,
+                        EdgeZoneAction.SetCursorCount(count)))
+                }
+                add(ActionOption("다음 패드", "다음 커서로 전환", Icons.AutoMirrored.Filled.ArrowForward,
+                    EdgeZoneAction.CyclePad(PageNav.NEXT)))
+                add(ActionOption("이전 패드", "이전 커서로 전환", Icons.AutoMirrored.Filled.ArrowBack,
+                    EdgeZoneAction.CyclePad(PageNav.PREV)))
+                for (i in 0 until MULTI_CURSOR_COUNT_MAX) {
+                    add(ActionOption("패드 ${i + 1}", "${i + 1}번 커서 활성화", Icons.Filled.Adjust,
+                        EdgeZoneAction.ActivatePad(i)))
                 }
             }),
     )

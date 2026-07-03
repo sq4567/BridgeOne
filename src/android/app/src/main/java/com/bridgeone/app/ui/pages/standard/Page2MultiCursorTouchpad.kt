@@ -53,10 +53,12 @@ import com.bridgeone.app.ui.common.TouchpadIds
 import com.bridgeone.app.ui.components.TouchpadWrapper
 import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
 import com.bridgeone.app.ui.components.touchpad.CursorCountSelectionPopup
+import com.bridgeone.app.ui.components.touchpad.EdgeZoneAction
 import com.bridgeone.app.ui.components.touchpad.MacroStep
 import com.bridgeone.app.ui.components.touchpad.MouseButton
 import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
 import com.bridgeone.app.ui.components.touchpad.ModePresetPopup
+import com.bridgeone.app.ui.components.touchpad.MULTI_CURSOR_COUNT_MIN
 import com.bridgeone.app.ui.components.touchpad.MultiCursorLayoutMode
 import com.bridgeone.app.ui.components.touchpad.MultiCursorState
 import com.bridgeone.app.ui.components.touchpad.PadSwitchButtonPanel
@@ -84,6 +86,9 @@ internal fun Page2MultiCursorTouchpad(
     onMouseHoldToggle: (MouseButton, MouseHoldMode) -> Unit = { _, _ -> },
     onCyclePage: (PageNav) -> Unit = {},
     onJumpToPage: (Int) -> Unit = {},
+    onMultiCursorAction: (EdgeZoneAction) -> Unit = {},
+    // 엣지 팝업 커서 개수 선택 서브 화면 진입 시 강조할 현재 멀티 커서 수. 기본값: MULTI_CURSOR_COUNT_MIN
+    currentMultiCursorCount: Int = MULTI_CURSOR_COUNT_MIN,
     buttonVisibility: TouchpadButtonVisibility = TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(1)),
     onDpiLongPress: () -> Unit = {},
     multiCursorState: MultiCursorState = MultiCursorState(),
@@ -185,6 +190,8 @@ internal fun Page2MultiCursorTouchpad(
                             onMouseHoldToggle = onMouseHoldToggle,
                             onCyclePage = onCyclePage,
                             onJumpToPage = onJumpToPage,
+                            onMultiCursorAction = onMultiCursorAction,
+                            currentMultiCursorCount = currentMultiCursorCount,
                             onModePresetLongPress = onModePresetLongPress,
                             buttonVisibility = buttonVisibility,
                             modifier = cellModifier.background(color = Color(0xFF1A1A1A))
@@ -376,6 +383,8 @@ internal fun Page2MultiCursorTouchpad(
                     onMouseHoldToggle = onMouseHoldToggle,
                     onCyclePage = onCyclePage,
                     onJumpToPage = onJumpToPage,
+                    onMultiCursorAction = onMultiCursorAction,
+                    currentMultiCursorCount = currentMultiCursorCount,
                     onModePresetLongPress = onModePresetLongPress,
                     buttonVisibility = buttonVisibility,
                     modifier = Modifier
@@ -408,6 +417,8 @@ internal fun Page2MultiCursorTouchpad(
                 onMouseHoldToggle = onMouseHoldToggle,
                 onCyclePage = onCyclePage,
                 onJumpToPage = onJumpToPage,
+                onMultiCursorAction = onMultiCursorAction,
+                currentMultiCursorCount = currentMultiCursorCount,
                 onModePresetLongPress = onModePresetLongPress,
                 buttonVisibility = buttonVisibility,
                 modifier = Modifier

@@ -100,6 +100,9 @@ enum class EdgeSwipeMode { SCROLL, CLICK, MOVE, CURSOR, DPI, SCROLL_SPEED, DYNAM
  * @param config               버튼 구성 설정 (비표시 모드는 그리드에서 제외)
  * @param selectedIndex        현재 선택(하이라이트)된 항목 인덱스
  *                             (0..visibleModes.size-1 = 모드 버튼, visibleModes.size = 확인 버튼, null = 없음)
+ * @param pendingCursorCount   커서 버튼 탭으로 개수 선택 서브 화면에 진입했을 때 pending 멀티 커서 수(2~4).
+ *                             null이면 서브 화면 진입 전이며 커서 카드는 기존 싱글/멀티 상태만 표시
+ * @param isCursorCountSelecting 개수 선택 서브 화면 활성 여부 — true면 모드 그리드 대신 개수 옵션(2~4) 그리드 표시
  * @param isModeSelecting      EdgePopupModeSelector(팝업 모드 선택기) 활성 여부 — 스와이프/직접 터치 중 선택 중
  * @param selectedPopupMode    선택된(또는 선택 중인) 팝업 모드 — 팝업 모드 선택기 하이라이트 및 팝업 UI 분기에 사용
  * @param isEdgeCandidate      엣지 후보 상태 — Phase 4.3.13 물방울 애니메이션용
@@ -113,6 +116,8 @@ fun EdgeSwipeOverlay(
     pendingState: TouchpadState,
     config: ControlButtonConfig,
     selectedIndex: Int?,
+    pendingCursorCount: Int? = null,
+    isCursorCountSelecting: Boolean = false,
     popupAnchorPx: Offset = Offset.Zero,
     isModeSelecting: Boolean = false,
     selectedPopupMode: EdgePopupMode? = null,
@@ -409,6 +414,47 @@ fun EdgeSwipeOverlay(
                 val buttonSizeDp = EdgeSwipeConstants.EDGE_POPUP_DIRECT_BUTTON_SIZE_DP.dp
                 val confirmHeightDp = EdgeSwipeConstants.EDGE_POPUP_DIRECT_CONFIRM_HEIGHT_DP.dp
 
+                if (isCursorCountSelecting) {
+                    // ── 개수 선택 서브 화면: 옵션 2/3/4, 확인 버튼 없음 ──
+                    val options = (MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX).toList()
+                    val optCols = 2
+                    val optRows = (options.size + optCols - 1) / optCols
+                    val gridW = optCols * buttonSizePx + (optCols - 1) * gapPx
+                    val gridH = optRows * buttonSizePx + (optRows - 1) * gapPx
+
+                    val gridLeft = (effectiveAnchor.x - gridW / 2).coerceIn(0f, (containerW - gridW).coerceAtLeast(0f))
+                    val gridTop = (effectiveAnchor.y - gridH / 2).coerceIn(0f, (containerH - gridH).coerceAtLeast(0f))
+
+                    options.forEachIndexed { index, count ->
+                        val row = index / optCols
+                        val col = index % optCols
+                        val x = gridLeft + col * (buttonSizePx + gapPx)
+                        val y = gridTop + row * (buttonSizePx + gapPx)
+                        val isSel = selectedIndex == index
+
+                        Box(
+                            modifier = Modifier
+                                .offset { IntOffset(x.toInt(), y.toInt()) }
+                                .size(buttonSizeDp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(TouchpadColorPurple.copy(alpha = if (isSel) 1.0f else 0.85f))
+                                .then(
+                                    if (isSel) Modifier.border(2.dp, Color.White, RoundedCornerShape(8.dp))
+                                    else Modifier
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "${count}개",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = contentColorFor(TouchpadColorPurple)
+                            )
+                        }
+                    }
+                    return@BoxWithConstraints
+                }
+
                 val cols = if (displayedModes.size <= 1) 1 else 2
                 val modeRows = (displayedModes.size + cols - 1) / cols
                 val gridW = cols * buttonSizePx + (cols - 1) * gapPx
@@ -423,7 +469,7 @@ fun EdgeSwipeOverlay(
                     val col = index % cols
                     val x = gridLeft + col * (buttonSizePx + gapPx)
                     val y = gridTop + row * (buttonSizePx + gapPx)
-                    val info = modeCurrentInfo(mode, pendingState)
+                    val info = modeCurrentInfo(mode, pendingState, pendingCursorCount)
                     val contentColor = contentColorFor(info.color)
                     val isSel = selectedIndex == index
 
@@ -503,6 +549,67 @@ fun EdgeSwipeOverlay(
                 val vPad = 12.dp
                 val hintH = 44.dp  // 안내 2줄 + 패딩 예상 높이. 기본값: 44dp
 
+                if (isCursorCountSelecting) {
+                    // ── 개수 선택 서브 화면: 옵션 2/3/4 한 행, 확인 버튼 없음 ──
+                    val options = (MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX).toList()
+                    val optItemSize = ((maxWidth - hPad * 2 - itemGap * (options.size - 1)) / options.size)
+                        .coerceIn(52.dp, 80.dp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = topReserve),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(itemGap)
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(itemGap)) {
+                                options.forEachIndexed { index, count ->
+                                    val isSel = selectedIndex == index
+                                    Box(
+                                        modifier = Modifier
+                                            .size(optItemSize)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(TouchpadColorPurple.copy(alpha = if (isSel) 1.0f else 0.75f))
+                                            .then(
+                                                if (isSel) Modifier.border(3.dp, Color.White, RoundedCornerShape(12.dp))
+                                                else Modifier
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "커서\n${count}개",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = contentColorFor(TouchpadColorPurple),
+                                            textAlign = TextAlign.Center,
+                                            lineHeight = 16.sp
+                                        )
+                                    }
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .alpha(hintAlpha.value)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF2A2A2A).copy(alpha = 0.9f))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "스와이프로 개수 선택 · 탭으로 결정",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFCCCCCC),
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                    return@BoxWithConstraints
+                }
+
                 // 터치패드 폭에 따라 동적으로 열 수 결정
                 val colsByWidth = when {
                     maxWidth >= 440.dp -> 4   // 가로/초광폭
@@ -538,6 +645,7 @@ fun EdgeSwipeOverlay(
                                         mode = mode,
                                         pendingState = pendingState,
                                         isSelected = selectedIndex == index,
+                                        pendingCursorCount = pendingCursorCount,
                                         itemSize = itemSize,
                                         modifier = Modifier
                                             .alpha(itemAlphas[index].value)
@@ -666,10 +774,11 @@ private fun EdgeSwipeModeItem(
     mode: EdgeSwipeMode,
     pendingState: TouchpadState,
     isSelected: Boolean,
+    pendingCursorCount: Int? = null,
     itemSize: Dp = 80.dp,
     modifier: Modifier = Modifier
 ) {
-    val info = modeCurrentInfo(mode, pendingState)
+    val info = modeCurrentInfo(mode, pendingState, pendingCursorCount)
     val iconSize = (itemSize * 0.35f).coerceIn(18.dp, 28.dp)
     val fontSize = (itemSize.value * 0.125f).coerceIn(7f, 11f)
 
@@ -804,7 +913,11 @@ private data class ModeDisplayInfo(
  * - 스크롤 OFF: 마지막 스크롤 종류 아이콘으로 어떤 스크롤이 켜질지 암시, 어두운 색
  * - ON 상태: 해당 모드의 밝은 색
  */
-private fun modeCurrentInfo(mode: EdgeSwipeMode, state: TouchpadState): ModeDisplayInfo = when (mode) {
+private fun modeCurrentInfo(
+    mode: EdgeSwipeMode,
+    state: TouchpadState,
+    pendingCursorCount: Int? = null
+): ModeDisplayInfo = when (mode) {
     EdgeSwipeMode.SCROLL -> when (state.scrollMode) {
         ScrollMode.OFF -> ModeDisplayInfo(
             iconResId = if (state.lastScrollMode == ScrollMode.INFINITE_SCROLL)
@@ -847,7 +960,14 @@ private fun modeCurrentInfo(mode: EdgeSwipeMode, state: TouchpadState): ModeDisp
             color = TouchpadColorOrange
         )
     }
-    EdgeSwipeMode.CURSOR -> when (state.cursorMode) {
+    EdgeSwipeMode.CURSOR -> if (pendingCursorCount != null) {
+        // 커서 카드에서 세로 스와이프로 순환 선택 중 — 확정될 커서 수를 표시
+        ModeDisplayInfo(
+            iconResId = R.drawable.ic_multi_cursor,
+            label = "커서\n${pendingCursorCount}개",
+            color = TouchpadColorPurple
+        )
+    } else when (state.cursorMode) {
         CursorMode.SINGLE -> ModeDisplayInfo(
             iconResId = R.drawable.ic_single_cursor,
             label = "싱글\n커서",

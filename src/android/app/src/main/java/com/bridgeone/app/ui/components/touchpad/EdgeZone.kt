@@ -39,6 +39,11 @@ fun EdgeZoneAction.categoryColor(): Color = when (this) {
     is EdgeZoneAction.RestorePreviousMode -> Color(0xFF2A3540)       // 이전 설정 복원 → 블루그레이
     is EdgeZoneAction.SendShortcut -> Color(0xFF1A3A5C)             // 단축키 → 딥 네이비
     is EdgeZoneAction.SendMacro -> Color(0xFF2A1A5C)                // 매크로 → 딥 다크퍼플
+    is EdgeZoneAction.ToggleMultiCursor,
+    is EdgeZoneAction.ToggleMultiCursorLayout,
+    is EdgeZoneAction.SetCursorCount,
+    is EdgeZoneAction.ActivatePad,
+    is EdgeZoneAction.CyclePad -> Color(0xFF1A5C5C)                  // 멀티 커서 계열 → 딥 시안
     is EdgeZoneAction.ToggleMode -> when (this.mode) {
         EdgeSwipeMode.CLICK -> Color(0xFF8B1A1A)                     // 클릭 토글 → 딥 레드
         EdgeSwipeMode.MOVE -> Color(0xFFB84A00)                      // 이동 토글 → 딥 오렌지
@@ -143,6 +148,30 @@ sealed class EdgeZoneAction {
      */
     data class JumpToPage(val pageIndex: Int) : EdgeZoneAction()
 
+    /** 멀티 커서 활성/비활성 토글. 비활성→활성 시 마지막 커서 수를 복원(없으면 기본 2). */
+    object ToggleMultiCursor : EdgeZoneAction()
+
+    /**
+     * 특정 멀티 커서 패드를 즉시 활성화.
+     * @param index 0-based 패드 인덱스(pad1=0). 기본값: 0
+     */
+    data class ActivatePad(val index: Int) : EdgeZoneAction()
+
+    /**
+     * 멀티 커서 패드 순환 전환 (다음/이전).
+     * @param direction 전환 방향. 기본값: NEXT
+     */
+    data class CyclePad(val direction: PageNav) : EdgeZoneAction()
+
+    /**
+     * 멀티 커서 수 직접 지정. 비활성 상태면 활성화, 활성 상태면 수만 변경.
+     * @param count 커서 수 (2~4). 기본값: MULTI_CURSOR_COUNT_MIN(2)
+     */
+    data class SetCursorCount(val count: Int) : EdgeZoneAction()
+
+    /** 멀티 커서 레이아웃 모드 토글 (그리드 분할 ↔ 직접 전환 버튼). */
+    object ToggleMultiCursorLayout : EdgeZoneAction()
+
     /**
      * 매크로 순차 키 입력 (여러 스텝을 딜레이를 두고 순차 전송).
      * @param steps 각 스텝의 키 조합 목록. 기본값: emptyList()
@@ -196,6 +225,11 @@ sealed class EdgeZoneAction {
         is MouseHoldToggle -> "Mouse"
         is CyclePage -> if (direction == PageNav.NEXT) "ArrowForward" else "ArrowBack"
         is JumpToPage -> "Tune"
+        ToggleMultiCursor -> "Group"
+        ToggleMultiCursorLayout -> "Autorenew"
+        is SetCursorCount -> "Tune"
+        is ActivatePad -> "Adjust"
+        is CyclePad -> if (direction == PageNav.NEXT) "ArrowForward" else "ArrowBack"
         Unassigned -> ""
     }
 
@@ -245,6 +279,11 @@ sealed class EdgeZoneAction {
         }
         is CyclePage -> if (direction == PageNav.NEXT) "다음 페이지" else "이전 페이지"
         is JumpToPage -> "페이지 ${pageIndex + 1}"
+        ToggleMultiCursor -> "멀티 커서 토글"
+        ToggleMultiCursorLayout -> "커서 레이아웃 전환"
+        is SetCursorCount -> "커서 ${count}개"
+        is ActivatePad -> "패드 ${index + 1}"
+        is CyclePad -> if (direction == PageNav.NEXT) "다음 패드" else "이전 패드"
     }
 }
 

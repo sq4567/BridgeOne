@@ -395,7 +395,7 @@ private fun SettingsEdgeInteractionModeSection(
                 )
                 Text(
                     text = when (mode) {
-                        EdgeInteractionMode.LEGACY_POPUP -> "기존 팝업 방식 (5단계)"
+                        EdgeInteractionMode.LEGACY_POPUP -> "엣지 팝업 방식"
                         EdgeInteractionMode.ZONE -> "엣지 존 방식"
                     },
                     fontSize = 14.sp,

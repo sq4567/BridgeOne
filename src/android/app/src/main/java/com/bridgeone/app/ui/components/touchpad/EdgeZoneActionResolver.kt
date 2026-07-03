@@ -5,7 +5,7 @@ package com.bridgeone.app.ui.components.touchpad
  * 현재 액션의 도메인 판정에 사용된다.
  */
 internal enum class ActionDomain {
-    CLICK, SCROLL, MOVE, DPI, SCROLL_SPEED, DYNAMICS, MODE_PRESET, HISTORY, COMBO, MACRO, MOUSE_HOLD, PAGE, UNASSIGNED
+    CLICK, SCROLL, MOVE, DPI, SCROLL_SPEED, DYNAMICS, MODE_PRESET, HISTORY, COMBO, MACRO, MOUSE_HOLD, PAGE, MULTI_CURSOR, UNASSIGNED
 }
 
 /**
@@ -49,6 +49,11 @@ internal object EdgeZoneActionResolver {
         is EdgeZoneAction.MouseHoldToggle -> ActionDomain.MOUSE_HOLD
         is EdgeZoneAction.CyclePage -> ActionDomain.PAGE
         is EdgeZoneAction.JumpToPage -> ActionDomain.PAGE
+        EdgeZoneAction.ToggleMultiCursor -> ActionDomain.MULTI_CURSOR
+        EdgeZoneAction.ToggleMultiCursorLayout -> ActionDomain.MULTI_CURSOR
+        is EdgeZoneAction.SetCursorCount -> ActionDomain.MULTI_CURSOR
+        is EdgeZoneAction.ActivatePad -> ActionDomain.MULTI_CURSOR
+        is EdgeZoneAction.CyclePad -> ActionDomain.MULTI_CURSOR
         EdgeZoneAction.Unassigned -> ActionDomain.UNASSIGNED
     }
 
@@ -76,6 +81,11 @@ internal object EdgeZoneActionResolver {
         a is EdgeZoneAction.MouseHoldToggle && b is EdgeZoneAction.MouseHoldToggle -> a.button == b.button && a.mode == b.mode
         a is EdgeZoneAction.CyclePage && b is EdgeZoneAction.CyclePage -> a.direction == b.direction
         a is EdgeZoneAction.JumpToPage && b is EdgeZoneAction.JumpToPage -> a.pageIndex == b.pageIndex
+        a is EdgeZoneAction.ToggleMultiCursor && b is EdgeZoneAction.ToggleMultiCursor -> true
+        a is EdgeZoneAction.ToggleMultiCursorLayout && b is EdgeZoneAction.ToggleMultiCursorLayout -> true
+        a is EdgeZoneAction.SetCursorCount && b is EdgeZoneAction.SetCursorCount -> a.count == b.count
+        a is EdgeZoneAction.ActivatePad && b is EdgeZoneAction.ActivatePad -> a.index == b.index
+        a is EdgeZoneAction.CyclePad && b is EdgeZoneAction.CyclePad -> a.direction == b.direction
         else -> false
     }
 

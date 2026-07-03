@@ -301,12 +301,19 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 - `docs/android/component-touchpad.md` §1.2.3 (멀티 커서 선택 상태 관리)
 - `docs/android/technical-specification-app.md` §2.2.6 (멀티 커서 알고리즘 명세)
 
-**검증**:
-- [ ] 5개 신규 액션 각각을 엣지 존에 할당 가능(편집기 피커에 노출)
-- [ ] armed 상태에서 손 뗄 때 해당 멀티 커서 동작 실행(활성화/비활성화/패드 전환/수 변경/레이아웃 토글)
-- [ ] 존 할당 JSON 저장/복원 시 신규 액션 필드 보존
-- [ ] 서버 미연결 상태에서도 크래시 없이 앱 내부 완결 동작(`buildShowVirtualCursor` 등 기존 전송 훅 재사용 확인)
-- [ ] `ToggleMode(CURSOR)` 무동작 상태 정리 완료
+**검증** (에뮬레이터(Pixel_6a) 실기기 조작으로 확인. 항목별 확인 방법 명시):
+- [x] 5개 신규 액션 각각을 엣지 존에 할당 가능(편집기 피커에 노출) — 존 편집기 → 모드·탐색 → 멀티 커서 폴더에서 토글/레이아웃전환/커서2·3·4개/다음·이전 패드/패드1~4 카드 전부 노출 확인
+- [x] armed 상태에서 손 뗄 때 해당 멀티 커서 동작 실행 — Page2에 `CyclePad(NEXT)`를 좌측 존에 할당 후 안쪽으로 밀었다 떼자 활성 패드가 실제로 전환됨(그리드 활성 테두리 이동) 확인
+- [x] 존 할당 JSON 저장/복원 시 신규 액션 필드 보존 — `touchpad_edge_zone_assignments.json`에 `{"type":"CyclePad","dir":"NEXT"}` 저장 확인 + 앱 강제종료 후 재시작해도 존 아이콘/동작 유지 확인
+- [x] 서버 미연결 상태에서도 크래시 없이 앱 내부 완결 동작 — ESSENTIAL 모드에서 5종 액션 실행 시 logcat에 `multiCursorCommand skipped (ESSENTIAL): ...` 로그만 남고 크래시(FATAL/AndroidRuntime) 없음 확인
+- [x] `ToggleMode(CURSOR)` 무동작 상태 정리 완료 — **실기기 재검증 완료**. 최초 시도에서 `adb shell input swipe`로 팝업이 안 열렸던 원인은 `TouchpadWrapper.kt`의 `if (bridgeMode == BridgeMode.ESSENTIAL) { null }`(엣지 스와이프 감지 자체가 ESSENTIAL 모드에서 비활성화됨) — Page1은 기본 ESSENTIAL이라 막혔고, Page2는 `bridgeMode = BridgeMode.STANDARD`가 하드코딩돼 있어 열림. Page2에서 왼쪽 가장자리를 밀어 팝업 모드 선택기(직접 터치/스와이프) → 스와이프 그리드까지 정상 진입 확인, 그리드의 "커서" 카드를 스와이프로 선택 후 릴리즈하자 `latestOnMultiCursorAction(ToggleMultiCursor)`가 실제로 멀티 커서를 활성화(그리드 분할 렌더링)함을 확인
+
+> **⚠️ 실제 구현이 계획과 다른 부분**:
+> - **콜백 배선을 5종 개별이 아닌 단일 `onMultiCursorAction: (EdgeZoneAction) -> Unit`으로 통합**했다(`TouchpadWrapper.kt`/`Page2MultiCursorTouchpad.kt`/`StandardModePage.kt` 공통). 3계층 파이프라인에서 5개 콜백을 각각 뚫으면 시그니처가 폭증하고, 5종 모두 단일 `MultiCursorController`가 대상이라 응집도 상 하나로 묶는 게 자연스럽다. **후속 Phase에서 멀티 커서 관련 신규 액션을 추가할 때도 이 단일 콜백에 `when` 분기만 추가하면 된다** — TouchpadWrapper/Page2/StandardModePage 시그니처를 다시 늘릴 필요 없음.
+> - **세부 목표 5 "정리"는 "제거/재매핑"이 아니라 "실동작화"로 처리했다**(사용자 결정). `EdgeSwipeMode.CURSOR`/`ToggleMode(CURSOR)` enum과 `domainOf`의 CURSOR→CLICK 매핑은 그대로 유지(하위 호환, `EdgeZoneActionResolverTest.kt` 98~99행 테스트 무수정). 엣지 스와이프 팝업의 "커서" 항목이 실제로 멀티 커서를 켜고 끄도록 배선했다 — 구체적인 탭/개수 선택/확정 방식은 **Phase 4.8.11에서 pending 방식으로 전면 재설계**됐으니 그쪽을 최신 기준으로 볼 것. **멀티 커서 진입 경로는 3개**: ① 상단 `CursorModeButton`(커서 수 선택 팝업), ② 엣지 존 안쪽 밀기(5종 신규 액션), ③ 엣지 스와이프 팝업의 "커서" 카드(Phase 4.8.11 참조).
+> - **`Page1TouchpadActions.kt`는 수정하지 않았다.** Page1은 싱글 커서 전용이라 `onMultiCursorAction`을 배선할 대상이 없음(파라미터 기본값 `{}` no-op으로 TouchpadWrapper 호출부가 그대로 동작). 후속 Phase에서 Page1에도 멀티 커서 액션을 노출하려면 이 콜백을 새로 뚫어야 함. **참고**: Page1은 `bridgeMode`가 기본 ESSENTIAL이라 실제 USB 연결 없이는 엣지 스와이프 팝업 자체가 열리지 않음 — Page1에 멀티 커서 스와이프를 노출하려면 이 제약도 함께 고려해야 함.
+> - **`disable()` 시 `cursorCount`가 0으로 리셋**되는 기존 `MultiCursorController` 동작 때문에, `ToggleMultiCursor` 재활성화용 `lastMultiCursorCount` 상태를 `StandardModePage.kt`에 신설(`multiCursor` 컨트롤러 옆). Phase 4.8.8(패드별 프리셋 시드)에서 활성화 로직을 건드릴 경우 이 상태와 `enableMultiCursor`/`disableMultiCursor`/`setMultiCursorCount`/`switchToPad` 추출 람다(`StandardModePage.kt`, `multiCursor` 선언부 바로 아래)를 재사용할 것.
+> - ~~스와이프 팝업의 "커서" 카드에서 멀티 커서 수(2/3/4)를 세로 추가 스와이프로 순환 선택하는 기능(`cursorLocked` 등 커서 카드 잠금 상태 기반)을 구현했다~~ **→ Phase 4.8.11에서 pending 방식으로 완전히 대체되며 이 세로 스와이프 순환 잠금 메커니즘은 제거됐다.** 이 항목은 히스토리 보존 목적으로만 남긴다.
 
 ---
 
@@ -385,6 +392,38 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
+## Phase 4.8.11: 엣지 팝업 커서 버튼 pending 방식 통일
+
+**목표**: 엣지 스와이프 팝업의 "싱글/멀티 커서" 버튼이 다른 모드 버튼(스크롤·클릭·이동·DPI 등)과 달리 탭 즉시 컨트롤러를 조작하고 팝업이 닫히던 것을, 다른 버튼과 동일한 "탭 → pending 변경 → 확인 버튼으로 커밋" 방식으로 통일한다. 계획에 없던 하위 Phase — Phase 4.8.7에서 "실동작화" 목적으로 즉발 처리해뒀던 것을 사용자 요청으로 재설계했다.
+
+**개발 기간**: (세션 중 즉시 처리, 별도 산정 없음)
+
+**세부 목표**:
+1. 커서 버튼 탭: 싱글→멀티 시 **pending으로만** 전환하고, 동시에 다른 모드 버튼 자리가 분할 개수 옵션(2/3/4) 그리드로 대체되는 서브 화면에 진입한다. 팝업은 닫히지 않는다.
+2. 개수 옵션 화면에서 스와이프로 하나를 고른 뒤 탭하면 개수가 pending으로 결정되고 원래 모드 그리드로 복귀한다(다른 버튼 재등장).
+3. 이미 pending MULTI 상태에서 커서 버튼을 다시 탭하면 즉시 pending SINGLE로 돌아간다(개수 화면 재진입 안 함). 이때도 커서 버튼에 포커스가 유지된다(포커스가 다른 곳으로 튀지 않게, 사용자 추가 요청).
+4. "확인" 버튼을 눌러야 pending cursorMode/개수가 실제 `MultiCursorController`에 반영된다(나머지 모드 상태를 먼저 커밋해 seed를 최신화한 뒤 `SetCursorCount`/`ToggleMultiCursor` 디스패치).
+5. 스와이프 모드·직접 터치 모드 양쪽에 동일하게 적용.
+
+**제거된 것**: Phase 4.8.7에서 구현했던 "커서 카드에 착지 후 세로 추가 스와이프로 개수 순환"(`cursorLocked` 등 제스처 로컬 잠금 상태) 및 커서 버튼 탭 즉발 `ToggleMultiCursor` 호출은 전부 제거됐다.
+
+**변경 파일**:
+- `TouchpadWrapper.kt`: `currentMultiCursorCount` 파라미터 추가, `isCursorCountSelecting` 상태 추가, `pendingMultiCursorCount`를 "개수 선택 서브 화면의 pending 개수" 의미로 재정의, `handleCursorTap()`/`handleCursorCountTap()`/`commitPopup()` 헬퍼로 스와이프·직접 터치 두 경로 로직 공유
+- `EdgeSwipeOverlay.kt`: `isCursorCountSelecting` 파라미터 추가, 스와이프·직접 터치 그리드 양쪽에 개수 옵션(2/3/4) 렌더링 분기
+- `Page2MultiCursorTouchpad.kt` / `StandardModePage.kt`: 현재 멀티 커서 개수(`currentMultiCursorCount`)를 `TouchpadWrapper`까지 배선(활성 시 실제 개수, 비활성 시 `lastMultiCursorCount`)
+
+**참조 문서**: 이 Phase는 UX 플로우 변경으로 별도 설계 문서 보강 없이 진행(기존 §2.2.6 멀티 커서 알고리즘 명세 자체는 영향 없음 — 컨트롤러 조작 시점만 pending 커밋으로 이동).
+
+**검증**:
+- [ ] 커서 버튼 탭 → 다른 버튼들이 2/3/4 개수 버튼으로 대체되고 팝업 유지
+- [ ] 개수 스와이프 선택 → 탭 → 모드 그리드 복귀, 커서 카드가 "멀티 커서"로 표시
+- [ ] 확인 버튼 탭 → 실제 멀티 커서가 선택 개수로 활성화
+- [ ] 멀티(pending) 상태에서 커서 버튼 재탭 → 싱글로 pending 전환 + 포커스가 커서 버튼에 유지, 확인 시 실제 비활성화
+- [ ] 개수 화면에서 엣지로 밀기 → 팝업 전체 취소
+- [ ] 직접 터치 모드에서도 위 전부 동일 동작
+
+---
+
 ## Phase 4.8 완료 후 Page 2 구조
 
 ```
@@ -410,5 +449,6 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 | 패드별 프리셋 시드 (4.8.8) | 해당 없음 | 활성화 시 패드마다 다른 모드 프리셋 자동 배정 |
 | 패드별 엣지 존 할당 (4.8.9) | 해당 없음 | 각 패드가 독립 엣지 존 액션 세트 보유(그리드/직접 전환 모두) |
 | 패드 커스텀 라벨 (4.8.10) | 해당 없음 | 롱프레스로 패드 이름 편집, 번호 대신 표시 |
+| 엣지 팝업 커서 버튼 pending 방식 (4.8.11) | 해당 없음 | 커서 버튼도 다른 모드 버튼처럼 확인 버튼으로 커밋, 개수 선택은 서브 화면 |
 
 > **소리 감지 패드 전환**: 마이크 입력으로 패드를 전환하는 기능은 멀티 커서 전용을 넘어 여러 앱 요소를 소리로 제어하는 일반 기능으로 확장하여 **Phase 7(추가 기능 개발)**에서 별도 계획한다. 이 Phase 범위에서 제외.

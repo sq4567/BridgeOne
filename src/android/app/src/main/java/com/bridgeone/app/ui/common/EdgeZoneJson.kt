@@ -12,6 +12,8 @@ import com.bridgeone.app.ui.components.touchpad.EdgeZoneTrigger
 import com.bridgeone.app.ui.components.touchpad.EntryEdge
 import com.bridgeone.app.ui.components.touchpad.MacroStep
 import com.bridgeone.app.ui.components.touchpad.MacroStepKind
+import com.bridgeone.app.ui.components.touchpad.MULTI_CURSOR_COUNT_MAX
+import com.bridgeone.app.ui.components.touchpad.MULTI_CURSOR_COUNT_MIN
 import com.bridgeone.app.ui.components.touchpad.MouseButton
 import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
 import com.bridgeone.app.ui.components.touchpad.MoveMode
@@ -169,6 +171,20 @@ private fun zoneActionToJson(action: EdgeZoneAction): JSONObject {
             obj.put("type", "JumpToPage")
             obj.put("page", action.pageIndex)
         }
+        EdgeZoneAction.ToggleMultiCursor -> obj.put("type", "ToggleMultiCursor")
+        EdgeZoneAction.ToggleMultiCursorLayout -> obj.put("type", "ToggleMultiCursorLayout")
+        is EdgeZoneAction.SetCursorCount -> {
+            obj.put("type", "SetCursorCount")
+            obj.put("count", action.count)
+        }
+        is EdgeZoneAction.ActivatePad -> {
+            obj.put("type", "ActivatePad")
+            obj.put("index", action.index)
+        }
+        is EdgeZoneAction.CyclePad -> {
+            obj.put("type", "CyclePad")
+            obj.put("dir", action.direction.name)
+        }
     }
     return obj
 }
@@ -288,6 +304,17 @@ private fun zoneActionFromJson(obj: JSONObject): EdgeZoneAction = when (obj.getS
     )
     "JumpToPage"      -> EdgeZoneAction.JumpToPage(
         pageIndex = obj.optInt("page", 0).coerceAtLeast(0)
+    )
+    "ToggleMultiCursor"       -> EdgeZoneAction.ToggleMultiCursor
+    "ToggleMultiCursorLayout" -> EdgeZoneAction.ToggleMultiCursorLayout
+    "SetCursorCount"  -> EdgeZoneAction.SetCursorCount(
+        obj.optInt("count", MULTI_CURSOR_COUNT_MIN).coerceIn(MULTI_CURSOR_COUNT_MIN, MULTI_CURSOR_COUNT_MAX)
+    )
+    "ActivatePad"     -> EdgeZoneAction.ActivatePad(
+        obj.optInt("index", 0).coerceIn(0, MULTI_CURSOR_COUNT_MAX - 1)
+    )
+    "CyclePad"        -> EdgeZoneAction.CyclePad(
+        direction = runCatching { PageNav.valueOf(obj.getString("dir")) }.getOrDefault(PageNav.NEXT)
     )
     else              -> EdgeZoneAction.Unassigned
 }

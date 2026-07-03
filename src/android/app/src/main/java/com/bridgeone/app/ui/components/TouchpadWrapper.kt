@@ -104,6 +104,8 @@ import com.bridgeone.app.ui.components.touchpad.InputModeCheck
 import com.bridgeone.app.ui.components.touchpad.MouseButton
 import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
 import com.bridgeone.app.ui.components.touchpad.MacroStep
+import com.bridgeone.app.ui.components.touchpad.MULTI_CURSOR_COUNT_MIN
+import com.bridgeone.app.ui.components.touchpad.MULTI_CURSOR_COUNT_MAX
 import com.bridgeone.app.ui.components.touchpad.PageNav
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneDetector
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneOverlay
@@ -187,6 +189,9 @@ fun TouchpadWrapper(
     onMouseHoldToggle: (button: MouseButton, mode: MouseHoldMode) -> Unit = { _, _ -> },
     onCyclePage: (direction: PageNav) -> Unit = {},
     onJumpToPage: (pageIndex: Int) -> Unit = {},
+    onMultiCursorAction: (action: EdgeZoneAction) -> Unit = {},
+    // 엣지 팝업 커서 개수 선택 서브 화면 진입 시 강조할 현재 멀티 커서 수. 기본값: MULTI_CURSOR_COUNT_MIN
+    currentMultiCursorCount: Int = MULTI_CURSOR_COUNT_MIN,
     onTouchEvent: (
         eventType: PointerEventType,
         currentPosition: Offset,
@@ -211,6 +216,8 @@ fun TouchpadWrapper(
     val latestOnMouseHoldToggle by rememberUpdatedState(onMouseHoldToggle)
     val latestOnCyclePage by rememberUpdatedState(onCyclePage)
     val latestOnJumpToPage by rememberUpdatedState(onJumpToPage)
+    val latestOnMultiCursorAction by rememberUpdatedState(onMultiCursorAction)
+    val latestCurrentMultiCursorCount by rememberUpdatedState(currentMultiCursorCount)
     var pendingImeCheckMacro: EdgeZoneAction.SendMacro? by remember { mutableStateOf(null) }
     val latestConfig by rememberUpdatedState(buttonVisibility.controlButtonConfig)
 
@@ -294,6 +301,10 @@ fun TouchpadWrapper(
     var pendingEdgeState by remember { mutableStateOf<TouchpadState?>(null) }
     // 현재 선택(하이라이트)된 항목 인덱스 (null = 없음)
     var selectedItemIndex by remember { mutableStateOf<Int?>(null) }
+    // 커서 버튼 탭으로 개수 선택 서브 화면 진입 시 pending 멀티 커서 수 (null = 서브 화면 진입 전)
+    var pendingMultiCursorCount by remember { mutableStateOf<Int?>(null) }
+    // 개수 선택 서브 화면 활성 여부 — true면 모드 그리드 대신 개수 옵션(2~4) 그리드를 표시
+    var isCursorCountSelecting by remember { mutableStateOf(false) }
     // 직접 터치 모드: 손가락을 놓은 위치 (버튼 그리드 앵커)
     var popupAnchorPx by remember { mutableStateOf(Offset.Zero) }
     // EdgePopupModeSelector(팝업 모드 선택기): 팝업 모드(스와이프/직접 터치)를 선택 중
@@ -516,6 +527,8 @@ fun TouchpadWrapper(
                             popupAnchorPx = Offset.Zero
                             selectedPopupMode = null
                             isPopupPinned = false
+                            pendingMultiCursorCount = null
+                            isCursorCountSelecting = false
                         }
 
                         var bgEv = awaitPointerEvent()
@@ -630,10 +643,102 @@ fun TouchpadWrapper(
                             popupAnchorPx = Offset.Zero
                             selectedPopupMode = null
                             isPopupPinned = false
+                            pendingMultiCursorCount = null
+                            isCursorCountSelecting = false
+                        }
+
+                        // 커서 버튼 탭: SINGLE→MULTI면 개수 선택 서브 화면 진입(현재 개수 강조),
+                        // 이미 MULTI(pending)면 SINGLE로 즉시 토글(서브 화면 진입 안 함). 둘 다 pending만 변경.
+                        fun handleCursorTap() {
+                            val pending = pendingEdgeState ?: latestState
+                            if (pending.cursorMode == CursorMode.SINGLE) {
+                                pendingEdgeState = applyEdgeModeToggle(pending, EdgeSwipeMode.CURSOR, latestCustomPresets.size)
+                                pendingMultiCursorCount = latestCurrentMultiCursorCount
+                                isCursorCountSelecting = true
+                                selectedItemIndex = (latestCurrentMultiCursorCount - MULTI_CURSOR_COUNT_MIN)
+                                    .coerceIn(0, MULTI_CURSOR_COUNT_MAX - MULTI_CURSOR_COUNT_MIN)
+                            } else {
+                                pendingEdgeState = applyEdgeModeToggle(pending, EdgeSwipeMode.CURSOR, latestCustomPresets.size)
+                                pendingMultiCursorCount = null
+                                // 싱글로 꺼도 커서 버튼에 포커스 유지 (그리드 다른 곳으로 튀지 않게)
+                                selectedItemIndex = visibleModes.indexOf(EdgeSwipeMode.CURSOR).takeIf { it >= 0 }
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            } else {
+                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            }
+                        }
+
+                        // 개수 선택 서브 화면에서 옵션(2/3/4) 탭: 개수를 pending으로 결정하고 모드 그리드로 복귀.
+                        fun handleCursorCountTap(index: Int) {
+                            pendingMultiCursorCount = MULTI_CURSOR_COUNT_MIN + index
+                            isCursorCountSelecting = false
+                            selectedItemIndex = visibleModes.indexOf(EdgeSwipeMode.CURSOR).takeIf { it >= 0 }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            } else {
+                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            }
+                        }
+
+                        // 확인 버튼: 나머지 상태를 먼저 커밋(seed 최신화) 후, pending cursorMode 변화를
+                        // 실제 컨트롤러에 반영. 개수만 바뀐 경우도 SetCursorCount로 idempotent 적용.
+                        fun commitPopup() {
+                            val finalState = pendingEdgeState ?: latestState
+                            val wasMulti = latestState.cursorMode == CursorMode.MULTI
+                            val nowMulti = finalState.cursorMode == CursorMode.MULTI
+                            val countToApply = pendingMultiCursorCount
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            } else {
+                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            }
+                            resetPopup()
+                            latestOnStateChange(finalState)
+                            when {
+                                nowMulti -> latestOnMultiCursorAction(
+                                    EdgeZoneAction.SetCursorCount(countToApply ?: MULTI_CURSOR_COUNT_MIN)
+                                )
+                                wasMulti && !nowMulti -> latestOnMultiCursorAction(EdgeZoneAction.ToggleMultiCursor)
+                            }
                         }
 
                         if (selectedPopupMode == EdgePopupMode.DIRECT_TOUCH && popupAnchorPx != Offset.Zero) {
                             // ═══ 직접 터치 모드 ═══
+                            if (isCursorCountSelecting) {
+                                // ── 개수 선택 서브 화면: 옵션 2/3/4, 확인 버튼 없음 ──
+                                val countOptionCount = MULTI_CURSOR_COUNT_MAX - MULTI_CURSOR_COUNT_MIN + 1
+                                val countRects = computeDirectTouchButtonRects(
+                                    popupAnchorPx, size.width.toFloat(), size.height.toFloat(),
+                                    countOptionCount, directButtonSizePx, directButtonGapPx, density
+                                ).take(countOptionCount)  // 확인 버튼 rect 제외
+
+                                selectedItemIndex = countRects.indexOfFirst { it.contains(bgDownPos) }
+                                    .takeIf { it >= 0 }
+
+                                var bgEv = awaitPointerEvent()
+                                while (bgEv.type == PointerEventType.Move) {
+                                    bgEv.changes.forEach { it.consume() }
+                                    val pos = bgEv.changes.first().position
+                                    if (isNearEdge(pos)) { resetPopup(); return@awaitEachGesture }
+                                    selectedItemIndex = countRects.indexOfFirst { it.contains(pos) }
+                                        .takeIf { it >= 0 }
+                                    bgEv = awaitPointerEvent()
+                                }
+
+                                if (bgEv.type == PointerEventType.Release) {
+                                    val upPos = bgEv.changes.first().position
+                                    val hitIndex = countRects.indexOfFirst { it.contains(upPos) }
+                                        .takeIf { it >= 0 }
+                                    if (hitIndex != null) {
+                                        handleCursorCountTap(hitIndex)
+                                    }
+                                }
+                                return@awaitEachGesture
+                            }
+
+                            // ── 모드 버튼 그리드 ──
                             // 버튼 영역 히트 테스트 → 손가락 따라 하이라이트 → UP 위치의 버튼 동작
                             val buttonRects = computeDirectTouchButtonRects(
                                 popupAnchorPx, size.width.toFloat(), size.height.toFloat(),
@@ -662,31 +767,29 @@ fun TouchpadWrapper(
                                 val hitIndex = buttonRects.indexOfFirst { it.contains(upPos) }
                                     .takeIf { it >= 0 }
 
-                                selectedItemIndex = null  // 하이라이트 제거
-
                                 if (hitIndex != null && modeCount > 0) {
                                     if (hitIndex < modeCount) {
                                         // 모드 버튼 탭
                                         val mode = visibleModes[hitIndex]
-                                        pendingEdgeState = applyEdgeModeToggle(
-                                            pendingEdgeState ?: latestState, mode, latestCustomPresets.size
-                                        )
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        if (mode == EdgeSwipeMode.CURSOR) {
+                                            handleCursorTap()
                                         } else {
-                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                            pendingEdgeState = applyEdgeModeToggle(
+                                                pendingEdgeState ?: latestState, mode, latestCustomPresets.size
+                                            )
+                                            selectedItemIndex = null
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                            } else {
+                                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                            }
                                         }
                                     } else {
                                         // 확인 버튼 탭
-                                        val finalState = pendingEdgeState ?: latestState
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                                        } else {
-                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                        }
-                                        resetPopup()
-                                        latestOnStateChange(finalState)
+                                        commitPopup()
                                     }
+                                } else {
+                                    selectedItemIndex = null
                                 }
                             }
 
@@ -702,6 +805,30 @@ fun TouchpadWrapper(
                             }
                             if (bgEv.type == PointerEventType.Release) {
                                 popupAnchorPx = bgEv.changes.first().position
+                            }
+                        } else if (selectedPopupMode == EdgePopupMode.SWIPE && isCursorCountSelecting) {
+                            // ═══ 스와이프 모드 — 개수 선택 서브 화면: 1행 가로 이동, 확인 버튼 없음 ══
+                            val countOptionCount = MULTI_CURSOR_COUNT_MAX - MULTI_CURSOR_COUNT_MIN + 1
+                            val startIdx = (selectedItemIndex ?: 0).coerceIn(0, countOptionCount - 1)
+
+                            var bgEv = awaitPointerEvent()
+                            while (bgEv.type == PointerEventType.Move) {
+                                bgEv.changes.forEach { it.consume() }
+                                val pos = bgEv.changes.first().position
+                                if (isNearEdge(pos)) { resetPopup(); return@awaitEachGesture }
+                                val dx = pos.x - bgDownPos.x
+                                val colOffset = (dx / navStepPx).roundToInt()
+                                selectedItemIndex = (startIdx + colOffset).coerceIn(0, countOptionCount - 1)
+                                bgEv = awaitPointerEvent()
+                            }
+
+                            if (bgEv.type == PointerEventType.Release) {
+                                val upPos = bgEv.changes.first().position
+                                val dist = (upPos - bgDownPos).getDistance()
+                                if (dist < tapThresholdPx) {
+                                    handleCursorCountTap((selectedItemIndex ?: 0).coerceIn(0, countOptionCount - 1))
+                                }
+                                // 탭이 아니면(단순 손 뗌) 화면 유지 — 아무 동작 없음
                             }
                         } else if (selectedPopupMode == EdgePopupMode.SWIPE) {
                             // ═══ 스와이프 탐색 모드: 2D 그리드 이동 ═══
@@ -723,6 +850,7 @@ fun TouchpadWrapper(
                                 val dy = pos.y - bgDownPos.y
                                 val colOffset = (dx / navStepPx).roundToInt()
                                 val rowOffset = (dy / navStepPx).roundToInt()
+
                                 val targetRow = (startRow + rowOffset).coerceIn(0, modeRows)
                                 val targetCol = (startCol + colOffset).coerceIn(0, cols - 1)
                                 selectedItemIndex = if (targetRow >= modeRows) {
@@ -736,27 +864,25 @@ fun TouchpadWrapper(
                             if (bgEv.type == PointerEventType.Release) {
                                 val upPos = bgEv.changes.first().position
                                 val dist = (upPos - bgDownPos).getDistance()
+                                val idx = selectedItemIndex ?: 0
                                 if (dist < tapThresholdPx && modeCount > 0) {
-                                    val idx = selectedItemIndex ?: 0
                                     if (idx < modeCount) {
                                         val mode = visibleModes[idx]
-                                        pendingEdgeState = applyEdgeModeToggle(
-                                            pendingEdgeState ?: latestState, mode, latestCustomPresets.size
-                                        )
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        if (mode == EdgeSwipeMode.CURSOR) {
+                                            handleCursorTap()
                                         } else {
-                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                            pendingEdgeState = applyEdgeModeToggle(
+                                                pendingEdgeState ?: latestState, mode, latestCustomPresets.size
+                                            )
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                            } else {
+                                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                            }
                                         }
                                     } else {
-                                        val finalState = pendingEdgeState ?: latestState
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                                        } else {
-                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                        }
-                                        resetPopup()
-                                        latestOnStateChange(finalState)
+                                        // 확인 버튼 탭
+                                        commitPopup()
                                     }
                                 }
                             }
@@ -1322,6 +1448,12 @@ fun TouchpadWrapper(
                                             latestOnCyclePage(actionToApply.direction)
                                         is EdgeZoneAction.JumpToPage ->
                                             latestOnJumpToPage(actionToApply.pageIndex)
+                                        EdgeZoneAction.ToggleMultiCursor,
+                                        EdgeZoneAction.ToggleMultiCursorLayout,
+                                        is EdgeZoneAction.SetCursorCount,
+                                        is EdgeZoneAction.ActivatePad,
+                                        is EdgeZoneAction.CyclePad ->
+                                            latestOnMultiCursorAction(actionToApply)
                                         else -> {
                                             val newState = EdgeZoneActionHandler.applyZoneAction(
                                                 latestState, actionToApply, latestCustomPresets.size
@@ -1743,6 +1875,8 @@ fun TouchpadWrapper(
             pendingState = pendingEdgeState ?: touchpadState,
             config = buttonVisibility.controlButtonConfig,
             selectedIndex = selectedItemIndex,
+            pendingCursorCount = pendingMultiCursorCount,
+            isCursorCountSelecting = isCursorCountSelecting,
             popupAnchorPx = popupAnchorPx,
             isModeSelecting = isModeSelecting,
             selectedPopupMode = selectedPopupMode,

@@ -35,6 +35,12 @@ object EdgeZoneActionHandler {
         is EdgeZoneAction.MouseHoldToggle -> state
         is EdgeZoneAction.CyclePage -> state
         is EdgeZoneAction.JumpToPage -> state
+        // 멀티 커서 — 실제 동작은 TouchpadWrapper의 onMultiCursorAction 콜백으로 위임
+        EdgeZoneAction.ToggleMultiCursor -> state
+        EdgeZoneAction.ToggleMultiCursorLayout -> state
+        is EdgeZoneAction.SetCursorCount -> state
+        is EdgeZoneAction.ActivatePad -> state
+        is EdgeZoneAction.CyclePad -> state
     }
 
     private fun applyToggle(state: TouchpadState, mode: EdgeSwipeMode, customPresetsCount: Int): TouchpadState =

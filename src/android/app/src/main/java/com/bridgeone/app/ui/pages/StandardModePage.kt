@@ -65,7 +65,10 @@ import com.bridgeone.app.ui.common.saveTtsRate
 import com.bridgeone.app.ui.components.touchpad.CursorMode
 import com.bridgeone.app.ui.components.touchpad.DynamicsCurveEditor
 import com.bridgeone.app.ui.components.touchpad.DpiLevel
+import com.bridgeone.app.ui.components.touchpad.EdgeZoneAction
 import com.bridgeone.app.ui.components.touchpad.MacroStep
+import com.bridgeone.app.ui.components.touchpad.MULTI_CURSOR_COUNT_MIN
+import com.bridgeone.app.ui.components.touchpad.MULTI_CURSOR_COUNT_MAX
 import com.bridgeone.app.ui.components.touchpad.MouseButton
 import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
 import com.bridgeone.app.ui.components.touchpad.MultiCursorController
@@ -127,6 +130,10 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     // Phase 4.8.2: 멀티 커서 상태 홀더. 페이저 바깥에서 1회 생성해 페이지 전환에도 유지된다.
     val multiCursor = remember { MultiCursorController() }
 
+    // Phase 4.8.7: disable() 시 cursorCount가 0으로 리셋되므로, ToggleMultiCursor 재활성화 시
+    // 복원할 마지막 커서 수를 별도로 기억한다. 기본값: MULTI_CURSOR_COUNT_MIN(2)
+    var lastMultiCursorCount by remember { mutableStateOf(MULTI_CURSOR_COUNT_MIN) }
+
     // Phase 4.8.5: 멀티 커서 서버(Windows) 명령 전송 훅. 서버가 없어도(ESSENTIAL) 앱 내부
     // 상태만으로 완결 동작해야 하므로 전송을 스킵하고 로그만 남긴다. 실제 UART write는 Phase 5.
     val sendMultiCursorCommand: (String) -> Unit = { json ->
@@ -134,6 +141,87 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
             Log.d(TAG, "multiCursorCommand: $json")
         } else {
             Log.d(TAG, "multiCursorCommand skipped (ESSENTIAL): $json")
+        }
+    }
+
+    // Phase 4.8.7: 멀티 커서 활성화(현재 touchpadState를 시드로 사용).
+    val enableMultiCursor: (Int) -> Unit = { count ->
+        val safeCount = count.coerceIn(MULTI_CURSOR_COUNT_MIN, MULTI_CURSOR_COUNT_MAX)
+        val seed = PadModeState(
+            clickMode = pageState.touchpadState.clickMode,
+            moveMode = pageState.touchpadState.moveMode,
+            scrollMode = pageState.touchpadState.scrollMode,
+            dpi = pageState.touchpadState.dpiLevel
+        )
+        multiCursor.enable(safeCount, seed)
+        lastMultiCursorCount = safeCount
+        pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.MULTI)
+        sendMultiCursorCommand(MultiCursorCommand.buildShowVirtualCursor(safeCount))
+    }
+
+    // Phase 4.8.7: 멀티 커서 비활성화. 마지막 커서 수는 lastMultiCursorCount에 보존.
+    val disableMultiCursor: () -> Unit = {
+        lastMultiCursorCount = multiCursor.state.cursorCount
+            .coerceIn(MULTI_CURSOR_COUNT_MIN, MULTI_CURSOR_COUNT_MAX)
+        multiCursor.disable()
+        pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.SINGLE)
+        sendMultiCursorCommand(MultiCursorCommand.buildHideVirtualCursor())
+    }
+
+    // Phase 4.8.7: 커서 수 지정. 비활성 시 활성화, 활성 시 padModeStates 보존한 채 수만 변경.
+    val setMultiCursorCount: (Int) -> Unit = { count ->
+        val safeCount = count.coerceIn(MULTI_CURSOR_COUNT_MIN, MULTI_CURSOR_COUNT_MAX)
+        if (multiCursor.state.isEnabled) {
+            multiCursor.changeCursorCount(safeCount)
+            lastMultiCursorCount = safeCount
+            sendMultiCursorCommand(MultiCursorCommand.buildShowVirtualCursor(safeCount))
+        } else {
+            enableMultiCursor(safeCount)
+        }
+    }
+
+    // 엣지 팝업 커서 개수 선택 서브 화면 진입 시 강조할 현재 멀티 커서 수.
+    // 활성 중이면 실제 커서 수, 비활성이면 마지막으로 켰던(또는 켤) 수를 사용.
+    val currentMultiCursorCount = if (multiCursor.state.isEnabled) multiCursor.state.cursorCount else lastMultiCursorCount
+
+    // Phase 4.8.7: 특정 패드로 전환 + 서버 전송. 비활성이거나 범위 밖 인덱스면 무시.
+    val switchToPad: (Int) -> Unit = { index ->
+        if (multiCursor.state.isEnabled && index in 0 until multiCursor.state.cursorCount) {
+            multiCursor.switchPad(index)
+            sendMultiCursorCommand(
+                MultiCursorCommand.buildMultiCursorSwitch(
+                    touchpadId = MultiCursorCommand.padIndexToTouchpadId(index),
+                    cursorPosition = null
+                )
+            )
+        }
+    }
+
+    // Phase 4.8.7: 엣지 존 멀티 커서 액션 5종 디스패치. 서버 미연결(ESSENTIAL)에서도
+    // sendMultiCursorCommand가 로그만 남기므로 크래시 없이 앱 내부 상태만으로 완결 동작한다.
+    val onMultiCursorAction: (EdgeZoneAction) -> Unit = { action ->
+        when (action) {
+            EdgeZoneAction.ToggleMultiCursor ->
+                if (multiCursor.state.isEnabled) disableMultiCursor() else enableMultiCursor(lastMultiCursorCount)
+            is EdgeZoneAction.SetCursorCount -> setMultiCursorCount(action.count)
+            is EdgeZoneAction.ActivatePad -> switchToPad(action.index)
+            is EdgeZoneAction.CyclePad -> if (multiCursor.state.isEnabled) {
+                val cursorCount = multiCursor.state.cursorCount
+                val current = multiCursor.state.activePadIndex
+                val next = if (action.direction == PageNav.NEXT) {
+                    (current + 1) % cursorCount
+                } else {
+                    (current - 1 + cursorCount) % cursorCount
+                }
+                switchToPad(next)
+            }
+            EdgeZoneAction.ToggleMultiCursorLayout -> {
+                multiCursor.toggleLayoutMode()
+                val modeLabel = if (multiCursor.state.layoutMode == MultiCursorLayoutMode.GRID)
+                    "그리드 분할" else "직접 전환 버튼"
+                ToastController.show("$modeLabel 모드로 전환", ToastType.INFO)
+            }
+            else -> {}
         }
     }
 
@@ -461,6 +549,8 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onMouseHoldToggle = onMouseHoldToggle,
                         onCyclePage = onCyclePage,
                         onJumpToPage = onJumpToPage,
+                        onMultiCursorAction = onMultiCursorAction,
+                        currentMultiCursorCount = currentMultiCursorCount,
                         buttonVisibility = standardButtonVisibility[1] ?: TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(1)),
                         onDpiLongPress = { dpiAdjustPopupVisible = true },
                         multiCursorState = multiCursor.state,
@@ -469,12 +559,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                             // 현재 수 강조 + 해제 버튼으로 커서 수 변경/해제를 함께 다룬다.
                             cursorCountPopupVisible = true
                         },
-                        onCursorModeLongPress = {
-                            multiCursor.toggleLayoutMode()
-                            val modeLabel = if (multiCursor.state.layoutMode == MultiCursorLayoutMode.GRID)
-                                "그리드 분할" else "직접 전환 버튼"
-                            ToastController.show("$modeLabel 모드로 전환", ToastType.INFO)
-                        },
+                        onCursorModeLongPress = { onMultiCursorAction(EdgeZoneAction.ToggleMultiCursorLayout) },
                         onActivePadModeChange = { newState ->
                             multiCursor.updateActivePadMode {
                                 it.copy(
@@ -485,40 +570,16 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                                 )
                             }
                         },
-                        onPadSwitch = { index ->
-                            multiCursor.switchPad(index)
-                            sendMultiCursorCommand(
-                                MultiCursorCommand.buildMultiCursorSwitch(
-                                    touchpadId = MultiCursorCommand.padIndexToTouchpadId(index),
-                                    cursorPosition = null
-                                )
-                            )
-                        },
+                        onPadSwitch = { index -> switchToPad(index) },
                         cursorCountPopupVisible = cursorCountPopupVisible,
                         onCursorCountSelected = { count ->
                             cursorCountPopupVisible = false
-                            if (multiCursor.state.isEnabled) {
-                                // Phase 4.8.6: 활성 중 커서 수 변경 — 해제 없이 padModeStates 보존
-                                multiCursor.changeCursorCount(count)
-                                sendMultiCursorCommand(MultiCursorCommand.buildShowVirtualCursor(count))
-                            } else {
-                                val seed = PadModeState(
-                                    clickMode = pageState.touchpadState.clickMode,
-                                    moveMode = pageState.touchpadState.moveMode,
-                                    scrollMode = pageState.touchpadState.scrollMode,
-                                    dpi = pageState.touchpadState.dpiLevel
-                                )
-                                multiCursor.enable(count, seed)
-                                pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.MULTI)
-                                sendMultiCursorCommand(MultiCursorCommand.buildShowVirtualCursor(count))
-                            }
+                            setMultiCursorCount(count)
                         },
                         onCursorCountDismiss = { cursorCountPopupVisible = false },
                         onCursorCountDisable = {
                             cursorCountPopupVisible = false
-                            multiCursor.disable()
-                            pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.SINGLE)
-                            sendMultiCursorCommand(MultiCursorCommand.buildHideVirtualCursor())
+                            disableMultiCursor()
                         },
                         onModePresetLongPress = { modePresetPopupVisible = true },
                         modePresetPopupVisible = modePresetPopupVisible,
