@@ -688,6 +688,8 @@ updated: "2026-04-02"
 - **팝업 모드 선택기 카드 UI**: `ModeSelectCard(title, iconResId, isHighlighted)` — 직접 터치 아이콘(`ic_l_click`), 스와이프 아이콘(`ic_scroll`). 설명(subtitle) 없음
 - **팝업 모드 선택기 레이아웃**: `entryEdge` 기준이 아닌 터치패드 폭 기준 (`BoxWithConstraints`의 `maxWidth >= 400.dp` → Row, 미만 → Column)
 
+> **⚠️ 이후 제거됨** (Phase 4.6 문서 참조): 팝업 모드 선택기(`isModeSelecting`, `ModeSelectCard`)는 앱 전역 `InputMode`(NORMAL/SWIPE)로 팝업 표시 방식을 자동 결정하는 방식으로 대체되어 완전히 삭제되었다. 이 절은 히스토리 보존 목적으로만 남긴다.
+
 **검증 (UX — 에뮬레이터/실기기 UI 확인)**:
 - [x] 팝업 내 손가락 이동에 따라 가장 가까운 아이콘 선택 강조 확인
 - [x] 원하는 아이콘 위에서 손 떼기 → 해당 모드 토글 + 햅틱 + 토스트 확인

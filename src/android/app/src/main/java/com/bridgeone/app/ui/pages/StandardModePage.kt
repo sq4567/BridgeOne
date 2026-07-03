@@ -12,6 +12,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +39,7 @@ import com.bridgeone.app.ui.common.CustomPresetsRepository
 import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
 import com.bridgeone.app.ui.common.EdgeZonePresetsRepository
 import com.bridgeone.app.ui.common.InputMode
+import com.bridgeone.app.ui.common.LocalInputMode
 import com.bridgeone.app.ui.common.MACRO_SCRIM_MIN_DISPLAY_MS
 import com.bridgeone.app.ui.common.MacroFrameSequencer
 import com.bridgeone.app.ui.common.MacroOverlayController
@@ -468,6 +470,8 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                     .fillMaxSize()
                     .padding(horizontal = 4.dp, vertical = 8.dp)
             ) { page ->
+                // 엣지 팝업 표시 방식(직접 터치/스와이프) 자동 결정을 위해 하위 트리에 InputMode 제공
+                CompositionLocalProvider(LocalInputMode provides inputMode) {
                 when (page % PAGE_COUNT) {
                     0 -> Page1TouchpadActions(
                         touchpadState = pageState.touchpadState,
@@ -639,6 +643,7 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                             standardButtonVisibility = standardButtonVisibility + (pageIdx to updated)
                         }
                     )
+                }
                 }
             }
         }

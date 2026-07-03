@@ -86,9 +86,9 @@ enum class EdgeSwipeMode { SCROLL, CLICK, MOVE, CURSOR, DPI, SCROLL_SPEED, DYNAM
 // ============================================================
 
 /**
- * 엣지 스와이프 제스처로 팝업이 열린 후 표시되는 모드 선택 오버레이 (Phase 4.3.12).
- * 팝업 열기 전 중간 단계에서 스와이프/직접 터치 중 하나를 선택하는 UI를
- * **EdgePopupModeSelector (팝업 모드 선택기)** 라 부릅니다.
+ * 엣지 스와이프 제스처로 열리는 팝업 오버레이 (Phase 4.3.12).
+ * 팝업 표시 방식(직접 터치/스와이프)은 앱 전역 [InputMode]에 따라 자동 결정되며,
+ * 선택 단계 없이 트리거 즉시 해당 방식의 팝업이 열립니다.
  *
  * 팝업이 열리면 터치패드를 존(zone)으로 나눠 각 버튼에 매핑합니다.
  * - 스와이프: 손가락 위치 → 해당 존의 버튼이 하이라이트(선택)
@@ -103,10 +103,9 @@ enum class EdgeSwipeMode { SCROLL, CLICK, MOVE, CURSOR, DPI, SCROLL_SPEED, DYNAM
  * @param pendingCursorCount   커서 버튼 탭으로 개수 선택 서브 화면에 진입했을 때 pending 멀티 커서 수(2~4).
  *                             null이면 서브 화면 진입 전이며 커서 카드는 기존 싱글/멀티 상태만 표시
  * @param isCursorCountSelecting 개수 선택 서브 화면 활성 여부 — true면 모드 그리드 대신 개수 옵션(2~4) 그리드 표시
- * @param isModeSelecting      EdgePopupModeSelector(팝업 모드 선택기) 활성 여부 — 스와이프/직접 터치 중 선택 중
- * @param selectedPopupMode    선택된(또는 선택 중인) 팝업 모드 — 팝업 모드 선택기 하이라이트 및 팝업 UI 분기에 사용
+ * @param selectedPopupMode    InputMode로 확정된 팝업 표시 방식 — 팝업 UI 분기(직접 터치/스와이프)에 사용
  * @param isEdgeCandidate      엣지 후보 상태 — Phase 4.3.13 물방울 애니메이션용
- * @param entryEdge            진입 가장자리 — 모드 선택 UI 방향 결정 및 Phase 4.3.13 물방울 기준점용
+ * @param entryEdge            진입 가장자리 — Phase 4.3.13 물방울 기준점용
  * @param fingerAlongEdgePx    손가락의 엣지 축 위치 (px) — Phase 4.3.13용
  * @param inwardDistancePx     엣지에서 안쪽으로 이동한 거리 (px) — Phase 4.3.13용
  */
@@ -119,17 +118,12 @@ fun EdgeSwipeOverlay(
     pendingCursorCount: Int? = null,
     isCursorCountSelecting: Boolean = false,
     popupAnchorPx: Offset = Offset.Zero,
-    isModeSelecting: Boolean = false,
     selectedPopupMode: EdgePopupMode? = null,
     // Phase 4.3.13용 파라미터
     isEdgeCandidate: Boolean = false,
     entryEdge: EntryEdge? = null,
     fingerAlongEdgePx: Float = 0f,
     inwardDistancePx: Float = 0f,
-    // Phase 4.5.9: 2단계 팝업 고정 상태
-    isPopupPinned: Boolean = false,
-    pinnedBorderColor: Color = Color.White,
-    pinnedShakeOffsetDp: Float = 0f,
     // 제어 버튼 표시 여부 — 스와이프 그리드 상단 여백 조건부 적용
     hasControlButtons: Boolean = false,
     modifier: Modifier = Modifier
@@ -170,7 +164,7 @@ fun EdgeSwipeOverlay(
     if (visible) isPopupShowing = true
     if (!isActive) isPopupShowing = false
 
-    val shouldShow = visible || isModeSelecting
+    val shouldShow = visible
 
     // 소멸 애니메이션 중 resetPopup()으로 상태가 리셋되어도
     // 이전 값을 기억하여 올바른 UI 분기를 유지 (Phase 4.5.3)
@@ -183,7 +177,7 @@ fun EdgeSwipeOverlay(
         lastAnchorPx = popupAnchorPx
     }
 
-    LaunchedEffect(isModeSelecting, visible) {
+    LaunchedEffect(visible) {
         if (shouldShow) {
             isActive = true
             itemAlphas.forEach { it.snapTo(0f) }
@@ -194,29 +188,17 @@ fun EdgeSwipeOverlay(
                 launch { bgAlpha.animateTo(0.6f, tween(200)) }
             }
 
-            // 아이템 개수: 모드 선택기는 카드 2개, 팝업은 모드 버튼 + 확인
+            // 아이템 개수: 모드 버튼 + 확인
             displayedModes = visibleModes
-            val count = if (isModeSelecting) 2 else (displayedModes.size + 1)
+            val count = displayedModes.size + 1
 
-            if (isModeSelecting) {
-                // 모드 선택기 카드: scale 0.7 → 1.0 + fade-in
-                itemOffsets.forEach { it.snapTo(0.7f) }
-                repeat(2) { i ->
-                    launch {
-                        delay(i * 30L)
-                        launch { itemOffsets[i].animateTo(1f, tween(250, easing = FastOutSlowInEasing)) }
-                        launch { itemAlphas[i].animateTo(1f, tween(200)) }
-                    }
-                }
-            } else {
-                // 팝업 아이콘: scale 0.7 → 1.0 + fade-in
-                itemOffsets.forEach { it.snapTo(0.7f) }
-                repeat(count.coerceAtMost(maxAnimItems)) { i ->
-                    launch {
-                        delay(i * 30L)
-                        launch { itemOffsets[i].animateTo(1f, tween(250, easing = FastOutSlowInEasing)) }
-                        launch { itemAlphas[i].animateTo(1f, tween(200)) }
-                    }
+            // 팝업 아이콘: scale 0.7 → 1.0 + fade-in
+            itemOffsets.forEach { it.snapTo(0.7f) }
+            repeat(count.coerceAtMost(maxAnimItems)) { i ->
+                launch {
+                    delay(i * 30L)
+                    launch { itemOffsets[i].animateTo(1f, tween(250, easing = FastOutSlowInEasing)) }
+                    launch { itemAlphas[i].animateTo(1f, tween(200)) }
                 }
             }
 
@@ -285,109 +267,7 @@ fun EdgeSwipeOverlay(
 
     if (!isActive) return
 
-    // ═══ EdgePopupModeSelector (팝업 모드 선택기) ═══
-    if (isModeSelecting) {
-        BoxWithConstraints(
-            modifier = modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = bgAlpha.value))
-        ) {
-            val isHorizontalLayout = maxWidth >= 400.dp
-            // 힌트 텍스트: 고정 전/후 전환 (Phase 4.5.9)
-            val hintText = if (isPopupPinned) {
-                if (isHorizontalLayout)
-                    "스와이프로 선택 · 탭으로 확정\n바깥쪽 스와이프로 취소"
-                else
-                    "스와이프로 선택 · 탭으로 확정\n바깥쪽 스와이프로 취소"
-            } else {
-                if (isHorizontalLayout)
-                    "왼쪽/오른쪽으로 선택 · 손을 놓으면 확정\n엣지로 되돌아오면 취소"
-                else
-                    "위/아래로 선택 · 손을 놓으면 확정\n엣지로 되돌아오면 취소"
-            }
-            // 경계 피드백 흔들림 오프셋 (Phase 4.5.9)
-            val shakeModifier = if (isPopupPinned)
-                Modifier.offset(x = pinnedShakeOffsetDp.dp)
-            else
-                Modifier
-            if (isHorizontalLayout) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .then(shakeModifier),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp)
-                ) {
-                    ModeSelectCard(
-                        title = "직접 터치",
-                        iconResId = R.drawable.ic_l_click,
-                        isHighlighted = selectedPopupMode == EdgePopupMode.DIRECT_TOUCH,
-                        borderColor = if (isPopupPinned) pinnedBorderColor else Color.White,
-                        modifier = Modifier
-                            .alpha(itemAlphas[0].value)
-                            .scale(itemOffsets[0].value)
-                    )
-                    ModeSelectCard(
-                        title = "스와이프",
-                        iconResId = R.drawable.ic_scroll,
-                        isHighlighted = selectedPopupMode == EdgePopupMode.SWIPE,
-                        borderColor = if (isPopupPinned) pinnedBorderColor else Color.White,
-                        modifier = Modifier
-                            .alpha(itemAlphas[1].value)
-                            .scale(itemOffsets[1].value)
-                    )
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .then(shakeModifier),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    ModeSelectCard(
-                        title = "직접 터치",
-                        iconResId = R.drawable.ic_l_click,
-                        isHighlighted = selectedPopupMode == EdgePopupMode.DIRECT_TOUCH,
-                        borderColor = if (isPopupPinned) pinnedBorderColor else Color.White,
-                        modifier = Modifier
-                            .alpha(itemAlphas[0].value)
-                            .scale(itemOffsets[0].value)
-                    )
-                    ModeSelectCard(
-                        title = "스와이프",
-                        iconResId = R.drawable.ic_scroll,
-                        isHighlighted = selectedPopupMode == EdgePopupMode.SWIPE,
-                        borderColor = if (isPopupPinned) pinnedBorderColor else Color.White,
-                        modifier = Modifier
-                            .alpha(itemAlphas[1].value)
-                            .scale(itemOffsets[1].value)
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
-                    .alpha(hintAlpha.value)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF2A2A2A).copy(alpha = 0.9f))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = hintText,
-                    fontSize = 11.sp,
-                    color = Color(0xFFCCCCCC),
-                    textAlign = TextAlign.Center,
-                    lineHeight = 16.sp
-                )
-            }
-        }
-        return
-    }
-
     if (configuredModes.isEmpty()) return
-    // 팝업(showEdgePopup)이 실제로 열린 적 없이 모드 선택기만 소멸 중 → 팝업 UI 건너뜀 (Phase 4.5.9)
     if (!isPopupShowing) return
 
     val confirmIndex = displayedModes.size
@@ -825,59 +705,6 @@ private fun EdgeSwipeModeItem(
                 color = contentColor,
                 textAlign = TextAlign.Center,
                 lineHeight = (fontSize * 1.3f).sp
-            )
-        }
-    }
-}
-
-// ============================================================
-// 모드 선택 카드 Composable
-// ============================================================
-
-/**
- * 엣지 스와이프 모드 선택 단계에서 표시되는 선택지 카드.
- * [isHighlighted]가 true이면 흰색 테두리로 선택 상태를 강조합니다.
- */
-@Composable
-private fun ModeSelectCard(
-    title: String,
-    iconResId: Int,
-    isHighlighted: Boolean,
-    borderColor: Color = Color.White,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .size(100.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (isHighlighted) Color(0xFF3A3A6A) else Color(0xFF2A2A2A).copy(alpha = 0.9f)
-            )
-            .then(
-                if (isHighlighted)
-                    Modifier.border(2.dp, borderColor, RoundedCornerShape(12.dp))
-                else
-                    Modifier.border(1.dp, Color(0xFF555555), RoundedCornerShape(12.dp))
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                painter = painterResource(id = iconResId),
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(28.dp)
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = title,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                textAlign = TextAlign.Center
             )
         }
     }
