@@ -334,10 +334,16 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 - `docs/android/technical-specification-app.md` §2.2.6 (멀티 커서 알고리즘 명세)
 
 **검증**:
-- [ ] 멀티 커서 활성화 시 각 패드가 지정 프리셋 모드로 시작
-- [ ] 패드 전환 시 제어 버튼이 해당 패드의 프리셋 모드 상태 반영
-- [ ] `changeCursorCount` 증가 시 신규 패드에 시드 규칙 적용
-- [ ] 프리셋 미지정 패드는 기존 `seed` 기본 동작 유지(하위 호환)
+- [x] 멀티 커서 활성화 시 각 패드가 지정 프리셋 모드로 시작
+- [x] 패드 전환 시 제어 버튼이 해당 패드의 프리셋 모드 상태 반영
+- [x] `changeCursorCount` 증가 시 신규 패드에 시드 규칙 적용
+- [x] 프리셋 미지정 패드는 기존 `seed` 기본 동작 유지(하위 호환)
+
+> **⚠️ 실제 구현이 계획과 다른 부분**:
+> - **세부 목표 1**: `MultiCursorController`에 `enable(seeds: List<PadModeState>)` 오버로드와 `changeCursorCount(count, seedForNewPad: (Int) -> PadModeState)` 오버로드를 추가했다. 기존 `enable(count, seed)`/`changeCursorCount(count)` 시그니처는 삭제하지 않고 신규 오버로드에 위임하는 형태로 유지(하위 호환).
+> - **세부 목표 3 "구체 UI는 구현 시점 결정"**: `CursorCountSelectionPopup`을 COUNT → PRESET 2단계로 확장하는 방식으로 확정했다. 개수 버튼을 탭하면 **활성/비활성 상관없이** 즉시 적용되지 않고 패드별 프리셋 지정 화면(패드마다 미지정→Standard→Precise→Fast→미지정 순환 탭)으로 전환되며, "확인" 버튼을 눌러야 실제로 적용된다. 최초 구현 시에는 비활성(싱글→멀티 최초 진입)만 PRESET 단계를 거치고 활성 중 개수 변경은 즉시 적용(`onSelect`)하도록 만들었으나, **사용자 요청으로 활성 중 개수 변경도 동일하게 PRESET 단계를 거치도록 통일**했다 — 이 과정에서 `CursorCountSelectionPopup`의 `onSelect: (Int) -> Unit` 파라미터와 `Page2MultiCursorTouchpad`/`StandardModePage`의 `onCursorCountSelected` 콜백은 완전히 제거됐고, `onConfirm: (Int, List<Int?>) -> Unit` 하나로 통합됐다. "해제" 버튼만 예외로 즉시 동작(pending 없이 바로 `disableMultiCursor`).
+> - **패드별 프리셋 기본값(계획에 없던 세부 결정, 사용자 요청)**: 최초 구현은 정적 매핑 `[0(Standard), 1(Precise), 2(Fast), null]`(`ModePresetConstants.kt`의 `defaultPadPresetMapping()`)을 세션 시작 시 고정값으로 사용했으나, **사용자 요청으로 "모든 패드의 기본값은 싱글 커서 모드에서 사용 중인 프리셋"으로 변경**했다. `defaultPadPresetMapping()` 헬퍼는 삭제했고, `StandardModePage.kt`에 `padPresetMappingOverride: List<Int?>?`(초기값 `null`) 상태를 신설했다 — `null`(사용자가 팝업에서 한 번도 확정하지 않은 상태)이면 `List(MULTI_CURSOR_COUNT_MAX) { pageState.touchpadState.modePresetIndex }`로 매 리컴포지션마다 싱글 커서의 현재 프리셋을 따라가고, 팝업에서 확정하면 그 값이 `padPresetMappingOverride`에 저장되어 세션 동안 유지된다(앱 재시작 시 다시 `null`로 복귀).
+> - **`enableMultiCursor`(`StandardModePage.kt`) 확장**: 미지정 패드의 폴백 순서가 `padPresetMapping → 기존 활성 패드 상태(existingPads) → 현재 touchpadState`로 3단계가 됐다. `existingPads` 폴백은 "활성 중 개수만 바꿔도 PRESET 단계를 거친다"는 위 변경 때문에 필요해졌다 — 그래야 프리셋을 지정하지 않고 그대로 둔 기존 패드가 확인 시점에 초기화되지 않고 유지된다.
 
 ---
 
@@ -413,6 +419,8 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 - `Page2MultiCursorTouchpad.kt` / `StandardModePage.kt`: 현재 멀티 커서 개수(`currentMultiCursorCount`)를 `TouchpadWrapper`까지 배선(활성 시 실제 개수, 비활성 시 `lastMultiCursorCount`)
 
 **참조 문서**: 이 Phase는 UX 플로우 변경으로 별도 설계 문서 보강 없이 진행(기존 §2.2.6 멀티 커서 알고리즘 명세 자체는 영향 없음 — 컨트롤러 조작 시점만 pending 커밋으로 이동).
+
+> **⚠️ Phase 4.8.8 변경사항**: `SetCursorCount`/`ToggleMultiCursor` 디스패치가 최종적으로 호출하는 `StandardModePage.kt`의 `enableMultiCursor`/`setMultiCursorCount`가 이제 패드별 프리셋 매핑(`padPresetMapping`, 기본값은 싱글 커서의 현재 프리셋)으로 각 패드를 시드한다. 즉 이 Phase(엣지 팝업)로 멀티 커서를 활성화해도 `CursorCountSelectionPopup`에서 사용자가 마지막으로 확정한 패드별 프리셋이 자동 반영된다 — 이 Phase 구현 시 별도 배선 불필요.
 
 **검증**:
 - [ ] 커서 버튼 탭 → 다른 버튼들이 2/3/4 개수 버튼으로 대체되고 팝업 유지

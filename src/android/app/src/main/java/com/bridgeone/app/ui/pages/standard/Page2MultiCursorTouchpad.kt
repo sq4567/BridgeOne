@@ -97,9 +97,11 @@ internal fun Page2MultiCursorTouchpad(
     onActivePadModeChange: (TouchpadState) -> Unit = {},
     onPadSwitch: (Int) -> Unit = {},
     cursorCountPopupVisible: Boolean = false,
-    onCursorCountSelected: (Int) -> Unit = {},
     onCursorCountDismiss: () -> Unit = {},
     onCursorCountDisable: () -> Unit = {},
+    // Phase 4.8.8: 패드별 프리셋 시드. 팝업 PRESET 단계의 초기값 및 확정 콜백.
+    padPresetMapping: List<Int?> = emptyList(),
+    onCursorCountConfirmed: (Int, List<Int?>) -> Unit = { _, _ -> },
     onModePresetLongPress: () -> Unit = {},
     modePresetPopupVisible: Boolean = false,
     onModePresetConfirmed: (Int) -> Unit = {},
@@ -454,11 +456,12 @@ internal fun Page2MultiCursorTouchpad(
         // Phase 4.8.2: 커서 수 선택 팝업 (싱글 → 멀티 시도 시)
         CursorCountSelectionPopup(
             visible = cursorCountPopupVisible,
-            onSelect = onCursorCountSelected,
             onDismiss = onCursorCountDismiss,
             currentCount = if (multiCursorState.isEnabled) multiCursorState.cursorCount else null,
             onDisable = if (multiCursorState.isEnabled) onCursorCountDisable else null,
             anchorTopDp = controlButtonHeightDp,
+            initialPadPresetMapping = padPresetMapping,
+            onConfirm = onCursorCountConfirmed,
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(12.dp))

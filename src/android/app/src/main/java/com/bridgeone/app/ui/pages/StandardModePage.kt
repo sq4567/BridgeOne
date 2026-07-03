@@ -136,6 +136,13 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     // 복원할 마지막 커서 수를 별도로 기억한다. 기본값: MULTI_CURSOR_COUNT_MIN(2)
     var lastMultiCursorCount by remember { mutableStateOf(MULTI_CURSOR_COUNT_MIN) }
 
+    // Phase 4.8.8: 패드별 프리셋 매핑. 사용자가 팝업에서 한 번도 확정하지 않았다면(null) 모든
+    // 패드의 기본값은 싱글 커서 모드에서 현재 사용 중인 프리셋을 따라간다. 팝업에서 확정하면
+    // 그 값이 세션 동안 유지되며(SharedPreferences 영속 없음), 앱 재시작 시 다시 null로 복귀한다.
+    var padPresetMappingOverride by remember { mutableStateOf<List<Int?>?>(null) }
+    val padPresetMapping = padPresetMappingOverride
+        ?: List(MULTI_CURSOR_COUNT_MAX) { pageState.touchpadState.modePresetIndex }
+
     // Phase 4.8.5: 멀티 커서 서버(Windows) 명령 전송 훅. 서버가 없어도(ESSENTIAL) 앱 내부
     // 상태만으로 완결 동작해야 하므로 전송을 스킵하고 로그만 남긴다. 실제 UART write는 Phase 5.
     val sendMultiCursorCommand: (String) -> Unit = { json ->
@@ -147,15 +154,24 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     }
 
     // Phase 4.8.7: 멀티 커서 활성화(현재 touchpadState를 시드로 사용).
+    // Phase 4.8.8: 패드별로 padPresetMapping에 지정된 프리셋을 시드로 사용한다. 미지정 패드는
+    // 이미 활성 중이던 패드라면 그 상태를 보존하고(팝업에서 개수만 바꾼 경우), 신규 패드거나
+    // 애초에 비활성이었다면 현재 touchpadState를 시드로 사용한다(하위 호환).
     val enableMultiCursor: (Int) -> Unit = { count ->
         val safeCount = count.coerceIn(MULTI_CURSOR_COUNT_MIN, MULTI_CURSOR_COUNT_MAX)
-        val seed = PadModeState(
+        val existingPads = multiCursor.state.padModeStates
+        val currentSeed = PadModeState(
             clickMode = pageState.touchpadState.clickMode,
             moveMode = pageState.touchpadState.moveMode,
             scrollMode = pageState.touchpadState.scrollMode,
             dpi = pageState.touchpadState.dpiLevel
         )
-        multiCursor.enable(safeCount, seed)
+        val seeds = List(safeCount) { i ->
+            padPresetMapping.getOrNull(i)?.let { MODE_PRESETS[it].padModeState }
+                ?: existingPads.getOrNull(i)
+                ?: currentSeed
+        }
+        multiCursor.enable(seeds)
         lastMultiCursorCount = safeCount
         pageState.touchpadState = pageState.touchpadState.copy(cursorMode = CursorMode.MULTI)
         sendMultiCursorCommand(MultiCursorCommand.buildShowVirtualCursor(safeCount))
@@ -171,10 +187,14 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     }
 
     // Phase 4.8.7: 커서 수 지정. 비활성 시 활성화, 활성 시 padModeStates 보존한 채 수만 변경.
+    // Phase 4.8.8: 늘어난 신규 패드는 padPresetMapping에 지정된 프리셋을 재적용한다(없으면 pad1 상태).
     val setMultiCursorCount: (Int) -> Unit = { count ->
         val safeCount = count.coerceIn(MULTI_CURSOR_COUNT_MIN, MULTI_CURSOR_COUNT_MAX)
         if (multiCursor.state.isEnabled) {
-            multiCursor.changeCursorCount(safeCount)
+            multiCursor.changeCursorCount(safeCount) { i ->
+                padPresetMapping.getOrNull(i)?.let { MODE_PRESETS[it].padModeState }
+                    ?: multiCursor.state.padModeStates.firstOrNull() ?: PadModeState()
+            }
             lastMultiCursorCount = safeCount
             sendMultiCursorCommand(MultiCursorCommand.buildShowVirtualCursor(safeCount))
         } else {
@@ -576,9 +596,11 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         },
                         onPadSwitch = { index -> switchToPad(index) },
                         cursorCountPopupVisible = cursorCountPopupVisible,
-                        onCursorCountSelected = { count ->
+                        padPresetMapping = padPresetMapping,
+                        onCursorCountConfirmed = { count, mapping ->
                             cursorCountPopupVisible = false
-                            setMultiCursorCount(count)
+                            padPresetMappingOverride = mapping
+                            enableMultiCursor(count)
                         },
                         onCursorCountDismiss = { cursorCountPopupVisible = false },
                         onCursorCountDisable = {

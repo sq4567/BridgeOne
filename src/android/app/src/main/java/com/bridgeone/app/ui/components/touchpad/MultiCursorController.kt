@@ -36,6 +36,24 @@ class MultiCursorController {
         )
     }
 
+    /**
+     * 멀티 커서 활성화. 패드별로 서로 다른 초기 모드 상태를 [seeds]로 시드한다 (Phase 4.8.8).
+     *
+     * @param seeds 패드별 초기 모드 상태 리스트. 리스트 크기가 곧 커서 수(2~4)가 된다.
+     */
+    fun enable(seeds: List<PadModeState>) {
+        require(seeds.size in MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX) {
+            "seeds 크기는 $MULTI_CURSOR_COUNT_MIN~$MULTI_CURSOR_COUNT_MAX 범위여야 함: ${seeds.size}"
+        }
+        state = MultiCursorState(
+            isEnabled = true,
+            cursorCount = seeds.size,
+            layoutMode = state.layoutMode,
+            activePadIndex = 0,
+            padModeStates = seeds
+        )
+    }
+
     /** 멀티 커서 비활성화. 패드 상태를 모두 정리하고 싱글 커서로 복귀한다. */
     fun disable() {
         state = MultiCursorState(layoutMode = state.layoutMode)
@@ -54,12 +72,22 @@ class MultiCursorController {
      * [MultiCursorState.activePadIndex]가 새 범위를 벗어나면 마지막 인덱스로 clamp한다.
      */
     fun changeCursorCount(count: Int) {
+        val seed = state.padModeStates.firstOrNull() ?: PadModeState()
+        changeCursorCount(count) { seed }
+    }
+
+    /**
+     * 멀티 커서 활성 중 커서 수를 변경한다 (Phase 4.8.8). 늘어난 패드의 시드를 [seedForNewPad]로
+     * 지정할 수 있다는 점만 다르고 나머지 동작은 [changeCursorCount] (Int)와 동일하다.
+     *
+     * @param seedForNewPad 신규 패드 인덱스를 받아 시드값을 반환하는 함수
+     */
+    fun changeCursorCount(count: Int, seedForNewPad: (Int) -> PadModeState) {
         require(count in MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX) {
             "count는 $MULTI_CURSOR_COUNT_MIN~$MULTI_CURSOR_COUNT_MAX 범위여야 함: $count"
         }
         if (!state.isEnabled || count == state.cursorCount) return
-        val seed = state.padModeStates.firstOrNull() ?: PadModeState()
-        val updatedPads = List(count) { index -> state.padModeStates.getOrNull(index) ?: seed }
+        val updatedPads = List(count) { index -> state.padModeStates.getOrNull(index) ?: seedForNewPad(index) }
         state = state.copy(
             cursorCount = count,
             padModeStates = updatedPads,
