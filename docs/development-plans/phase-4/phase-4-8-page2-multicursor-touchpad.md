@@ -2,9 +2,9 @@
 title: "BridgeOne Phase 4.8: Page 2 — 풀 와이드 터치패드 (멀티 커서 사전 준비)"
 description: "BridgeOne 프로젝트 Phase 4.8 - Standard 모드 Page 2를 멀티 커서 전용 페이지로 정식화. Windows 서버(Phase 5) 준비 전, 앱 단독으로 완결 동작하는 멀티 커서 UI·상태·레이아웃 골격 구축"
 tags: ["android", "multi-cursor", "touchpad", "full-width", "cursor-mode", "ui"]
-version: "v2.0"
+version: "v2.1"
 owner: "Chatterbones"
-updated: "2026-07-01"
+updated: "2026-07-03"
 ---
 
 # BridgeOne Phase 4.8: Page 2 — 풀 와이드 터치패드 (멀티 커서 사전 준비)
@@ -279,16 +279,123 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
+## Phase 4.8.7: 엣지 존 멀티 커서 액션군
+
+**목표**: `EdgeZoneAction`에 멀티 커서 제어 액션을 추가해, 4개 엣지 어느 존에서든 멀티 커서를 조작할 수 있게 한다. `EdgeZoneAction`은 이미 제어 버튼 액션의 상위집합이지만 멀티 커서 제어만 빠져 있고, `MultiCursorController`(`enable`/`disable`/`switchPad`/`changeCursorCount`/`toggleLayoutMode`)는 이미 필요한 메서드를 전부 갖추고 있다 — 신규 로직 없이 배선만으로 구현 가능한 확장 지점이다.
+
+**개발 기간**: 1일
+
+**세부 목표**:
+1. **신규 액션 정의** (`EdgeZone.kt` sealed class):
+   - `ToggleMultiCursor` — 활성/비활성 토글(마지막 커서 수 기억, 없으면 기본 2)
+   - `ActivatePad(index: Int)` — 특정 패드 즉시 활성화
+   - `CyclePad(direction: PageNav)` — 다음/이전 패드 순환 (`PageNav` enum 재사용)
+   - `SetCursorCount(count: Int)` — 커서 수 직접 지정(2/3/4). 비활성 시 활성화, 활성 시 수 변경
+   - `ToggleMultiCursorLayout` — 그리드 ↔ 직접 전환 버튼 토글
+2. **컴파일러 강제 확장 지점 채우기**: `categoryColor()`/`displayName()`/`defaultIconKey()`(`EdgeZone.kt`), `applyZoneAction`(`EdgeZoneActionHandler.kt` — 부수효과형이라 `state` 그대로 반환하고 콜백 위임), `domainOf`/`actionEquals`(`EdgeZoneActionResolver.kt` — `ActionDomain`에 `MULTI_CURSOR` 신설), 직렬화/역직렬화(`EdgeZoneJson.kt`).
+3. **콜백 배선**: `TouchpadWrapper.kt`에 콜백 파라미터 추가(`rememberUpdatedState`) + Release 실행부 `when` 분기(기존 `onCyclePage`/`onJumpToPage` 패턴). `Page1TouchpadActions.kt`/`Page2MultiCursorTouchpad.kt`를 거쳐 `StandardModePage.kt`에서 `multiCursor` 컨트롤러를 직접 참조해 구현.
+4. **편집기 등록**: `ZoneActionPicker.kt`의 `ActionDomainPicker`에 `MULTI_CURSOR` 도메인 카드 추가, `DEFAULT_DOMAIN_GROUPS`에 배치.
+5. **정리**: `ToggleMode(CURSOR)`가 현재 CLICK 도메인으로 잘못 매핑돼 무동작 상태 — 이 액션군 도입과 함께 제거하거나 올바르게 재매핑.
+
+**참조 문서**:
+- `docs/android/component-touchpad.md` §1.2.3 (멀티 커서 선택 상태 관리)
+- `docs/android/technical-specification-app.md` §2.2.6 (멀티 커서 알고리즘 명세)
+
+**검증**:
+- [ ] 5개 신규 액션 각각을 엣지 존에 할당 가능(편집기 피커에 노출)
+- [ ] armed 상태에서 손 뗄 때 해당 멀티 커서 동작 실행(활성화/비활성화/패드 전환/수 변경/레이아웃 토글)
+- [ ] 존 할당 JSON 저장/복원 시 신규 액션 필드 보존
+- [ ] 서버 미연결 상태에서도 크래시 없이 앱 내부 완결 동작(`buildShowVirtualCursor` 등 기존 전송 훅 재사용 확인)
+- [ ] `ToggleMode(CURSOR)` 무동작 상태 정리 완료
+
+---
+
+## Phase 4.8.8: 패드별 프리셋 시드
+
+**목표**: 멀티 커서 활성화 시 각 패드에 서로 다른 모드 프리셋을 자동 배정한다(예: pad1=Precise, pad2=Fast). 현재 `enable(count, seed)`는 모든 패드를 단일 `seed`로 동일하게 시드한다.
+
+**개발 기간**: 0.5일
+
+**세부 목표**:
+1. **패드별 시드 경로**: `MultiCursorController`에 패드별 `PadModeState` 리스트를 받는 오버로드 추가, 또는 활성화 직후 `updateActivePadMode`를 패드마다 반복 적용.
+2. **프리셋 소스 재사용**: 신규 프리셋 정의 없이 기존 `MODE_PRESETS`(`ModePresetConstants.kt`)의 `padModeState` 필드를 그대로 시드값으로 사용.
+3. **시드 매핑 설정 UI**: 커서 수 선택 팝업(`CursorCountSelectionPopup`) 확장 또는 별도 배정 UI로 패드마다 프리셋 지정. 구체 UI는 구현 시점에 결정.
+4. **수 변경 시 규칙 유지**: `changeCursorCount()`로 패드 수가 늘어날 때 신규 패드의 시드 규칙(예: 마지막 지정값 반복 또는 pad1 시드) 확정.
+
+**참조 문서**:
+- `docs/android/component-touchpad.md` §1.7.2 (커서 수 선택 팝업)
+- `docs/android/technical-specification-app.md` §2.2.6 (멀티 커서 알고리즘 명세)
+
+**검증**:
+- [ ] 멀티 커서 활성화 시 각 패드가 지정 프리셋 모드로 시작
+- [ ] 패드 전환 시 제어 버튼이 해당 패드의 프리셋 모드 상태 반영
+- [ ] `changeCursorCount` 증가 시 신규 패드에 시드 규칙 적용
+- [ ] 프리셋 미지정 패드는 기존 `seed` 기본 동작 유지(하위 호환)
+
+---
+
+## Phase 4.8.9: 패드별 엣지 존 할당 (그리드 포함 전체 패드)
+
+**목표**: 멀티 커서 각 패드가 독립적인 엣지 존 액션 세트를 갖는다. 그리드 분할/직접 전환 버튼 두 레이아웃 모드 모두 패드별로 지원한다.
+
+**개발 기간**: 1.5일
+
+**현재 구조**: `Page5Settings`에 이미 "터치패드" 페이지 셀렉터(`SegmentedChipSelector`, `selectedZonePage`)가 있어 페이지 단위로 엣지 존 할당을 분리 편집한다. 각 페이지는 단일 `touchpadId`(`TouchpadIds.standardPage(n)`)에 대응하는 `TouchpadEdgeZoneAssignment`를 별도 저장한다.
+
+**세부 목표**:
+1. **데이터 계층**: Page 2 각 패드에 별도 `touchpadId` 발급(예: `standard_page2_pad1`~`pad4`). `TouchpadIds`에 패드 변형 헬퍼 추가. `standardAssignments` 저장 키를 (페이지, 패드) 복합 키로 확장. `TouchpadEdgeZoneAssignmentRepository`(JSON 파일 영속) 키 스킴 조정.
+2. **설정 UI**: 페이지 셀렉터에서 "페이지 2" 선택 시 패드 서브 셀렉터(패드 1~N) 노출하는 2단 셀렉터로 재구성. 기존 `SegmentedChipSelector` 컴포넌트 재사용.
+3. **런타임 배선**: `Page2MultiCursorTouchpad`가 현재 `edgeZoneAssignment` 파라미터 하나만 받는 구조 → 그리드 각 셀 `TouchpadWrapper`에 패드 인덱스별 assignment를 전달하도록 변경. 직접 전환 버튼 모드는 활성 패드의 assignment만 전달.
+4. **UX 전제**: 그리드 4분할 시 셀 면적이 작아 4방향 엣지 존 조작 실효성이 제한될 수 있음을 인지하되, 그리드 모드도 패드별 할당을 동일하게 지원한다.
+
+**참조 문서**:
+- `docs/android/component-touchpad.md` §1.2 (터치패드 영역 구조)
+- `docs/android/technical-specification-app.md` §2.2.6 (멀티 커서 알고리즘 명세)
+
+**검증**:
+- [ ] 설정 화면에서 페이지→패드 2단 선택으로 각 패드의 엣지 존을 독립 편집
+- [ ] 그리드 분할 모드에서 각 셀이 해당 패드 전용 존 액션 실행
+- [ ] 직접 전환 버튼 모드에서 활성 패드 전환 시 존 액션도 해당 패드 것으로 즉시 전환
+- [ ] 패드별 존 할당 JSON 저장/복원 정상 동작
+- [ ] 싱글 커서 복귀 시 기존 페이지 단위 존 할당으로 정상 복원
+
+---
+
+## Phase 4.8.10: 패드 커스텀 라벨 (롱프레스 편집)
+
+**목표**: 패드 번호(1/2/3/4) 대신 사용자 지정 이름을 표시한다. 편집은 패드 롱프레스로 진입한다.
+
+**개발 기간**: 0.5일
+
+**세부 목표**:
+1. **편집 진입**: 그리드 셀 또는 `PadSwitchButtonPanel` 전환 버튼 롱프레스(`combinedClickable`의 `onLongClick`) → 이름 편집 팝업(신규 소형 컴포넌트).
+2. **상태/영속**: `MultiCursorController`는 순수 상태 홀더이므로 라벨은 별도 영속 계층에 둔다 — `MultiCursorState`에 `padLabels: List<String>` 추가 후 SharedPreferences repository 배선(`InputMode.kt`의 load/save 패턴 선례 재사용).
+3. **렌더**: 라벨이 지정되면 이름 표시, 없으면 기존 번호로 fallback. 그리드 dim 오버레이와 `PadSwitchButtonPanel` 양쪽에 반영.
+4. **피드백**: 롱프레스 햅틱은 기존 `HapticFeedbackConstants.LONG_PRESS` 패턴 재사용, 저장 완료 시 `ToastController.show(...)`.
+
+**참조 문서**:
+- `docs/android/component-touchpad.md` §1.2.2 (직접 전환 버튼 — PadSwitchButtonPanel)
+
+**검증**:
+- [ ] 그리드 셀 롱프레스 → 이름 편집 팝업 표시
+- [ ] 전환 버튼 롱프레스 → 이름 편집 팝업 표시
+- [ ] 지정한 이름이 그리드 dim 오버레이와 전환 버튼 양쪽에 표시
+- [ ] 앱 재시작 후에도 라벨 유지(영속 확인)
+- [ ] 빈 이름으로 저장 시 번호로 fallback
+
+---
+
 ## Phase 4.8 완료 후 Page 2 구조
 
 ```
 Page 2 — 풀 와이드 터치패드 (멀티 커서)
 ├── 터치패드 영역 (100% 너비 × 100% 높이)
 │   ├── [싱글 커서] 전체 면적 단일 터치패드
-│   └── [멀티 커서 — 그리드 분할] 활성 패드 테두리 + 비활성 dim
-│   └── [멀티 커서 — 직접 전환 버튼] 전체 면적 입력 + 하단 전환 버튼 패널
+│   └── [멀티 커서 — 그리드 분할] 활성 패드 테두리 + 비활성 dim + 패드별 엣지 존/라벨(4.8.9~10)
+│   └── [멀티 커서 — 직접 전환 버튼] 전체 면적 입력 + 하단 전환 버튼 패널 + 패드별 엣지 존/라벨(4.8.9~10)
 ├── ControlButtonContainer (CursorModeButton 포함, 상단 오버레이)
-├── 커서 수 선택 팝업 (CursorModeButton 위, 싱글→멀티 전환 시)
+├── 커서 수 선택 팝업 (CursorModeButton 위, 싱글→멀티 전환 시, 4.8.8 프리셋 시드 배정 포함 가능)
+├── 4개 엣지 존 (전 페이지 공용, 4.8.7부터 멀티 커서 제어 액션 할당 가능)
 └── 기존 가이드라인 등 오버레이
 ```
 
@@ -299,5 +406,9 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 | ControlButtonContainer | 전체 표시 | 활성 패드 모드 상태 반영 |
 | Windows 가상 커서 | 없음 | 전송 훅만 (실제 표시는 Phase 5) |
 | 패드 경계 홀드 리셋 | 해당 없음 | 외부 보조 버튼 조합으로 드래그 |
+| 엣지 존 멀티 커서 액션 (4.8.7) | 해당 없음 | 활성화/패드 전환/수 변경/레이아웃 토글을 4개 엣지 존 어디서든 실행 |
+| 패드별 프리셋 시드 (4.8.8) | 해당 없음 | 활성화 시 패드마다 다른 모드 프리셋 자동 배정 |
+| 패드별 엣지 존 할당 (4.8.9) | 해당 없음 | 각 패드가 독립 엣지 존 액션 세트 보유(그리드/직접 전환 모두) |
+| 패드 커스텀 라벨 (4.8.10) | 해당 없음 | 롱프레스로 패드 이름 편집, 번호 대신 표시 |
 
 > **소리 감지 패드 전환**: 마이크 입력으로 패드를 전환하는 기능은 멀티 커서 전용을 넘어 여러 앱 요소를 소리로 제어하는 일반 기능으로 확장하여 **Phase 7(추가 기능 개발)**에서 별도 계획한다. 이 Phase 범위에서 제외.
