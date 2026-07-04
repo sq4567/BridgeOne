@@ -1670,7 +1670,8 @@ fun EdgeZoneEditorScreen(
                                 }
                                 if (!editing) {
                                     // 코너 버튼 차단 영역 크기 조절 (캔버스 씬, 모드 미진입 시). 조절 즉시 저장 + 미리보기 갱신.
-                                    if (canvasMode is CanvasEditMode.None) {
+                                    // 코너 버튼(다이나믹스/모드 프리셋)이 모두 꺼져 있으면 차단할 코너가 없으므로 슬라이더 자체를 숨긴다.
+                                    if (canvasMode is CanvasEditMode.None && (bottomLeftButtonLabel != null || bottomRightButtonLabel != null)) {
                                         Column(
                                             modifier = Modifier
                                                 .align(Alignment.BottomCenter)

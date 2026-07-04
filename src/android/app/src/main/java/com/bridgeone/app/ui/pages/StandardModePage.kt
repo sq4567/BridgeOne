@@ -740,7 +740,10 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
         // 전체 화면)이라 제어 버튼과 겹친다. 패드 2·3은 4분할 그리드에서만 존재하며 항상 하단 행이라
         // TOP 엣지가 자유롭다(직접 전환 버튼 모드에서 해당 패드가 활성화되면 실제로는 버튼에 가려질 수
         // 있으나, 버튼이 터치를 우선 소비해 크래시 없이 그 존만 무용지물이 되는 정도라 별도 제약을 두지 않는다).
+        val zoneEditorVisibility = standardButtonVisibility[selectedZonePage]
+            ?: TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(selectedZonePage))
         val zoneEditorDisabledEdges: Map<com.bridgeone.app.ui.components.touchpad.EntryEdge, String> = when {
+            !zoneEditorVisibility.showControlButtons -> emptyMap()
             selectedZonePage == 0 -> mapOf(com.bridgeone.app.ui.components.touchpad.EntryEdge.TOP to "제어 버튼")
             selectedZonePage == 1 && selectedZonePad in -1..1 -> mapOf(com.bridgeone.app.ui.components.touchpad.EntryEdge.TOP to "제어 버튼")
             else -> emptyMap()
@@ -750,6 +753,8 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
             initialPresetId = targetAssignment.presetId,
             presetsRepo = edgeZonePresetsRepo,
             disabledEdges = zoneEditorDisabledEdges,
+            bottomLeftButtonLabel = if (zoneEditorVisibility.showDynamicsButton) "다이나믹스" else null,
+            bottomRightButtonLabel = if (zoneEditorVisibility.showModePresetButton) "모드 프리셋" else null,
             customPresets = customPresets,
             customPresetsRepo = customPresetsRepo,
             onCustomPresetsChange = { customPresets = it },
