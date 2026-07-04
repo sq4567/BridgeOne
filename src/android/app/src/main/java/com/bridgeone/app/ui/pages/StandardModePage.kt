@@ -333,12 +333,29 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
         }
     }
     // 페이지 인덱스(0-based)를 터치패드 ID로 사용. 터치패드가 있는 페이지만 포함.
+    // Phase 4.8.9: 페이지 1(index 1, Page 2 싱글 커서 모드)은 제어 버튼과 TOP이 겹치므로
+    // 커스텀 편집 안 한(builtin_default) 경우 로드 시점에 TOP 존을 비운다.
     val standardTouchpadPages = remember { listOf(0, 1) }
     var standardAssignments by remember {
-        mutableStateOf(standardTouchpadPages.associateWith { assignmentRepo.load(TouchpadIds.standardPage(it)) })
+        mutableStateOf(standardTouchpadPages.associateWith { pageIdx ->
+            val loaded = assignmentRepo.load(TouchpadIds.standardPage(pageIdx))
+            if (pageIdx == 1) loaded.withTopClearedIfDefault() else loaded
+        })
     }
     // Page 5 설정에서 현재 선택된 페이지 인덱스 (엣지 존 + 버튼 표시 공유)
     var selectedZonePage by remember { mutableStateOf(0) }
+
+    // Phase 4.8.9: Page 2 멀티 커서 패드별 엣지 존 할당 (패드 인덱스 0~3, 항상 최대치 보유)
+    // 패드 0·1은 그리드 어떤 개수든 항상 상단 행이라 제어 버튼과 겹치므로 TOP 기본값을 비운다.
+    var page2PadAssignments by remember {
+        mutableStateOf((0 until MULTI_CURSOR_COUNT_MAX).associateWith { padIdx ->
+            val loaded = assignmentRepo.load(TouchpadIds.standardPage2Pad(padIdx))
+            if (padIdx in 0..1) loaded.withTopClearedIfDefault() else loaded
+        })
+    }
+    // 설정에서 편집 중인 패드 인덱스 (selectedZonePage == 1일 때만 사용). -1 = 싱글 모드
+    // (standardAssignments[1] 편집), 0~3 = 그리드/직접 전환 패드(page2PadAssignments 편집)
+    var selectedZonePad by remember { mutableStateOf(-1) }
 
     // 앱 전체 조작 방식 (일반/스와이프). SharedPreferences에서 복원.
     var inputMode by remember { mutableStateOf(loadInputMode(context)) }
@@ -399,6 +416,13 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     LaunchedEffect(standardAssignments) {
         standardAssignments.forEach { (pageIdx, assignment) ->
             assignmentRepo.save(TouchpadIds.standardPage(pageIdx), assignment)
+        }
+    }
+
+    // Page 2 패드별 엣지 존 할당이 변경될 때 파일에 저장 (Phase 4.8.9)
+    LaunchedEffect(page2PadAssignments) {
+        page2PadAssignments.forEach { (padIdx, assignment) ->
+            assignmentRepo.save(TouchpadIds.standardPage2Pad(padIdx), assignment)
         }
     }
 
@@ -565,6 +589,12 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         touchpadState = pageState.touchpadState,
                         edgeZoneAssignment = standardAssignments[1] ?: TouchpadEdgeZoneAssignment.default(),
                         onEdgeZoneAssignmentChange = { updated -> standardAssignments = standardAssignments + (1 to updated) },
+                        padEdgeZoneAssignments = (0 until MULTI_CURSOR_COUNT_MAX).map {
+                            page2PadAssignments[it] ?: TouchpadEdgeZoneAssignment.default()
+                        },
+                        onPadEdgeZoneAssignmentChange = { padIdx, updated ->
+                            page2PadAssignments = page2PadAssignments + (padIdx to updated)
+                        },
                         customPresets = customPresets,
                         onTouchpadStateChange = recordingOnChange,
                         onRestorePrevious = onRestorePrevious,
@@ -659,6 +689,9 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         standardAssignments = standardAssignments,
                         selectedZonePage = selectedZonePage,
                         onSelectedZonePageChange = { selectedZonePage = it },
+                        page2PadAssignments = page2PadAssignments,
+                        selectedZonePad = selectedZonePad,
+                        onSelectedZonePadChange = { selectedZonePad = it },
                         onOpenZoneEditor = { showZoneEditor = true },
                         standardButtonVisibility = standardButtonVisibility,
                         onButtonVisibilityChange = { pageIdx, updated ->
@@ -695,10 +728,23 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
 
     // ── Phase 4.6.2: 존 편집기 오버레이 ──
     if (showZoneEditor) {
-        val targetAssignment = standardAssignments[selectedZonePage] ?: TouchpadEdgeZoneAssignment.default()
-        val zoneEditorDisabledEdges: Map<com.bridgeone.app.ui.components.touchpad.EntryEdge, String> =
-            if (selectedZonePage == 0) mapOf(com.bridgeone.app.ui.components.touchpad.EntryEdge.TOP to "제어 버튼")
-            else emptyMap()
+        // Phase 4.8.9: 페이지 2에서 패드(0~3) 선택 시 패드별 assignment, "싱글"(-1) 선택 시
+        // 싱글 커서 모드에서 쓰이는 페이지 단위 assignment(standardAssignments[1]), 그 외
+        // 페이지는 기존 페이지 단위 assignment 사용
+        val targetAssignment = when {
+            selectedZonePage == 1 && selectedZonePad == -1 -> standardAssignments[1] ?: TouchpadEdgeZoneAssignment.default()
+            selectedZonePage == 1 -> page2PadAssignments[selectedZonePad] ?: TouchpadEdgeZoneAssignment.default()
+            else -> standardAssignments[selectedZonePage] ?: TouchpadEdgeZoneAssignment.default()
+        }
+        // Phase 4.8.9: 패드 0·1과 싱글 모드는 그리드 개수(2/3/4)와 무관하게 항상 상단 행(또는 싱글
+        // 전체 화면)이라 제어 버튼과 겹친다. 패드 2·3은 4분할 그리드에서만 존재하며 항상 하단 행이라
+        // TOP 엣지가 자유롭다(직접 전환 버튼 모드에서 해당 패드가 활성화되면 실제로는 버튼에 가려질 수
+        // 있으나, 버튼이 터치를 우선 소비해 크래시 없이 그 존만 무용지물이 되는 정도라 별도 제약을 두지 않는다).
+        val zoneEditorDisabledEdges: Map<com.bridgeone.app.ui.components.touchpad.EntryEdge, String> = when {
+            selectedZonePage == 0 -> mapOf(com.bridgeone.app.ui.components.touchpad.EntryEdge.TOP to "제어 버튼")
+            selectedZonePage == 1 && selectedZonePad in -1..1 -> mapOf(com.bridgeone.app.ui.components.touchpad.EntryEdge.TOP to "제어 버튼")
+            else -> emptyMap()
+        }
         com.bridgeone.app.ui.components.touchpad.EdgeZoneEditorScreen(
             initialConfig = targetAssignment.config,
             initialPresetId = targetAssignment.presetId,
@@ -710,7 +756,12 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
             customShortcutPresetsRepo = customShortcutPresetsRepo,
             customMacroPresetsRepo = customMacroPresetsRepo,
             onSave = { newConfig, presetId ->
-                standardAssignments = standardAssignments + (selectedZonePage to TouchpadEdgeZoneAssignment(newConfig, presetId))
+                val updated = TouchpadEdgeZoneAssignment(newConfig, presetId)
+                when {
+                    selectedZonePage == 1 && selectedZonePad == -1 -> standardAssignments = standardAssignments + (1 to updated)
+                    selectedZonePage == 1 -> page2PadAssignments = page2PadAssignments + (selectedZonePad to updated)
+                    else -> standardAssignments = standardAssignments + (selectedZonePage to updated)
+                }
                 showZoneEditor = false
             },
             onBack = { showZoneEditor = false },

@@ -356,21 +356,32 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 **현재 구조**: `Page5Settings`에 이미 "터치패드" 페이지 셀렉터(`SegmentedChipSelector`, `selectedZonePage`)가 있어 페이지 단위로 엣지 존 할당을 분리 편집한다. 각 페이지는 단일 `touchpadId`(`TouchpadIds.standardPage(n)`)에 대응하는 `TouchpadEdgeZoneAssignment`를 별도 저장한다.
 
 **세부 목표**:
-1. **데이터 계층**: Page 2 각 패드에 별도 `touchpadId` 발급(예: `standard_page2_pad1`~`pad4`). `TouchpadIds`에 패드 변형 헬퍼 추가. `standardAssignments` 저장 키를 (페이지, 패드) 복합 키로 확장. `TouchpadEdgeZoneAssignmentRepository`(JSON 파일 영속) 키 스킴 조정.
-2. **설정 UI**: 페이지 셀렉터에서 "페이지 2" 선택 시 패드 서브 셀렉터(패드 1~N) 노출하는 2단 셀렉터로 재구성. 기존 `SegmentedChipSelector` 컴포넌트 재사용.
-3. **런타임 배선**: `Page2MultiCursorTouchpad`가 현재 `edgeZoneAssignment` 파라미터 하나만 받는 구조 → 그리드 각 셀 `TouchpadWrapper`에 패드 인덱스별 assignment를 전달하도록 변경. 직접 전환 버튼 모드는 활성 패드의 assignment만 전달.
+1. **데이터 계층**: Page 2 각 패드에 별도 `touchpadId` 발급(`TouchpadIds.standardPage2Pad(padIndex)` → `"standard_page2_pad$padIndex"`). `TouchpadEdgeZoneAssignmentRepository`는 String 키 기반이라 스킴 변경 없이 신규 키로 동작.
+2. **설정 UI**: 페이지 셀렉터에서 "페이지 2" 선택 시 패드 서브 셀렉터(패드 1~4, 항상 4개 최대치 노출) 표시하는 2단 셀렉터로 재구성. 기존 `SegmentedChipSelector` 컴포넌트 재사용.
+3. **런타임 배선**: `Page2MultiCursorTouchpad`가 신규 파라미터 `padEdgeZoneAssignments: List<TouchpadEdgeZoneAssignment>`/`onPadEdgeZoneAssignmentChange`를 받아, 멀티 커서 활성 시 `activePadIndex`의 assignment를 그리드 활성 셀·직접 전환 버튼 모드 양쪽에 전달. 싱글 모드는 기존 `edgeZoneAssignment`(페이지 단위) 그대로 사용.
 4. **UX 전제**: 그리드 4분할 시 셀 면적이 작아 4방향 엣지 존 조작 실효성이 제한될 수 있음을 인지하되, 그리드 모드도 패드별 할당을 동일하게 지원한다.
+
+> **계획 대비 실제 구현 차이**: 원래 계획은 `standardAssignments`를 (페이지, 패드) 복합 키로 확장하는 것이었으나, 실제로는 **기존 `standardAssignments`(페이지 단위)를 건드리지 않고 별도 맵 `page2PadAssignments: Map<Int(패드 0~3), TouchpadEdgeZoneAssignment>`로 분리**했다. 이유: 싱글 커서 복귀 시 기존 페이지 단위 경로를 그대로 재사용할 수 있어 복원 로직이 단순해지고, Page 1·버튼 표시 배선을 전혀 건드리지 않아도 됨. `StandardModePage.kt`에 `selectedZonePad`(Int, 설정 화면 편집 대상 패드) 상태가 별도로 추가됨 — 후속 Phase에서 Page 2 설정 UI를 다룰 때 `selectedZonePage`(페이지 선택)와 `selectedZonePad`(패드 선택, `selectedZonePage == 1`일 때만 유효)가 별개 상태임에 유의.
+
+> **패드별 TOP 엣지 비활성화 규칙 (사용자 요청으로 추가)**: `ControlButtonContainer`는 그리드/레이아웃 모드와 무관하게 화면 상단 중앙에 고정 오버레이로 렌더된다(`Page2MultiCursorTouchpad.kt`, `fillMaxWidth(0.6~0.64) + align(TopCenter)`). 그리드 분할 시 패드 0·1은 cursorCount(2/3/4)와 무관하게 항상 상단 행이라 이 버튼과 겹치므로, 존 편집기에서 `zoneEditorDisabledEdges`로 TOP 엣지 배정을 막는다(`StandardModePage.kt`의 존 편집기 오버레이 블록). 패드 2·3은 4분할 그리드에서만 존재하며 항상 하단 행이라 TOP이 자유로워 비활성화하지 않는다. 단, 직접 전환 버튼 모드에서 패드 2·3이 활성화되면 실제로는 버튼에 가려질 수 있으나 — 버튼이 z-order상 터치를 우선 소비하므로 크래시나 오동작 없이 그 존만 무용지물이 되는 정도라 별도 제약을 두지 않기로 함(사용자 확인 완료). `disabledEdges`는 존 편집기 UI의 배정 가드일 뿐 런타임 제스처 자체를 막지 않는다는 점에 유의.
+
+> **후속 버그 수정 (사용자 발견 → 즉시 처리)**: 위 규칙을 처음 적용한 직후, 싱글 커서 모드(Page 2, 그리드 분할 전 전체 화면)의 TOP 엣지에 제어 버튼과 겹치는 존이 여전히 보라색으로 활성화된 채 남아있는 문제가 발견됐다. 원인 2가지, 모두 수정 완료:
+> 1. **설정 UI 회귀**: 패드 서브 셀렉터가 "페이지 2" 선택을 전부 패드별 편집(`page2PadAssignments`)으로 바꿔버려서, 싱글 커서 모드가 실제로 쓰는 페이지 단위 assignment(`standardAssignments[1]`)를 설정 화면에서 편집할 방법이 없어졌었다(회귀). 패드 서브 셀렉터에 **"싱글"(sentinel 값 `-1`)** 옵션을 패드 1~4 앞에 추가해 다시 편집 가능하게 함. `selectedZonePad`는 이제 `-1`(싱글, 기본값) 또는 `0~3`(패드)을 가지며, TOP 비활성화 규칙도 `selectedZonePad in -1..1`(싱글 + 패드 0·1)로 확장.
+> 2. **기본값 자체가 TOP을 막고 있었음**: `EdgeZoneConfig.default()`(`EdgeZone.kt:503-519`)는 TOP 엣지에 "다이나믹스/모드프리셋 순환" 2개 액션을 항상 기본 배정한다. 편집기에서 TOP 배정을 막아도, 한 번도 커스텀 편집 안 한(빌트인 기본값) touchpadId는 이 기본값을 그대로 들고 있어 여전히 표시됨. `TouchpadEdgeZoneAssignment.withTopClearedIfDefault()`(`TouchpadEdgeZoneAssignment.kt`) 헬퍼를 추가해, `presetId == "builtin_default"`일 때만(사용자가 직접 편집해 저장한 값은 보존) TOP 존을 비운 뒤 로드하도록 `StandardModePage.kt`의 `standardAssignments[1]` 및 `page2PadAssignments[0,1]` 초기 로드 지점에 적용.
+> - **참고**: 페이지 인덱스 0(페이지 1)도 동일한 `default()` 기본값 문제를 이론상 가질 수 있으나, 이번 수정 범위(사용자가 실제로 보고한 Page 2)에 한정해 처리했다. 페이지 1에서도 동일 증상이 보이면 같은 패턴(`withTopClearedIfDefault()` 적용)으로 후속 처리 필요.
 
 **참조 문서**:
 - `docs/android/component-touchpad.md` §1.2 (터치패드 영역 구조)
 - `docs/android/technical-specification-app.md` §2.2.6 (멀티 커서 알고리즘 명세)
 
 **검증**:
-- [ ] 설정 화면에서 페이지→패드 2단 선택으로 각 패드의 엣지 존을 독립 편집
-- [ ] 그리드 분할 모드에서 각 셀이 해당 패드 전용 존 액션 실행
-- [ ] 직접 전환 버튼 모드에서 활성 패드 전환 시 존 액션도 해당 패드 것으로 즉시 전환
-- [ ] 패드별 존 할당 JSON 저장/복원 정상 동작
-- [ ] 싱글 커서 복귀 시 기존 페이지 단위 존 할당으로 정상 복원
+- [x] 설정 화면에서 페이지→패드 2단 선택으로 각 패드의 엣지 존을 독립 편집
+- [x] 그리드 분할 모드에서 각 셀이 해당 패드 전용 존 액션 실행
+- [x] 직접 전환 버튼 모드에서 활성 패드 전환 시 존 액션도 해당 패드 것으로 즉시 전환
+- [x] 패드별 존 할당 JSON 저장/복원 정상 동작
+- [x] 싱글 커서 복귀 시 기존 페이지 단위 존 할당으로 정상 복원
+
+구현 완료, 빌드 성공(`assembleDebug`), 실기기 검증 완료.
 
 ---
 
@@ -379,6 +390,8 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 **목표**: 패드 번호(1/2/3/4) 대신 사용자 지정 이름을 표시한다. 편집은 패드 롱프레스로 진입한다.
 
 **개발 기간**: 0.5일
+
+> **⚠️ Phase 4.8.9 변경사항**: `Page5Settings.kt`에 페이지 2 선택 시 노출되는 패드 서브 셀렉터(`SegmentedChipSelector`, `selectedZonePad` 상태)가 신규 추가됨. 옵션은 "싱글"(sentinel 값 `-1`, 페이지 단위 `standardAssignments[1]` 편집) + "패드 1"~"패드 4"(번호 라벨, `page2PadAssignments` 편집) 구성. 이 Phase에서 커스텀 라벨을 도입하면 패드 1~4의 표시 라벨만 갱신 대상(번호 → 지정된 이름, 미지정 시 번호 fallback) — "싱글" 항목은 개별 패드가 아니므로 라벨링 대상에서 제외.
 
 **세부 목표**:
 1. **편집 진입**: 그리드 셀 또는 `PadSwitchButtonPanel` 전환 버튼 롱프레스(`combinedClickable`의 `onLongClick`) → 이름 편집 팝업(신규 소형 컴포넌트).

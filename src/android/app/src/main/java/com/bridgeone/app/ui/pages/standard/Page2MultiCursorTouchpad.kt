@@ -78,6 +78,9 @@ internal fun Page2MultiCursorTouchpad(
     touchpadState: TouchpadState,
     edgeZoneAssignment: TouchpadEdgeZoneAssignment = TouchpadEdgeZoneAssignment.default(),
     onEdgeZoneAssignmentChange: (TouchpadEdgeZoneAssignment) -> Unit = {},
+    // Phase 4.8.9: 패드별 엣지 존 할당(멀티 커서 활성 시 활성 패드 것을 사용, 인덱스 0~3)
+    padEdgeZoneAssignments: List<TouchpadEdgeZoneAssignment> = emptyList(),
+    onPadEdgeZoneAssignmentChange: (Int, TouchpadEdgeZoneAssignment) -> Unit = { _, _ -> },
     customPresets: List<CustomPointerDynamicsPreset> = emptyList(),
     onTouchpadStateChange: (TouchpadState) -> Unit = {},
     onRestorePrevious: () -> Unit = {},
@@ -144,6 +147,18 @@ internal fun Page2MultiCursorTouchpad(
         }
     }
 
+    // Phase 4.8.9: 멀티 커서 활성 시 활성 패드의 엣지 존 할당을, 싱글 모드는 기존 페이지 단위 할당을 사용
+    val effectiveAssignment = if (multiCursorState.isEnabled) {
+        padEdgeZoneAssignments.getOrNull(multiCursorState.activePadIndex) ?: edgeZoneAssignment
+    } else {
+        edgeZoneAssignment
+    }
+    val effectiveOnAssignmentChange: (TouchpadEdgeZoneAssignment) -> Unit = if (multiCursorState.isEnabled) {
+        { updated -> onPadEdgeZoneAssignmentChange(multiCursorState.activePadIndex, updated) }
+    } else {
+        onEdgeZoneAssignmentChange
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         val showGrid = multiCursorState.isEnabled && multiCursorState.layoutMode == MultiCursorLayoutMode.GRID
         val showDirectButton = multiCursorState.isEnabled && multiCursorState.layoutMode == MultiCursorLayoutMode.DIRECT_BUTTON
@@ -182,8 +197,8 @@ internal fun Page2MultiCursorTouchpad(
                             touchpadId = TouchpadIds.standardPage(1),
                             bridgeMode = BridgeMode.STANDARD,
                             touchpadState = effectiveState,
-                            edgeZoneAssignment = edgeZoneAssignment,
-                            onEdgeZoneAssignmentChange = onEdgeZoneAssignmentChange,
+                            edgeZoneAssignment = effectiveAssignment,
+                            onEdgeZoneAssignmentChange = effectiveOnAssignmentChange,
                             customPresets = customPresets,
                             onTouchpadStateChange = effectiveOnStateChange,
                             onRestorePrevious = onRestorePrevious,
@@ -375,8 +390,8 @@ internal fun Page2MultiCursorTouchpad(
                     touchpadId = TouchpadIds.standardPage(1),
                     bridgeMode = BridgeMode.STANDARD,
                     touchpadState = effectiveState,
-                    edgeZoneAssignment = edgeZoneAssignment,
-                    onEdgeZoneAssignmentChange = onEdgeZoneAssignmentChange,
+                    edgeZoneAssignment = effectiveAssignment,
+                    onEdgeZoneAssignmentChange = effectiveOnAssignmentChange,
                     customPresets = customPresets,
                     onTouchpadStateChange = effectiveOnStateChange,
                     onRestorePrevious = onRestorePrevious,

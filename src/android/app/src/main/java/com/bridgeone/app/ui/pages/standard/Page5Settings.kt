@@ -71,12 +71,23 @@ internal fun Page5Settings(
     standardAssignments: Map<Int, TouchpadEdgeZoneAssignment> = emptyMap(),
     selectedZonePage: Int = 0,
     onSelectedZonePageChange: (Int) -> Unit = {},
+    // Phase 4.8.9: Page 2 멀티 커서 패드별 엣지 존 할당 (패드 인덱스 0~3)
+    page2PadAssignments: Map<Int, TouchpadEdgeZoneAssignment> = emptyMap(),
+    // -1 = 싱글 커서 모드(standardAssignments[1] 편집), 0~3 = 패드
+    selectedZonePad: Int = -1,
+    onSelectedZonePadChange: (Int) -> Unit = {},
     onOpenZoneEditor: () -> Unit = {},
     standardButtonVisibility: Map<Int, TouchpadButtonVisibility> = emptyMap(),
     onButtonVisibilityChange: (Int, TouchpadButtonVisibility) -> Unit = { _, _ -> }
 ) {
     val sortedPages = standardAssignments.keys.sorted()
-    val currentAssignment = standardAssignments[selectedZonePage] ?: TouchpadEdgeZoneAssignment.default()
+    // Phase 4.8.9: 페이지 2(인덱스 1)에서 "싱글" 선택 시 페이지 단위 assignment(싱글 커서 모드에서
+    // 실제 사용), 패드 선택 시 패드별 assignment, 그 외 페이지는 기존 페이지 단위 assignment 사용
+    val currentAssignment = when {
+        selectedZonePage == 1 && selectedZonePad == -1 -> standardAssignments[1] ?: TouchpadEdgeZoneAssignment.default()
+        selectedZonePage == 1 -> page2PadAssignments[selectedZonePad] ?: TouchpadEdgeZoneAssignment.default()
+        else -> standardAssignments[selectedZonePage] ?: TouchpadEdgeZoneAssignment.default()
+    }
     val currentVisibility = standardButtonVisibility[selectedZonePage] ?: TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(selectedZonePage))
 
     Box(
@@ -180,6 +191,21 @@ internal fun Page5Settings(
                         options = sortedPages.map { it to "페이지 ${it + 1}" },
                         selected = selectedZonePage,
                         onSelect = onSelectedZonePageChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        chipSpacing = 6.dp,
+                        chipPaddingH = 14.dp,
+                    )
+                }
+            }
+
+            // Phase 4.8.9: 페이지 2 선택 시 "싱글"(페이지 단위) + 패드 서브 셀렉터 (항상 4개 최대치 노출)
+            if (selectedZonePage == 1) {
+                item {
+                    SegmentedChipSelector(
+                        options = listOf(-1 to "싱글") +
+                            (0 until com.bridgeone.app.ui.components.touchpad.MULTI_CURSOR_COUNT_MAX).map { it to "패드 ${it + 1}" },
+                        selected = selectedZonePad,
+                        onSelect = onSelectedZonePadChange,
                         modifier = Modifier.fillMaxWidth(),
                         chipSpacing = 6.dp,
                         chipPaddingH = 14.dp,
