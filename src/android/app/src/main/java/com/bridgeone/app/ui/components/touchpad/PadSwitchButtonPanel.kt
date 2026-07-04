@@ -3,8 +3,9 @@ package com.bridgeone.app.ui.components.touchpad
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import com.bridgeone.app.ui.common.MultiCursorConstants
@@ -38,14 +40,19 @@ import com.bridgeone.app.ui.common.MultiCursorConstants
  *
  * @param cursorCount 커서(패드) 수
  * @param activePadIndex 현재 활성 패드 인덱스
+ * @param padLabels 패드별 표시 라벨 (인덱스 = pad1~padN, Phase 4.8.10). 번호 폴백은 호출부가 처리.
  * @param onPadSwitch 버튼 탭 시 호출되는 패드 전환 콜백
+ * @param onPadLongPress 버튼 롱프레스 시 호출되는 콜백 (이름 편집 진입, Phase 4.8.10)
  * @param modifier 외부 Modifier
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun PadSwitchButtonPanel(
     cursorCount: Int,
     activePadIndex: Int,
+    padLabels: List<String> = emptyList(),
     onPadSwitch: (Int) -> Unit,
+    onPadLongPress: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val view = LocalView.current
@@ -94,20 +101,27 @@ internal fun PadSwitchButtonPanel(
                     modifier = Modifier
                         .fillMaxHeight()
                         .weight(1f)
-                        .clickable(
+                        .combinedClickable(
                             interactionSource = interactionSource,
-                            indication = null
-                        ) {
-                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                            onPadSwitch(index)
-                        },
+                            indication = null,
+                            onClick = {
+                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                onPadSwitch(index)
+                            },
+                            onLongClick = {
+                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                onPadLongPress(index)
+                            }
+                        ),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "${index + 1}",
+                        text = padLabels.getOrNull(index)?.takeIf { it.isNotBlank() } ?: "${index + 1}",
                         color = TouchpadColorButtonText,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

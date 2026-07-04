@@ -44,6 +44,9 @@ import com.bridgeone.app.ui.common.MACRO_SCRIM_MIN_DISPLAY_MS
 import com.bridgeone.app.ui.common.MacroFrameSequencer
 import com.bridgeone.app.ui.common.MacroOverlayController
 import com.bridgeone.app.ui.common.MODE_PRESETS
+import com.bridgeone.app.ui.common.MultiCursorConstants
+import com.bridgeone.app.ui.common.loadPadLabels
+import com.bridgeone.app.ui.common.savePadLabels
 import com.bridgeone.app.ui.common.ToastController
 import com.bridgeone.app.ui.common.ToastType
 import com.bridgeone.app.ui.common.TouchpadButtonVisibility
@@ -130,7 +133,11 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     }
 
     // Phase 4.8.2: 멀티 커서 상태 홀더. 페이저 바깥에서 1회 생성해 페이지 전환에도 유지된다.
-    val multiCursor = remember { MultiCursorController() }
+    // Phase 4.8.10: 패드 커스텀 라벨을 SharedPreferences에서 복원해 초기값으로 주입.
+    val multiCursor = remember { MultiCursorController(initialPadLabels = loadPadLabels(context)) }
+
+    // Phase 4.8.10: 이름 편집 팝업 대상 패드 인덱스 (null = 숨김)
+    var padLabelEditorTarget by remember { mutableStateOf<Int?>(null) }
 
     // Phase 4.8.7: disable() 시 cursorCount가 0으로 리셋되므로, ToggleMultiCursor 재활성화 시
     // 복원할 마지막 커서 수를 별도로 기억한다. 기본값: MULTI_CURSOR_COUNT_MIN(2)
@@ -245,6 +252,18 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
             }
             else -> {}
         }
+    }
+
+    // Phase 4.8.10: 패드 이름 확정. 트리밍 후 빈 문자열이면 null로 저장해 번호로 폴백시킨다.
+    val onPadLabelConfirmed: (Int, String) -> Unit = { index, label ->
+        val trimmed = label.trim().take(MultiCursorConstants.PAD_LABEL_MAX_LENGTH)
+        multiCursor.renamePad(index, trimmed.ifBlank { null })
+        savePadLabels(context, multiCursor.state.padLabels)
+        padLabelEditorTarget = null
+        ToastController.show(
+            if (trimmed.isBlank()) "패드 ${index + 1} 이름을 초기화했습니다" else "패드 이름을 \"$trimmed\"(으)로 변경했습니다",
+            ToastType.SUCCESS
+        )
     }
 
     // 모든 모드 변경을 인터셉트해 의미있는 변화를 히스토리에 push한 뒤 상태 교체.
@@ -667,7 +686,11 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                                 )
                             }
                         },
-                        onModePresetDismiss = { modePresetPopupVisible = false }
+                        onModePresetDismiss = { modePresetPopupVisible = false },
+                        padLabelEditorTarget = padLabelEditorTarget,
+                        onPadLongPress = { index -> padLabelEditorTarget = index },
+                        onPadLabelConfirm = onPadLabelConfirmed,
+                        onPadLabelDismiss = { padLabelEditorTarget = null }
                     )
                     2 -> Page3KeyboardPlaceholder()
                     3 -> Page4MinecraftPlaceholder()

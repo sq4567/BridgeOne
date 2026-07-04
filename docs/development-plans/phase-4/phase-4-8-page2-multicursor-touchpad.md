@@ -399,15 +399,21 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 3. **렌더**: 라벨이 지정되면 이름 표시, 없으면 기존 번호로 fallback. 그리드 dim 오버레이와 `PadSwitchButtonPanel` 양쪽에 반영.
 4. **피드백**: 롱프레스 햅틱은 기존 `HapticFeedbackConstants.LONG_PRESS` 패턴 재사용, 저장 완료 시 `ToastController.show(...)`.
 
+> **계획 대비 실제 구현 차이**: 그리드 셀의 롱프레스는 활성 셀(TouchpadWrapper가 차지)에는 추가하지 않고, 패드 전환용 탭 제스처가 이미 있는 **비활성 셀에만** 적용했다. 활성 셀에 별도 제스처를 얹으면 실제 터치패드 커서 이동/클릭과 충돌하기 때문. `padLabels`는 `MultiCursorState`에 항상 4칸(`MULTI_CURSOR_COUNT_MAX`) 고정 크기로 저장되어 커서 수 변경·비활성화에도 보존되며, `MultiCursorController.enable()`/`disable()`가 `layoutMode`와 동일하게 이 필드를 명시적으로 이어받는다. 팝업은 `Page2MultiCursorTouchpad`가 `padLabelEditorTarget`/`onPadLongPress`/`onPadLabelConfirm`/`onPadLabelDismiss` 4개 파라미터로 호이스팅해 `StandardModePage.kt`에서 상태를 소유하며, `MultiCursorConstants.PAD_LABEL_MAX_LENGTH`(기본값 6)로 길이를 제한한다.
+>
+> **입력 방식(사용자 요청으로 변경)**: 처음엔 `OutlinedTextField`(시스템 IME)로 구현했으나, 사용자 요청에 따라 시스템 키보드 대신 **BridgeOne 내장 키보드**(`ui/components/SwipeKeyboardOverlay.kt`)로 교체했다. `EdgeZoneEditorScreen.kt`의 라벨 편집 선례(`inputMode` 게이트 없이 NORMAL/SWIPE 공용으로 커스텀 키보드 사용)를 따라, `PadLabelEditorPopup`은 진짜 텍스트 필드 없이 `SwipeKeyboardOverlay`를 직접 렌더링한다(`showScrim` 기본값 그대로 사용해 화면 하단에 독)한다. 키보드 자체의 "완료"/"취소" 특수 키가 각각 `onConfirm`/`onDismiss`에 매핑되므로 팝업에 별도 확인/취소 버튼이 없다. `overlay` 슬롯에 패드 번호 + 실시간 입력 미리보기 카드만 얹었다.
+
 **참조 문서**:
 - `docs/android/component-touchpad.md` §1.2.2 (직접 전환 버튼 — PadSwitchButtonPanel)
 
 **검증**:
-- [ ] 그리드 셀 롱프레스 → 이름 편집 팝업 표시
-- [ ] 전환 버튼 롱프레스 → 이름 편집 팝업 표시
-- [ ] 지정한 이름이 그리드 dim 오버레이와 전환 버튼 양쪽에 표시
-- [ ] 앱 재시작 후에도 라벨 유지(영속 확인)
-- [ ] 빈 이름으로 저장 시 번호로 fallback
+- [x] 그리드 셀(비활성) 롱프레스 → 이름 편집 팝업 표시
+- [x] 전환 버튼 롱프레스 → 이름 편집 팝업 표시
+- [x] 지정한 이름이 그리드 dim 오버레이와 전환 버튼 양쪽에 표시
+- [x] 앱 재시작 후에도 라벨 유지(영속 확인)
+- [x] 빈 이름으로 저장 시 번호로 fallback
+
+구현 완료, 빌드 성공(`assembleDebug`), 실기기 검증 완료.
 
 ---
 

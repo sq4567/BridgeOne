@@ -157,17 +157,25 @@ const val MULTI_CURSOR_COUNT_MAX = 4
  * @property layoutMode      GRID / DIRECT_BUTTON. 기본값: GRID
  * @property activePadIndex  현재 활성 패드 인덱스 (0-based, pad1 = 0)
  * @property padModeStates   패드별 모드 상태 목록 (인덱스 = pad1~padN)
+ * @property padLabels       패드별 커스텀 라벨 (Phase 4.8.10). 인덱스 = pad1~pad4 고정 크기,
+ *   null/공백은 미지정을 의미하며 [labelFor]에서 번호로 폴백한다. cursorCount·활성 여부와
+ *   무관하게 항상 4칸을 유지해 커서 수 변경·비활성화에도 라벨이 보존된다.
  */
 data class MultiCursorState(
     val isEnabled: Boolean = false,
     val cursorCount: Int = 0,
     val layoutMode: MultiCursorLayoutMode = MultiCursorLayoutMode.GRID,
     val activePadIndex: Int = 0,
-    val padModeStates: List<PadModeState> = emptyList()
+    val padModeStates: List<PadModeState> = emptyList(),
+    val padLabels: List<String?> = List(MULTI_CURSOR_COUNT_MAX) { null }
 ) {
     /** 현재 활성 패드의 모드 상태. 범위를 벗어나면 기본값 반환 */
     val activePadModeState: PadModeState
         get() = padModeStates.getOrElse(activePadIndex) { PadModeState() }
+
+    /** [index] 패드의 표시용 라벨. 커스텀 라벨이 없거나 공백이면 번호(1-based)로 폴백한다. */
+    fun labelFor(index: Int): String =
+        padLabels.getOrNull(index)?.takeIf { it.isNotBlank() } ?: "${index + 1}"
 }
 
 // ============================================================

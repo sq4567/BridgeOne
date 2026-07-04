@@ -12,9 +12,9 @@ import androidx.compose.runtime.setValue
  * `remember { MultiCursorController() }`로 1회 생성해 hoist하면 페이지 전환에도
  * 상태가 유지된다.
  */
-class MultiCursorController {
+class MultiCursorController(initialPadLabels: List<String?> = List(MULTI_CURSOR_COUNT_MAX) { null }) {
 
-    var state by mutableStateOf(MultiCursorState())
+    var state by mutableStateOf(MultiCursorState(padLabels = initialPadLabels))
         private set
 
     /**
@@ -32,7 +32,8 @@ class MultiCursorController {
             cursorCount = cursorCount,
             layoutMode = state.layoutMode,
             activePadIndex = 0,
-            padModeStates = List(cursorCount) { seed }
+            padModeStates = List(cursorCount) { seed },
+            padLabels = state.padLabels
         )
     }
 
@@ -50,13 +51,14 @@ class MultiCursorController {
             cursorCount = seeds.size,
             layoutMode = state.layoutMode,
             activePadIndex = 0,
-            padModeStates = seeds
+            padModeStates = seeds,
+            padLabels = state.padLabels
         )
     }
 
     /** 멀티 커서 비활성화. 패드 상태를 모두 정리하고 싱글 커서로 복귀한다. */
     fun disable() {
-        state = MultiCursorState(layoutMode = state.layoutMode)
+        state = MultiCursorState(layoutMode = state.layoutMode, padLabels = state.padLabels)
     }
 
     /** 활성 패드 전환 (Phase 4.8.3/4.8.4에서 UI 연결). 범위를 벗어나면 무시한다. */
@@ -113,5 +115,17 @@ class MultiCursorController {
         if (idx !in updated.indices) return
         updated[idx] = transform(updated[idx])
         state = state.copy(padModeStates = updated)
+    }
+
+    /**
+     * [index] 패드의 커스텀 라벨을 [label]로 교체한다 (Phase 4.8.10).
+     * [label]이 null 또는 공백이면 [MultiCursorState.labelFor]가 번호로 폴백한다.
+     * 활성/비활성 여부와 무관하게 동작한다(라벨은 세션과 독립적).
+     */
+    fun renamePad(index: Int, label: String?) {
+        if (index !in state.padLabels.indices) return
+        val updated = state.padLabels.toMutableList()
+        updated[index] = label
+        state = state.copy(padLabels = updated)
     }
 }

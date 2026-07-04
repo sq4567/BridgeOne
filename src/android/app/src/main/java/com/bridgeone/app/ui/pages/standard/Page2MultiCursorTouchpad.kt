@@ -5,9 +5,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,7 +38,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -61,6 +62,7 @@ import com.bridgeone.app.ui.components.touchpad.ModePresetPopup
 import com.bridgeone.app.ui.components.touchpad.MULTI_CURSOR_COUNT_MIN
 import com.bridgeone.app.ui.components.touchpad.MultiCursorLayoutMode
 import com.bridgeone.app.ui.components.touchpad.MultiCursorState
+import com.bridgeone.app.ui.components.touchpad.PadLabelEditorPopup
 import com.bridgeone.app.ui.components.touchpad.PadSwitchButtonPanel
 import com.bridgeone.app.ui.components.touchpad.PageNav
 import com.bridgeone.app.ui.components.touchpad.TouchpadColorBlue
@@ -73,6 +75,7 @@ import kotlinx.coroutines.launch
 // Page 2: 멀티 커서 홈 — 풀 와이드 터치패드 (Phase 4.8)
 // ============================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun Page2MultiCursorTouchpad(
     touchpadState: TouchpadState,
@@ -108,7 +111,12 @@ internal fun Page2MultiCursorTouchpad(
     onModePresetLongPress: () -> Unit = {},
     modePresetPopupVisible: Boolean = false,
     onModePresetConfirmed: (Int) -> Unit = {},
-    onModePresetDismiss: () -> Unit = {}
+    onModePresetDismiss: () -> Unit = {},
+    // Phase 4.8.10: 패드 커스텀 라벨. 편집 대상 인덱스(null = 팝업 숨김), 롱프레스 진입, 확인/취소 콜백.
+    padLabelEditorTarget: Int? = null,
+    onPadLongPress: (Int) -> Unit = {},
+    onPadLabelConfirm: (Int, String) -> Unit = { _, _ -> },
+    onPadLabelDismiss: () -> Unit = {}
 ) {
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val touchpadWidthFraction = if (screenWidthDp < 360) 0.60f else 0.64f
@@ -223,15 +231,22 @@ internal fun Page2MultiCursorTouchpad(
                         val isTopEdge = rect.top <= 0.5f
                         val isRightEdge = rect.right >= widthPx - 0.5f
                         val isBottomEdge = rect.bottom >= heightPx - 0.5f
+                        val cellInteractionSource = remember(index) { MutableInteractionSource() }
                         Box(
                             modifier = cellModifier
                                 .background(Color(0xFF1A1A1A))
-                                .pointerInput(index) {
-                                    detectTapGestures {
+                                .combinedClickable(
+                                    interactionSource = cellInteractionSource,
+                                    indication = null,
+                                    onClick = {
                                         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                                         onPadSwitch(index)
+                                    },
+                                    onLongClick = {
+                                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                        onPadLongPress(index)
                                     }
-                                }
+                                )
                                 .drawBehind {
                                     val inset = dashStrokeWidthPx / 2
                                     val dashEffect = PathEffect.dashPathEffect(floatArrayOf(dashOnPx, dashOffPx))
@@ -275,7 +290,7 @@ internal fun Page2MultiCursorTouchpad(
                     ) {
                         if (!isActive) {
                             Text(
-                                text = "${index + 1}",
+                                text = multiCursorState.labelFor(index),
                                 color = Color.White.copy(alpha = MultiCursorConstants.GRID_CELL_LABEL_ALPHA),
                                 fontSize = 28.sp,
                                 fontWeight = FontWeight.Bold
@@ -416,7 +431,9 @@ internal fun Page2MultiCursorTouchpad(
             PadSwitchButtonPanel(
                 cursorCount = multiCursorState.cursorCount,
                 activePadIndex = multiCursorState.activePadIndex,
+                padLabels = (0 until multiCursorState.cursorCount).map { multiCursorState.labelFor(it) },
                 onPadSwitch = onPadSwitch,
+                onPadLongPress = onPadLongPress,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         } else {
@@ -492,5 +509,15 @@ internal fun Page2MultiCursorTouchpad(
                 .fillMaxSize()
                 .clip(RoundedCornerShape(12.dp))
         )
+
+        // Phase 4.8.10: 패드 커스텀 라벨 편집 팝업 (그리드 셀/전환 버튼 롱프레스로 진입)
+        if (padLabelEditorTarget != null) {
+            PadLabelEditorPopup(
+                padIndex = padLabelEditorTarget,
+                currentLabel = multiCursorState.padLabels.getOrNull(padLabelEditorTarget),
+                onConfirm = { label -> onPadLabelConfirm(padLabelEditorTarget, label) },
+                onDismiss = onPadLabelDismiss
+            )
+        }
     }
 }
