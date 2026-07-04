@@ -782,6 +782,7 @@ updated: "2026-04-02"
 > - `EdgeSwipeConstants`에 산봉우리 관련 상수 7개 추가: `MAX_PEAK_HEIGHT_DP(36)`, `BUMP_BASE_HALF_SIZE_DP(40)`, `BUMP_STROKE_WIDTH_DP(2)`, `BUMP_GLOW_RADIUS_DP(8)`, `BUMP_GLOW_MAX_RADIUS_DP(16)`, `BUMP_SHRINK_SPRING_STIFFNESS(800)`, `BUMP_SHRINK_SPRING_DAMPING(0.7)`
 > - `TouchpadWrapper`에서 산봉우리 위치는 plain state (`lastBumpInwardPx`, `lastBumpAlongPx`, `lastBumpEntryEdge`) + 수축 전용 `bumpShrinkAnimatable` (Animatable 1개)로 관리. 드래그 중에는 raw 값 직접 전달(Animatable 불사용), 릴리즈/모드선택 시에만 spring 수축
 > - `lastBump*` 값은 entry edge 기준 상대 이동량이 아닌, **현재 손가락에서 가장 가까운 엣지(nearest edge) 기준 절대 거리**. `findNearestEdge()` private 함수가 TouchpadWrapper 하단에 추가됨
+> - ⚠️ **후속 수정**: 위 nearest-edge 방식은 손가락이 진입 엣지에서 멀어져 다른 엣지에 더 가까워지면 산봉우리가 그 엣지로 튀어나가는 버그가 있어, **진입 엣지(entryEdge) 고정 방식으로 되돌림**. `lastBump*` 값은 이제 진입 엣지 기준으로 계산되며, `findNearestEdge()`는 프로덕션에서 미사용(테스트만 유지)
 > - 트리거 시 `view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)` 1회 호출 추가됨
 > - **모드 선택 직후** (스와이프/직접터치 중 하나 선택 후 손 뗌) 팝업 등장과 **동시에** 산봉우리 spring 수축 애니메이션이 재생됨 → 팝업 fade-in 애니메이션(Phase 4.4.7)과 타이밍이 겹치므로 시각적 조화 고려 필요
 

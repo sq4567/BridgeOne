@@ -84,7 +84,6 @@ import com.bridgeone.app.ui.common.DYNAMICS_PRESETS
 import com.bridgeone.app.ui.components.touchpad.applyEdgeModeToggle
 import com.bridgeone.app.ui.components.touchpad.computeDirectTouchButtonRects
 import com.bridgeone.app.ui.components.touchpad.detectEntryEdge
-import com.bridgeone.app.ui.components.touchpad.findNearestEdge
 import com.bridgeone.app.ui.components.touchpad.getAlongEdgePosition
 import com.bridgeone.app.ui.components.touchpad.getInwardDistance
 import com.bridgeone.app.ui.components.touchpad.ClickMode
@@ -855,12 +854,10 @@ fun TouchpadWrapper(
                                 fingerAlongEdgePx = currentAlong
                                 inwardDistancePx = inwardMoved.coerceAtLeast(0f)
 
-                                // 산봉우리 시각화: 가장 가까운 엣지 기준으로 갱신 (Phase 4.4.6)
-                                // 제스처 로직(entryEdge 기준 inwardMoved/perpMoved)은 변경하지 않음
-                                val visualEdge = findNearestEdge(pos, size.width.toFloat(), size.height.toFloat())
-                                lastBumpEntryEdge = visualEdge
-                                lastBumpInwardPx = getInwardDistance(pos, visualEdge, size.width.toFloat(), size.height.toFloat()).coerceAtLeast(0f)
-                                lastBumpAlongPx = getAlongEdgePosition(pos, visualEdge)
+                                // 산봉우리 시각화: 진입 엣지(entryEdge)에 고정 — 손가락이 다른 엣지에 가까워져도 점프하지 않음
+                                lastBumpEntryEdge = edge
+                                lastBumpInwardPx = currentInward.coerceAtLeast(0f)
+                                lastBumpAlongPx = currentAlong
                                 lastBumpEntryAlongPx = entryAlongEdgePx  // 발 위치 보존 (release 후 수축 중 튀지 않도록)
 
                                 if (!showEdgePopup) {
