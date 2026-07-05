@@ -2,8 +2,16 @@ package com.bridgeone.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -45,6 +53,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.offset
+import com.bridgeone.app.ui.common.InputMode
+import com.bridgeone.app.ui.common.LocalInputMode
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -53,10 +63,16 @@ private val KB_SURFACE = Color(0xFF1A1A1A)
 private val KB_ACCENT = Color(0xFF4F8EF7)
 private val KB_LABEL = Color(0xFF888888)
 
+/** NORMAL 레이어 백스페이스 롱 프레스 반복 삭제 시작 지연 (ms). 기본값: 400L */
+private const val BACKSPACE_REPEAT_INITIAL_DELAY_MS = 400L
+
+/** NORMAL 레이어 백스페이스 롱 프레스 반복 삭제 간격 (ms). 기본값: 60L */
+private const val BACKSPACE_REPEAT_INTERVAL_MS = 60L
+
 // ── 키보드 모드 / 상태 타입 ──
 
 enum class KeyboardMode { HANGUL, ENGLISH, SYMBOL }
-private enum class ShiftMode { OFF, ON }
+private enum class ShiftMode { OFF, ONESHOT, LOCKED }
 private enum class ComposePhase { IDLE, JASO_ONLY, HAS_VOWEL, JAMO_PENDING }
 private enum class SpecialKey { SP, BACKSPACE, SHIFT, LANG_TOGGLE, SYMBOL_TOGGLE, ERASE, CANCEL, DONE, NEXT, PREV }
 
@@ -114,6 +130,16 @@ private val JUNG_IDX = mapOf(
 
 private fun syllable(cho: Int, jung: Int, jong: Int = 0): Char =
     (0xAC00 + (cho * 21 + jung) * 28 + jong).toChar()
+
+// 복합 모음: (첫 모음, 둘째 모음) → 결합 모음
+private val DOUBLE_JUNG = mapOf(
+    ('ㅗ' to 'ㅏ') to 'ㅘ', ('ㅗ' to 'ㅐ') to 'ㅙ', ('ㅗ' to 'ㅣ') to 'ㅚ',
+    ('ㅜ' to 'ㅓ') to 'ㅝ', ('ㅜ' to 'ㅔ') to 'ㅞ', ('ㅜ' to 'ㅣ') to 'ㅟ',
+    ('ㅡ' to 'ㅣ') to 'ㅢ'
+)
+
+// 복합 모음 결합 판정을 위한 jungIdx → 단모음 char 역맵
+private val IDX_TO_JUNG = JUNG_IDX.entries.associate { (k, v) -> v to k }
 
 // ── 한글 조합 상태 머신 ──
 
@@ -177,7 +203,7 @@ private fun buildLayout(
 
     when (mode) {
         KeyboardMode.HANGUL -> {
-            val r0 = if (shift == ShiftMode.ON) HANGUL_SHIFT_ROW0 else HANGUL_ROW0
+            val r0 = if (shift != ShiftMode.OFF) HANGUL_SHIFT_ROW0 else HANGUL_ROW0
             row0 = r0.map { GridCell.Jamo(it) }
             row1 = HANGUL_ROW1_CHARS.map { GridCell.Jamo(it) }
             row2 = listOf(GridCell.Special(SpecialKey.SHIFT)) +
@@ -186,14 +212,14 @@ private fun buildLayout(
         }
         KeyboardMode.ENGLISH -> {
             row0 = ENGLISH_ROW0_CHARS.map {
-                GridCell.Jamo(if (shift == ShiftMode.ON) it.uppercaseChar() else it)
+                GridCell.Jamo(if (shift != ShiftMode.OFF) it.uppercaseChar() else it)
             }
             row1 = ENGLISH_ROW1_CHARS.map {
-                GridCell.Jamo(if (shift == ShiftMode.ON) it.uppercaseChar() else it)
+                GridCell.Jamo(if (shift != ShiftMode.OFF) it.uppercaseChar() else it)
             }
             row2 = listOf(GridCell.Special(SpecialKey.SHIFT)) +
                    ENGLISH_ROW2_CHARS.map {
-                       GridCell.Jamo(if (shift == ShiftMode.ON) it.uppercaseChar() else it)
+                       GridCell.Jamo(if (shift != ShiftMode.OFF) it.uppercaseChar() else it)
                    } +
                    listOf(GridCell.Special(SpecialKey.BACKSPACE))
         }
@@ -322,6 +348,7 @@ fun SwipeKeyboardOverlay(
      */
     contentTopOffsetDp: Dp = 0.dp,
 ) {
+    val inputMode = LocalInputMode.current
     val original = remember { initialText }
     var composer by remember { mutableStateOf(ComposerState(committed = initialText)) }
     var mode by remember { mutableStateOf(initialMode) }
@@ -364,10 +391,16 @@ fun SwipeKeyboardOverlay(
                     composer.copy(phase = ComposePhase.HAS_VOWEL, jungIdx = jungI)
                 }
                 ComposePhase.HAS_VOWEL -> {
-                    val base = composer.commitCurrent()
-                    if (base.committed.length < maxLength)
-                        base.copy(committed = base.committed + c)
-                    else base
+                    val curVowel = IDX_TO_JUNG[composer.jungIdx]
+                    val merged = DOUBLE_JUNG[curVowel to c]
+                    if (merged != null) {
+                        composer.copy(jungIdx = JUNG_IDX[merged]!!)
+                    } else {
+                        val base = composer.commitCurrent()
+                        if (base.committed.length < maxLength)
+                            base.copy(committed = base.committed + c)
+                        else base
+                    }
                 }
                 ComposePhase.JAMO_PENDING -> {
                     if (composer.pendingJasoChar2 != ' ') {
@@ -470,7 +503,11 @@ fun SwipeKeyboardOverlay(
                 }
             }
             SpecialKey.SHIFT -> {
-                shift = if (shift == ShiftMode.OFF) ShiftMode.ON else ShiftMode.OFF
+                shift = when (shift) {
+                    ShiftMode.OFF -> ShiftMode.ONESHOT
+                    ShiftMode.ONESHOT -> ShiftMode.LOCKED   // 두 번 연속 탭 → 락
+                    ShiftMode.LOCKED -> ShiftMode.OFF
+                }
             }
             SpecialKey.LANG_TOGGLE -> {
                 mode = when (mode) {
@@ -522,7 +559,7 @@ fun SwipeKeyboardOverlay(
                 // cell.char에 이미 shift 적용됨 (buildLayout에서 결정)
                 if (mode == KeyboardMode.HANGUL) inputJamo(cell.char)
                 else inputAlpha(cell.char)
-                shift = ShiftMode.OFF  // one-shot: 1회 입력 후 shift 해제
+                if (shift == ShiftMode.ONESHOT) shift = ShiftMode.OFF  // 원샷만 1회 입력 후 해제, 락은 유지
             }
             is GridCell.Special -> handleSpecial(cell.key)
         }
@@ -539,7 +576,9 @@ fun SwipeKeyboardOverlay(
                 else Modifier.fillMaxWidth().wrapContentHeight()
             )
             .background(if (showScrim) Color.Black.copy(alpha = 0.5f) else Color.Transparent)
-            .pointerInput(layout) {
+            .then(
+                if (inputMode == InputMode.NORMAL) Modifier
+                else Modifier.pointerInput(layout) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     if (!isKeyboardActive) return@awaitEachGesture
@@ -581,7 +620,8 @@ fun SwipeKeyboardOverlay(
 
                     if (!moved) activateCell(layout[selectedCell.row].cells[selectedCell.col])
                 }
-            },
+            }
+            ),
         contentAlignment = if (showScrim || gestureFullHeight) Alignment.BottomCenter else Alignment.TopCenter
     ) {
         AnimatedVisibility(
@@ -631,8 +671,11 @@ fun SwipeKeyboardOverlay(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             sugRow.cells.forEachIndexed { colIdx, cell ->
-                                val isSelected = selectedCell == CellPos(0, colIdx)
                                 if (cell is GridCell.Suggestion) {
+                                    val interactionSource = remember { MutableInteractionSource() }
+                                    val isPressed by interactionSource.collectIsPressedAsState()
+                                    val isSelected = if (inputMode == InputMode.NORMAL) isPressed
+                                                      else selectedCell == CellPos(0, colIdx)
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
@@ -645,6 +688,14 @@ fun SwipeKeyboardOverlay(
                                                 if (isSelected) Modifier.border(
                                                     1.dp, KB_ACCENT, RoundedCornerShape(6.dp)
                                                 ) else Modifier
+                                            )
+                                            .then(
+                                                if (inputMode == InputMode.NORMAL)
+                                                    Modifier.clickable(
+                                                        interactionSource = interactionSource,
+                                                        indication = null
+                                                    ) { activateCell(cell) }
+                                                else Modifier
                                             ),
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -680,7 +731,10 @@ fun SwipeKeyboardOverlay(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 row.cells.forEachIndexed { colIdx, cell ->
-                                    val isSelected = selectedCell == CellPos(rowIdx, colIdx)
+                                    val interactionSource = remember { MutableInteractionSource() }
+                                    val isPressed by interactionSource.collectIsPressedAsState()
+                                    val isSelected = if (inputMode == InputMode.NORMAL) isPressed
+                                                      else selectedCell == CellPos(rowIdx, colIdx)
                                     when (cell) {
                                         is GridCell.Empty -> Spacer(Modifier.weight(1f))
                                         is GridCell.Suggestion -> {}
@@ -696,6 +750,14 @@ fun SwipeKeyboardOverlay(
                                                     if (isSelected) Modifier.border(
                                                         1.dp, KB_ACCENT, RoundedCornerShape(6.dp)
                                                     ) else Modifier
+                                                )
+                                                .then(
+                                                    if (inputMode == InputMode.NORMAL)
+                                                        Modifier.clickable(
+                                                            interactionSource = interactionSource,
+                                                            indication = null
+                                                        ) { activateCell(cell) }
+                                                    else Modifier
                                                 ),
                                             contentAlignment = Alignment.Center
                                         ) {
@@ -709,8 +771,11 @@ fun SwipeKeyboardOverlay(
                                         }
                                         is GridCell.Special -> {
                                             val isShiftActive = cell.key == SpecialKey.SHIFT &&
-                                                shift == ShiftMode.ON
+                                                shift != ShiftMode.OFF
+                                            val isShiftLocked = cell.key == SpecialKey.SHIFT &&
+                                                shift == ShiftMode.LOCKED
                                             val bgColor = when {
+                                                isShiftLocked && !isSelected -> KB_ACCENT.copy(alpha = 0.55f)
                                                 isShiftActive && !isSelected -> KB_ACCENT.copy(alpha = 0.35f)
                                                 isSelected -> KB_ACCENT.copy(alpha = 0.22f)
                                                 else -> KB_BG
@@ -729,7 +794,37 @@ fun SwipeKeyboardOverlay(
                                                 modifier = Modifier
                                                     .weight(keyWeight)
                                                     .background(bgColor, RoundedCornerShape(6.dp))
-                                                    .then(borderMod),
+                                                    .then(borderMod)
+                                                    .then(
+                                                        if (inputMode != InputMode.NORMAL) Modifier
+                                                        else if (cell.key == SpecialKey.BACKSPACE) {
+                                                            Modifier.pointerInput(cell) {
+                                                                coroutineScope {
+                                                                    awaitEachGesture {
+                                                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                                                        val press = PressInteraction.Press(down.position)
+                                                                        launch { interactionSource.emit(press) }
+                                                                        handleSpecial(SpecialKey.BACKSPACE)   // 탭 즉시 1회 삭제
+                                                                        val repeatJob = launch {
+                                                                            delay(BACKSPACE_REPEAT_INITIAL_DELAY_MS)
+                                                                            while (isKeyboardActive) {
+                                                                                handleSpecial(SpecialKey.BACKSPACE)
+                                                                                delay(BACKSPACE_REPEAT_INTERVAL_MS)
+                                                                            }
+                                                                        }
+                                                                        waitForUpOrCancellation()
+                                                                        repeatJob.cancel()
+                                                                        launch { interactionSource.emit(PressInteraction.Release(press)) }
+                                                                    }
+                                                                }
+                                                            }
+                                                        } else {
+                                                            Modifier.clickable(
+                                                                interactionSource = interactionSource,
+                                                                indication = null
+                                                            ) { activateCell(cell) }
+                                                        }
+                                                    ),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
@@ -751,12 +846,12 @@ fun SwipeKeyboardOverlay(
                 }
             }
 
-            // ── 조작 안내 (2×2 그리드) — showGuide=false 시 숨김 ──
-            if (showGuide) {
+            // ── 조작 안내 (2×2 그리드) — showGuide=false 또는 NORMAL 모드 시 숨김 ──
+            if (showGuide && inputMode == InputMode.SWIPE) {
                 val hints = listOf(
                     Triple("↔", "드래그", "손가락을 밀어 키 선택"),
                     Triple("⊙", "손 떼기", "선택된 키 입력"),
-                    Triple("⇧", "Shift", "쌍자음·대문자 (1회 후 복귀)"),
+                    Triple("⇧", "Shift", "쌍자음·대문자 (1회, 두 번=고정)"),
                     Triple("⇄", "모드", "한·A·123 순으로 전환")
                 )
                 Column(
