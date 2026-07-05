@@ -417,40 +417,6 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 
 ---
 
-## Phase 4.8.11: 엣지 팝업 커서 버튼 pending 방식 통일
-
-**목표**: 엣지 스와이프 팝업의 "싱글/멀티 커서" 버튼이 다른 모드 버튼(스크롤·클릭·이동·DPI 등)과 달리 탭 즉시 컨트롤러를 조작하고 팝업이 닫히던 것을, 다른 버튼과 동일한 "탭 → pending 변경 → 확인 버튼으로 커밋" 방식으로 통일한다. 계획에 없던 하위 Phase — Phase 4.8.7에서 "실동작화" 목적으로 즉발 처리해뒀던 것을 사용자 요청으로 재설계했다.
-
-**개발 기간**: (세션 중 즉시 처리, 별도 산정 없음)
-
-**세부 목표**:
-1. 커서 버튼 탭: 싱글→멀티 시 **pending으로만** 전환하고, 동시에 다른 모드 버튼 자리가 분할 개수 옵션(2/3/4) 그리드로 대체되는 서브 화면에 진입한다. 팝업은 닫히지 않는다.
-2. 개수 옵션 화면에서 스와이프로 하나를 고른 뒤 탭하면 개수가 pending으로 결정되고 원래 모드 그리드로 복귀한다(다른 버튼 재등장).
-3. 이미 pending MULTI 상태에서 커서 버튼을 다시 탭하면 즉시 pending SINGLE로 돌아간다(개수 화면 재진입 안 함). 이때도 커서 버튼에 포커스가 유지된다(포커스가 다른 곳으로 튀지 않게, 사용자 추가 요청).
-4. "확인" 버튼을 눌러야 pending cursorMode/개수가 실제 `MultiCursorController`에 반영된다(나머지 모드 상태를 먼저 커밋해 seed를 최신화한 뒤 `SetCursorCount`/`ToggleMultiCursor` 디스패치).
-5. 스와이프 모드·직접 터치 모드 양쪽에 동일하게 적용.
-
-**제거된 것**: Phase 4.8.7에서 구현했던 "커서 카드에 착지 후 세로 추가 스와이프로 개수 순환"(`cursorLocked` 등 제스처 로컬 잠금 상태) 및 커서 버튼 탭 즉발 `ToggleMultiCursor` 호출은 전부 제거됐다.
-
-**변경 파일**:
-- `TouchpadWrapper.kt`: `currentMultiCursorCount` 파라미터 추가, `isCursorCountSelecting` 상태 추가, `pendingMultiCursorCount`를 "개수 선택 서브 화면의 pending 개수" 의미로 재정의, `handleCursorTap()`/`handleCursorCountTap()`/`commitPopup()` 헬퍼로 스와이프·직접 터치 두 경로 로직 공유
-- `EdgeSwipeOverlay.kt`: `isCursorCountSelecting` 파라미터 추가, 스와이프·직접 터치 그리드 양쪽에 개수 옵션(2/3/4) 렌더링 분기
-- `Page2MultiCursorTouchpad.kt` / `StandardModePage.kt`: 현재 멀티 커서 개수(`currentMultiCursorCount`)를 `TouchpadWrapper`까지 배선(활성 시 실제 개수, 비활성 시 `lastMultiCursorCount`)
-
-**참조 문서**: 이 Phase는 UX 플로우 변경으로 별도 설계 문서 보강 없이 진행(기존 §2.2.6 멀티 커서 알고리즘 명세 자체는 영향 없음 — 컨트롤러 조작 시점만 pending 커밋으로 이동).
-
-> **⚠️ Phase 4.8.8 변경사항**: `SetCursorCount`/`ToggleMultiCursor` 디스패치가 최종적으로 호출하는 `StandardModePage.kt`의 `enableMultiCursor`/`setMultiCursorCount`가 이제 패드별 프리셋 매핑(`padPresetMapping`, 기본값은 싱글 커서의 현재 프리셋)으로 각 패드를 시드한다. 즉 이 Phase(엣지 팝업)로 멀티 커서를 활성화해도 `CursorCountSelectionPopup`에서 사용자가 마지막으로 확정한 패드별 프리셋이 자동 반영된다 — 이 Phase 구현 시 별도 배선 불필요.
-
-**검증**:
-- [ ] 커서 버튼 탭 → 다른 버튼들이 2/3/4 개수 버튼으로 대체되고 팝업 유지
-- [ ] 개수 스와이프 선택 → 탭 → 모드 그리드 복귀, 커서 카드가 "멀티 커서"로 표시
-- [ ] 확인 버튼 탭 → 실제 멀티 커서가 선택 개수로 활성화
-- [ ] 멀티(pending) 상태에서 커서 버튼 재탭 → 싱글로 pending 전환 + 포커스가 커서 버튼에 유지, 확인 시 실제 비활성화
-- [ ] 개수 화면에서 엣지로 밀기 → 팝업 전체 취소
-- [ ] 직접 터치 모드에서도 위 전부 동일 동작
-
----
-
 ## Phase 4.8 완료 후 Page 2 구조
 
 ```
@@ -477,5 +443,3 @@ Page 2 — 풀 와이드 터치패드 (멀티 커서)
 | 패드별 엣지 존 할당 (4.8.9) | 해당 없음 | 각 패드가 독립 엣지 존 액션 세트 보유(그리드/직접 전환 모두) |
 | 패드 커스텀 라벨 (4.8.10) | 해당 없음 | 롱프레스로 패드 이름 편집, 번호 대신 표시 |
 | 엣지 팝업 커서 버튼 pending 방식 (4.8.11) | 해당 없음 | 커서 버튼도 다른 모드 버튼처럼 확인 버튼으로 커밋, 개수 선택은 서브 화면 |
-
-> **소리 감지 패드 전환**: 마이크 입력으로 패드를 전환하는 기능은 멀티 커서 전용을 넘어 여러 앱 요소를 소리로 제어하는 일반 기능으로 확장하여 **Phase 7(추가 기능 개발)**에서 별도 계획한다. 이 Phase 범위에서 제외.
