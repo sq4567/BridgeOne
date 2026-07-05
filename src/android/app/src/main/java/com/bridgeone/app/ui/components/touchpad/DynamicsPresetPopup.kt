@@ -80,6 +80,23 @@ private const val LONG_PRESS_MS = 500L
 // GRID 단계 프리셋 그리드 열 수 (상하 스와이프 시 행 점프 단위). 기본값: 3
 private const val GRID_COLUMNS = 3
 
+// GRID 단계 프리셋 박스 크기 (dp). GridPhaseContent의 Box(size)와 일치해야 함. 기본값: 52f
+private const val PRESET_BOX_SIZE_DP = 52f
+
+// GRID 단계 프리셋 박스 간 가로 간격 (dp). GridPhaseContent의 Arrangement.spacedBy와 일치해야 함. 기본값: 12f
+private const val PRESET_SPACING_DP = 12f
+
+/**
+ * 마지막 행처럼 아이템 수가 GRID_COLUMNS보다 적어 가운데 정렬(Arrangement.CenterHorizontally)되는
+ * 행의 시각적 중심 x좌표를 계산한다. 상하 스와이프 시 "시각적으로 가장 가까운 칸"을 찾는 데 사용.
+ */
+private fun presetCellCenterX(rowSize: Int, col: Int): Float {
+    val fullRowWidth = GRID_COLUMNS * PRESET_BOX_SIZE_DP + (GRID_COLUMNS - 1) * PRESET_SPACING_DP
+    val rowWidth = rowSize * PRESET_BOX_SIZE_DP + (rowSize - 1) * PRESET_SPACING_DP
+    val rowOffset = (fullRowWidth - rowWidth) / 2f
+    return rowOffset + col * (PRESET_BOX_SIZE_DP + PRESET_SPACING_DP) + PRESET_BOX_SIZE_DP / 2f
+}
+
 // CONFIRM 단계 커스텀 프리셋 선택지 그리드 열 수 (적용/취소/편집/삭제 2x2). 기본값: 2
 private const val CONFIRM_GRID_COLUMNS = 2
 
@@ -119,6 +136,16 @@ fun DynamicsPresetPopup(
     val totalBuiltin = DYNAMICS_PRESETS.size
     val totalPresets = totalBuiltin + customPresets.size  // 프리셋 수 (빌트인 + 커스텀)
     val addButtonIndex = totalPresets                     // "+" 버튼 인덱스
+
+    // GRID 단계 실제 행 구성 (GridPhaseContent의 chunked(3)과 동일). 마지막 행은 GRID_COLUMNS보다 적을 수 있음
+    val gridRows = remember(addButtonIndex) { (0..addButtonIndex).toList().chunked(GRID_COLUMNS) }
+    fun locateInGrid(idx: Int): Pair<Int, Int> {
+        gridRows.forEachIndexed { row, indices ->
+            val col = indices.indexOf(idx)
+            if (col >= 0) return row to col
+        }
+        return 0 to 0
+    }
 
     var phase by remember { mutableStateOf(PopupPhase.GRID) }
     var tempIndex by remember { mutableIntStateOf(currentIndex) }
@@ -248,14 +275,33 @@ fun DynamicsPresetPopup(
                         if (stepsX != 0 || stepsY != 0) {
                             when (phase) {
                                 PopupPhase.GRID -> {
-                                    // 좌우: 전체 선형 순회 / 상하: 행 단위(GRID_COLUMNS칸) 점프
-                                    val proposed = tempIndex + stepsX + stepsY * GRID_COLUMNS
-                                    if (proposed < 0 || proposed > totalPresets) {
-                                        triggerBoundaryFeedback()
-                                        accumX = 0f
-                                        accumY = 0f
+                                    // 좌우: 같은 행 안에서만 이동 (마지막 행이 짧아도 다음 행으로 새지 않음)
+                                    // 상하: 대상 행에서 시각적으로 가장 가까운 칸(가운데 정렬 반영)으로 이동
+                                    val (curRow, curCol) = locateInGrid(tempIndex)
+                                    if (stepsX != 0) {
+                                        val row = gridRows[curRow]
+                                        val proposedCol = curCol + stepsX
+                                        if (proposedCol < 0 || proposedCol > row.lastIndex) {
+                                            triggerBoundaryFeedback()
+                                            accumX = 0f
+                                            accumY = 0f
+                                        } else {
+                                            tempIndex = row[proposedCol]
+                                        }
                                     } else {
-                                        tempIndex = proposed.coerceIn(0, totalPresets)
+                                        val proposedRow = curRow + stepsY
+                                        if (proposedRow < 0 || proposedRow > gridRows.lastIndex) {
+                                            triggerBoundaryFeedback()
+                                            accumX = 0f
+                                            accumY = 0f
+                                        } else {
+                                            val curCenterX = presetCellCenterX(gridRows[curRow].size, curCol)
+                                            val targetRow = gridRows[proposedRow]
+                                            val targetCol = targetRow.indices.minByOrNull { col ->
+                                                abs(presetCellCenterX(targetRow.size, col) - curCenterX)
+                                            } ?: 0
+                                            tempIndex = targetRow[targetCol]
+                                        }
                                     }
                                 }
                                 PopupPhase.CONFIRM -> {
