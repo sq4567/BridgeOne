@@ -617,6 +617,9 @@ RenderOptions.SetCachingHint(VirtualCursorImage, CachingHint.Cache);
 ```
 
 **줌 영역 좌표 계산**:
+
+> **⚠️ 설계 변경(사용자 확정) — 대상 모니터 반영**: 절대좌표 패드 서버 처리(§3.6.9)가 도입되면서 줌 매핑도 "가상 데스크톱 전체" 고정이 아니라 `TargetMonitor`가 가리키는 모니터(또는 전체 가상 데스크톱, 0)를 기준으로 계산한다. 대상 모니터 rect 조회는 §3.6.9의 `ResolveTargetMonitorRect()`를 재사용한다.
+
 ```csharp
 /// <summary>
 /// Vendor CDC를 통해 수신한 줌 상태를 화면 오버레이에 반영합니다.
@@ -634,16 +637,14 @@ public void UpdateZoomOverlay(ZoomState zoomState)
     ZoomRegionBox.Visibility = Visibility.Visible;
     ZoomLevelLabel.Visibility = Visibility.Visible;
 
-    // HID 절대좌표(0~32767) → 화면 픽셀 좌표 변환
-    var screenWidth = SystemParameters.VirtualScreenWidth;
-    var screenHeight = SystemParameters.VirtualScreenHeight;
-    var screenLeft = SystemParameters.VirtualScreenLeft;
-    var screenTop = SystemParameters.VirtualScreenTop;
+    // 대상 모니터(또는 전체 가상 데스크톱) rect 조회 (§3.6.9 공용 유틸리티)
+    var targetRect = ResolveTargetMonitorRect(zoomState.TargetMonitor);
 
-    double left = screenLeft + (zoomState.MinX / 32767.0) * screenWidth;
-    double top = screenTop + (zoomState.MinY / 32767.0) * screenHeight;
-    double right = screenLeft + (zoomState.MaxX / 32767.0) * screenWidth;
-    double bottom = screenTop + (zoomState.MaxY / 32767.0) * screenHeight;
+    // HID 절대좌표(0~32767) → 대상 모니터 픽셀 좌표로 stretch 변환
+    double left = targetRect.Left + (zoomState.MinX / 32767.0) * targetRect.Width;
+    double top = targetRect.Top + (zoomState.MinY / 32767.0) * targetRect.Height;
+    double right = targetRect.Left + (zoomState.MaxX / 32767.0) * targetRect.Width;
+    double bottom = targetRect.Top + (zoomState.MaxY / 32767.0) * targetRect.Height;
 
     Canvas.SetLeft(ZoomRegionBox, left);
     Canvas.SetTop(ZoomRegionBox, top);
@@ -666,6 +667,7 @@ public class ZoomState
     public int MinY { get; set; }
     public int MaxX { get; set; }         // 매핑 범위 최댓값 (0~32767)
     public int MaxY { get; set; }
+    public int TargetMonitor { get; set; } // 0=전체 가상 데스크톱, 1~N=특정 모니터 (§3.6.9)
 }
 ```
 
@@ -1951,6 +1953,136 @@ Windows의 UIPI 보안 모델에서 낮은 무결성 레벨의 프로세스는 �
 | 보안 소프트웨어 차단 | 낮음~중간 | 중간 | 코드 서명 + 사용자 안내 |
 
 **핵심 결론**: 대부분의 제약사항은 BridgeOne의 주요 사용 시나리오(데스크톱 앱, 웹 브라우징, 문서 편집)에서 발생 확률이 매우 낮으며, 발생하더라도 핵심 기능(텔레포트)은 유지됩니다. 유일하게 **높은 우선순위**로 처리해야 할 항목은 **고DPI 멀티 모니터 좌표 변환**이며, 이는 멀티 모니터 지원 구현 시 반드시 함께 처리해야 합니다.
+
+#### 3.6.9 절대좌표 패드 서버 측 처리 (Standard 전용, 신규)
+
+> **개요**: `AbsolutePointingPad`(Page 3)는 Standard 모드 전용 페이지라(Essential 모드는 별도 레이아웃이라 Page 3 자체가 없음, `technical-specification.md` §2.4.6.1.3) 좌표 처리는 서버 경유 경로 하나만 존재한다. HID를 거치지 않고 서버가 직접 `SetCursorPos`를 호출해 자유 비율 stretch 매핑과 멀티 모니터를 지원한다. §3.6.4의 텔레포트 인프라(`ValidateAndClampCursorPosition`, `Screen.AllScreens`, `SetCursorPos`)를 재사용한다.
+
+##### 3.6.9.1 수신 메시지 파싱
+
+ESP32가 `0xFF/0x02` 프레임(§2.4.6.1.3)을 바이너리 그대로 Vendor CDC로 중계하므로, 서버는 이를 JSON이 아닌 **8바이트 바이너리**로 수신한다.
+
+```csharp
+public class AbsolutePositionMessage
+{
+    public ushort RatioX { get; set; }       // 0~32767 (비율 인코딩, HID 좌표 아님)
+    public ushort RatioY { get; set; }
+    public byte Buttons { get; set; }        // bit0=L, bit1=R, bit2=M
+    public byte TargetMonitor { get; set; }  // 0=전체 가상 데스크톱, 1~N=특정 모니터
+}
+
+public AbsolutePositionMessage ParseAbsolutePositionFrame(byte[] frame)
+{
+    // frame: [0]0xFF [1]0x02 [2]ratioX_H [3]ratioX_L [4]ratioY_H [5]ratioY_L [6]buttons [7]targetMonitor
+    return new AbsolutePositionMessage
+    {
+        RatioX = (ushort)((frame[2] << 8) | frame[3]),
+        RatioY = (ushort)((frame[4] << 8) | frame[5]),
+        Buttons = frame[6],
+        TargetMonitor = frame[7]
+    };
+}
+```
+
+##### 3.6.9.2 대상 모니터 rect 해석 (`ResolveTargetMonitorRect`, 줌 오버레이 §3.6.1.4와 공용)
+
+```csharp
+public Rectangle ResolveTargetMonitorRect(byte targetMonitor)
+{
+    if (targetMonitor == 0)
+    {
+        // 전체 가상 데스크톱
+        return new Rectangle(
+            (int)SystemParameters.VirtualScreenLeft,
+            (int)SystemParameters.VirtualScreenTop,
+            (int)SystemParameters.VirtualScreenWidth,
+            (int)SystemParameters.VirtualScreenHeight);
+    }
+
+    var screens = Screen.AllScreens;
+    var index = targetMonitor - 1;
+    if (index < 0 || index >= screens.Length)
+    {
+        Logger.Warn($"Invalid targetMonitor {targetMonitor}, falling back to primary");
+        return Screen.PrimaryScreen.Bounds;
+    }
+    return screens[index].Bounds;
+}
+```
+
+##### 3.6.9.3 stretch 매핑 및 커서 이동
+
+패드 비율과 대상 모니터 비율이 달라도 letterbox 보정 없이 전체 범위를 1:1로 매핑한다(`technical-specification-app.md` §2.10.1의 stretch 원칙과 동일).
+
+```csharp
+public Point MapRatioToScreenPoint(AbsolutePositionMessage msg)
+{
+    var targetRect = ResolveTargetMonitorRect(msg.TargetMonitor);
+
+    // stretch: 비율(0~32767)을 대상 rect 전체에 균등 매핑, 종횡비 보정 없음
+    var x = targetRect.Left + (msg.RatioX / 32767.0) * targetRect.Width;
+    var y = targetRect.Top + (msg.RatioY / 32767.0) * targetRect.Height;
+
+    return new Point((int)x, (int)y);
+}
+
+public async Task HandleAbsolutePositionAsync(AbsolutePositionMessage msg)
+{
+    var targetPoint = MapRatioToScreenPoint(msg);
+    // 기존 텔레포트 인프라 재사용 (§3.6.4.1)
+    var validated = ValidateAndClampCursorPosition(targetPoint);
+    SetCursorPos((int)validated.X, (int)validated.Y);
+
+    HandleDragButtonState(msg.Buttons);
+}
+```
+
+##### 3.6.9.4 드래그 앤 드롭 (buttons diff → SendInput)
+
+Android가 `DragModeButton` ON 상태에서 제스처 스코프 동안 `buttons` bit0을 유지해 전송하므로(`technical-specification-app.md` §2.10.5), 서버는 연속 프레임의 `Buttons`를 직전 프레임과 비교해 press/release 전이만 `SendInput`으로 변환한다. 그 사이(눌린 상태 유지 중)는 `SetCursorPos`만 호출해 커서 이동과 버튼 유지가 동시에 성립한다.
+
+```csharp
+private byte _lastButtons = 0;
+
+[DllImport("user32.dll")]
+private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+private void HandleDragButtonState(byte buttons)
+{
+    bool wasLeftDown = (_lastButtons & 0x01) != 0;
+    bool isLeftDown = (buttons & 0x01) != 0;
+
+    if (!wasLeftDown && isLeftDown)
+    {
+        SendMouseButtonInput(MOUSEEVENTF_LEFTDOWN);   // press (드래그 시작)
+    }
+    else if (wasLeftDown && !isLeftDown)
+    {
+        SendMouseButtonInput(MOUSEEVENTF_LEFTUP);     // release (drop)
+    }
+    // wasLeftDown && isLeftDown: 유지 중 → SendInput 호출 없음, SetCursorPos만 계속 반영됨
+
+    _lastButtons = buttons;
+}
+```
+
+**드래그 모드 OFF(일반 포인팅)에서는 `Buttons`가 항상 0으로 전송**되므로 이 diff 로직이 자연스럽게 우회된다 — 별도 모드 플래그를 서버가 알 필요 없다.
+
+##### 3.6.9.5 모니터 개수 역방향 통지
+
+유저가 Android에서 모니터 셀렉터를 쓰려면 개수만 알면 된다(§2.4.6.1.3 `EVENT_MONITOR_COUNT`). 서버 연결/모니터 구성 변경 시 개수를 통지한다.
+
+```csharp
+public void NotifyMonitorCount()
+{
+    var count = (byte)Screen.AllScreens.Length;
+    var frame = new byte[] { 0xFE, 0x03, count };  // EVENT_MONITOR_COUNT
+    _vendorCdcInterface.SendRawFrame(frame);
+}
+```
+
+- 전송 시점: 서버 연결 확립 직후 1회, `SystemEvents.DisplaySettingsChanged` 발생 시 재전송
+- Android 측 파싱: `technical-specification-app.md` §2.10.6
 
 ### 3.7 성능 모니터링 기술 구현
 

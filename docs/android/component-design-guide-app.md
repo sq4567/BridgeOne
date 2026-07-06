@@ -366,6 +366,8 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 - UI 요소 클릭, 아이콘 선택 등 목표 위치가 명확한 작업에 적합
 - **매크로 녹화의 기준 입력면**: AbsolutePointingPad 위에서 녹화한 터치는 `MOUSE_MOVE_ABS` 절대좌표 액션으로 기록되어, 재생 시 커서의 현재 위치와 무관하게 항상 동일한 화면 위치를 가리킴. 상대좌표 터치패드로는 구현하기 어려운 "특정 버튼을 정확히 클릭하는 매크로"를 자연스럽게 만들 수 있음
 
+> **⚠️ 설계 변경(사용자 확정) — Standard 전용 서버 중계 + ControlBar 폐기**: 절대좌표 패드는 **Standard 모드 전용 페이지**로 재설계되었다. `BridgeOneApp.kt`가 `bridgeMode`에 따라 `EssentialModePage()`/`StandardModePage()`를 완전히 분리해 라우팅하므로(전자는 Page 3를 포함하지 않는 별도 레이아웃), Essential 모드에서는 이 페이지가 애초에 렌더링되지 않는다. 따라서 좌표 전송에는 서버가 `SetCursorPos`로 직접 커서를 이동시키는 경로 하나만 존재하며, 자유 비율(stretch 매핑)과 멀티 모니터를 지원한다. 이에 따라 전용 하단 ControlBar를 폐기하고 다른 터치패드 페이지와 동일한 상단 `ControlButtonContainer`를 재사용한다. 상세 근거는 `technical-specification-app.md` §2.10, `phase-4-9-page3-absolute-pointing.md` 참조.
+
 ### 4.2 컴포넌트 구조
 
 #### 4.2.1 AbsolutePointingPad 구조
@@ -373,23 +375,29 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 ```
 AbsolutePointingPad (전체 컨테이너)
 ├── PointingArea (터치 입력 영역)
-│   └── 터치 좌표 → 절대좌표(0~32767) 변환 처리
-├── ControlBar (제어 버튼 영역)
+│   └── 터치 좌표 → 비율(0.0~1.0) 변환 → bridgeMode 분기 전송
+├── ControlButtonContainer (상단 오버레이, 다른 페이지와 공용 컴포넌트 재사용)
 │   ├── ClickModeButton (좌클릭 ↔ 우클릭 전환)
-│   ├── ScrollToggleButton (스크롤 모드 전환)
-│   └── ZoomButton (줌 모드 진입/해제, §4.5 참조)
+│   ├── ZoomButton (줌 모드 진입/해제, §4.5 참조)
+│   └── DragModeButton (신규 — 커서 이동만 vs 누른 채 이동/드래그 앤 드롭)
+├── MonitorSelector (신규, Standard 모드 + 모니터 2개 이상일 때만 노출)
 └── CoordinateIndicator (선택적, 현재 터치 위치 시각적 표시)
 ```
 
 **PointingArea**:
-- 직사각형 터치 영역, PC 모니터 전체 화면에 매핑
-- 터치 시작/이동/종료 이벤트를 절대좌표로 변환
+- 직사각형 터치 영역. 유저가 설정한 임의 비율(기본값 Fill)의 영역이 대상 화면(모니터 또는 가상 데스크톱) 전체에 **stretch 매핑**됨(letterbox/pillarbox 없음)
+- 터치 시작/이동/종료 이벤트를 비율로 변환 후 서버 중계 프레임으로 전송
 - 터치 위치에 작은 십자선 또는 점으로 현재 포인팅 위치 표시
 
-**ControlBar**:
-- 최소한의 컨트롤만 배치 (절대좌표에서 필요한 기능만)
+**ControlButtonContainer** (상단 오버레이, 재사용):
+- 최소한의 컨트롤만 노출 (절대좌표에서 필요한 기능만): `ClickModeButton`, `ZoomButton`, `DragModeButton`
+- Move/Scroll/Cursor/DPI/ScrollSensitivity 버튼은 델타 벡터 연산 기반이라 절대좌표에서 성립하지 않아 숨김
 - `ClickModeButton`: 좌클릭/우클릭 전환 (터치패드와 동일한 컨트롤 재사용)
-- `ScrollToggleButton`: 스크롤 모드 진입/해제. 스크롤 모드 시 터치 드래그가 좌표 이동 대신 스크롤로 전환
+- `DragModeButton`: 드래그 앤 드롭 모드 진입/해제(§4.4.4 참조). 스크롤 모드를 대체
+
+**MonitorSelector** (신규, Standard 전용):
+- Standard 모드에서 모니터가 2개 이상이면 노출. "전체" 칩 + 모니터 번호 칩
+- 선택한 값이 서버 중계 프레임의 `targetMonitor`로 실림 (`technical-specification-app.md` §2.10.6)
 
 **CoordinateIndicator** (선택적):
 - PointingArea 내부에서 현재 터치 위치를 시각적으로 표시하는 오버레이
@@ -397,11 +405,11 @@ AbsolutePointingPad (전체 컨테이너)
 
 #### 4.2.2 크기 및 비율
 
-- **권장 비율**: 16:9 또는 16:10 (PC 모니터 비율에 근사)
-- **최소 크기**: 160dp × 90dp
+- **비율**: 유저 자유 설정. **기본값 = Fill**(가용 공간 전체, 설정 0회), 프리셋(16:9/21:9/4:3) 원탭 전환 가능. Match Monitor는 1차 구현에서 스텁(16:9 폴백)
+- **매핑**: stretch 방식 — 패드 비율과 대상 화면 비율이 달라도 letterbox 보정 없이 전체 범위 도달
 - **테두리**: 터치 영역 경계를 명확히 표시, 기본 색상 `#E91E63` (핑크색)
 - **배경색**: `#1E1E1E` (진한 회색, 터치패드와 동일)
-- **ControlBar 위치**: PointingArea 상단 또는 하단 오버레이
+- **ControlButtonContainer 위치**: PointingArea 상단 오버레이 (다른 터치패드 페이지와 동일)
 
 ### 4.3 색상 시스템
 
@@ -410,13 +418,13 @@ AbsolutePointingPad (전체 컨테이너)
 | `#1E1E1E` | 진한 회색 | PointingArea 배경 |
 | `#E91E63` | 핑크색 | 절대좌표 패드 테두리 (기본 상태) |
 | `#F3D021` | 노란색 | 우클릭 모드 테두리 |
-| `#84E268` | 초록색 | 스크롤 모드 테두리 |
+| `#84E268` | 초록색 | 드래그 모드 테두리 (구 스크롤 모드 색상 재사용) |
 | `#FFFFFF` (alpha 0.6) | 반투명 흰색 | CoordinateIndicator 십자선 |
 
 **테두리 색상 규칙**:
 - 기본 상태 (좌클릭 + 포인팅): 핑크색 (`#E91E63`)
 - 우클릭 모드: 노란색 (`#F3D021`)
-- 스크롤 모드: 초록색 (`#84E268`)
+- 드래그 모드 ON: 초록색 (`#84E268`)
 
 ### 4.4 유저 플로우
 
@@ -425,14 +433,14 @@ AbsolutePointingPad (전체 컨테이너)
 - 사용자 액션: PointingArea 터치 또는 드래그
 - 시스템 응답:
   1) 터치 좌표를 PointingArea 영역 내 비율(0.0~1.0)로 변환
-  2) 비율을 HID 절대좌표 범위(0~32767)로 매핑
-  3) ESP32-S3로 절대좌표 프레임 전송
-  4) PC 화면에서 해당 좌표로 커서 즉시 이동
-  5) CoordinateIndicator가 터치 위치에 표시
-- 사용 예시:
-  * PointingArea 왼쪽 상단 터치 → PC 화면 왼쪽 상단
-  * PointingArea 정중앙 터치 → PC 화면 정중앙
-  * PointingArea 오른쪽 하단 터치 → PC 화면 오른쪽 하단
+  2) 비율을 서버 중계 프레임으로 ESP32를 거쳐 서버에 전달, 서버가 대상 모니터(MonitorSelector 선택값)에 stretch 매핑 후 `SetCursorPos` 호출
+  3) PC 화면에서 해당 좌표로 커서 즉시 이동
+  4) CoordinateIndicator가 터치 위치에 표시
+- 사용 예시(대상 화면 기준):
+  * PointingArea 왼쪽 상단 터치 → 대상 화면 왼쪽 상단
+  * PointingArea 정중앙 터치 → 대상 화면 정중앙
+  * PointingArea 오른쪽 하단 터치 → 대상 화면 오른쪽 하단
+  * 대상 화면 = MonitorSelector로 고른 모니터(또는 전체 가상 데스크톱)
 
 #### 4.4.2 클릭
 
@@ -450,13 +458,17 @@ AbsolutePointingPad (전체 컨테이너)
   2) 테두리 색상 전환 (핑크 ↔ 노란색)
   3) 햅틱 피드백
 
-#### 4.4.4 스크롤 모드
+#### 4.4.4 드래그 앤 드롭 모드 (구 스크롤 모드 대체)
 
-- 사용자 액션: ScrollToggleButton 탭으로 스크롤 모드 진입
-- 스크롤 중 동작:
-  1) 터치 드래그가 커서 이동 대신 스크롤 신호로 변환
-  2) 테두리 색상 초록색으로 전환
-- 스크롤 모드 종료: ScrollToggleButton 재탭 또는 PointingArea 원탭
+> **⚠️ 설계 변경(사용자 확정)**: 절대좌표에서 스크롤 모드(델타 누적 기반)는 성립하지 않아 배제하고, 대신 "커서 이동만"과 "누른 채 이동(드래그 앤 드롭)"을 구분하는 제어버튼을 추가했다. 기존 마우스 홀드 인프라(`heldMouseButtons`/`toggleMouseHold`, `ClickDetector.createMouseButtonFrame`)의 buttons-bit 배선을 재사용하되, 이 토글은 제스처 스코프(터치 업에서 자동 release)로 동작한다.
+
+- 사용자 액션: `DragModeButton` 탭으로 드래그 모드 진입(ON)
+- 드래그 모드 ON 중 동작:
+  1) `ACTION_DOWN` 시점부터 좌클릭 버튼을 누른 상태로 전송 시작
+  2) `ACTION_MOVE` 동안 커서 이동 + 좌클릭 유지 = 드래그
+  3) `ACTION_UP` 시 좌클릭 해제 전송(drop)
+  4) 테두리 색상 초록색으로 전환
+- 드래그 모드 종료: `DragModeButton` 재탭(OFF) → 이후 터치는 커서 이동만 수행(클릭 판정은 §4.4.2 로직 그대로)
 
 ### 4.5 줌 기능 (Region Zoom)
 
@@ -497,13 +509,13 @@ AbsolutePointingPad는 PC 전체 화면을 스마트폰의 작은 터치 영역�
 - **테두리 색상**: 줌 활성 시 전용 색상 `#FF9800` (주황색)으로 전환
 - **줌 진입 중 (드래그 단계)**: 드래그에 따라 줌 레벨이 실시간으로 변하는 피드백
 
-**PC 화면 (Windows 서버 오버레이, Standard 모드 전용)**:
+**PC 화면 (Windows 서버 오버레이)**:
 - **줌 영역 박스**: 줌이 활성화되면 PC 화면 위에 반투명 사각형 오버레이를 렌더링하여, 현재 AbsolutePointingPad가 매핑하고 있는 PC 화면 영역을 시각적으로 표시
+- **대상 모니터 반영**: 박스는 MonitorSelector로 선택한 대상 모니터(또는 전체 가상 데스크톱) rect 기준으로 계산됨
 - **실시간 업데이트**: 줌 레벨/중심점 변경 시 박스 위치·크기가 즉시 업데이트
 - **1x (줌 해제) 시**: 박스 비표시 (전체 화면 = 별도 표시 불필요)
 - **통신 경로**: Android → ESP32 (UART, 0xFF 커스텀 명령) → Windows 서버 (Vendor CDC) → WPF 투명 오버레이 윈도우에 렌더링
-- **Essential 모드 제한**: Windows 서버 미연결 시 PC 화면 오버레이 불가. Android 앱 내 줌 레벨 텍스트만 표시
-- **상세 구현**: `technical-specification-server.md` 줌 영역 오버레이 섹션 참조
+- **상세 구현**: `technical-specification-server.md` §3.6.1.4, §3.6.9 참조
 
 #### 4.5.5 줌 상태에서의 좌표 변환
 
@@ -516,15 +528,15 @@ AbsolutePointingPad는 PC 전체 화면을 스마트폰의 작은 터치 영역�
 
 여기서 `zoomMinX`, `zoomMaxX`는 줌 중심점과 줌 레벨에 의해 결정됩니다. 가장자리 클램핑 규칙(0~32767 범위 제한)은 줌 상태에서도 동일하게 적용됩니다.
 
-#### 4.5.6 ControlBar 구조 변경
+#### 4.5.6 ControlButtonContainer 슬롯 배치
 
-줌 기능 추가에 따라 ControlBar에 `ZoomButton`이 추가됩니다:
+줌 기능은 `ControlButtonContainer`(§4.2.1)의 DPI 슬롯 자리에 `ZoomButton`으로 배치됩니다:
 
 ```
-ControlBar (제어 버튼 영역)
+ControlButtonContainer (상단 오버레이)
 ├── ClickModeButton (좌클릭 ↔ 우클릭 전환)
-├── ScrollToggleButton (스크롤 모드 전환)
-└── ZoomButton (줌 모드 진입/해제)
+├── ZoomButton (줌 모드 진입/해제, DPI 슬롯 자리)
+└── DragModeButton (드래그 앤 드롭 토글, ScrollSensitivity 슬롯 자리)
 ```
 
 **ZoomButton 시각 상태**:
@@ -541,35 +553,38 @@ ControlBar (제어 버튼 영역)
 | `#FF9800` (alpha 0.6) | 반투명 주황 | 줌 영역 오버레이 테두리 |
 
 **테두리 색상 우선순위** (높은 순):
-1. 스크롤 모드: 초록색 (`#84E268`)
+1. 드래그 모드 ON: 초록색 (`#84E268`)
 2. 우클릭 모드: 노란색 (`#F3D021`)
 3. 줌 활성: 주황색 (`#FF9800`)
 4. 기본 (좌클릭 + 포인팅): 핑크색 (`#E91E63`)
 
-> **참고**: 스크롤 모드와 줌은 동시 활성화 가능합니다. 이 경우 테두리는 스크롤 색상(초록)이 우선하되, 줌 레벨 배지는 계속 표시됩니다.
+> **참고**: 드래그 모드와 줌은 동시 활성화 가능합니다. 이 경우 테두리는 드래그 모드 색상(초록)이 우선하되, 줌 레벨 배지는 계속 표시됩니다.
 
 ### 4.6 배치 위치
 
-절대좌표 패드는 **Standard 모드 Page 2 (전용 페이지)**에 전체 화면으로 배치합니다.
+절대좌표 패드는 **Standard 모드 Page 3 (전용 페이지)**에 전체 화면으로 배치합니다.
 
-**페이지 순서**:
+**페이지 순서** (`phase-4-9-page3-absolute-pointing.md` 기준, PAGE_COUNT 5→6 확장):
 - Page 1: 터치패드 + Actions (상대좌표 마우스 조작)
-- **Page 2: 절대좌표 패드 (절대좌표 마우스 조작)** ← AbsolutePointingPad 전용
-- Page 3: 키보드 중심 (키보드 입력)
-- Page 4: Minecraft 특화 (게임)
+- Page 2: 풀 와이드 터치패드 (멀티 커서)
+- **Page 3: 절대좌표 패드 (절대좌표 마우스 조작)** ← AbsolutePointingPad 전용
+- Page 4: 키보드 중심 (키보드 입력)
+- Page 5: Minecraft 특화 (게임)
+- Page 6: 설정
 
 **전용 페이지 선택 근거**:
 - 상대좌표와 절대좌표는 사용자의 멘탈 모델이 근본적으로 다르므로 별도 페이지가 자연스러움
-- 16:9 비율 PointingArea가 충분한 면적을 확보해야 정밀 포인팅이 가능
+- 유저가 자유롭게 설정하는 비율(Fill 기본)로도 충분한 면적을 확보해야 정밀 포인팅이 가능
 - Page 1의 기존 64%/36% 레이아웃에 추가 포인팅 영역을 넣으면 공간 부족
-- 포인팅 계열 페이지끼리 인접 배치 (Page 1 → Page 2)
+- 포인팅 계열 페이지끼리 인접 배치 (Page 1 → Page 2 → Page 3)
 
-**스타일프레임**: `styleframe-page2.md` 참조
+**스타일프레임**: `styleframe-page3.md` 참조
 
-### 4.7 Essential/Standard 모드 동작
+### 4.7 Essential/Standard 모드 동작 — Standard 전용 페이지
 
-- **Essential 모드**: 사용 가능. HID Absolute Mouse 리포트로 직접 전송
-- **Standard 모드**: 사용 가능. 동일 HID 경로 사용
+- **Page 3는 Standard 모드에서만 존재한다.** `BridgeOneApp.kt`가 `bridgeMode`에 따라 `EssentialModePage()`/`StandardModePage()`를 완전히 분리된 트리로 라우팅하며, `EssentialModePage`는 자체 2열 레이아웃(터치패드+Boot Keyboard Cluster)일 뿐 페이지 로테이션이나 Page 3를 포함하지 않는다. 즉 Essential 모드에서 이 페이지가 "숨겨지는" 것이 아니라 **애초에 존재하지 않는다** — 런타임 분기나 가드 코드가 필요 없다
+- **좌표 전송**: HID를 쓰지 않고 서버 중계 프레임으로 좌표를 전달해 서버가 `SetCursorPos`를 직접 호출(자유 비율 stretch 매핑, 멀티모니터 지원). MonitorSelector는 모니터 2개 이상일 때 노출
+- 상세: `technical-specification-app.md` §2.10, `technical-specification.md` §2.4.6.1.3
 
 ### 4.8 Disabled 상태 정의
 
@@ -580,8 +595,10 @@ ControlBar (제어 버튼 영역)
 
 ### 4.9 기술 명세 참조
 
-- **좌표 변환 알고리즘**: `technical-specification-app.md` §2.10
-- **UART 프레임 구조**: `technical-specification.md` §2.4.6.1.1
+- **좌표 변환 알고리즘 및 서버 중계 전송**: `technical-specification-app.md` §2.10
+- **HID Report Descriptor (Native Macro 전용)**: `technical-specification.md` §2.4.6.1.1
+- **전체 아키텍처 (서버 중계 경로)**: `technical-specification.md` §2.4.6.1.3
+- **서버 측 처리 (stretch 매핑/SetCursorPos/드래그)**: `technical-specification-server.md` §3.6.9
 - **HID Report Descriptor**: `esp32s3-code-implementation-guide.md` §3.3.2
 - **상수/임계값**: `technical-specification-app.md` §3.4
 - **매크로 녹화 연동 (MOUSE_MOVE_ABS)**: `technical-specification-app.md` §2.9.4, `esp32s3-code-implementation-guide.md` §4.6.1

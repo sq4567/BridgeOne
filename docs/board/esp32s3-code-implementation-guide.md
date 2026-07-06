@@ -634,6 +634,11 @@ uint8_t const desc_hid_keyboard_report[] = {
 // HID Mouse Report Descriptor (상대좌표 + 절대좌표, Report ID로 구분)
 // §1.3.2 준수 - Report ID 0x01: 상대좌표 (4바이트), Report ID 0x02: 절대좌표 (6바이트)
 //
+// ⚠️ 설계 변경(사용자 확정): Report ID 0x02(절대좌표 HID)는 AbsolutePointingPad(Page 3)가 아니라
+// Native Macro 재생 엔진 전용이다. Page 3는 Standard 모드 전용 페이지라 좌표는 항상 0xFF/0x02
+// 서버 중계 프레임(위 "UART 수신 최상위 라우팅" 참조)으로 전달되어 서버가 SetCursorPos를 직접
+// 호출한다. 상세: `technical-specification.md` §2.4.6.1.1, §2.4.6.1.3
+//
 // ⚠️ BIOS/UEFI 호환성 참고:
 // Report ID를 사용하면 Boot Protocol과 호환되지 않음.
 // 호스트가 Set_Protocol(Boot) 요청 시 상대좌표 4바이트 리포트로 폴백 필요.
@@ -1736,15 +1741,12 @@ void sendMouseReport(const bridge_frame_t* frame) {
     tud_hid_n_report(ITF_NUM_HID_MOUSE, REPORT_ID_REL_MOUSE, &mouse_report, sizeof(mouse_report));
 }
 
-// 절대좌표 HID Mouse 리포트 전송
-void sendAbsoluteMouseReport(const bridge_frame_t* frame) {
+// 절대좌표 HID Mouse 리포트 전송 (Native Macro 재생 엔진 전용, §4.6 참조)
+// UART로 실시간 프레임을 받아 호출되지 않는다 — 매크로 재생 시 저장된 좌표로 macro_task가 직접 호출한다.
+void sendAbsoluteMouseReport(uint8_t buttons, uint16_t absX, uint16_t absY, int8_t wheel) {
     if (!tud_hid_n_ready(ITF_NUM_HID_MOUSE)) {
         return;  // 이전 리포트 전송 중
     }
-
-    // 절대좌표 프레임에서 X, Y 좌표 추출 (Big-Endian → uint16)
-    uint16_t absX = ((uint16_t)frame->deltaX << 8) | (uint8_t)frame->deltaY;
-    uint16_t absY = ((uint16_t)frame->modifiers << 8) | frame->keyCode1;
 
     struct {
         uint8_t buttons;
@@ -1752,10 +1754,10 @@ void sendAbsoluteMouseReport(const bridge_frame_t* frame) {
         uint16_t y;
         int8_t wheel;
     } __attribute__((packed)) abs_report = {
-        .buttons = frame->buttons,
+        .buttons = buttons,
         .x = absX,    // 0~32767
         .y = absY,    // 0~32767
-        .wheel = frame->keyCode2  // 절대좌표 프레임의 wheel 위치
+        .wheel = wheel
     };
 
     tud_hid_n_report(ITF_NUM_HID_MOUSE, REPORT_ID_ABS_MOUSE, &abs_report, sizeof(abs_report));
@@ -1764,26 +1766,44 @@ void sendAbsoluteMouseReport(const bridge_frame_t* frame) {
 
 **프레임 타입 판별 및 라우팅**:
 ```c
-// §3.4 프레임 처리 로직에서 절대좌표/상대좌표 분기
-#define ABS_FRAME_TYPE_MARKER  0x80
-
+// §3.4 프레임 처리 로직 — 상대좌표 프레임만 다룬다. 절대좌표 HID(위 함수)는
+// Native Macro 재생 엔진이 macro_task 내부에서 직접 호출하므로 이 경로를 거치지 않는다.
 void processBridgeFrame(const bridge_frame_t* frame) {
-    // frame->buttons 필드(byte[1])를 프레임 타입 식별에 사용
-    // 절대좌표: byte[1] == 0x80, 상대좌표: byte[1] == 0x00~0x07
-    if (frame->buttons == ABS_FRAME_TYPE_MARKER) {
-        // 절대좌표 프레임 → 절대좌표 HID 리포트 전송
-        sendAbsoluteMouseReport(frame);
-    } else {
-        // 기존 상대좌표 프레임 → 마우스/키보드 분기
-        if (frame->buttons || frame->deltaX || frame->deltaY || frame->wheel) {
-            sendMouseReport(frame);
-        }
-        if (frame->modifiers || frame->keyCode1 || frame->keyCode2) {
-            sendKeyboardReport(frame);
-        }
+    if (frame->buttons || frame->deltaX || frame->deltaY || frame->wheel) {
+        sendMouseReport(frame);
+    }
+    if (frame->modifiers || frame->keyCode1 || frame->keyCode2) {
+        sendKeyboardReport(frame);
     }
 }
 ```
+
+> **⚠️ 설계 변경(사용자 확정) — AbsolutePointingPad는 Standard 전용, UART 라우팅 단순화**: `AbsolutePointingPad`(Page 3)는 Android 측에서 `bridgeMode`에 따라 완전히 분리된 페이지 트리로 라우팅되어(`BridgeOneApp.kt`) Essential 모드에서 애초에 렌더링되지 않는다. 따라서 패드가 보내는 절대좌표 프레임은 **`0xFF/0x02`(서버 중계) 하나뿐**이며, `processBridgeFrame`이 다루는 UART 상대좌표 경로와는 완전히 분리된 최상위 단계에서 먼저 걸러낸다.
+
+**UART 수신 최상위 라우팅** (`processBridgeFrame` 호출 이전 단계):
+```c
+#define VCDC_ABS_POS_SUBCOMMAND  0x02  // ABS_POS_TO_SERVER
+
+void handle_uart_frame(const uint8_t* raw, size_t len) {
+    if (len != PROTOCOL_FRAME_SIZE) return;  // 8바이트 고정
+
+    if (raw[0] == 0xFF && raw[1] == VCDC_ABS_POS_SUBCOMMAND) {
+        // 절대좌표 서버 중계 프레임(Standard 전용): 파싱하지 않고 그대로 Vendor CDC로 전달
+        // (기존 0xFF+JSON 커스텀 명령과 달리 바이너리 패스스루 — JSON 변환 없음)
+        // Page 3가 Standard 전용이라 Essential 모드에서는 이 프레임이 애초에 발생하지 않는다.
+        vendor_cdc_send_raw(raw, len);
+        return;
+    }
+
+    // 그 외(0x00~0xFD 상대좌표, 0xFF+기타 JSON 명령)는 기존 경로대로
+    // bridge_frame_t 파싱 후 processBridgeFrame()/Vendor CDC JSON 처리로 라우팅
+    bridge_frame_t frame;
+    parse_bridge_frame(raw, &frame);
+    processBridgeFrame(&frame);
+}
+```
+
+**모니터 개수 역방향 통지** (신규, `EVENT_MONITOR_COUNT`): Windows 서버가 모니터 개수를 Vendor CDC로 통지하면(`technical-specification-server.md` §3.6.9.5), ESP32는 이를 그대로 UART 역방향 알림 프레임(`[0xFE, 0x03, monitor_count]`)으로 Android에 중계한다. 기존 `EVENT_LED_STATUS(0x02)` 알림 경로와 동일한 3바이트 포맷을 재사용하며, 별도 파싱 로직 없이 Vendor CDC→UART 패스스루로 처리 가능하다.
 
 **USB 태스크 구현** (TinyUSB 스택 처리):
 ```c

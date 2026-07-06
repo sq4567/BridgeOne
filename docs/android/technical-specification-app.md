@@ -3205,94 +3205,109 @@ object ExtendedFrameBuilder {
 ### 2.10 절대좌표 패드 (AbsolutePointingPad) 기능 구현 요구사항
 
 > **컴포넌트 설계 명세**: UI 구조, 색상, 유저 플로우 등은 `component-design-guide-app.md` §4 참조
+> **시스템 아키텍처**: 전체 그림은 `technical-specification.md` §2.4.6.1.3 참조
+
+> **⚠️ 설계 변경(사용자 확정) — 16:9 강제 폐기, Standard 전용 페이지**: 기존에는 PointingArea가 항상 16:9(또는 16:10)를 강제하고, HID 절대좌표 경로만 사용했다. 이는 PC 서버가 좌표를 재맵핑할 여지가 없고 멀티 모니터를 근본적으로 지원할 수 없다는 한계가 있어 폐기한다. `AbsolutePointingPad`(Page 3)는 **Standard 모드 전용 페이지**다 — `BridgeOneApp.kt`가 `bridgeMode`에 따라 `EssentialModePage()`/`StandardModePage()`를 완전히 분리해 라우팅하므로(전자는 Page 3를 포함하지 않는 별도 레이아웃), Essential 모드에서 이 페이지는 애초에 렌더링되지 않는다. 따라서 좌표는 **서버 중계 경로 하나만** 존재하며, 서버가 `SetCursorPos`로 직접 커서를 이동시켜 자유 비율(stretch 매핑)과 멀티모니터를 지원한다. HID 절대좌표(Report ID 0x02)는 이 페이지가 아니라 Native Macro 재생(`technical-specification.md` §4.4.2)이 별도로 사용한다.
 
 #### 2.10.1 절대좌표 변환 알고리즘
 
 **개요:**
-AbsolutePointingPad의 PointingArea 내 터치 좌표를 PC 화면의 절대 위치(0~32767)로 변환하는 알고리즘입니다. 기존 터치패드의 상대좌표(델타) 방식과 달리, 목표 좌표 자체를 전송합니다.
+AbsolutePointingPad의 PointingArea 내 터치 좌표를 비율(0.0~1.0)로 변환하는 알고리즘입니다. 이 비율이 그대로 서버 중계 프레임(2.10.2)에 실려 전송됩니다.
 
-**터치 좌표 → 절대좌표 변환:**
+**터치 좌표 → 비율 변환:**
 ```kotlin
-// PointingArea 기준 좌표계에서 절대좌표 계산
-data class AbsoluteCoordinate(
-    val x: Int,  // 0~32767
-    val y: Int   // 0~32767
+// PointingArea 기준 좌표계에서 비율 계산
+data class TouchRatio(
+    val x: Float,  // 0.0~1.0
+    val y: Float   // 0.0~1.0
 )
 
-fun calculateAbsoluteCoordinate(
+fun calculateTouchRatio(
     touchX: Float,        // 터치 X 좌표 (PointingArea 기준)
     touchY: Float,        // 터치 Y 좌표 (PointingArea 기준)
-    areaWidth: Float,     // PointingArea 너비
+    areaWidth: Float,     // PointingArea 너비 (유저가 설정한 임의 비율 가능)
     areaHeight: Float     // PointingArea 높이
-): AbsoluteCoordinate {
-    // 1. 터치 좌표를 영역 내 비율로 변환 (0.0~1.0)
+): TouchRatio {
     val ratioX = (touchX / areaWidth).coerceIn(0f, 1f)
     val ratioY = (touchY / areaHeight).coerceIn(0f, 1f)
-
-    // 2. 비율을 HID 절대좌표 범위(0~32767)로 매핑
-    val absX = (ratioX * ABS_COORDINATE_MAX).toInt()
-    val absY = (ratioY * ABS_COORDINATE_MAX).toInt()
-
-    return AbsoluteCoordinate(absX, absY)
+    return TouchRatio(ratioX, ratioY)
 }
 ```
 
 **핵심 설계 원칙:**
 - PointingArea의 **테두리 안쪽 영역만** 좌표 계산에 사용
-- 영역 밖 터치는 가장 가까운 경계값(0 또는 32767)으로 클램핑
-- PointingArea의 가로/세로 비율과 PC 모니터 비율이 다를 수 있으나, 전체 범위를 1:1로 매핑 (스트레칭 방식)
+- 영역 밖 터치는 가장 가까운 경계값(0.0 또는 1.0)으로 클램핑
+- **stretch 매핑**: PointingArea의 가로/세로 비율과 대상 화면(모니터) 비율이 달라도 letterbox/pillarbox 보정 없이 전체 범위를 1:1로 매핑. 종횡비 왜곡보다 "패드 전 영역이 화면 전체에 도달"하는 것을 우선한다(2.10.7 패드 비율 UX 참조). stretch 매핑 자체는 서버가 수행하며(`technical-specification-server.md` §3.6.9), Android는 비율만 전달
 
-#### 2.10.2 절대좌표 프레임 생성
+#### 2.10.2 서버 중계 프레임 생성
 
-**UART 프레임 구성:**
+Standard 모드 전용이므로 HID를 쓰지 않는다. `0xFF` UART 확장 프레임 계열에 서브커맨드 `0x02`(`ABS_POS_TO_SERVER`)를 사용해 서버로 좌표를 전달한다. 120Hz 고빈도 스트림이므로 기존 매크로 트리거(`technical-specification.md` §4.4.2.1)와 동일하게 **고정 8바이트 바이너리**를 사용하고(JSON 아님), ESP32는 파싱 없이 Vendor CDC로 **투명 중계**한다.
+
 ```kotlin
-fun buildAbsoluteFrame(
-    seq: UByte,
+fun buildAbsolutePositionCommand(
+    ratio: TouchRatio,
     buttons: UByte,
-    absCoord: AbsoluteCoordinate,
-    wheel: Byte
+    targetMonitor: UByte  // 0x00=활성 가상 데스크톱 전체, 0x01~=특정 모니터 (2.10.6 참조)
 ): ByteArray {
     val frame = ByteArray(PROTOCOL_FRAME_SIZE)  // 8바이트
 
-    frame[0] = seq.toByte()                              // 시퀀스 번호
-    frame[1] = ABS_FRAME_TYPE_MARKER.toByte()            // 0x80 (절대좌표 식별)
-    frame[2] = buttons.toByte()                           // 버튼 상태
-    frame[3] = ((absCoord.x shr 8) and 0xFF).toByte()   // X 상위 바이트
-    frame[4] = (absCoord.x and 0xFF).toByte()            // X 하위 바이트
-    frame[5] = ((absCoord.y shr 8) and 0xFF).toByte()   // Y 상위 바이트
-    frame[6] = (absCoord.y and 0xFF).toByte()            // Y 하위 바이트
-    frame[7] = wheel                                      // 휠 스크롤
+    val absX = (ratio.x * ABS_COORDINATE_MAX).toInt()
+    val absY = (ratio.y * ABS_COORDINATE_MAX).toInt()
+
+    frame[0] = 0xFF.toByte()                              // 확장 프레임 헤더
+    frame[1] = ABS_POS_TO_SERVER_SUBCOMMAND.toByte()      // 0x02
+    frame[2] = ((absX shr 8) and 0xFF).toByte()          // X 상위 바이트
+    frame[3] = (absX and 0xFF).toByte()                   // X 하위 바이트
+    frame[4] = ((absY shr 8) and 0xFF).toByte()          // Y 상위 바이트
+    frame[5] = (absY and 0xFF).toByte()                   // Y 하위 바이트
+    frame[6] = buttons.toByte()                           // 버튼 상태 (드래그 모드 시 bit0 유지, 2.10.5 참조)
+    frame[7] = targetMonitor.toByte()                     // 대상 모니터
 
     return frame
 }
+
+fun sendAbsolutePosition(ratio: TouchRatio, buttons: UByte, targetMonitor: UByte) {
+    usbSerialManager.sendCommandBytes(
+        FrameBuilder.buildAbsolutePositionCommand(ratio, buttons, targetMonitor)
+    )
+}
 ```
 
-**프레임 식별 규칙:**
-- `frame[1] == 0x80`: 절대좌표 프레임 → ESP32-S3가 HID Absolute Report (Report ID 0x02)로 전송
-- `frame[1] != 0x80`: 기존 상대좌표 프레임 → ESP32-S3가 HID Relative Report (Report ID 0x01)로 전송
-- 기존 프레임의 `frame[1]`은 `buttons` 필드(0x00~0x07 범위)이므로 0x80과 충돌하지 않음
+**ESP32 라우팅 규칙**: `frame[0] == 0xFF && frame[1] == 0x02` → 파싱하지 않고 8바이트 그대로 Vendor CDC로 전달(기존 `0xFF` + JSON 커스텀 명령과 달리 **바이너리 그대로 중계**). 서버가 `absX`/`absY`(비율 기반 0~32767)를 대상 모니터 rect에 stretch 매핑해 `SetCursorPos`를 호출한다(`technical-specification-server.md` §3.6.9).
+
+**discriminator 요약** (UART 프레임 첫 2바이트 기준):
+
+| `frame[0]` | `frame[1]` | 의미 |
+|---|---|---|
+| `0x00~0xFD` | buttons(`0x00~0x07`) | 상대좌표 HID 프레임 (기존) |
+| `0xFE` | eventType | 역방향 알림 프레임 (ESP32→Android) |
+| `0xFF` | `0x01` | 매크로 실행 트리거 (로컬 처리, 서버 무관) |
+| `0xFF` | `0x02` | **절대좌표 서버 중계 (본 절, Standard 전용)** |
+| `0xFF` | 기타(JSON) | Vendor CDC JSON 커스텀 명령 (멀티커서 등) |
+
+> HID 절대좌표(Report ID 0x02)는 이 discriminator 표와 무관하다 — Native Macro가 ESP32 내부에서 저장된 좌표를 직접 리포트로 변환할 뿐, UART 프레임으로 오가지 않기 때문이다(`technical-specification.md` §2.4.6.1.1).
 
 #### 2.10.3 전송 최적화
 
 **동일 좌표 전송 방지:**
 ```kotlin
-private var lastAbsX: Int = -1
-private var lastAbsY: Int = -1
+private var lastRatioX: Float = -1f
+private var lastRatioY: Float = -1f
 
-fun shouldTransmit(absCoord: AbsoluteCoordinate): Boolean {
-    if (absCoord.x == lastAbsX && absCoord.y == lastAbsY) {
+fun shouldTransmit(ratio: TouchRatio): Boolean {
+    if (ratio.x == lastRatioX && ratio.y == lastRatioY) {
         return false  // 동일 좌표 → 전송 스킵
     }
-    lastAbsX = absCoord.x
-    lastAbsY = absCoord.y
+    lastRatioX = ratio.x
+    lastRatioY = ratio.y
     return true
 }
 ```
 
-**터치 이벤트 처리:**
-- `ACTION_DOWN`: 최초 터치 → 즉시 절대좌표 전송 (커서가 해당 위치로 점프)
-- `ACTION_MOVE`: 드래그 → 실시간 절대좌표 전송 (커서가 손가락을 따라감)
-- `ACTION_UP`: 터치 종료 → 클릭 판정 후 전송 중단
+**터치 이벤트 처리** (경로 공통, 2.10.2의 분기는 전송 직전 단계에서만 발생):
+- `ACTION_DOWN`: 최초 터치 → 즉시 전송 (커서가 해당 위치로 점프)
+- `ACTION_MOVE`: 드래그 → 실시간 전송 (커서가 손가락을 따라감)
+- `ACTION_UP`: 터치 종료 → 클릭 판정(또는 드래그 모드 시 release, 2.10.5) 후 전송 중단
 - 전송 주기: 기존 `TRANSMISSION_TARGET_FREQUENCY` (120Hz) 준수
 
 #### 2.10.4 클릭 감지
@@ -3301,14 +3316,54 @@ fun shouldTransmit(absCoord: AbsoluteCoordinate): Boolean {
 - 터치 지속시간 ≤ `CLICK_MAX_DURATION` (500ms)
 - 터치 이동량 ≤ `DEAD_ZONE_THRESHOLD` (5dp)
 - 조건 충족 시 버튼 프레임 전송 (좌클릭 또는 우클릭, 클릭 모드에 따라)
+- **드래그 모드 ON 상태(2.10.5)에서는 클릭 감지 대신 press/release 시퀀스가 적용**된다 — 둘은 상호 배타적이다
 
-#### 2.10.5 신규/수정 파일 목록
+#### 2.10.5 드래그 앤 드롭 모드 (신규)
+
+> **⚠️ 설계 변경(사용자 확정)**: 절대좌표 패드에 "커서 이동만" vs "누른 채 이동(드래그)"을 구분하는 제어버튼 토글을 추가한다. 기존 마우스 홀드 인프라(`StandardModePageState.heldMouseButtons`/`toggleMouseHold`, `ClickDetector.createMouseButtonFrame`, `EdgeZone.kt`의 `MouseHoldMode`)의 buttons-bit 배선을 재사용하되, 이 토글은 **제스처 스코프 transient**로 동작한다(영구 홀드가 아니라 터치 업에서 자동 release).
+
+**동작 규칙:**
+- `DragModeButton` OFF(기본): `ACTION_DOWN`~`ACTION_UP` 동안 `buttons` bit0(좌클릭)은 항상 0. 커서만 이동, 클릭 판정은 2.10.4 로직 그대로
+- `DragModeButton` ON: `ACTION_DOWN` 시 `buttons` bit0을 1로 세팅해 최초 프레임부터 press 상태로 전송, `ACTION_MOVE` 동안 bit0 유지(커서 이동 + 버튼 눌림 = 드래그), `ACTION_UP` 시 bit0을 0으로 되돌린 release 프레임 1회 전송(drop)
+- 서버가 연속 프레임의 `buttons`를 직전값과 diff해 0→1 시 `SendInput(LEFTDOWN)`, 1→0 시 `LEFTUP`을 호출하고, 그 사이는 `SetCursorPos`만 호출한다(`technical-specification-server.md` §3.6.9)
+
+**UI**: `ControlButtonContainer`에 `showDrag: Boolean` 슬롯 추가, ClickMode/ZoomButton 옆에 배치. Selected 상태(ON)는 테두리 강조 색상으로 표시(디자인 토큰은 `component-design-guide-app.md` §4 참조)
+
+#### 2.10.6 모니터 셀렉터 및 역방향 통지 (신규)
+
+> `targetMonitor` 바이트(2.10.2)로 유저가 어느 모니터에 매핑할지 선택한다. Android는 모니터의 **개수만** 알면 되고(지오메트리는 서버가 소유), 역방향 알림 프레임(`0xFE`, `technical-specification-app.md` §2.3.2.9의 `[0xFE, eventType, data]` 패턴과 동일)으로 개수를 수신한다.
+
+- 신규 이벤트: `EVENT_MONITOR_COUNT (0x03)`, 프레임 `[0xFE, 0x03, monitor_count]` (3바이트)
+- `targetMonitor = 0x00`: 전체 가상 데스크톱 매핑(멀티모니터 토글 옵션)
+- `targetMonitor = 0x01~monitor_count`: 특정 모니터 인덱스(서버의 `Screen.AllScreens` 순서 기준)
+- UI: `AbsolutePointingPad` 내 셀렉터(전체/1..N 칩 형태), `monitor_count` 미수신 시 단일 모니터로 가정하고 셀렉터 숨김. 상시 노출되는 라이브 셀렉터로, ClickModeButton처럼 사용 중 언제든 전환 가능(사전 선택 게이트 아님)
+
+**기본값 및 영속화**(사용자 확정):
+- 유저가 마지막으로 선택한 `targetMonitor` 값을 SharedPreferences에 영속화하고, 다음 진입 시 그대로 복원
+- 저장된 값이 없는 최초 진입 시: `targetMonitor = 0x01`(주 모니터, 서버의 `Screen.PrimaryScreen` 인덱스)로 폴백
+- 저장된 모니터 인덱스가 현재 `monitor_count`보다 크면(모니터 구성이 바뀐 경우) 주 모니터로 재폴백
+
+#### 2.10.7 패드 비율 설정 UX (신규)
+
+> stretch 매핑을 전제로 하므로 letterbox가 필수가 아니다. "힘 들이지 않고 자연스럽게" 비율을 정할 수 있도록 **Fill 기본 + 프리셋**을 우선한다.
+
+- **기본값(Fill)**: 별도 설정 없이 PointingArea가 페이지 가용 영역을 꽉 채움(설정 0회)
+- **프리셋 로우**: Fill / 16:9 / 21:9 / 4:3 중 원탭 선택
+- **Match Monitor**: 대상 모니터의 실제 종횡비에 맞춤. 1차 구현은 스텁(모니터 종횡비 미수신 시 16:9 폴백) — 모니터 종횡비까지 역방향으로 받으려면 2.10.6의 1바이트 채널로는 부족해 후속 확장 필요
+- **드래그 리사이즈**: 파워유저용 고급 옵션(설정에서 별도로 켬), 1차 구현 범위 밖
+- 저장: `PadRatioConfig`(신규, 유저 선택 프리셋 영속화)
+
+#### 2.10.8 신규/수정 파일 목록
 
 | 파일 경로 | 변경 내용 |
 |-----------|----------|
 | `ui/components/AbsolutePointingPad.kt` | 신규: 절대좌표 패드 Composable |
-| `ui/utils/AbsoluteCoordinateCalculator.kt` | 신규: 터치→절대좌표 변환 유틸리티 |
-| `protocol/FrameBuilder.kt` | 수정: `buildAbsoluteFrame()` 추가 |
+| `ui/utils/AbsoluteCoordinateCalculator.kt` | 신규: 터치→비율 변환 유틸리티 |
+| `protocol/FrameBuilder.kt` | 수정: `buildAbsolutePositionCommand()` 신규 추가 |
+| `usb/UsbSerialManager.kt` | 수정: `sendCommandBytes(ByteArray)` public API 신규(기존 `frameQueue`는 private), `EVENT_MONITOR_COUNT` 역방향 파싱 |
+| `protocol/NotificationFrame.kt` | 수정: `EVENT_MONITOR_COUNT (0x03)` 이벤트 타입 추가 |
+| `ui/components/touchpad/ControlButtonContainer.kt` | 수정: `showDrag` 슬롯 추가 (DragModeButton) |
+| `ui/layout/PadRatioConfig.kt` | 신규: 패드 비율 프리셋 설정 + 영속화 |
 
 ---
 

@@ -321,10 +321,14 @@ void processMouseFrame(const bridge_frame_t* frame) {
 - **오류 프레임 폐기**: CRC 불일치 시 해당 프레임 폐기, 타임아웃에 의해 해당 단계 자동 재시도
 - **폴백 모드**: 오류 지속 시 절대 좌표 모드로 전환
 
-#### 2.4.6.1.1 HID Absolute Mouse Interface (절대좌표 모드)
+#### 2.4.6.1.1 HID Absolute Mouse Interface (Native Macro 전용)
+
+> **⚠️ 설계 변경(사용자 확정)**: `AbsolutePointingPad`(Page 3)는 **Standard 모드 전용 페이지**다. `BridgeOneApp.kt`가 `bridgeMode`에 따라 `EssentialModePage()`/`StandardModePage()`를 완전히 분리된 트리로 라우팅하므로(`EssentialModePage`는 자체 2열 레이아웃이며 Page 3를 포함하지 않음), Page 3는 Essential 모드에서 애초에 렌더링되지 않는다. 따라서 AbsolutePointingPad의 실시간 좌표 전송에는 **서버 중계 경로(§2.4.6.1.3) 하나만 존재**하며, HID 절대좌표를 통한 "Essential 폴백"은 없다.
+>
+> 본 절의 HID Report ID 0x02(절대좌표)는 그 대신 **Native Macro 재생**(§4.4.2)이 사용한다. Native Macro는 ESP32-S3가 NVS에 저장된 좌표를 매크로 재생 시점에 직접 HID 리포트로 변환해 전송하는 기능으로, UART로 실시간 프레임을 받지 않고 ESP32 내부에서 완결되므로 서버 없이(Essential 모드에서도) 동작한다. 즉 이 절이 설명하는 HID 리포트 레이어 자체는 유지되지만, "Android가 UART로 실시간 절대좌표 프레임을 보내 ESP32가 HID로 변환 전송"하는 흐름은 없다.
 
 **개요:**
-절대좌표 모드는 터치패드 영역의 터치 위치를 PC 화면 좌표에 1:1로 매핑하는 기능입니다. 기존 상대좌표(Boot Mouse) 인터페이스와 별도의 HID Report ID를 사용하여, 하나의 HID Mouse 인터페이스 내에서 상대/절대 리포트를 구분합니다.
+Report ID 0x02는 상대좌표(Boot Mouse, Report ID 0x01)와 별도의 HID Report로, 절대좌표(0~32767)를 하나의 HID Mouse 인터페이스 내에서 구분해 전송합니다.
 
 **프로토콜 스펙:**
 ```typescript
@@ -341,16 +345,15 @@ interface HidAbsoluteMouseFrame {
 **좌표 범위 및 매핑:**
 - X축: 0 (화면 왼쪽 끝) ~ 32767 (화면 오른쪽 끝)
 - Y축: 0 (화면 위쪽 끝) ~ 32767 (화면 아래쪽 끝)
-- Android 터치 좌표 → 비율(0.0~1.0) → HID 절대좌표(0~32767) 변환
-- 변환 공식: `absoluteCoord = (touchPos / touchpadSize) * 32767`
+- Native Macro 재생 시: 매크로 녹화 당시 저장된 12비트 좌표(0~4095)를 0~32767로 스케일해 리포트에 실음(`esp32s3-code-implementation-guide.md` §4.6 참조)
 
 **Report ID 기반 리포트 구분:**
 - Report ID 0x01: 상대좌표 리포트 (기존 Boot Mouse와 동일한 데이터, Report ID 추가)
-- Report ID 0x02: 절대좌표 리포트
+- Report ID 0x02: 절대좌표 리포트 (Native Macro 재생 전용)
 
 **ESP-IDF TinyUSB 기반 구현 방식:**
 ```c
-// HID Absolute Mouse 리포트 전송
+// HID Absolute Mouse 리포트 전송 (Native Macro 재생 엔진에서 호출, UART 프레임 아님)
 void processAbsoluteMouseFrame(uint8_t buttons, uint16_t absX, uint16_t absY, int8_t wheel) {
     struct {
         uint8_t buttons;
@@ -368,24 +371,6 @@ void processAbsoluteMouseFrame(uint8_t buttons, uint16_t absX, uint16_t absY, in
     tud_hid_n_report(ITF_NUM_HID_MOUSE, REPORT_ID_ABS_MOUSE, &abs_report, sizeof(abs_report));
 }
 ```
-
-**BridgeOne UART 프레임 확장:**
-절대좌표 전송 시 기존 8바이트 프레임 대신 확장 프레임을 사용합니다:
-```typescript
-// 절대좌표 UART 프레임 (8바이트)
-interface AbsoluteCoordinateFrame {
-  seq: uint8;          // [0] 시퀀스 번호 (0~255)
-  frameType: uint8;    // [1] 0x80 (절대좌표 프레임 식별자)
-  buttons: uint8;      // [2] 버튼 상태 (bit0=L, bit1=R, bit2=M)
-  absoluteX_H: uint8;  // [3] X좌표 상위 바이트
-  absoluteX_L: uint8;  // [4] X좌표 하위 바이트
-  absoluteY_H: uint8;  // [5] Y좌표 상위 바이트
-  absoluteY_L: uint8;  // [6] Y좌표 하위 바이트
-  wheel: int8;         // [7] 휠 이동 (스크롤)
-}
-```
-- `frameType == 0x80`: ESP32-S3가 절대좌표 프레임임을 식별
-- 기존 프레임(`frameType != 0x80`): 상대좌표로 처리 (하위 호환성 유지)
 
 **HID Report Descriptor (절대좌표 포함):**
 ```c
@@ -450,10 +435,8 @@ uint8_t const desc_hid_mouse_report[] = {
 ```
 
 **최적화 전략:**
-- **즉시 응답**: 절대좌표는 델타 누적이 불필요하므로 터치 즉시 전송
-- **좌표 캐싱**: 동일 좌표 연속 전송 방지 (이전 좌표와 동일하면 전송 스킵)
 - **해상도 매핑**: 16비트 해상도(0~32767)로 PC 모니터 전체 해상도를 충분히 커버
-- **모드 전환 지연 최소화**: 상대↔절대 전환 시 1프레임 이내 적용
+- **매크로 재생 지연 최소화**: 매크로 액션 시퀀스 실행 중 상대↔절대 리포트 전환 시 1프레임 이내 적용
 
 **BIOS/UEFI 호환성 참고:**
 - Report ID를 사용하는 HID 디스크립터는 Boot Protocol과 호환되지 않음
@@ -479,7 +462,8 @@ Android → UART (0xFF 커스텀 명령) → ESP32 → Vendor CDC → Windows �
   "min_x": 8192,
   "min_y": 8192,
   "max_x": 24576,
-  "max_y": 24576
+  "max_y": 24576,
+  "target_monitor": 0
 }
 ```
 
@@ -490,6 +474,7 @@ Android → UART (0xFF 커스텀 명령) → ESP32 → Vendor CDC → Windows �
 | `min_y` | int | 0 ~ 32767 | 매핑 범위 Y축 최솟값 |
 | `max_x` | int | 0 ~ 32767 | 매핑 범위 X축 최댓값 |
 | `max_y` | int | 0 ~ 32767 | 매핑 범위 Y축 최댓값 |
+| `target_monitor` | int | 0 ~ N | 대상 모니터. 0=전체 가상 데스크톱, 1~N=특정 모니터 (§2.4.6.1.3 `targetMonitor`와 동일 규약) |
 
 **전송 시점**:
 - 줌 확정 시 (드래그 후 손 뗄 때): 1회 전송
@@ -498,9 +483,57 @@ Android → UART (0xFF 커스텀 명령) → ESP32 → Vendor CDC → Windows �
 
 **ESP32 중계 동작**:
 - ESP32는 Android로부터 UART로 수신한 줌 상태 커스텀 명령을 파싱하지 않고, Vendor CDC Frame으로 감싸서 Windows 서버로 그대로 전달 (투명 중계)
-- Windows 서버 미연결 시 (Essential 모드): 줌 상태 명령은 ESP32에서 폐기
+- Windows 서버 미연결 시 (Essential 모드): 해당 없음 — Page 3 자체가 Essential 모드에서 렌더링되지 않으므로(§2.4.6.1.3) 줌 상태 명령이 발생할 여지가 없음
 
 **Windows 서버 수신 처리**: `technical-specification-server.md` §3.6.1.4 참조
+
+#### 2.4.6.1.3 절대좌표 서버 중계 경로 (Standard 전용)
+
+**개요:**
+`AbsolutePointingPad`(Page 3)는 **Standard 모드에서만 존재하는 페이지**다. `BridgeOneApp.kt`가 `bridgeMode`에 따라 `EssentialModePage()`/`StandardModePage()`를 완전히 분리해 라우팅하므로(전자는 Page 3를 포함하지 않는 별도 레이아웃), 좌표 전송에 런타임 분기가 필요 없다 — **서버 중계 경로 하나만 존재**한다. 서버가 `SetCursorPos`를 직접 호출해 자유 비율(stretch 매핑)과 멀티모니터를 지원한다.
+
+```
+Android: 터치 → 비율(0.0~1.0) → 0xFF/0x02 서버 중계 프레임 (본 절, 8바이트, 바이너리)
+```
+
+**처리 원칙**:
+- `frame[0]==0xFF && frame[1]==0x02`: ESP32는 파싱하지 않고 Vendor CDC로 바이너리 그대로 투명 중계 (§2.4.6.3의 JSON 커스텀 명령과 달리 **바이너리 패스스루**)
+
+**`0xFF/0x02` 절대좌표 서버 중계 프레임 (8바이트)**:
+```typescript
+interface AbsolutePositionServerFrame {
+  header: uint8;        // [0] 0xFF (확장 프레임 헤더)
+  subcommand: uint8;     // [1] 0x02 (ABS_POS_TO_SERVER)
+  absoluteX_H: uint8;    // [2] X 비율 인코딩(0~32767) 상위 바이트
+  absoluteX_L: uint8;    // [3] X 하위 바이트
+  absoluteY_H: uint8;    // [4] Y 비율 인코딩(0~32767) 상위 바이트
+  absoluteY_L: uint8;    // [5] Y 하위 바이트
+  buttons: uint8;        // [6] 버튼 상태 (bit0=L, bit1=R, bit2=M; 드래그 모드 시 제스처 동안 bit0 유지)
+  targetMonitor: uint8;  // [7] 0x00=가상 데스크톱 전체, 0x01~N=특정 모니터
+}
+```
+
+- 120Hz 고빈도 스트림이므로 §4.4.2.1의 매크로 트리거와 동일하게 **고정 8바이트 바이너리**를 사용(JSON 아님) — JSON 파싱 비용이 ESP32/서버 양측에 부담되고, 이 채널은 macros/multicursor 같은 이산 이벤트가 아니라 연속 스트림이기 때문
+- `absoluteX`/`absoluteY`는 0~32767 정수로 인코딩하지만 §2.4.6.1.1의 HID 논리 좌표와는 별개다 — 이 값은 "서버가 대상 모니터 rect에 stretch 매핑할 비율 인코딩"이며, ESP32는 그 의미를 해석하지 않고 그대로 전달만 한다 (Android 구현: `technical-specification-app.md` §2.10.2)
+- **서버 처리**: stretch 매핑(패드 비율 무관, 대상 모니터 전체에 1:1 매핑) → `ValidateAndClampCursorPosition` → `SetCursorPos`. 상세는 `technical-specification-server.md` §3.6.9
+- **드래그 앤 드롭**: `buttons` bit0을 연속 프레임에 걸쳐 유지하면 서버가 직전 프레임과 diff해 0→1 시 `SendInput(LEFTDOWN)`, 1→0 시 `LEFTUP`을 호출한다 (Android 구현: `technical-specification-app.md` §2.10.5)
+
+**멀티 모니터 개수 역방향 통지**:
+- Android가 모니터 셀렉터 UI를 그리려면 모니터 개수만 알면 된다(지오메트리는 서버가 소유)
+- 신규 역방향 알림: `EVENT_MONITOR_COUNT (0x03)`, 프레임 `[0xFE, 0x03, monitor_count]` (기존 §2.3.2.9 `EVENT_LED_STATUS` 패턴과 동일 구조)
+- 상세: `technical-specification-app.md` §2.10.6
+
+**UART discriminator 요약** (전체 프레임 첫 2바이트 기준, §2.4.6.3 Vendor CDC JSON 프레임과 구분):
+
+| `frame[0]` | `frame[1]` | 의미 | 처리 위치 |
+|---|---|---|---|
+| `0x00~0xFD` | buttons(`0x00~0x07`) | 상대좌표 HID 프레임 | ESP32→HID |
+| `0xFE` | eventType | 역방향 알림 프레임 | ESP32→Android |
+| `0xFF` | `0x01` | 매크로 실행 트리거 (로컬, 서버 무관) | ESP32 로컬 처리 |
+| `0xFF` | `0x02` | 절대좌표 서버 중계 (Standard 전용) | ESP32→Vendor CDC (바이너리 패스스루) |
+| `0xFF` | 기타 | Vendor CDC JSON 커스텀 명령 (§2.4.6.3) | ESP32→Vendor CDC (JSON 패스스루) |
+
+> Report ID 0x02 HID 절대좌표(§2.4.6.1.1)는 이 UART discriminator 표와 무관하다 — Native Macro가 ESP32 내부에서 저장된 좌표를 직접 리포트로 변환할 뿐, UART 프레임 타입으로 오가지 않기 때문이다.
 
 #### 2.4.6.2 HID Boot Keyboard Interface 최적화
 
@@ -820,7 +853,7 @@ CONFIG_TINYUSB_CDC_ENABLED=y
 | `REPORT_ID_ABS_MOUSE` | 0x02 | ID | 절대좌표 마우스 리포트 ID | HID Report Descriptor |
 | `ABS_COORDINATE_MAX` | 32767 | 정수 | 절대좌표 최대값 (16비트) | HID Absolute Report |
 | `ABS_COORDINATE_MIN` | 0 | 정수 | 절대좌표 최소값 | HID Absolute Report |
-| `ABS_FRAME_TYPE_MARKER` | 0x80 | uint8 | 절대좌표 UART 프레임 식별자 | UART 프레임 파싱 |
+| `VCDC_ABS_POS_SUBCOMMAND` | 0x02 | uint8 | 절대좌표 서버 중계 UART 서브커맨드(`0xFF` 헤더 뒤) | UART 프레임 파싱 (§2.4.6.1.3) |
 
 ### 3.2 성능 임계값
 
