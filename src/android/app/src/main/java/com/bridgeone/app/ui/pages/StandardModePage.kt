@@ -367,6 +367,16 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     // Page 5 설정에서 현재 선택된 페이지 인덱스 (엣지 존 + 버튼 표시 공유)
     var selectedZonePage by remember { mutableStateOf(0) }
 
+    // Phase 4.9.3: Page 3(절대좌표 패드) 전용 엣지 존 할당. standardTouchpadPages에는
+    // 넣지 않는다(4.9.9 편집 UI 연동 전까지 편집기 대상에서 배제하기 위함). TOP은
+    // ControlButtonContainer와 겹치므로 Page 2와 동일하게 builtin_default에서만 비운다.
+    var page3Assignment by remember {
+        mutableStateOf(assignmentRepo.load(TouchpadIds.standardPage(2)).withTopClearedIfDefault())
+    }
+    LaunchedEffect(page3Assignment) {
+        assignmentRepo.save(TouchpadIds.standardPage(2), page3Assignment)
+    }
+
     // Phase 4.8.9: Page 2 멀티 커서 패드별 엣지 존 할당 (패드 인덱스 0~3, 항상 최대치 보유)
     // 패드 0·1은 그리드 어떤 개수든 항상 상단 행이라 제어 버튼과 겹치므로 TOP 기본값을 비운다.
     var page2PadAssignments by remember {
@@ -695,7 +705,16 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onPadLabelConfirm = onPadLabelConfirmed,
                         onPadLabelDismiss = { padLabelEditorTarget = null }
                     )
-                    2 -> Page3AbsolutePointing()
+                    2 -> Page3AbsolutePointing(
+                        edgeZoneAssignment = page3Assignment,
+                        onEdgeZoneAssignmentChange = { updated -> page3Assignment = updated },
+                        onRestorePrevious = onRestorePrevious,
+                        onSendShortcut = onSendShortcut,
+                        onSendMacro = onSendMacro,
+                        onMouseHoldToggle = onMouseHoldToggle,
+                        onCyclePage = onCyclePage,
+                        onJumpToPage = onJumpToPage
+                    )
                     3 -> Page3KeyboardPlaceholder()
                     4 -> Page4MinecraftPlaceholder()
                     5 -> Page5Settings(

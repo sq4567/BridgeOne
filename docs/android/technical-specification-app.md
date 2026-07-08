@@ -3343,6 +3343,22 @@ fun shouldTransmit(ratio: TouchRatio): Boolean {
 - 저장된 값이 없는 최초 진입 시: `targetMonitor = 0x01`(주 모니터, 서버의 `Screen.PrimaryScreen` 인덱스)로 폴백
 - 저장된 모니터 인덱스가 현재 `monitor_count`보다 크면(모니터 구성이 바뀐 경우) 주 모니터로 재폴백
 
+#### 2.10.6.5 엣지존/엣지스와이프 통합 (신규, Phase 4.9.3)
+
+> AbsolutePointingPad는 터치 위치가 곧 커서 위치이므로, 기존 상대좌표 터치패드(`TouchpadWrapper.kt`)의 엣지존 처리를 그대로 가져오면 예약 구간이 좌표 클릭 도달성을 침해한다(예: 예약 구간이 PC 시작 버튼 위치와 겹치면 클릭 불가). 이를 방지하기 위해 두 겹 처리를 적용한다.
+
+**지원 범위**: ZONE 모드만(LEGACY_POPUP 팝업 방식은 배제 — 대상 액션이 CLICK 토글 하나뿐이라 "여러 모드 중 선택" 팝업의 이점이 없음).
+
+**노출 액션 화이트리스트**(좌표 무관 이산 액션만 허용): `SendMacro`, `SendShortcut`, `CyclePage`, `JumpToPage`, `SetClickMode`, `ToggleMode(CLICK)`, `MouseHoldToggle`, `RestorePreviousMode`. 배제: `SetMoveMode`/`SetDpi`/`SetCustomDpi`/`SetScrollMode`/`SetScrollSpeed`/`SetCustomScrollSpeed`/`SwapScrollMode`/`ToggleMode(SCROLL·MOVE·CURSOR·DPI·SCROLL_SPEED·DYNAMICS)`/`ToggleMultiCursor`류/`CyclePreset`/`OpenSettings`/`SetDynamicsPreset`/`SetModePreset` 등 델타·스크롤·DPI·멀티커서·프리셋 계열 전부. 필터는 액션 타입 단위로 판정한다(`ToggleMode(CURSOR)`가 `ActionDomain.CLICK`으로 매핑되는 도메인 분류상의 함정을 피하기 위함).
+
+**존 단위 gate**: DOWN 지점이 화이트리스트를 통과한 존(Unassigned가 아닌 존)의 alongRatio 범위 안에 있을 때만 엣지 제스처 후보로 인식하고 좌표 전송을 억제한다. 그 외 모든 위치(미할당 구간, TOP 전체 — 항상 ControlButtonContainer와 겹침)는 DOWN 즉시 일반 절대 포인팅으로 처리해 도달성을 보존한다. 기본 config 기준 예약 구간은 LEFT 위쪽 절반(클릭모드 토글) 하나뿐이다.
+
+**엣지 띠 탭 = 좌표 클릭**: 엣지 후보 제스처라도 UP 시 armed(안쪽 스와이프로 트리거 임계값 도달) 상태가 아니고 탭 조건(이동 ≤5dp)을 만족하면, armed 판정 대신 DOWN 지점 좌표로 절대 클릭을 전송한다. 탭 임계값(~5dp)과 armed 임계값(28dp)이 겹치지 않아 상호배타적이므로, 예약 구간 위에서도 좌표 도달성 손실이 0이다. 안쪽으로 확실히 스와이프해야만(armed) 엣지 액션이 실행된다.
+
+**산봉우리(Bump) 시각 피드백**: 기존 상대좌표 터치패드(`TouchpadWrapper.kt`)와 동일하게, 엣지 후보 제스처 중 손가락이 안쪽으로 들어올수록 그라데이션 봉우리(`EdgeBumpOverlay`)가 커진다. 진입 엣지에 고정(다른 엣지에 가까워져도 점프하지 않음), 최대 피크 높이 36dp 상한. 손을 떼거나 후보가 취소되면 spring 애니메이션으로 수축(`isEdgeCandidate` false 전이를 감시하는 `LaunchedEffect`). 색상은 현재 클릭모드(좌클릭=핑크/우클릭=노랑)를 따른다.
+
+**참조 구현**: `ui/components/touchpad/AbsolutePadActionFilter.kt`(`isAbsolutePadAllowed`/`filterConfigForAbsolutePad` 순수 함수), `ui/components/AbsolutePointingPad.kt`(`PointingArea`의 `pointerInput` 내 파이프라인 + 산봉우리 상태/애니메이션).
+
 #### 2.10.7 패드 비율 설정 UX (신규)
 
 > stretch 매핑을 전제로 하므로 letterbox가 필수가 아니다. "힘 들이지 않고 자연스럽게" 비율을 정할 수 있도록 **Fill 기본 + 프리셋**을 우선한다.
@@ -3364,6 +3380,9 @@ fun shouldTransmit(ratio: TouchRatio): Boolean {
 | `protocol/NotificationFrame.kt` | 수정: `EVENT_MONITOR_COUNT (0x03)` 이벤트 타입 추가 |
 | `ui/components/touchpad/ControlButtonContainer.kt` | 수정: `showDrag` 슬롯 추가 (DragModeButton) |
 | `ui/layout/PadRatioConfig.kt` | 신규: 패드 비율 프리셋 설정 + 영속화 |
+| `ui/components/touchpad/AbsolutePadActionFilter.kt` | 신규(Phase 4.9.3): 엣지존 액션 화이트리스트 필터(`isAbsolutePadAllowed`/`filterConfigForAbsolutePad`) |
+| `ui/pages/standard/Page3AbsolutePointing.kt` | 수정(Phase 4.9.3): 엣지존 할당 + 액션 콜백 파라미터 관통 배선 |
+| `ui/pages/StandardModePage.kt` | 수정(Phase 4.9.3): `page3Assignment` 상태 및 저장 로직 추가 |
 
 ---
 

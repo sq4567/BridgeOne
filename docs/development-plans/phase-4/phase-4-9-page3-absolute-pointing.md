@@ -60,7 +60,7 @@ updated: "2026-07-06"
 |---|---|---|
 | 0 | Page 1 터치패드+액션 | 구현 완료 |
 | 1 | Page 2 멀티커서 | 구현 완료 |
-| **2** | **Page 3 절대좌표 (본 Phase)** | 4.9.1~4.9.2 완료, 엣지존 통합은 4.9.3 |
+| **2** | **Page 3 절대좌표 (본 Phase)** | 4.9.1~4.9.3 완료(기본 포인팅·서버 중계·엣지존 통합), 드래그/모니터/줌은 4.9.4~4.9.7 |
 | 3 | Page 4 키보드 | placeholder (이동) |
 | 4 | Page 5 마인크래프트 | placeholder (이동) |
 | 5 | Page 6 설정 | 구현 완료 (이동) |
@@ -208,29 +208,45 @@ Page 3 — AbsolutePointingPad
 
 **목표**: AbsolutePointingPad(Page 3)에 엣지존/엣지스와이프 시스템을 연결하되, 델타(상대좌표) 기반 액션을 모두 배제하고 좌표 무관 이산 액션(매크로/단축키/페이지 전환/클릭 모드/마우스 홀드 등)만 노출한다.
 
-**개발 기간**: 미정 (착수 시 산정)
+**개발 기간**: 완료 (2026-07-09)
+
+> **⚠️ 구현 확정 사항(2026-07-09, 유저 확정)**: 절대좌표 패드는 "터치 위치 = 커서 위치"라서, 엣지존 예약 구간이 좌표 클릭 도달성을 침해하면 안 된다. 이를 위해 당초 계획(변 단위 엣지 예약)보다 정밀한 두 겹 처리로 구현했다:
+> 1. **존 단위 gate**: DOWN 지점이 filtered config 상 화이트리스트 통과 존(Unassigned가 아닌 존)의 alongRatio 범위 안에 있을 때만 엣지 제스처 후보로 인식. 그 외 모든 위치(미할당 구간, TOP 전체)는 DOWN 즉시 일반 절대 포인팅 — 화면 4변 가장자리(예: PC 시작 버튼이 있는 왼쪽 아래 코너) 도달성 보존
+> 2. **엣지 띠 탭=좌표클릭**: 엣지 후보 제스처라도 UP 시 armed가 아니고 탭 조건(이동 ≤5dp)을 만족하면 DOWN 지점 좌표로 절대 클릭 전송. 안쪽 스와이프(armed)만 엣지 액션 실행. 탭 임계값과 armed 임계값(28dp)이 겹치지 않아 상호배타 → 예약 구간 위에서도 좌표 클릭 손실 0
+>
+> LEGACY_POPUP은 배제하고 ZONE 모드만 지원. 로테이션 존은 4.9.9(편집 UI) 전까지 후보 없어 `candidates.firstOrNull()` 정적 처리(회전 코루틴 미이식).
+>
+> **⚠️ 추가 반영(2026-07-09, 유저 요청)**: 최초 구현에는 기존 터치패드(`TouchpadWrapper.kt`)의 "산봉우리(Bump)" 시각 피드백이 누락되어 있었다. 엣지 안쪽으로 들어올수록 그라데이션 봉우리가 커지는 `EdgeBumpOverlay`를 동일 패턴으로 이식했다 — 진입 엣지 고정, 최대 피크 36dp 상한, release/취소 시 spring 수축 애니메이션(`LaunchedEffect(isEdgeCandidate)`), 색상은 현재 클릭모드(핑크/노랑) 연동.
 
 **세부 목표**:
-1. `EdgeGeometry.kt`(`detectEntryEdge`/`getInwardDistance`/`getAlongEdgePosition`) 순수 함수를 `PointingArea`의 `pointerInput`에 연결해 엣지 진입/이탈 판정
-2. `EdgeZoneOverlay`(ZONE 모드 시각화) 연결. `EdgeSwipeOverlay`(LEGACY_POPUP 모드 팝업) 연동 여부는 착수 시 재검토 — 대상 모드가 CLICK 하나뿐이라 "여러 모드 중 선택" 팝업의 이점이 거의 없음
-3. `EdgeZoneDetector.findActiveZone()` + `EdgeZoneActionHandler.applyZoneAction()` 재사용
-4. 노출 액션 화이트리스트: `SendMacro`, `SendShortcut`, `CyclePage`, `JumpToPage`, `SetClickMode`, `ToggleMode(CLICK)`, `MouseHoldToggle`, `RestorePreviousMode` 등 좌표 무관 이산 트리거만 허용. `SetMoveMode`/`SetDpi`/`SetCustomDpi`/`SetScrollMode`/`SetScrollSpeed`/`ToggleMultiCursor` 등 델타·스크롤·멀티커서 계열은 전부 배제
-5. `TouchpadEdgeZoneAssignmentRepository`를 통한 Page 3 전용 존 할당 영속화(단, **설정 화면**(`EdgeZoneEditorScreen`) 연동은 4.9.9에서 별도 처리 — Page 3는 아직 `standardTouchpadPages`에 없어 편집 대상이 아님)
+1. `EdgeGeometry.kt`(`detectEntryEdge`/`getInwardDistance`/`getAlongEdgePosition`) 순수 함수를 `PointingArea`의 `pointerInput`에 연결해 엣지 진입/이탈 판정 ✅
+2. `EdgeZoneOverlay`(ZONE 모드 시각화) 연결. `EdgeSwipeOverlay`(LEGACY_POPUP)는 배제(대상 모드가 CLICK 하나뿐) ✅
+3. `EdgeZoneDetector.findActiveZone()` + `EdgeZoneActionHandler.applyZoneAction()` 재사용 ✅
+4. 노출 액션 화이트리스트: `SendMacro`, `SendShortcut`, `CyclePage`, `JumpToPage`, `SetClickMode`, `ToggleMode(CLICK)`, `MouseHoldToggle`, `RestorePreviousMode` 등 좌표 무관 이산 트리거만 허용. `SetMoveMode`/`SetDpi`/`SetCustomDpi`/`SetScrollMode`/`SetScrollSpeed`/`ToggleMultiCursor` 등 델타·스크롤·멀티커서 계열은 전부 배제. **도메인 단위가 아닌 액션 타입 단위 필터**(`isAbsolutePadAllowed`)로 구현 — `EdgeZoneActionResolver.domainOf(ToggleMode(CURSOR))`가 `ActionDomain.CLICK`으로 매핑되는 함정 회피 ✅
+5. `TouchpadEdgeZoneAssignmentRepository`를 통한 Page 3 전용 존 할당 영속화(`page3Assignment`, 키 `standard_page_2`). **설정 화면 연동은 4.9.9에서 별도 처리** — `standardTouchpadPages`에는 여전히 2를 추가하지 않아 Page 3는 편집 대상이 아님 ✅
 
-**수정 파일** (예상):
-- `ui/components/AbsolutePointingPad.kt` — `PointingArea`의 `pointerInput`에 엣지 감지 로직 추가
-- `ui/pages/standard/Page3AbsolutePointing.kt` — 존 할당 상태 연결 (Page1/2 패턴 참고)
-- `ui/pages/StandardModePage.kt` — `standardTouchpadPages`에 인덱스 2 추가 여부 검토(4.9.9와 연계 필요)
+**실제 구현 파일**:
+- `ui/components/touchpad/AbsolutePadActionFilter.kt` (신규) — `isAbsolutePadAllowed()`/`filterConfigForAbsolutePad()` 순수 함수. **4.9.9에서 편집기 필터에 재사용 가능**
+- `ui/components/AbsolutePointingPad.kt` — `PointingArea`의 `pointerInput`에 존 단위 gate + ZONE 파이프라인(armed/disarm/취소) + 엣지 띠 탭=좌표클릭 로직 추가, `EdgeZoneOverlay` 배치(BoxWithConstraints), `EdgeBumpOverlay` 배치(진입 엣지 고정 + release/취소 spring 수축, `TouchpadWrapper.kt:290-362, 1615-1644` 패턴 이식), 시그니처에 `edgeZoneAssignment`/`onEdgeZoneAssignmentChange`/6개 액션 콜백 추가. **4.9.4(드래그)/4.9.6(모니터 셀렉터)/4.9.7(줌)이 이 시그니처를 추가 확장할 예정이므로 해당 Phase 착수 시 현재 파라미터 목록 확인 필요**
+- `ui/pages/standard/Page3AbsolutePointing.kt` — 8개 파라미터로 확장, `AbsolutePointingPad`에 그대로 전달
+- `ui/pages/StandardModePage.kt` — `page3Assignment` 상태 + 저장 `LaunchedEffect` 추가, `2 -> Page3AbsolutePointing(...)` 호출부에 배선. `standardTouchpadPages`는 `listOf(0, 1)` 그대로 유지(회귀 방지 핵심)
+- `ui/components/touchpad/AbsolutePadActionFilterTest.kt` (신규 테스트)
 
 **참조 문서**:
 - `docs/android/technical-specification-app.md` §2.10 (Page 3 전체 스펙)
-- 기존 `TouchpadWrapper.kt`의 엣지 감지/오버레이 연결부 (라인 1646~1731 부근)
+- 기존 `TouchpadWrapper.kt`의 엣지 감지/오버레이 연결부 (라인 768~975, 1260~1325 부근)
 
 **검증**:
-- [ ] 엣지존 CLICK 액션(좌/우클릭 전환) 동작
-- [ ] 매크로/단축키/페이지 전환/마우스 홀드 액션 동작
-- [ ] MOVE/DPI/DYNAMICS/SCROLL/SCROLL_SPEED/CURSOR 모드·액션 미노출 확인
-- [ ] Page 1/2 엣지존 동작에 회귀 없음
+- [x] `isAbsolutePadAllowed` 화이트리스트 8종 허용 + 대표 배제군 거부 단위테스트 통과(`ToggleMode(CURSOR)` 거부 회귀 테스트 포함)
+- [x] `filterConfigForAbsolutePad(EdgeZoneConfig.default())` — LEFT 위쪽 절반만 `ToggleMode(CLICK)` 유지, 나머지 전 존 Unassigned 확인. Rotation 부분 필터/전멸→Unassigned 케이스 단위테스트 통과
+- [x] 빌드 성공(`assembleDebug` 컴파일 에러 없음, 신규 경고 없음)
+- [x] 엣지존 CLICK 액션(좌/우클릭 전환) 동작 — 실기기 확인 완료
+- [x] 매크로/단축키/페이지 전환/마우스 홀드 액션 동작 — 실기기 확인 완료
+- [x] MOVE/DPI/DYNAMICS/SCROLL/SCROLL_SPEED/CURSOR 모드·액션 미노출 확인 — 실기기 확인 완료
+- [x] 엣지 띠(LEFT 위쪽 절반) 탭 → 좌표 클릭, 안쪽 스와이프 → 클릭모드 토글 상호배타 확인 — 실기기 확인 완료
+- [x] 왼쪽 아래 코너(BOTTOM, 미할당) 탭 → PC 시작 버튼 등 가장자리 요소 정상 클릭 — 실기기 확인 완료
+- [x] Page 1/2 엣지존 동작에 회귀 없음 — 실기기 확인 완료
+- [x] 엣지 스와이프 중 산봉우리(Bump) 시각 피드백 등장/수축 애니메이션 동작 — 실기기 확인 완료
 
 ---
 
@@ -254,6 +270,8 @@ Page 3 — AbsolutePointingPad
 - `ui/components/AbsolutePointingPad.kt` — press/release 시퀀스 로직
 
 > **⚠️ Phase 4.9.2 변경사항**: `AbsolutePointingPad.kt`에 private 헬퍼 `sendAbsolutePosition(ratio: TouchRatio)`가 이미 있으며, `buttons`를 항상 `0x00u`로 하드코딩해 `FrameBuilder.buildAbsolutePositionCommand()`를 호출한다. 본 Phase에서 드래그 모드 상태(bit0)를 반영하려면 `sendAbsolutePosition(ratio: TouchRatio, buttons: UByte)`처럼 시그니처를 확장하고, DOWN/MOVE 호출부(PointingArea `awaitEachGesture` 내부) 양쪽에 드래그 모드 ON 시의 bit0 값을 전달하도록 수정해야 한다. `targetMonitor`는 `AbsolutePointingConstants.DEFAULT_TARGET_MONITOR`를 그대로 사용(4.9.6 전까지).
+>
+> **⚠️ Phase 4.9.3 변경사항**: `PointingArea`의 `pointerInput` 안에 엣지존 파이프라인(존 단위 gate, armed/disarm, 엣지 띠 탭=좌표클릭)이 추가되어 클릭 버튼 프레임 전송 지점이 두 곳(엣지 후보 탭 / 일반 탭)으로 늘었다. 드래그 모드 buttons 배선 시 이 두 지점 모두 반영해야 한다. `AbsolutePointingPad`/`PointingArea` 시그니처에 `edgeZoneAssignment`/`onEdgeZoneAssignmentChange`/`onRestorePrevious`/`onSendShortcut`/`onSendMacro`/`onMouseHoldToggle`/`onCyclePage`/`onJumpToPage`가 이미 추가됐으므로, 드래그 모드 상태(트랜지언트, `heldMouseButtons`와 별개)는 이 파라미터들과 별도로 `AbsolutePointingPad` 내부 로컬 상태로 추가하면 된다. 엣지 액션의 `MouseHoldToggle`(영구 홀드)과 드래그 모드(제스처 스코프 트랜지언트)는 서로 다른 상태이므로 혼동 주의.
 
 **참조 문서**:
 - `docs/android/technical-specification-app.md` §2.10.5 (드래그 앤 드롭 모드 상세)
@@ -407,6 +425,8 @@ Page 3 — AbsolutePointingPad
 > **코드 조사 결과 요약**: 현재 `StandardModePage.kt`의 `standardTouchpadPages = listOf(0, 1)`에는 Page 3(인덱스 2)가 빠져 있어 엣지존 할당 대상 자체가 아니다. 액션/모드 필터 파라미터(`ZoneActionPicker.kt`의 `excludeDomains: Set<ActionDomain>`)는 이미 존재하지만 `EdgeZoneEditorScreen.kt`에 배선돼 있지 않아 현재는 12개 `ActionDomain` 전부가 항상 노출된다. 이 Phase는 신규 UI 컴포넌트를 만드는 게 아니라 **기존 필터 파라미터를 관통 배선**하는 작업이다.
 >
 > **캔버스 재사용 확인(수정 불필요)**: `EdgeZoneEditorPreviewCanvas.kt`/`EdgeZoneCanvasGeometry.kt`/`EdgeZoneCanvasGestures.kt`/`EdgeZoneCanvasModeButtons.kt`/`EdgeZoneCanvasModeBars.kt`/`EdgeZoneCanvasRatioPanel.kt`/`EdgeZoneCanvasModeOverlay.kt` 7개 파일은 존 분할/병합/이동/삭제/비율조정 등 "편집기 UI 조작"만 다루고 `EdgeSwipeMode`/`EdgeZoneAction`을 전혀 참조하지 않는다. Page 3 전용 수정 없이 그대로 재사용 가능.
+>
+> **⚠️ Phase 4.9.3 변경사항**: `ui/components/touchpad/AbsolutePadActionFilter.kt`(신규)에 런타임용 `isAbsolutePadAllowed(action: EdgeZoneAction): Boolean` 액션 타입 단위 화이트리스트가 이미 구현되어 있다(`ToggleMode(CURSOR)` false 처리 포함, 단위테스트 검증됨). 본 Phase 세부목표 3의 "CURSOR 예외 처리 필터"는 이 함수를 그대로 재사용하거나 최소 수정으로 활용할 것 — 새로 만들 필요 없음. 단, 런타임 필터(`filterConfigForAbsolutePad`)는 Unassigned 치환 방식이라 편집기의 "선택 옵션에서 아예 숨기기" 요구사항(`excludeActions`/`excludeDomains`)과는 용도가 다르므로 `isAbsolutePadAllowed` 판정 로직만 가져오고 배선은 별도로 한다.
 
 **세부 목표**:
 1. **Page 3를 엣지존 편집 대상에 포함**: `standardTouchpadPages`에 `2` 추가. `standardAssignments` 초기화/로드 로직은 이미 제너릭하게 동작해 자동 포함
@@ -414,6 +434,7 @@ Page 3 — AbsolutePointingPad
 3. **CURSOR 예외 처리**: `EdgeZoneActionResolver.kt`에서 `EdgeSwipeMode.CURSOR → ActionDomain.CLICK` 매핑이라 `ActionDomain.CLICK`을 통째로 제외하면 좌/우클릭까지 사라짐. CursorMode는 이미 완전 배제 결정이므로 도메인 단위가 아닌 세밀한 필터(`excludeActions: Set<EdgeZoneAction>` 신규 파라미터 등) 필요 — 구현 시점 결정
 4. **`zoneEditorDisabledEdges` 검토**: Page 3 전용 분기 필요 여부 확인
 5. **`JumpToPage` 저장값 마이그레이션**: `EdgeZoneJson.kt`가 정수 그대로 직렬화하므로, PAGE_COUNT 5→6 확장 + 인덱스 2 삽입 시 기존 `pageIndex >= 2`인 값은 의미가 어긋난다. 1회성 마이그레이션 로직(`pageIndex + 1` 이동) + 중복 실행 방지 버전 플래그(예: "page_index_migrated_v1")
+6. **로테이션 존 회전 코루틴 이식**(Phase 4.9.3에서 미이식): 4.9.3의 `PointingArea` 제스처 루프는 armed 시 로테이션 트리거를 `candidates.firstOrNull()`로 정적 처리한다(기본 config에 로테이션 존이 없어 영향 없었음). 본 Phase에서 편집 UI로 로테이션 존을 만들 수 있게 되면 `TouchpadWrapper.kt:901-913`(회전 코루틴: `rotationJob`/`rotationIndex`, `intervalMs` 간격 순환 + `CLOCK_TICK` 햅틱)을 `AbsolutePointingPad.kt`에도 이식해야 한다.
 
 **신규 파일**: 없음 (기존 파일 배선만)
 
