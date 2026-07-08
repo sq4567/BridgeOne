@@ -90,6 +90,10 @@ private val ColorButtonText = TouchpadColorButtonText
  * @param showCursorMode CursorModeButton 표시 여부 (기본값: false — Page 1 구성)
  * @param showDpi DpiControlButton 표시 여부
  * @param showScrollSensitivity ScrollSensitivityButton 표시 여부 (DPI와 슬롯 공유)
+ * @param showZoom ZoomButton 표시 여부 (AbsolutePointingPad 전용, Phase 4.9.1: Disabled 상태만).
+ *   기본값: false
+ * @param showDrag DragModeButton 표시 여부 (AbsolutePointingPad 전용, Phase 4.9.1: Disabled 상태만).
+ *   기본값: false
  */
 data class ControlButtonConfig(
     val showClickMode: Boolean = true,
@@ -97,10 +101,13 @@ data class ControlButtonConfig(
     val showScrollMode: Boolean = true,
     val showCursorMode: Boolean = false,
     val showDpi: Boolean = true,
-    val showScrollSensitivity: Boolean = true
+    val showScrollSensitivity: Boolean = true,
+    val showZoom: Boolean = false,
+    val showDrag: Boolean = false
 ) {
     val hasControlButtons: Boolean
-        get() = showClickMode || showMoveMode || showScrollMode || showCursorMode || showDpi || showScrollSensitivity
+        get() = showClickMode || showMoveMode || showScrollMode || showCursorMode ||
+            showDpi || showScrollSensitivity || showZoom || showDrag
 }
 
 // ============================================================
@@ -149,7 +156,7 @@ fun ControlButtonContainer(
         val hasRightSlot = config.showDpi || config.showScrollSensitivity
         val visibleSlotCount = listOf(
             config.showClickMode, config.showMoveMode, config.showScrollMode,
-            config.showCursorMode, hasRightSlot
+            config.showCursorMode, hasRightSlot, config.showZoom, config.showDrag
         ).count { it }
         val availableWidth = containerWidth - containerPadding * 2
         val buttonWidth = ((availableWidth - buttonSpacing * 4) / 5).coerceAtLeast(20.dp)
@@ -364,6 +371,38 @@ fun ControlButtonContainer(
                                 )
                             }
                         }
+                    }
+                }
+
+                // 6. ZoomButton 슬롯 (AbsolutePointingPad 전용, DPI 슬롯과 동일 위치 개념)
+                // Phase 4.9.1: 기능 미구현 — Disabled 상태로만 표시(4.9.6에서 활성화)
+                if (config.showZoom) {
+                    Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
+                        ControlButton(
+                            text = "줌",
+                            iconResId = R.drawable.ic_zoom,
+                            backgroundColor = ColorBlue,
+                            buttonWidth = buttonWidth,
+                            buttonHeight = buttonHeight,
+                            enabled = false,
+                            onClick = {}
+                        )
+                    }
+                }
+
+                // 7. DragModeButton 슬롯 (AbsolutePointingPad 전용, ScrollSensitivity 슬롯과 동일 위치 개념)
+                // Phase 4.9.1: 기능 미구현 — Disabled 상태로만 표시(4.9.3에서 활성화)
+                if (config.showDrag) {
+                    Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
+                        ControlButton(
+                            text = "드래그",
+                            iconResId = R.drawable.ic_drag_mode,
+                            backgroundColor = ColorBlue,
+                            buttonWidth = buttonWidth,
+                            buttonHeight = buttonHeight,
+                            enabled = false,
+                            onClick = {}
+                        )
                     }
                 }
             }

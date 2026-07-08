@@ -48,7 +48,7 @@ updated: "2026-07-06"
 - `UsbSerialManager.kt`: UART 프레임 전송 인프라 완료. `frameQueue` 원시 전송 경로 존재하나 public API 없음
 - `StandardModePage.kt`: 현재 5페이지 HorizontalPager 구조(`PAGE_COUNT = 5`), 논리 인덱스 2=`Page3KeyboardPlaceholder()`, 3=`Page4MinecraftPlaceholder()`, 4=`Page5Settings()`. **절대좌표 페이지 슬롯이 아직 없음.** 본 Phase에서 `PAGE_COUNT`를 6으로 확장하여 논리 인덱스 2에 절대좌표 페이지를 신규 삽입하고, 기존 키보드/마인크래프트/설정 placeholder를 인덱스 3/4/5로 이동한다
 - `BridgeOneApp.kt`: `bridgeMode`에 따라 `EssentialModePage()`/`StandardModePage()`를 완전히 분리해 라우팅함(276~278행 부근). `AbsolutePointingPad`는 `StandardModePage` 내부에만 배치되므로 Essential 모드에서 렌더링될 일이 없음 — 이 사실이 본 Phase가 서버 중계 경로 하나만 구현하면 되는 근거
-- `StandardModePageState.kt`: `heldMouseButtons`(Set)/`toggleMouseHold()` 마우스 홀드 인프라 완료 — 드래그 앤 드롭 모드(4.9.3)에서 buttons-bit 배선 재사용
+- `StandardModePageState.kt`: `heldMouseButtons`(Set)/`toggleMouseHold()` 마우스 홀드 인프라 완료 — 드래그 앤 드롭 모드(4.9.4)에서 buttons-bit 배선 재사용
 - `ClickDetector.kt`: `detectClick()`, `createMouseButtonFrame()` 구현 완료 — 재사용
 - `ControlButtonContainer.kt` / `ControlButtonConfig`: 기존 터치패드 페이지의 상단 오버레이 컴포넌트, 슬롯 추가로 재사용
 - HID Absolute Mouse Report Descriptor(Report ID 0x02): Native Macro 재생 전용으로 ESP32-S3 펌웨어에 문서화 완료(`esp32s3-code-implementation-guide.md` §3.3.2). 본 Phase(AbsolutePointingPad)와는 무관
@@ -60,12 +60,12 @@ updated: "2026-07-06"
 |---|---|---|
 | 0 | Page 1 터치패드+액션 | 구현 완료 |
 | 1 | Page 2 멀티커서 | 구현 완료 |
-| **2** | **Page 3 절대좌표 (본 Phase)** | 미구현 → 구현 |
+| **2** | **Page 3 절대좌표 (본 Phase)** | 4.9.1 완료 → 4.9.2(서버 중계 전송) 진행 예정, 엣지존 통합은 4.9.3 |
 | 3 | Page 4 키보드 | placeholder (이동) |
 | 4 | Page 5 마인크래프트 | placeholder (이동) |
 | 5 | Page 6 설정 | 구현 완료 (이동) |
 
-> **⚠️ 인덱스 시프트 부작용 — `JumpToPage` 마이그레이션 필요**: 인덱스 삽입(2/3/4 → 3/4/5)으로 깨지는 곳은 `EdgeZoneAction.JumpToPage(pageIndex)` 하나뿐이다. `EdgeZoneJson.kt`가 이 액션을 페이지 논리 인덱스 정수 그대로 직렬화(`"page": N`)해서 영속화하므로, 이미 "페이지 5(설정, 구 index=4)로 점프"를 저장해둔 사용자가 있다면 시프트 후 `pageIndex=4`가 새 배치의 마인크래프트(구 index=3이 이동한 자리)를 가리키게 되어 엉뚱한 페이지로 점프하게 된다. 저장된 `JumpToPage` 값 중 `pageIndex >= 2`인 것을 +1 이동하는 1회성 마이그레이션이 필요(4.9.8 참조). 안전 항목(별도 조치 불필요): 엣지존 할당 저장 키(`TouchpadIds.standardPage`), `StandardModePrefs.kt`의 전역 설정, `PageIndicator`/`EdgeZoneEditorScreen.pageCount`(모두 `PAGE_COUNT` 상수로 자동 대응)
+> **⚠️ 인덱스 시프트 부작용 — `JumpToPage` 마이그레이션 필요**: 인덱스 삽입(2/3/4 → 3/4/5)으로 깨지는 곳은 `EdgeZoneAction.JumpToPage(pageIndex)` 하나뿐이다. `EdgeZoneJson.kt`가 이 액션을 페이지 논리 인덱스 정수 그대로 직렬화(`"page": N`)해서 영속화하므로, 이미 "페이지 5(설정, 구 index=4)로 점프"를 저장해둔 사용자가 있다면 시프트 후 `pageIndex=4`가 새 배치의 마인크래프트(구 index=3이 이동한 자리)를 가리키게 되어 엉뚱한 페이지로 점프하게 된다. 저장된 `JumpToPage` 값 중 `pageIndex >= 2`인 것을 +1 이동하는 1회성 마이그레이션이 필요(4.9.9 참조). 안전 항목(별도 조치 불필요): 엣지존 할당 저장 키(`TouchpadIds.standardPage`), `StandardModePrefs.kt`의 전역 설정, `PageIndicator`/`EdgeZoneEditorScreen.pageCount`(모두 `PAGE_COUNT` 상수로 자동 대응)
 
 ### 아키텍처 요약
 
@@ -113,7 +113,7 @@ Page 3 — AbsolutePointingPad
 3. 터치 이벤트 처리:
    - ACTION_DOWN: 즉시 좌표 전송
    - ACTION_MOVE: 실시간 전송 (120Hz)
-   - ACTION_UP: 클릭 판정 후 전송 중단(드래그 모드 시 4.9.3 참조)
+   - ACTION_UP: 클릭 판정 후 전송 중단(드래그 모드 시 4.9.4 참조)
 4. 클릭 감지:
    - 터치 지속시간 ≤ 500ms AND 이동량 ≤ 5dp → 클릭 (`ClickDetector.detectClick` 재사용, 절대좌표 전용 임계값 별도 정의)
    - ClickModeButton 상태에 따라 좌/우 클릭
@@ -121,27 +121,28 @@ Page 3 — AbsolutePointingPad
 6. CoordinateIndicator: 터치 중일 때 십자선 + 점 표시, 터치 종료 후 300ms 페이드 아웃
 7. `ControlButtonContainer` 재사용, "쓸 수 있는 버튼만" 필터링:
    - `ControlButtonConfig(showClickMode = true, showMoveMode = false, showScrollMode = false, showCursorMode = false, showDpi = false, showScrollSensitivity = false, showZoom = true, showDrag = true)`
-   - **근거**: MoveMode(축 잠금)·DPI(델타 배율)는 델타 벡터 연산이라 절대좌표에서 성립하지 않음. ScrollMode는 드래그 앤 드롭 모드(4.9.3)로 대체. CursorMode(멀티커서)는 Page 2 전용 상태 결합으로 배제
+   - **근거**: MoveMode(축 잠금)·DPI(델타 배율)는 델타 벡터 연산이라 절대좌표에서 성립하지 않음. ScrollMode는 드래그 앤 드롭 모드(4.9.4)로 대체. CursorMode(멀티커서)는 Page 2 전용 상태 결합으로 배제
    - ClickModeButton: 좌↔우 토글 (기존 로직 재사용)
-   - `showZoom`/`showDrag` 필드를 `ControlButtonConfig`에 신규 추가. 이 Phase에서는 둘 다 Disabled 상태(4.9.2/4.9.3에서 활성화)
-8. 엣지존/엣지스와이프 시스템 통합, "좌표 무관 기능만" 필터링:
-   - `EdgeZoneOverlay`/`EdgeSwipeOverlay`/`EdgeZoneDetector`/`EdgeZoneActionHandler`를 `TouchpadWrapper.kt`의 통합 방식을 참고해 PointingArea에 동일하게 연결
-   - 엣지 스와이프 모드 필터링: `TouchpadWrapper.kt`의 `visibleModes` 구성 로직을 참고해 `MOVE`/`DPI`/`DYNAMICS`/`SCROLL`/`SCROLL_SPEED`/`CURSOR` 모드를 제외하고 `CLICK`만 노출
-   - 엣지존 액션 필터링: 좌표 무관 이산 트리거(`SendMacro`, `SendShortcut`, `CyclePage`, `JumpToPage`, `SetClickMode`, `MouseHoldToggle`, `RestorePreviousMode` 등)만 허용
-   - ⚠️ 엣지존 **설정 화면**(`EdgeZoneEditorScreen`) 연동은 4.9.8에서 별도 처리(현재 Page 3는 `standardTouchpadPages`에 없어 편집 대상 자체가 아님)
+   - `showZoom`/`showDrag` 필드를 `ControlButtonConfig`에 신규 추가. 이 Phase에서는 둘 다 Disabled 상태(zoom은 4.9.7, drag는 4.9.4에서 각각 활성화)
+8. ~~엣지존/엣지스와이프 시스템 통합~~ → **Phase 4.9.3으로 분리** (하단 참조)
 
-**신규 파일**:
-- `src/android/app/src/main/java/com/bridgeone/app/ui/components/AbsolutePointingPad.kt`
-- `src/android/app/src/main/java/com/bridgeone/app/ui/utils/AbsoluteCoordinateCalculator.kt` (+단위테스트)
-- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/standard/` 내 Page 3 전용 파일 (기존 `Page3KeyboardPlaceholder.kt` 등과 동일하게 독립 파일)
-- `src/android/app/src/main/java/com/bridgeone/app/ui/utils/AbsolutePointingConstants.kt` (신규 상수 중앙화, 기본값 주석 필수)
+> **⚠️ 구현 중 범위 조정(2026-07-06, 유저 확정)**: 세부 목표 8(엣지존/엣지스와이프 통합)은 `TouchpadWrapper.kt`의 제스처 상태머신(1700줄 이상, `TouchpadState`/`EdgeZoneConfig`에 강결합)을 복제해야 해서 4.9.1 범위에서 분리했다. 본 Phase는 PointingArea 핵심 포인팅·클릭·시각 피드백 + ControlButtonContainer 통합까지만 완료했고, 엣지존/엣지스와이프는 신규 하위 Phase **4.9.3**으로 넘겼다(서버 중계 전송(4.9.2)이 더 급한 핵심 경로라 먼저 두고, 엣지존은 그다음으로 배치 — 기존 4.9.3~4.9.8은 4.9.4~4.9.9로 한 칸씩 밀림).
 
-**수정 파일**:
-- `protocol/FrameBuilder.kt` — 4.9.2에서 프레임 빌더 추가(본 Phase는 좌표 계산까지만)
-- `ui/pages/StandardModePage.kt` — `PAGE_COUNT` 5→6 확장, 논리 인덱스 2 케이스로 `AbsolutePointingPad` 신규 삽입, 기존 인덱스 2/3/4를 3/4/5로 시프트
-- `ui/components/touchpad/ControlButtonContainer.kt` — `ControlButtonConfig`에 `showZoom: Boolean = false`, `showDrag: Boolean = false` 필드 추가, DPI/ScrollSensitivity 슬롯 위치에 ZoomButton/DragModeButton 렌더링 분기 추가(이 Phase는 Disabled 상태만)
-- `ui/components/TouchpadWrapper.kt` — `visibleModes` 필터링 로직 참고해 절대좌표 페이지 전용 모드 필터(CLICK만 허용) 신설 지점 확인
-- `ui/components/touchpad/EdgeZoneOverlay.kt` 등 — 절대좌표 페이지 연동 지점 확인, 델타 상태 변경 액션 배제
+**신규 파일** (실제 구현):
+- `src/android/app/src/main/java/com/bridgeone/app/ui/components/AbsolutePointingPad.kt` — `AbsolutePointingPad` + 내부 `PointingArea`/`CoordinateIndicator` private Composable. `ControlButtonContainer`는 Page 2와 동일한 풀 와이드 예외 규칙(`component-touchpad.md` §1.3)을 적용해 화면 폭 비율(360dp 미만 60%, 이상 64%)로 축소·중앙 정렬 — 최초 구현 시 이 규칙이 누락되어 버튼이 과도하게 넓었던 것을 실기기 확인 후 수정
+- `src/android/app/src/main/java/com/bridgeone/app/ui/utils/AbsoluteCoordinateCalculator.kt` (+ `AbsoluteCoordinateCalculatorTest.kt`)
+- `src/android/app/src/main/java/com/bridgeone/app/ui/utils/AbsolutePointingConstants.kt` (신규 상수 중앙화, 기본값 주석 포함)
+- `src/android/app/src/main/java/com/bridgeone/app/ui/pages/standard/Page3AbsolutePointing.kt` (독립 파일, 파라미터 없이 `AbsolutePointingPad()` 호출)
+- `res/drawable/ic_zoom.xml`, `res/drawable/ic_drag_mode.xml` (ZoomButton/DragModeButton 아이콘, Disabled 슬롯이지만 각각 4.9.7/4.9.4에서 그대로 재사용)
+
+**수정 파일** (실제 구현):
+- `ui/pages/StandardModePage.kt` — `PAGE_COUNT` 5→6, 논리 인덱스 2에 `Page3AbsolutePointing()` 삽입, 기존 키보드/마인크래프트/설정을 3/4/5로 시프트 (⚠️ 저장된 `JumpToPage(pageIndex>=2)` 값은 4.9.9 마이그레이션 전까지 엉뚱한 페이지를 가리킴 — 문서 상단 경고와 동일)
+- `ui/components/touchpad/ControlButtonContainer.kt` — `ControlButtonConfig`에 `showZoom`/`showDrag: Boolean = false` 필드 추가, `hasRightSlot`(DPI/ScrollSensitivity 공유 슬롯)과 별도로 ZoomButton/DragModeButton을 각각 독립 슬롯(6·7번째)으로 렌더링(둘 다 동시 노출 가능해야 하므로 슬롯 공유 안 함). 이 Phase에서는 `enabled = false`로 렌더링만(클릭 무반응)
+- `ui/components/touchpad/TouchpadColors.kt` — `TouchpadColorPink(#E91E63)` 추가 (AbsolutePointingPad 기본 테두리, 좌클릭 상태)
+
+**미착수 항목** (엣지존/엣지스와이프 — Phase 4.9.3으로 이동):
+- `ui/components/touchpad/EdgeZoneOverlay.kt`/`EdgeZoneDetector.kt`/`EdgeZoneActionHandler.kt`/`EdgeGeometry.kt` 재사용 연결
+- `TouchpadWrapper.kt`의 `visibleModes` 필터링 로직 참고한 CLICK 전용 모드 필터
 
 **참조 문서**:
 - `docs/android/component-design-guide-app.md` §4 (AbsolutePointingPad 컴포넌트 설계)
@@ -151,20 +152,21 @@ Page 3 — AbsolutePointingPad
 
 > **⚠️ Phase 4.1.7 변경사항**: Page 3 레이아웃은 `AppState.Active` 박스 내 `padding(top=40dp, bottom=40dp)` 적용 영역 안에서 렌더링됨. 유효 화면 높이 = 전체 높이 − 80dp 기준 사용.
 >
-> **⚠️ Phase 4.1.8 변경사항**: `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)`로 표시.
+> **⚠️ Phase 4.1.8 변경사항**: `android.widget.Toast` 사용 금지. 모든 알림은 `ToastController.show(message, ToastType, durationMs)`로 표시. (본 Phase는 토스트를 사용하지 않음 — 클릭/좌표 계산에 토스트 알림 대상 이벤트 없음)
 >
 > **⚠️ Phase 4.7.4-A / 4.7.2 변경사항**: 절대좌표 페이지는 `StandardModePage.kt` 인라인 함수가 아니라 독립 파일로 추가(`ui/pages/standard/`). `AbsolutePointingPad.kt`는 `ui/components/`에 둘 것. `AbsoluteCoordinateCalculator`는 순수 함수이므로 추출과 동시에 단위 테스트 작성(`EdgeGeometryTest` 선례). 신규 상수는 인라인 금지, `AbsolutePointingConstants.kt`에 기본값 주석과 함께 중앙화(4.7.1).
 
 **검증**:
-- [ ] PointingArea 자유 비율 렌더링 (Fill 기본, letterbox/pillarbox 없음)
-- [ ] 터치 위치 → 비율 변환 정확성 (단위테스트)
-- [ ] CoordinateIndicator 표시/페이드 아웃
-- [ ] 클릭 감지 (짧은 탭 → 클릭 이벤트)
-- [ ] ClickMode 좌↔우 전환 (ControlButtonContainer 재사용)
-- [ ] Move/Scroll/Cursor/DPI/ScrollSensitivity 버튼 미노출 확인
-- [ ] 동일 좌표 전송 스킵 동작
-- [ ] 테두리 색상 상태별 전환 (핑크/노란)
-- [ ] 엣지존/엣지스와이프 좌표 무관 기능만 동작 (매크로/단축키/페이지 전환/클릭/마우스 홀드), MOVE/DPI/DYNAMICS/SCROLL/SCROLL_SPEED/CURSOR 모드·액션 미노출 확인
+- [x] 터치 위치 → 비율 변환 정확성 (단위테스트, `AbsoluteCoordinateCalculatorTest` 10건 통과)
+- [x] 동일 좌표 전송 스킵 동작 (`AbsoluteCoordinateCalculator.shouldTransmit` 단위테스트 통과)
+- [x] 빌드 성공 (컴파일 에러 없음)
+- [x] PointingArea 자유 비율 렌더링 (Fill 기본, letterbox/pillarbox 없음) — 실기기 확인 완료
+- [x] CoordinateIndicator 표시/페이드 아웃 — 실기기 확인 완료
+- [x] 클릭 감지 (짧은 탭 → 클릭 이벤트) — 실기기 확인 완료
+- [x] ClickMode 좌↔우 전환 (ControlButtonContainer 재사용) — 실기기 확인 완료
+- [x] Move/Scroll/Cursor/DPI/ScrollSensitivity 버튼 미노출 확인 (config에서 전부 false) — 실기기 확인 완료
+- [x] 테두리 색상 상태별 전환 (핑크/노란) — 실기기 확인 완료
+- [x] ControlButtonContainer 폭이 터치패드 페이지와 동일(Page 1 컬럼 폭 비율 60%/64%) — 실기기 확인 완료
 
 ---
 
@@ -199,7 +201,39 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.3: 드래그 앤 드롭 모드
+## Phase 4.9.3: 엣지존/엣지스와이프 시스템 통합 (Page 3, CLICK 전용)
+
+> **신규 하위 Phase(2026-07-06, 유저 확정)**: 원래 4.9.1의 세부 목표 8이었으나, 구현 규모(TouchpadWrapper.kt의 1700줄 이상 제스처 상태머신 재사용/축약)를 고려해 별도 하위 Phase로 분리했다. 서버 중계 전송(4.9.2)이 더 급한 핵심 경로라 먼저 배치하고, 엣지존 통합을 그 다음인 4.9.3으로 뒀다.
+
+**목표**: AbsolutePointingPad(Page 3)에 엣지존/엣지스와이프 시스템을 연결하되, 델타(상대좌표) 기반 액션을 모두 배제하고 좌표 무관 이산 액션(매크로/단축키/페이지 전환/클릭 모드/마우스 홀드 등)만 노출한다.
+
+**개발 기간**: 미정 (착수 시 산정)
+
+**세부 목표**:
+1. `EdgeGeometry.kt`(`detectEntryEdge`/`getInwardDistance`/`getAlongEdgePosition`) 순수 함수를 `PointingArea`의 `pointerInput`에 연결해 엣지 진입/이탈 판정
+2. `EdgeZoneOverlay`(ZONE 모드 시각화) 연결. `EdgeSwipeOverlay`(LEGACY_POPUP 모드 팝업) 연동 여부는 착수 시 재검토 — 대상 모드가 CLICK 하나뿐이라 "여러 모드 중 선택" 팝업의 이점이 거의 없음
+3. `EdgeZoneDetector.findActiveZone()` + `EdgeZoneActionHandler.applyZoneAction()` 재사용
+4. 노출 액션 화이트리스트: `SendMacro`, `SendShortcut`, `CyclePage`, `JumpToPage`, `SetClickMode`, `ToggleMode(CLICK)`, `MouseHoldToggle`, `RestorePreviousMode` 등 좌표 무관 이산 트리거만 허용. `SetMoveMode`/`SetDpi`/`SetCustomDpi`/`SetScrollMode`/`SetScrollSpeed`/`ToggleMultiCursor` 등 델타·스크롤·멀티커서 계열은 전부 배제
+5. `TouchpadEdgeZoneAssignmentRepository`를 통한 Page 3 전용 존 할당 영속화(단, **설정 화면**(`EdgeZoneEditorScreen`) 연동은 4.9.9에서 별도 처리 — Page 3는 아직 `standardTouchpadPages`에 없어 편집 대상이 아님)
+
+**수정 파일** (예상):
+- `ui/components/AbsolutePointingPad.kt` — `PointingArea`의 `pointerInput`에 엣지 감지 로직 추가
+- `ui/pages/standard/Page3AbsolutePointing.kt` — 존 할당 상태 연결 (Page1/2 패턴 참고)
+- `ui/pages/StandardModePage.kt` — `standardTouchpadPages`에 인덱스 2 추가 여부 검토(4.9.9와 연계 필요)
+
+**참조 문서**:
+- `docs/android/technical-specification-app.md` §2.10 (Page 3 전체 스펙)
+- 기존 `TouchpadWrapper.kt`의 엣지 감지/오버레이 연결부 (라인 1646~1731 부근)
+
+**검증**:
+- [ ] 엣지존 CLICK 액션(좌/우클릭 전환) 동작
+- [ ] 매크로/단축키/페이지 전환/마우스 홀드 액션 동작
+- [ ] MOVE/DPI/DYNAMICS/SCROLL/SCROLL_SPEED/CURSOR 모드·액션 미노출 확인
+- [ ] Page 1/2 엣지존 동작에 회귀 없음
+
+---
+
+## Phase 4.9.4: 드래그 앤 드롭 모드
 
 **목표**: 제어버튼 토글로 "커서 이동만" vs "누른 채 이동(드래그 앤 드롭)"을 구분
 
@@ -231,7 +265,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.4: 패드 비율 UX
+## Phase 4.9.5: 패드 비율 UX
 
 **목표**: 자유 비율을 "힘 들이지 않고 자연스럽게" 설정할 수 있는 UX 구현
 
@@ -262,7 +296,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.5: 모니터 셀렉터 + 역방향 개수 수신 (Android 측)
+## Phase 4.9.6: 모니터 셀렉터 + 역방향 개수 수신 (Android 측)
 
 **목표**: 유저가 매핑 대상 모니터를 선택할 수 있는 셀렉터 UI + 역방향 모니터 개수 수신
 
@@ -295,7 +329,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.6: 줌 기능 구현
+## Phase 4.9.7: 줌 기능 구현
 
 **목표**: 드래그 기반 줌 진입 + 줌 상태 좌표 변환 + 줌 해제
 
@@ -330,7 +364,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.7: Vendor CDC 줌 상태 UART 전송 (Android 측)
+## Phase 4.9.8: Vendor CDC 줌 상태 UART 전송 (Android 측)
 
 **목표**: Android에서 줌 상태(zoom_level, 매핑 범위, targetMonitor)를 UART 커스텀 명령으로 ESP32에 전송하는 부분까지 구현. ESP32 중계 및 PC 오버레이는 범위 밖.
 
@@ -359,7 +393,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.8: 엣지존 설정 화면 연동 (필터링 적용)
+## Phase 4.9.9: 엣지존 설정 화면 연동 (필터링 적용)
 
 **목표**: 절대좌표 패드(Page 3)를 엣지존 편집 대상에 추가하고, 편집기에서 절대좌표에 무의미한 모드/액션이 노출되지 않도록 필터링. `JumpToPage` 인덱스 시프트 마이그레이션 포함.
 

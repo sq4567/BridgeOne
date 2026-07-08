@@ -85,6 +85,7 @@ import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.ui.pages.standard.Page1TouchpadActions
 import com.bridgeone.app.ui.pages.standard.Page2MultiCursorTouchpad
+import com.bridgeone.app.ui.pages.standard.Page3AbsolutePointing
 import com.bridgeone.app.ui.pages.standard.Page3KeyboardPlaceholder
 import com.bridgeone.app.ui.pages.standard.Page4MinecraftPlaceholder
 import com.bridgeone.app.ui.pages.standard.Page5Settings
@@ -102,16 +103,18 @@ import kotlin.math.abs
 /**
  * Standard 모드 메인 페이지 (완전 재작성)
  *
- * Phase 4.2.1: HorizontalPager 기반 4페이지 시스템
+ * Phase 4.9.1: HorizontalPager 기반 6페이지 시스템
  * - Page 0: 터치패드 + Actions (상대좌표)
- * - Page 1: 절대좌표 패드 (Phase 4.4에서 구현)
- * - Page 2: 키보드 (Phase 4.5에서 구현)
- * - Page 3: 마인크래프트 (Phase 4.6에서 구현)
- * - 하단 페이지 인디케이터 (닷 4개)
+ * - Page 1: 멀티 커서 터치패드
+ * - Page 2: 절대좌표 패드 (Phase 4.9에서 구현)
+ * - Page 3: 키보드 (Phase 4.5에서 구현)
+ * - Page 4: 마인크래프트 (Phase 4.6에서 구현)
+ * - Page 5: 설정
+ * - 하단 페이지 인디케이터 (닷 6개)
  */
 private const val TAG = "StandardModePage"
 
-private const val PAGE_COUNT = 5
+private const val PAGE_COUNT = 6
 // Int.MAX_VALUE / 2를 PAGE_COUNT의 배수로 내림 → 논리 페이지 0에서 시작, 양방향 무한 스크롤 가능
 private val PAGER_INITIAL_PAGE = (Int.MAX_VALUE / 2).let { mid -> mid - (mid % PAGE_COUNT) }
 
@@ -692,9 +695,10 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onPadLabelConfirm = onPadLabelConfirmed,
                         onPadLabelDismiss = { padLabelEditorTarget = null }
                     )
-                    2 -> Page3KeyboardPlaceholder()
-                    3 -> Page4MinecraftPlaceholder()
-                    4 -> Page5Settings(
+                    2 -> Page3AbsolutePointing()
+                    3 -> Page3KeyboardPlaceholder()
+                    4 -> Page4MinecraftPlaceholder()
+                    5 -> Page5Settings(
                         touchpadState = pageState.touchpadState,
                         onTouchpadStateChange = recordingOnChange,
                         inputMode = inputMode,

@@ -14,6 +14,7 @@ internal val TouchpadColorLightPurple = Color(0xFF818BFF) // 빠름/높음 (DPI 
 internal val TouchpadColorPurple = Color(0xFFB552F6)      // 멀티 커서
 internal val TouchpadColorOrange = Color(0xFFFF8A00)      // 직각 이동
 internal val TouchpadColorRed = Color(0xFFF32121)         // 무한 스크롤
+internal val TouchpadColorPink = Color(0xFFE91E63)        // AbsolutePointingPad 기본 테두리(좌클릭+포인팅)
 internal val TouchpadColorButtonText = Color(0xFF1E1E1E)  // 버튼 텍스트/아이콘 색상
 
 // ============================================================
