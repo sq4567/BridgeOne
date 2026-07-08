@@ -34,4 +34,7 @@ object AbsolutePointingConstants {
 
     /** PointingArea 테두리 굵기 (dp). 기본값: 2f */
     const val POINTING_AREA_BORDER_WIDTH_DP: Float = 2f
+
+    /** 모니터 셀렉터(4.9.6) 도입 전 기본 대상 모니터 (주 모니터). 기본값: 0x01 */
+    val DEFAULT_TARGET_MONITOR: UByte = 0x01u
 }

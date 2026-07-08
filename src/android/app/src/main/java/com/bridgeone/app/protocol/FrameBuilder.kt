@@ -1,5 +1,6 @@
 package com.bridgeone.app.protocol
 
+import com.bridgeone.app.ui.utils.TouchRatio
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -29,6 +30,17 @@ object FrameBuilder {
      * 시퀀스 번호 범위를 0~253(0x00~0xFD)으로 제한합니다.
      */
     private const val SEQ_MODULUS = 254
+
+    // ========== 절대좌표 서버 중계 프레임 상수 (Phase 4.9.2, 프로토콜 고정 식별자) ==========
+
+    /** 확장 프레임 헤더 (프로토콜 예약 바이트) */
+    private const val EXTENDED_FRAME_HEADER = 0xFF
+
+    /** 절대좌표 서버 중계 서브커맨드 (ABS_POS_TO_SERVER) */
+    private const val ABS_POS_TO_SERVER_SUBCOMMAND = 0x02
+
+    /** 비율(0.0~1.0)을 정수 좌표로 인코딩할 때의 최대값 */
+    private const val ABS_COORDINATE_MAX = 32767
 
     /**
      * 순번 카운터 (0~253 순환)
@@ -107,4 +119,41 @@ object FrameBuilder {
      * @return 현재 내부 카운터 값 (0~253)
      */
     fun getCurrentSequence(): Int = sequenceCounter.get()
+
+    /**
+     * 절대좌표 서버 중계 프레임을 생성합니다 (Phase 4.9.2).
+     *
+     * AbsolutePointingPad(Page 3, Standard 전용)에서 터치 비율을 서버로 중계할 때 사용하는
+     * 8바이트 고정 바이너리 프레임입니다. buildFrame()과 달리 시퀀스 번호를 쓰지 않는
+     * 확장 프레임(0xFF 헤더)이라 시퀀스 카운터를 소비하지 않습니다.
+     *
+     * 프레임 구조: [0xFF][0x02][absX_H][absX_L][absY_H][absY_L][buttons][targetMonitor]
+     * ESP32는 이 프레임을 파싱하지 않고 Vendor CDC로 그대로 중계하며, 서버가
+     * absX/absY(0~32767)를 대상 모니터 rect에 stretch 매핑해 SetCursorPos를 호출합니다.
+     *
+     * @param ratio PointingArea 내 터치 위치 비율 (0.0~1.0)
+     * @param buttons 버튼 상태 (드래그 모드 시 bit0 유지, Phase 4.9.4 참조)
+     * @param targetMonitor 대상 모니터 (0x00=전체 가상 데스크톱, 0x01~=특정 모니터, Phase 4.9.6 참조)
+     * @return 8바이트 프레임
+     *
+     * 참조: docs/android/technical-specification-app.md §2.10.2
+     */
+    fun buildAbsolutePositionCommand(
+        ratio: TouchRatio,
+        buttons: UByte,
+        targetMonitor: UByte
+    ): ByteArray {
+        val absX = (ratio.x * ABS_COORDINATE_MAX).toInt().coerceIn(0, ABS_COORDINATE_MAX)
+        val absY = (ratio.y * ABS_COORDINATE_MAX).toInt().coerceIn(0, ABS_COORDINATE_MAX)
+        return ByteArray(8).also { f ->
+            f[0] = EXTENDED_FRAME_HEADER.toByte()
+            f[1] = ABS_POS_TO_SERVER_SUBCOMMAND.toByte()
+            f[2] = ((absX shr 8) and 0xFF).toByte()
+            f[3] = (absX and 0xFF).toByte()
+            f[4] = ((absY shr 8) and 0xFF).toByte()
+            f[5] = (absY and 0xFF).toByte()
+            f[6] = buttons.toByte()
+            f[7] = targetMonitor.toByte()
+        }
+    }
 }

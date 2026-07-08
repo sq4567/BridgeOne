@@ -1,5 +1,6 @@
 package com.bridgeone.app.ui.components
 
+import android.util.Log
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -35,6 +36,8 @@ import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
 import com.bridgeone.app.ui.components.touchpad.TouchpadColorPink
 import com.bridgeone.app.ui.components.touchpad.TouchpadColorYellow
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
+import com.bridgeone.app.protocol.FrameBuilder
+import com.bridgeone.app.usb.UsbSerialManager
 import com.bridgeone.app.ui.utils.AbsoluteCoordinateCalculator
 import com.bridgeone.app.ui.utils.AbsolutePointingConstants
 import com.bridgeone.app.ui.utils.ClickDetector
@@ -48,9 +51,9 @@ import kotlinx.coroutines.launch
 // ============================================================
 //
 // 터치한 위치가 곧 PC 커서 위치가 되는 절대좌표 포인팅 페이지.
-// 본 Phase는 좌표 계산 + 클릭 감지 + 시각 피드백까지만 구현하며,
-// 서버 중계 프레임 전송(FrameBuilder.buildAbsolutePositionCommand)은 Phase 4.9.2에서 추가된다.
-// 엣지존/엣지스와이프 통합은 Phase 4.9.1b(후속)로 분리되었다.
+// Phase 4.9.2: 터치 비율을 FrameBuilder.buildAbsolutePositionCommand()로 인코딩해
+// UsbSerialManager.sendCommandBytes()로 서버 중계 전송한다(DOWN 즉시 전송 + MOVE 실시간 전송).
+// 엣지존/엣지스와이프 통합은 Phase 4.9.3(후속)으로 분리되었다.
 //
 // Reference: docs/development-plans/phase-4/phase-4-9-page3-absolute-pointing.md
 
@@ -100,6 +103,28 @@ fun AbsolutePointingPad(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * 절대좌표 서버 중계 프레임을 UART로 전송합니다 (Phase 4.9.2).
+ *
+ * FrameBuilder.buildAbsolutePositionCommand()로 8바이트 프레임을 만들고
+ * UsbSerialManager.sendCommandBytes()로 전송한다. 포트 미연결 시 IllegalStateException이
+ * 발생할 수 있으므로 터치 제스처 루프가 죽지 않도록 예외를 흡수한다.
+ * buttons는 항상 0x00(클릭은 별도 버튼 프레임으로 처리, 드래그 모드는 Phase 4.9.4),
+ * targetMonitor는 모니터 셀렉터(Phase 4.9.6) 도입 전까지 기본값 사용.
+ */
+private fun sendAbsolutePosition(ratio: TouchRatio) {
+    try {
+        val command = FrameBuilder.buildAbsolutePositionCommand(
+            ratio = ratio,
+            buttons = 0x00u,
+            targetMonitor = AbsolutePointingConstants.DEFAULT_TARGET_MONITOR
+        )
+        UsbSerialManager.sendCommandBytes(command)
+    } catch (e: IllegalStateException) {
+        Log.w("AbsolutePointingPad", "Failed to send absolute position: ${e.message}")
+    }
+}
+
 @Composable
 private fun PointingArea(
     clickMode: ClickMode,
@@ -143,6 +168,7 @@ private fun PointingArea(
                     var lastRatio: TouchRatio = AbsoluteCoordinateCalculator.calculateTouchRatio(
                         downPosition.x, downPosition.y, areaWidth, areaHeight
                     )
+                    sendAbsolutePosition(lastRatio)
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -174,7 +200,7 @@ private fun PointingArea(
                             )
                             if (AbsoluteCoordinateCalculator.shouldTransmit(ratio, lastRatio)) {
                                 lastRatio = ratio
-                                // Phase 4.9.2에서 buildAbsolutePositionCommand() 서버 중계 전송 추가 예정
+                                sendAbsolutePosition(ratio)
                             }
                             change.consume()
                         }

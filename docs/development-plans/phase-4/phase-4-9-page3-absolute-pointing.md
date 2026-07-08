@@ -60,7 +60,7 @@ updated: "2026-07-06"
 |---|---|---|
 | 0 | Page 1 터치패드+액션 | 구현 완료 |
 | 1 | Page 2 멀티커서 | 구현 완료 |
-| **2** | **Page 3 절대좌표 (본 Phase)** | 4.9.1 완료 → 4.9.2(서버 중계 전송) 진행 예정, 엣지존 통합은 4.9.3 |
+| **2** | **Page 3 절대좌표 (본 Phase)** | 4.9.1~4.9.2 완료, 엣지존 통합은 4.9.3 |
 | 3 | Page 4 키보드 | placeholder (이동) |
 | 4 | Page 5 마인크래프트 | placeholder (이동) |
 | 5 | Page 6 설정 | 구현 완료 (이동) |
@@ -195,8 +195,9 @@ Page 3 — AbsolutePointingPad
 - `docs/android/technical-specification-app.md` §2.10.2 (프레임 빌더 상세 코드)
 
 **검증**:
-- [ ] `buildAbsolutePositionCommand()` 바이트 레이아웃 단위테스트
-- [ ] 터치 이벤트마다 서버 중계 프레임이 전송되는지 단위테스트
+- [x] `buildAbsolutePositionCommand()` 바이트 레이아웃 단위테스트 (`FrameBuilderTest` 4건 통과: 헤더, 중간값, 경계값, buttons/targetMonitor 위치)
+- [x] 터치 이벤트마다 서버 중계 프레임이 전송되는지 배선 완료 (`AbsolutePointingPad.kt`: DOWN 즉시 전송 + MOVE `shouldTransmit` 통과 시 전송, 별도 단위테스트는 Compose 제스처 특성상 실기기/계측 테스트 영역으로 판단해 생략)
+- [x] 빌드 성공 (`assembleDebug` 컴파일 에러 없음, 신규 경고 없음)
 - 실기기 필요: 실제 커서 이동 정확도(펌웨어·서버 완성 후, 후속 통합 Phase)
 
 ---
@@ -251,6 +252,8 @@ Page 3 — AbsolutePointingPad
 **수정 파일**:
 - `ui/components/touchpad/ControlButtonContainer.kt` — `showDrag` 활성화, DragModeButton UI
 - `ui/components/AbsolutePointingPad.kt` — press/release 시퀀스 로직
+
+> **⚠️ Phase 4.9.2 변경사항**: `AbsolutePointingPad.kt`에 private 헬퍼 `sendAbsolutePosition(ratio: TouchRatio)`가 이미 있으며, `buttons`를 항상 `0x00u`로 하드코딩해 `FrameBuilder.buildAbsolutePositionCommand()`를 호출한다. 본 Phase에서 드래그 모드 상태(bit0)를 반영하려면 `sendAbsolutePosition(ratio: TouchRatio, buttons: UByte)`처럼 시그니처를 확장하고, DOWN/MOVE 호출부(PointingArea `awaitEachGesture` 내부) 양쪽에 드래그 모드 ON 시의 bit0 값을 전달하도록 수정해야 한다. `targetMonitor`는 `AbsolutePointingConstants.DEFAULT_TARGET_MONITOR`를 그대로 사용(4.9.6 전까지).
 
 **참조 문서**:
 - `docs/android/technical-specification-app.md` §2.10.5 (드래그 앤 드롭 모드 상세)
@@ -314,6 +317,8 @@ Page 3 — AbsolutePointingPad
 - `protocol/NotificationFrame.kt` — `EVENT_MONITOR_COUNT` 추가
 - `usb/UsbSerialManager.kt` — 역방향 파서 확장
 - `ui/components/AbsolutePointingPad.kt` — MonitorSelector UI + 선택값 영속화
+
+> **⚠️ Phase 4.9.2 변경사항**: `AbsolutePointingConstants.DEFAULT_TARGET_MONITOR`(0x01 고정)를 `AbsolutePointingPad.kt`의 private 헬퍼 `sendAbsolutePosition()`이 항상 사용 중이다. 본 Phase에서 셀렉터 선택값(영속화된 `targetMonitor`)을 이 헬퍼에 파라미터로 전달하도록 확장해야 한다(4.9.4의 `buttons` 파라미터 확장과 함께 시그니처가 `sendAbsolutePosition(ratio, buttons, targetMonitor)`로 정리될 가능성 높음). `DEFAULT_TARGET_MONITOR` 상수 자체는 폴백 값(저장값 없음/모니터 구성 변경 시)으로 계속 재사용.
 
 **참조 문서**:
 - `docs/android/technical-specification-app.md` §2.10.6 (모니터 셀렉터 설계, 기본값/영속화 규칙)

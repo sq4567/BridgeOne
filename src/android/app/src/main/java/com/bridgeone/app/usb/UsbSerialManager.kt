@@ -652,6 +652,28 @@ object UsbSerialManager {
         }
     }
 
+    /**
+     * 이미 직렬화된 원시 바이트를 UART로 전송합니다 (Phase 4.9.2).
+     *
+     * AbsolutePointingPad(Page 3)의 절대좌표 서버 중계 프레임(FrameBuilder.buildAbsolutePositionCommand())처럼
+     * BridgeFrame이 아닌 확장 프레임(0xFF 헤더)을 전송할 때 사용하는 진입점입니다.
+     * sendFrame()과 동일하게 프레임 큐(frameQueue)를 공유하며, 큐가 가득 차면 가장 오래된 항목을 제거합니다.
+     *
+     * @param bytes 전송할 원시 프레임 바이트 (크기는 UsbConstants.DELTA_FRAME_SIZE와 동일해야 함)
+     * @throws IllegalStateException 포트가 열려있지 않거나 바이트 크기가 유효하지 않은 경우
+     */
+    fun sendCommandBytes(bytes: ByteArray) {
+        check(usbSerialPort != null && isConnected) { "USB Serial port is not connected" }
+        check(bytes.size == UsbConstants.DELTA_FRAME_SIZE) {
+            "Invalid command size: ${bytes.size}, expected: ${UsbConstants.DELTA_FRAME_SIZE}"
+        }
+
+        if (!frameQueue.offer(bytes)) {
+            frameQueue.poll()
+            frameQueue.offer(bytes)
+        }
+    }
+
     // ========== 권한 처리 함수 (Phase 2.2.2.2에서 추가) ==========
 
     /**

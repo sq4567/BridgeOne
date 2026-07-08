@@ -1,5 +1,6 @@
 package com.bridgeone.app.protocol
 
+import com.bridgeone.app.ui.utils.TouchRatio
 import org.junit.Before
 import org.junit.Test
 import org.junit.Assert.*
@@ -320,6 +321,79 @@ class FrameBuilderTest {
 
         val nextFrame = FrameBuilder.buildFrame(0u, 0, 0, 0, 0u, 0u, 0u)
         assertEquals("after full cycle, wraps to 0", 0u.toUByte(), nextFrame.seq)
+    }
+
+    // ========== buildAbsolutePositionCommand() 테스트 (Phase 4.9.2) ==========
+
+    /**
+     * Test: 헤더 바이트가 0xFF/0x02로 고정되는지 확인
+     */
+    @Test
+    fun testBuildAbsolutePositionCommandHeaderBytes() {
+        val command = FrameBuilder.buildAbsolutePositionCommand(
+            ratio = TouchRatio(0f, 0f),
+            buttons = 0x00u,
+            targetMonitor = 0x01u
+        )
+        assertEquals("frame size", 8, command.size)
+        assertEquals("header", 0xFF.toByte(), command[0])
+        assertEquals("subcommand", 0x02.toByte(), command[1])
+    }
+
+    /**
+     * Test: 비율 0.5 → absX/absY=16383 → 상위/하위 바이트 분해 확인
+     */
+    @Test
+    fun testBuildAbsolutePositionCommandMidRatio() {
+        val command = FrameBuilder.buildAbsolutePositionCommand(
+            ratio = TouchRatio(0.5f, 0.5f),
+            buttons = 0x00u,
+            targetMonitor = 0x01u
+        )
+        val absX = ((command[2].toInt() and 0xFF) shl 8) or (command[3].toInt() and 0xFF)
+        val absY = ((command[4].toInt() and 0xFF) shl 8) or (command[5].toInt() and 0xFF)
+        assertEquals("absX at ratio 0.5", 16383, absX)
+        assertEquals("absY at ratio 0.5", 16383, absY)
+    }
+
+    /**
+     * Test: 비율 0.0 → 0, 비율 1.0 → 32767 경계값 확인
+     */
+    @Test
+    fun testBuildAbsolutePositionCommandBoundaryRatios() {
+        val zeroCommand = FrameBuilder.buildAbsolutePositionCommand(
+            ratio = TouchRatio(0f, 0f),
+            buttons = 0x00u,
+            targetMonitor = 0x01u
+        )
+        val zeroAbsX = ((zeroCommand[2].toInt() and 0xFF) shl 8) or (zeroCommand[3].toInt() and 0xFF)
+        val zeroAbsY = ((zeroCommand[4].toInt() and 0xFF) shl 8) or (zeroCommand[5].toInt() and 0xFF)
+        assertEquals("absX at ratio 0.0", 0, zeroAbsX)
+        assertEquals("absY at ratio 0.0", 0, zeroAbsY)
+
+        val oneCommand = FrameBuilder.buildAbsolutePositionCommand(
+            ratio = TouchRatio(1f, 1f),
+            buttons = 0x00u,
+            targetMonitor = 0x01u
+        )
+        val oneAbsX = ((oneCommand[2].toInt() and 0xFF) shl 8) or (oneCommand[3].toInt() and 0xFF)
+        val oneAbsY = ((oneCommand[4].toInt() and 0xFF) shl 8) or (oneCommand[5].toInt() and 0xFF)
+        assertEquals("absX at ratio 1.0", 32767, oneAbsX)
+        assertEquals("absY at ratio 1.0", 32767, oneAbsY)
+    }
+
+    /**
+     * Test: buttons/targetMonitor 바이트가 인자대로 위치 6/7에 실리는지 확인
+     */
+    @Test
+    fun testBuildAbsolutePositionCommandButtonsAndTargetMonitor() {
+        val command = FrameBuilder.buildAbsolutePositionCommand(
+            ratio = TouchRatio(0f, 0f),
+            buttons = 0x01u,
+            targetMonitor = 0x02u
+        )
+        assertEquals("buttons byte", 0x01.toByte(), command[6])
+        assertEquals("targetMonitor byte", 0x02.toByte(), command[7])
     }
 }
 
