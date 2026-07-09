@@ -229,7 +229,9 @@ data class TouchpadState(
     /** 현재 모드 프리셋 인덱스 (MODE_PRESETS 기준). 기본값: 0 = Standard */
     val modePresetIndex: Int = 0,
     /** 엣지 조작 방식 (Phase 4.6.1). 기본값: LEGACY_POPUP */
-    val edgeInteractionMode: EdgeInteractionMode = EdgeInteractionMode.LEGACY_POPUP
+    val edgeInteractionMode: EdgeInteractionMode = EdgeInteractionMode.LEGACY_POPUP,
+    /** 절대좌표 패드 드래그 앤 드롭 모드 (Phase 4.9.4). 제스처 스코프 트랜지언트. 기본값: false */
+    val dragMode: Boolean = false
 ) {
     /** 실제 적용되는 DPI 배율 (커스텀 우선, 없으면 레벨 배율) */
     val effectiveDpiMultiplier: Float

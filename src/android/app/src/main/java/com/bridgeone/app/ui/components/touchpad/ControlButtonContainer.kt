@@ -128,6 +128,8 @@ data class ControlButtonConfig(
  * @param onDpiLongPress DPI 버튼 롱프레스 콜백 (DpiAdjustPopup 표시용)
  * @param onCursorModeClick CursorModeButton 탭 콜백 (커서 수 선택 팝업 표시/멀티 해제용, Phase 4.8.2)
  * @param onCursorModeLongPress CursorModeButton 롱프레스 콜백 (그리드 분할 ↔ 직접 전환 버튼 레이아웃 모드 토글, Phase 4.8.4)
+ * @param baseColor 기본(디폴트) 상태를 나타내는 버튼 배경색. 일반 터치패드 페이지는 파랑(기본값),
+ *   절대좌표 패드(Page 3)는 고유 팔레트(핑크/노랑/초록)와의 통일감을 위해 빨강을 전달한다(Phase 4.9.4).
  * @param modifier 외부 Modifier
  */
 @Composable
@@ -139,6 +141,7 @@ fun ControlButtonContainer(
     onCursorModeClick: (() -> Unit)? = null,
     onCursorModeLongPress: (() -> Unit)? = null,
     config: ControlButtonConfig = ControlButtonConfig(),
+    baseColor: Color = ColorBlue,
     modifier: Modifier = Modifier
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
@@ -207,7 +210,7 @@ fun ControlButtonContainer(
                                 iconResId = if (touchpadState.clickMode == ClickMode.LEFT_CLICK)
                                     R.drawable.ic_rclick else R.drawable.ic_l_click,
                                 backgroundColor = if (touchpadState.clickMode == ClickMode.LEFT_CLICK)
-                                    ColorYellow else ColorBlue,
+                                    ColorYellow else baseColor,
                                 buttonWidth = buttonWidth,
                                 buttonHeight = buttonHeight,
                                 onClick = {
@@ -381,7 +384,7 @@ fun ControlButtonContainer(
                         ControlButton(
                             text = "줌",
                             iconResId = R.drawable.ic_zoom,
-                            backgroundColor = ColorBlue,
+                            backgroundColor = baseColor,
                             buttonWidth = buttonWidth,
                             buttonHeight = buttonHeight,
                             enabled = false,
@@ -391,17 +394,18 @@ fun ControlButtonContainer(
                 }
 
                 // 7. DragModeButton 슬롯 (AbsolutePointingPad 전용, ScrollSensitivity 슬롯과 동일 위치 개념)
-                // Phase 4.9.1: 기능 미구현 — Disabled 상태로만 표시(4.9.3에서 활성화)
+                // Phase 4.9.4: 드래그 앤 드롭 모드 토글 활성화
                 if (config.showDrag) {
                     Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
                         ControlButton(
-                            text = "드래그",
-                            iconResId = R.drawable.ic_drag_mode,
-                            backgroundColor = ColorBlue,
+                            text = if (touchpadState.dragMode) "이동\n모드" else "드래그\n모드",
+                            iconResId = if (touchpadState.dragMode) R.drawable.ic_move_mode else R.drawable.ic_drag_mode,
+                            backgroundColor = if (touchpadState.dragMode) baseColor else ColorGreen,
                             buttonWidth = buttonWidth,
                             buttonHeight = buttonHeight,
-                            enabled = false,
-                            onClick = {}
+                            onClick = {
+                                onStateChange(touchpadState.copy(dragMode = !touchpadState.dragMode))
+                            }
                         )
                     }
                 }

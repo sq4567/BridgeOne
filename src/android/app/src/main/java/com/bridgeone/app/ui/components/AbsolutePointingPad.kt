@@ -54,7 +54,9 @@ import com.bridgeone.app.ui.components.touchpad.MacroStep
 import com.bridgeone.app.ui.components.touchpad.MouseButton
 import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
 import com.bridgeone.app.ui.components.touchpad.PageNav
+import com.bridgeone.app.ui.components.touchpad.TouchpadColorGreen
 import com.bridgeone.app.ui.components.touchpad.TouchpadColorPink
+import com.bridgeone.app.ui.components.touchpad.TouchpadColorRed
 import com.bridgeone.app.ui.components.touchpad.TouchpadColorYellow
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.components.touchpad.detectEntryEdge
@@ -102,7 +104,7 @@ private fun EdgeZoneTrigger.resolveAction(): EdgeZoneAction? = when (this) {
 
 /**
  * 절대좌표 패드 페이지. PointingArea(자유 비율, stretch 매핑) + 상단 ControlButtonContainer
- * (ClickModeButton만 활성, ZoomButton/DragModeButton은 Disabled 슬롯)로 구성된다.
+ * (ClickModeButton/DragModeButton 활성, ZoomButton은 Disabled 슬롯)로 구성된다.
  *
  * @param edgeZoneAssignment Page 3 전용 엣지존 할당(Phase 4.9.3). 화이트리스트 필터를 거쳐 사용.
  * @param onEdgeZoneAssignmentChange 존 할당 변경 콜백(편집 UI는 4.9.9, 현재는 시그니처만 배선).
@@ -216,7 +218,11 @@ fun AbsolutePointingPad(
             }
             val effectiveBumpInward = if (isBumpShrinking.value) bumpShrinkAnimatable.value else lastBumpInwardPx.value
             if (effectiveBumpEdge != null && effectiveBumpInward > 0f) {
-                val bumpColor = if (localState.clickMode == ClickMode.LEFT_CLICK) TouchpadColorPink else TouchpadColorYellow
+                val bumpColor = when {
+                    localState.dragMode -> TouchpadColorGreen
+                    localState.clickMode == ClickMode.LEFT_CLICK -> TouchpadColorPink
+                    else -> TouchpadColorYellow
+                }
                 EdgeBumpOverlay(
                     entryEdge = effectiveBumpEdge,
                     fingerAlongEdgePx = lastBumpAlongPx.value,
@@ -262,6 +268,7 @@ fun AbsolutePointingPad(
                 showZoom = true,
                 showDrag = true
             ),
+            baseColor = TouchpadColorRed,
             modifier = Modifier
                 .fillMaxWidth(controlButtonWidthFraction)
                 .align(Alignment.TopCenter)
@@ -275,14 +282,15 @@ fun AbsolutePointingPad(
  * FrameBuilder.buildAbsolutePositionCommand()로 8바이트 프레임을 만들고
  * UsbSerialManager.sendCommandBytes()로 전송한다. 포트 미연결 시 IllegalStateException이
  * 발생할 수 있으므로 터치 제스처 루프가 죽지 않도록 예외를 흡수한다.
- * buttons는 항상 0x00(클릭은 별도 버튼 프레임으로 처리, 드래그 모드는 Phase 4.9.4),
+ * buttons 기본값은 0x00(클릭은 별도 버튼 프레임으로 처리) — 드래그 앤 드롭 모드(Phase 4.9.4)에서는
+ * 호출측이 bit0(0x01)을 press 상태 동안 명시적으로 전달한다.
  * targetMonitor는 모니터 셀렉터(Phase 4.9.6) 도입 전까지 기본값 사용.
  */
-private fun sendAbsolutePosition(ratio: TouchRatio) {
+private fun sendAbsolutePosition(ratio: TouchRatio, buttons: UByte = 0x00u) {
     try {
         val command = FrameBuilder.buildAbsolutePositionCommand(
             ratio = ratio,
-            buttons = 0x00u,
+            buttons = buttons,
             targetMonitor = AbsolutePointingConstants.DEFAULT_TARGET_MONITOR
         )
         UsbSerialManager.sendCommandBytes(command)
@@ -329,7 +337,11 @@ private fun PointingArea(
         label = "coordinateIndicatorAlpha"
     )
 
-    val borderColor = if (clickMode == ClickMode.LEFT_CLICK) TouchpadColorPink else TouchpadColorYellow
+    val borderColor = when {
+        localState.dragMode -> TouchpadColorGreen
+        clickMode == ClickMode.LEFT_CLICK -> TouchpadColorPink
+        else -> TouchpadColorYellow
+    }
 
     Box(
         modifier = modifier
@@ -340,7 +352,7 @@ private fun PointingArea(
                 color = borderColor,
                 shape = RoundedCornerShape(AbsolutePointingConstants.POINTING_AREA_CORNER_RADIUS_DP.dp)
             )
-            .pointerInput(clickMode, filteredConfig) {
+            .pointerInput(clickMode, filteredConfig, localState.dragMode) {
                 // 엣지 스와이프 상수 (Phase 4.9.3, TouchpadWrapper.kt와 동일 값)
                 val edgeHitWidthPx = density.run { EdgeSwipeConstants.EDGE_HIT_WIDTH_DP.dp.toPx() }
                 val triggerDistancePx = density.run { EdgeSwipeConstants.TRIGGER_DISTANCE_DP.dp.toPx() }
@@ -356,6 +368,9 @@ private fun PointingArea(
                     var lastRatio: TouchRatio = AbsoluteCoordinateCalculator.calculateTouchRatio(
                         downPosition.x, downPosition.y, areaWidth, areaHeight
                     )
+                    // 드래그 앤 드롭 모드(Phase 4.9.4): 이번 제스처에서 실제 press를 시작했는지.
+                    // 제스처 스코프 트랜지언트 — heldMouseButtons(영구 홀드)와 무관.
+                    var dragPressed = false
 
                     // ── 존 단위 gate: 화이트리스트 통과 존이 있는 위치에서 시작했을 때만 엣지 후보 ──
                     val detectedEdge = detectEntryEdge(downPosition, areaWidth, areaHeight, edgeHitWidthPx, filteredConfig.cornerPriority)
@@ -384,7 +399,8 @@ private fun PointingArea(
                         entryEdge.value = null
                         touchActive = true
                         indicatorPosition = downPosition
-                        sendAbsolutePosition(lastRatio)
+                        if (localState.dragMode) dragPressed = true
+                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u)
                     }
 
                     while (true) {
@@ -399,7 +415,11 @@ private fun PointingArea(
                             val isTapGesture = pressDuration <= AbsolutePointingConstants.CLICK_MAX_DURATION_MS &&
                                 movementDp <= AbsolutePointingConstants.CLICK_MAX_MOVEMENT_DP
 
-                            if (isZoneArmed.value) {
+                            if (dragPressed) {
+                                // ── 드래그 앤 드롭 모드: release 프레임 1회 전송(drop) — 클릭 판정과 상호배타 ──
+                                sendAbsolutePosition(lastRatio, 0x00u)
+                                dragPressed = false
+                            } else if (isZoneArmed.value) {
                                 // ── armed 상태에서 손 뗌 → 엣지 액션 실행 ──
                                 val edge = entryEdge.value
                                 val activeZone = if (edge != null) {
@@ -483,7 +503,8 @@ private fun PointingArea(
                                         touchActive = true
                                         indicatorPosition = pos
                                         lastRatio = AbsoluteCoordinateCalculator.calculateTouchRatio(pos.x, pos.y, areaWidth, areaHeight)
-                                        sendAbsolutePosition(lastRatio)
+                                        if (localState.dragMode) dragPressed = true
+                                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u)
                                     }
                                     perpMoved >= triggerDistancePx && inwardDistancePx.value < bumpAppearThresholdPx -> {
                                         // 산봉우리 등장 전에 엣지 방향으로 충분히 이동 → 일반 포인팅으로 전환
@@ -492,7 +513,8 @@ private fun PointingArea(
                                         touchActive = true
                                         indicatorPosition = pos
                                         lastRatio = AbsoluteCoordinateCalculator.calculateTouchRatio(pos.x, pos.y, areaWidth, areaHeight)
-                                        sendAbsolutePosition(lastRatio)
+                                        if (localState.dragMode) dragPressed = true
+                                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u)
                                     }
                                 }
                             } else {
@@ -500,7 +522,7 @@ private fun PointingArea(
                                 val ratio = AbsoluteCoordinateCalculator.calculateTouchRatio(pos.x, pos.y, areaWidth, areaHeight)
                                 if (AbsoluteCoordinateCalculator.shouldTransmit(ratio, lastRatio)) {
                                     lastRatio = ratio
-                                    sendAbsolutePosition(ratio)
+                                    sendAbsolutePosition(ratio, if (dragPressed) 0x01u else 0x00u)
                                 }
                             }
                             change.consume()

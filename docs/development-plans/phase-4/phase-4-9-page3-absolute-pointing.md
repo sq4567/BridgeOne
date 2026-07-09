@@ -60,7 +60,7 @@ updated: "2026-07-06"
 |---|---|---|
 | 0 | Page 1 터치패드+액션 | 구현 완료 |
 | 1 | Page 2 멀티커서 | 구현 완료 |
-| **2** | **Page 3 절대좌표 (본 Phase)** | 4.9.1~4.9.3 완료(기본 포인팅·서버 중계·엣지존 통합), 드래그/모니터/줌은 4.9.4~4.9.7 |
+| **2** | **Page 3 절대좌표 (본 Phase)** | 4.9.1~4.9.4 완료(기본 포인팅·서버 중계·엣지존 통합·드래그 앤 드롭), 패드 비율/모니터/줌은 4.9.5~4.9.7 |
 | 3 | Page 4 키보드 | placeholder (이동) |
 | 4 | Page 5 마인크래프트 | placeholder (이동) |
 | 5 | Page 6 설정 | 구현 완료 (이동) |
@@ -254,8 +254,6 @@ Page 3 — AbsolutePointingPad
 
 **목표**: 제어버튼 토글로 "커서 이동만" vs "누른 채 이동(드래그 앤 드롭)"을 구분
 
-**개발 기간**: 0.5일
-
 **세부 목표**:
 1. `DragModeButton` 활성화 (`showDrag = true`, ScrollSensitivity 슬롯 자리)
 2. 동작 규칙:
@@ -273,16 +271,36 @@ Page 3 — AbsolutePointingPad
 >
 > **⚠️ Phase 4.9.3 변경사항**: `PointingArea`의 `pointerInput` 안에 엣지존 파이프라인(존 단위 gate, armed/disarm, 엣지 띠 탭=좌표클릭)이 추가되어 클릭 버튼 프레임 전송 지점이 두 곳(엣지 후보 탭 / 일반 탭)으로 늘었다. 드래그 모드 buttons 배선 시 이 두 지점 모두 반영해야 한다. `AbsolutePointingPad`/`PointingArea` 시그니처에 `edgeZoneAssignment`/`onEdgeZoneAssignmentChange`/`onRestorePrevious`/`onSendShortcut`/`onSendMacro`/`onMouseHoldToggle`/`onCyclePage`/`onJumpToPage`가 이미 추가됐으므로, 드래그 모드 상태(트랜지언트, `heldMouseButtons`와 별개)는 이 파라미터들과 별도로 `AbsolutePointingPad` 내부 로컬 상태로 추가하면 된다. 엣지 액션의 `MouseHoldToggle`(영구 홀드)과 드래그 모드(제스처 스코프 트랜지언트)는 서로 다른 상태이므로 혼동 주의.
 
+**개발 기간**: 완료 (2026-07-09)
+
+> **⚠️ 구현 확정 사항(2026-07-09, 유저 확정)**: 엣지존(4.9.3) 상호작용 — 드래그 ON이어도 엣지존 gate는 그대로 유지한다. DOWN이 엣지 존(화이트리스트 통과 존)이면 기존 엣지 파이프라인(전송 억제)이 우선하고, DOWN이 일반 영역일 때만 드래그 press를 시작한다. 엣지 후보가 도중 취소(`inwardMoved < 0f`/`perpMoved` 조건)되어 일반 포인팅으로 전환되면 그 전환 시점부터 press(`dragPressed = true`)를 시작한다. 엣지 띠 탭(UP 시 armed 아니고 탭 조건)은 드래그 상태와 무관하게 기존 좌표클릭 경로 그대로(드래그 press는 "일반 영역 DOWN"에서만 발생하므로 상호 충돌 없음).
+>
+> `sendAbsolutePosition(ratio)`는 이 Phase에서 `sendAbsolutePosition(ratio, buttons: UByte = 0x00u)`로 확장됐다(`AbsolutePointingPad.kt`). 4.9.6(모니터 셀렉터)에서 `targetMonitor` 파라미터가 추가될 때 이 시그니처를 다시 확장하게 된다.
+>
+> `TouchpadState`(`TouchpadMode.kt`)에 `dragMode: Boolean = false` 필드 신규 추가(제스처 스코프 트랜지언트, `heldMouseButtons`의 영구 홀드와 별개). 테두리/EdgeBumpOverlay 색상 우선순위는 `dragMode(초록) > clickMode(핑크/노랑)`로 확정 — 4.9.7(줌, 주황) 구현 시 이 우선순위 체인에 줌을 추가로 끼워 넣어야 한다.
+
+**실제 구현 파일**:
+- `ui/components/touchpad/TouchpadMode.kt` — `TouchpadState.dragMode: Boolean = false` 필드 추가
+- `ui/components/touchpad/ControlButtonContainer.kt` — DragModeButton 슬롯(7번째) 활성화: `enabled` 제거, `backgroundColor`를 `dragMode ? ColorGreen : ColorBlue`로, `onClick`에서 `onStateChange(touchpadState.copy(dragMode = !touchpadState.dragMode))`
+- `ui/components/AbsolutePointingPad.kt` — `sendAbsolutePosition(ratio, buttons)` 시그니처 확장, `PointingArea`의 `pointerInput` 키에 `localState.dragMode` 추가, 제스처 로컬 `dragPressed` 상태로 DOWN(일반 영역)/MOVE(엣지 취소 전환 포함)/UP 세 지점에서 buttons bit0 press/유지/release 시퀀스 배선, UP 분기에서 `dragPressed` 우선 처리로 클릭 판정과 상호배타, 테두리/EdgeBumpOverlay 색상에 `dragMode` 우선순위 추가
+
+> **⚠️ 실기기 확인 후 UI 조정(2026-07-09)**: 초기 구현의 라벨 "드래그"(1줄)가 다른 활성 버튼(전부 2줄 라벨)과 달리 텍스트-아이콘 간격이 벌어져 보이는 문제 발견 → OFF일 때 "이동\n모드", ON일 때 "드래그\n모드"로 2줄 토글 텍스트로 변경. 아이콘도 기존 `ic_drag_mode.xml`(드래그 핸들 점 4개, 재정렬 아이콘에 더 가까움)이 드래그 의미를 직관적으로 전달하지 못해 4방향 화살표 교차 아이콘(Material "open_with" 스타일, 24dp 벡터)으로 교체(파일명은 유지, 내용만 변경). 기본(OFF, "이동 모드") 배경색도 일반 터치패드 제어 버튼의 기본색(파랑)을 그대로 물려받은 것이었으나, 절대좌표 패드 고유 팔레트(핑크/노랑/초록)와 통일감을 위해 빨강(`TouchpadColorRed`, 기존 무한 스크롤 색상 재사용)으로 변경. 이후 DragModeButton뿐 아니라 절대좌표 패드의 모든 제어 버튼(ClickModeButton의 "좌클릭 모드" 기본 상태, ZoomButton)도 동일하게 빨강이어야 한다는 요청에 따라, `ControlButtonContainer`에 `baseColor: Color = ColorBlue` 파라미터를 신규 추가(일반 터치패드 페이지는 기본값 파랑 유지, 회귀 없음) — ClickModeButton의 `else` 분기/ZoomButton/DragModeButton의 `ColorBlue`/`ColorRed` 리터럴을 모두 `baseColor`로 교체하고, `AbsolutePointingPad.kt`의 `ControlButtonContainer` 호출부에서 `baseColor = TouchpadColorRed` 전달.
+>
+> **⚠️ 텍스트/색상 로직 정정(2026-07-09)**: 최초 구현이 DragModeButton에 "현재 상태"를 표시(OFF일 때 "이동 모드")하도록 되어 있었으나, `ClickModeButton`은 "지금 누르면 전환될 목적지 모드"를 라벨/색으로 미리보기하는 것이 이 앱의 제어 버튼 컨벤션(예: LEFT_CLICK 상태일 때 버튼은 "우클릭 모드"를 노랑으로 표시)이다. DragModeButton도 동일 컨벤션에 맞춰 정정: OFF(이동 모드, 테두리 빨강)일 때 버튼은 목적지인 "드래그\n모드"를 초록으로, ON(드래그 모드, 테두리 초록)일 때 버튼은 목적지인 "이동\n모드"를 `baseColor`(빨강)로 표시하도록 텍스트·색상 분기를 서로 뒤집었다.
+>
+> **⚠️ 아이콘 분화(2026-07-09)**: 아이콘도 텍스트/색상과 동일한 목적지 조건으로 분기하도록 `ic_move_mode.xml`(단순 커서/포인터 화살표, 신규) 추가 — OFF(목적지 "드래그 모드")일 때는 기존 4방향 화살표 `ic_drag_mode.xml`, ON(목적지 "이동 모드")일 때는 `ic_move_mode.xml`을 표시.
+
 **참조 문서**:
 - `docs/android/technical-specification-app.md` §2.10.5 (드래그 앤 드롭 모드 상세)
 - `docs/windows/technical-specification-server.md` §3.6.9.4 (서버 측 buttons diff 처리, 후속 구현 참고용)
 
 **검증**:
-- [ ] DragModeButton 탭 → 테두리 초록색 전환
-- [ ] 드래그 모드 OFF에서 buttons 항상 0 (단위테스트)
-- [ ] 드래그 모드 ON에서 제스처별 buttons 시퀀스(down=1, move=1, up=0) 단위테스트
-- [ ] 드래그 모드와 클릭 판정 상호 배타 확인
-- 실기기 필요: 실제 drop 동작(펌웨어·서버 완성 후)
+- [x] DragModeButton 탭 → 테두리 초록색 전환
+- [x] 드래그 모드 OFF에서 buttons 항상 0 (기존 `sendAbsolutePosition` 기본값 유지로 회귀 없음)
+- [x] 드래그 모드 ON에서 제스처별 buttons 시퀀스(down=1, move=1, up=0) 코드 배선 완료
+- [x] 드래그 모드와 클릭 판정 상호 배타 확인 (UP 분기에서 `dragPressed` 최우선 처리)
+- [x] 빌드 성공(`assembleDebug` 컴파일 에러 없음, 신규 경고 없음)
+- [x] 실기기: 실제 drag&drop 동작, 테두리 전환, 엣지존 회귀 없음 확인 완료
 
 ---
 
@@ -375,6 +393,8 @@ Page 3 — AbsolutePointingPad
 - `ui/components/AbsolutePointingPad.kt`
 - `ui/utils/AbsoluteCoordinateCalculator.kt` (줌 매핑 범위 계산 추가)
 
+> **⚠️ Phase 4.9.4 변경사항**: `ControlButtonContainer`에 `baseColor: Color = ColorBlue` 파라미터가 추가됐고, `AbsolutePointingPad.kt`는 `baseColor = TouchpadColorRed`를 전달한다(절대좌표 패드 고유 팔레트 통일). `ZoomButton` 슬롯은 이미 `backgroundColor = baseColor`로 배선되어 있으니(Disabled 스텁 상태) 활성화 시 그대로 재사용하면 된다. 또한 이 앱의 제어 버튼은 "지금 누르면 전환될 목적지 모드"를 라벨/색으로 미리보기하는 컨벤션(`ClickModeButton`/`DragModeButton` 선례)을 따른다 — ZoomButton도 OFF(1x) 상태에서는 진입 목적지를 암시하는 라벨/색(예: 주황 계열 배지 예고)을, ON(줌 활성) 상태에서는 해제(복귀) 목적지를 `baseColor`(빨강)로 보여주는 방향으로 설계할 것. 테두리는 버튼과 반대로 "현재 상태"를 표시(클릭모드 보더와 동일 원칙)하므로 혼동 주의.
+
 **참조 문서**:
 - `docs/android/component-design-guide-app.md` §4.5 (줌 기능, Region Zoom)
 
@@ -454,6 +474,51 @@ Page 3 — AbsolutePointingPad
 
 ---
 
+## Phase 4.9.10: 다중 모드 그라디언트 테두리
+
+> **신규 하위 Phase(2026-07-09, 유저 확정)**: 절대좌표 패드는 여러 제어 상태(클릭모드/드래그모드/줌)가 동시에 활성화될 수 있는데, 지금은 우선순위 하나(`dragMode > clickMode`, 4.9.4/4.9.7에서 각각 확정)로 단색 테두리만 표시한다. 일반 터치패드(`TouchpadColors.kt`의 `touchpadBorderColors(state: TouchpadState): Pair<Color, Color>`)처럼 여러 모드가 겹칠 때 테두리를 그라디언트로 보여주는 편이 상태 조합을 더 정확히 전달한다. 단, 이 작업은 그라디언트에 들어갈 색상 후보(핑크/노랑/초록/주황)가 전부 구현되어야 의미가 있으므로, 줌(4.9.7)까지 끝난 뒤 마지막 하위 Phase로 진행한다. 번호를 4.9.8 자리에 끼워 넣지 않고 맨 뒤(4.9.10)에 붙인 이유는 문서 전체에 "4.9.9"(엣지존 설정 화면 연동)를 참조하는 곳이 다수라 중간 삽입 시 재배치 리스크가 크기 때문 — 실행 순서상으로는 선행 조건(줌 완료)만 지키면 되고 번호 순서 자체는 무관하다.
+
+**목표**: 클릭모드/드래그모드/줌이 동시에 활성화됐을 때 PointingArea 테두리를 단색이 아닌 그라디언트로 표시해 상태 조합을 시각적으로 구분
+
+**선행 조건**: Phase 4.9.7(줌) 완료 — 그라디언트에 들어갈 마지막 색상(주황)이 이 시점에 확정됨
+
+**세부 목표**:
+1. 기존 우선순위 단색 로직(`AbsolutePointingPad.kt`의 `borderColor`/`bumpColor` when 체인, 4.9.4/4.9.7에서 누적)을 다중 색상 그라디언트로 교체
+2. `TouchpadColors.kt`의 `touchpadBorderColors(state: TouchpadState): Pair<Color, Color>` 패턴 재사용/확장 검토 — 절대좌표 패드는 클릭(2색)×드래그(2색)×줌(1색, on/off) 조합이라 기존 2색 페어보다 많은 동시 활성 색이 나올 수 있어 그라디언트 stop 개수/순서 규칙 별도 정의 필요
+3. 활성 상태 우선순위 → 그라디언트 색상 순서 매핑 규칙 확정(예: 클릭모드 색이 기본 stop, 드래그 ON/줌 ON이 추가되면 보조 stop으로 삽입)
+4. `EdgeBumpOverlay`의 `borderColors: Pair<Color, Color>` 파라미터도 동일 그라디언트 규칙과 일관되게 갱신
+5. 애니메이션: 모드 전환 시 그라디언트가 즉시 전환될지 짧게 크로스페이드할지 결정(터치패드 기존 전환 애니메이션 유무 확인 후 맞춤)
+
+**참조 문서**:
+- `docs/android/component-design-guide-app.md` §4.3 (테두리 색상 규칙, 현재는 단일 색상표만 정의됨 — 그라디언트 조합표 보강 필요)
+- `ui/components/touchpad/TouchpadColors.kt`의 `touchpadBorderColors()` (일반 터치패드 다중 모드 그라디언트 선례)
+
+**검증**:
+- [ ] 클릭모드만 활성(드래그/줌 OFF) — 기존과 동일하게 단색(핑크/노랑)
+- [ ] 드래그모드 ON + 클릭모드 조합 — 그라디언트 표시
+- [ ] 줌 ON + 클릭모드/드래그모드 조합 — 그라디언트 표시
+- [ ] 세 상태 모두 ON — 그라디언트에 3색 모두 반영
+- [ ] EdgeBumpOverlay 색상도 동일 그라디언트 규칙으로 갱신되어 시각적 불일치 없음
+- [ ] Page 1/2 일반 터치패드 그라디언트 로직에 회귀 없음
+
+---
+
+## Phase 4.9.11: 리팩토링
+
+> **신규 하위 Phase(2026-07-09, 유저 확정)**: Page 3(절대좌표 패드) 관련 코드 전체를 마지막에 한 번 정리한다. 4.9.1~4.9.10에 걸쳐 `AbsolutePointingPad.kt`/`ControlButtonContainer.kt` 등에 기능이 순차적으로 누적되면서 생겼을 중복·비대해진 파일·임시방편 구조를 이 시점에 재검토한다.
+>
+> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.10)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
+
+**목표**: Page 3 구현 완료 시점의 코드를 검토해 중복 제거·함수 분리·상수 정리 등 리팩토링 수행
+
+**세부 목표**: 착수 시점에 코드를 읽고 구체화
+
+**참조 문서**: 없음 (착수 시점에 코드 기반으로 판단)
+
+**검증**: 착수 시점에 리팩토링 항목이 정해진 후 구체화. 공통 기준은 `assembleDebug` 빌드 성공 + 기존 단위테스트 통과 + 기능 회귀 없음
+
+---
+
 ## 펌웨어·서버 파트 (후속 통합 Phase, 본 문서 범위 밖)
 
 Phase 4가 "Android 완성" 단계라는 원래 취지에 맞춰, 아래 항목은 ESP32/Windows 서버 작업이 진행되는 후속 통합 Phase로 이동한다. 설계는 이미 완료됨(참조 문서 표시).
@@ -491,7 +556,7 @@ Page 3 — AbsolutePointingPad
 │   └── DragModeButton (ScrollSensitivity 슬롯 자리, 드래그 앤 드롭)
 ├── MonitorSelector (모니터 2개 이상 시)
 └── 시각 피드백
-    ├── 테두리 색상 (핑크/노란/초록/주황)
+    ├── 테두리 색상 (핑크/노란/초록/주황, 다중 모드 동시 활성 시 그라디언트)
     ├── 줌 레벨 텍스트 (앱 내)
     └── 줌 영역 박스 (PC 화면 — Android는 UART 전송까지만, ESP32 중계/Windows 렌더링은 후속 통합 Phase)
 ```
