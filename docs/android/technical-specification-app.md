@@ -3359,15 +3359,17 @@ fun shouldTransmit(ratio: TouchRatio): Boolean {
 
 **참조 구현**: `ui/components/touchpad/AbsolutePadActionFilter.kt`(`isAbsolutePadAllowed`/`filterConfigForAbsolutePad` 순수 함수), `ui/components/AbsolutePointingPad.kt`(`PointingArea`의 `pointerInput` 내 파이프라인 + 산봉우리 상태/애니메이션).
 
-#### 2.10.7 패드 비율 설정 UX (신규)
+#### 2.10.7 패드 비율 설정 UX (재설계, 2026-07-09 사용자 확정)
 
-> stretch 매핑을 전제로 하므로 letterbox가 필수가 아니다. "힘 들이지 않고 자연스럽게" 비율을 정할 수 있도록 **Fill 기본 + 프리셋**을 우선한다.
+> **설계 변경**: 최초 설계는 "Fill 기본 + 원탭 프리셋 토글(Fill/16:9/21:9/4:3)"이었다. 이후 "대상 모니터 종횡비로 자동 고정" 방향으로 재설계했으나, 이 역시 유저 의도와 어긋났다 — 절대좌표 패드는 **PC 모니터 비율과 무관하게 자유롭게 배치**할 수 있어야 한다. 예: 손의 상하 이동은 잘 되지만 좌우 이동이 어려운 유저가 패드를 상하로 길게 배치해, 손을 좌우로 조금만 움직여도 화면 양 끝에 닿게 하는 접근성 시나리오. 모니터 종횡비로 강제 고정하면 이런 의도된 왜곡 배치가 불가능해진다. 실제로 지켜야 할 원칙은 하나뿐이다: **한 번 정한 패드↔모니터 비율 관계를 중간에 빠르게 바꾸는 실시간 토글 기능은 불필요**하다는 것(위치 감각 유지).
+>
+> `AbsoluteCoordinateCalculator.calculateTouchRatio()`는 패드 자체의 rendered bounds만 기준으로 0~1 변환하고(모니터 모양과 무관), stretch 매핑은 서버가 수행한다(§2.4.6.1.3). 따라서 **패드가 어떤 종횡비로 렌더링되든 좌표 변환 코드는 변경할 필요가 없다** — 패드 모양을 결정하는 것은 배치 문제이지 좌표 변환 문제가 아니다.
 
-- **기본값(Fill)**: 별도 설정 없이 PointingArea가 페이지 가용 영역을 꽉 채움(설정 0회)
-- **프리셋 로우**: Fill / 16:9 / 21:9 / 4:3 중 원탭 선택
-- **Match Monitor**: 대상 모니터의 실제 종횡비에 맞춤. 1차 구현은 스텁(모니터 종횡비 미수신 시 16:9 폴백) — 모니터 종횡비까지 역방향으로 받으려면 2.10.6의 1바이트 채널로는 부족해 후속 확장 필요
-- **드래그 리사이즈**: 파워유저용 고급 옵션(설정에서 별도로 켬), 1차 구현 범위 밖
-- 저장: `PadRatioConfig`(신규, 유저 선택 프리셋 영속화)
+- **패드 모양/비율은 이 컴포넌트가 아니라 Phase 4.15 페이지 커스터마이징이 소유**: 4.15의 그리드 배치(`colStart`/`rowStart`/`colSpan`/`rowSpan`, §2.11)로 유저가 패드 셀 크기를 정하면 그 비율이 곧 패드 비율이 된다. 자유 비율(접근성 목적의 왜곡 배치)과 모니터 종횡비 일치(일반적인 사용성) 둘 다 이 방식으로 표현 가능 — 유저가 셀 크기를 모니터 비율에 맞게 조정하면 일치, 상하로 늘리면 자유 비율
+- **Page 3 화면 안에는 실시간 비율 토글/프리셋 UX를 두지 않는다** — ClickModeButton처럼 언제든 탭 한 번으로 바뀌는 라이브 컨트롤은 "정해둔 비율 관계를 유지"하는 목적과 상충하므로 배제. 비율 변경은 4.15의 페이지 편집 화면에서만 이루어진다
+- **4.15 완성 전까지**: 패드는 현행 그대로 **Fill**(페이지 가용 영역 전체, 자유 비율, letterbox 없음) 유지. 별도 프리셋/자동 고정 기능을 이 Phase에서 만들지 않는다
+- **드래그 리사이즈**: Page 3 자체에는 두지 않음 — 크기 조정은 4.15의 그리드 편집 화면이 전담
+- 모니터 종횡비 자동 일치 같은 편의 기능이 실제로 필요해지면, 그때 서버 통지 채널을 다시 설계해 4.15의 "모니터 일치" 옵션에 연결한다(현재는 미도입)
 
 #### 2.10.8 신규/수정 파일 목록
 
@@ -3379,7 +3381,6 @@ fun shouldTransmit(ratio: TouchRatio): Boolean {
 | `usb/UsbSerialManager.kt` | 수정: `sendCommandBytes(ByteArray)` public API 신규(기존 `frameQueue`는 private), `EVENT_MONITOR_COUNT` 역방향 파싱 |
 | `protocol/NotificationFrame.kt` | 수정: `EVENT_MONITOR_COUNT (0x03)` 이벤트 타입 추가 |
 | `ui/components/touchpad/ControlButtonContainer.kt` | 수정: `showDrag` 슬롯 추가 (DragModeButton) |
-| `ui/layout/PadRatioConfig.kt` | 신규: 패드 비율 프리셋 설정 + 영속화 |
 | `ui/components/touchpad/AbsolutePadActionFilter.kt` | 신규(Phase 4.9.3): 엣지존 액션 화이트리스트 필터(`isAbsolutePadAllowed`/`filterConfigForAbsolutePad`) |
 | `ui/pages/standard/Page3AbsolutePointing.kt` | 수정(Phase 4.9.3): 엣지존 할당 + 액션 콜백 파라미터 관통 배선 |
 | `ui/pages/StandardModePage.kt` | 수정(Phase 4.9.3): `page3Assignment` 상태 및 저장 로직 추가 |
@@ -3427,6 +3428,8 @@ data class PlacedComponent(
 - `KeyboardKeyCfg(keyLabel, keyCode, stickyHold)`
 - `MacroButtonCfg(steps, stepDelayMs, label)`
 - `KeyboardLayoutCfg(...)`, `EdgeZoneStripCfg(...)`, `None`
+
+> **⚠️ Phase 4.9 변경사항(2026-07-09, 유저 확정)**: 절대좌표 패드(Page 3, `AbsolutePointingPad`)의 배치·비율은 본 §2.11 그리드 모델이 소유한다(§2.10.7 참조 — "이 지점을 누르면 저기쯤 커서가 간다"는 위치 감각 유지를 위해 패드 자체에는 실시간 비율 토글을 두지 않고, 4.15 그리드 배치로 한 번 정한 뒤 유지). `PlacedComponentConfig`에 `AbsolutePad(edgeZoneAssignment: TouchpadEdgeZoneAssignment, defaultTargetMonitor: Int)` variant를 추가해 Page 3의 엣지존 할당(`page3Assignment`, Phase 4.9.3)과 모니터 선택 기본값(Phase 4.9.5)을 흡수한다. 패드 모양은 `colStart/rowStart/colSpan/rowSpan`만으로 표현되므로 별도 ratio 필드는 불필요 — 유저가 셀을 상하로 길게 잡으면 자유 비율(접근성 목적의 의도된 왜곡), 모니터 화면비에 맞게 잡으면 종횡비 일치가 자연스럽게 나온다. `AbsoluteCoordinateCalculator`는 패드 자체 bounds 기준으로만 변환하므로 이 흡수 작업에 좌표 변환 코드 변경은 필요 없다.
 
 **설정 페이지 예외**: Page5(설정) 화면은 `kind = SETTINGS_NATIVE`로 표시하고 그리드 데이터화 대상에서 제외한다. 편집 진입점 자체이므로 그리드 컴포넌트로 강제하지 않는다.
 
@@ -3483,11 +3486,14 @@ fun GridContainer(
 ```kotlin
 enum class ComponentType {
     TOUCHPAD, KEYBOARD_LAYOUT, SHORTCUT_BUTTON, KEYBOARD_KEY,
-    MACRO_BUTTON, EDGE_ZONE_STRIP, SPECIAL_KEY_GRID
+    MACRO_BUTTON, EDGE_ZONE_STRIP, SPECIAL_KEY_GRID,
+    ABSOLUTE_POINTING_PAD  // Phase 4.9 변경사항 — 절대좌표 패드(Page 3) 컴포넌트화
 }
 ```
 
 각 `ComponentType`은 `CatalogEntry(displayName, icon, defaultColSpan, defaultRowSpan, minColSpan, minRowSpan, defaultConfig)`를 가진다.
+
+> **⚠️ Phase 4.9 변경사항**: `ComponentRegistry`에 `ABSOLUTE_POINTING_PAD` 카탈로그 항목 추가, `ComponentRenderer`가 셀 크기(`colSpan`×`rowSpan`)로 `AbsolutePointingPad`를 디스패치. 좌표 변환은 셀의 실제 rendered bounds 기준이라 `AbsolutePointingPad.kt`/`AbsoluteCoordinateCalculator.kt` 코드 변경 없이 그대로 동작한다. 기본 템플릿(Page 3)은 패드가 페이지 전체를 채우는 단일 컴포넌트로 시작하되, 유저가 리사이즈해 상하로 긴 패드 등 커스텀 비율을 구성할 수 있다.
 
 **콜백 번들**: 신규 `ui/layout/ComponentCallbacks.kt`
 
@@ -3546,8 +3552,11 @@ data class ComponentCallbacks(
 | KEYBOARD_LAYOUT | 없음 | 설정 버튼 비활성화 |
 | EDGE_ZONE_STRIP | 방향·액션 다이얼로그 | 방향, 할당 액션 |
 | SPECIAL_KEY_GRID | 표시키 선택 다이얼로그 | 특수키 목록 |
+| ABSOLUTE_POINTING_PAD | AbsolutePadConfigSheet | 엣지존 설정 진입, 기본 대상 모니터 |
 
 - 카탈로그 배치 직후: `SHORTCUT_BUTTON` / `KEYBOARD_KEY` / `MACRO_BUTTON`은 `ComponentConfigEditor` 자동 오픈(초기 설정 유도). 기타 타입은 자동 진입 없음.
+
+> **⚠️ Phase 4.9 변경사항**: `ABSOLUTE_POINTING_PAD` config 편집(엣지존 진입, 기본 대상 모니터)을 위한 `AbsolutePadConfigSheet` 추가. "모니터 종횡비 일치" 편의는 유저가 셀 크기를 모니터 비율에 맞게 직접 조정하는 것으로 충족되므로 이 시트에서 별도 자동 일치 기능은 두지 않는다(자동 일치 채널이 실제로 필요해지면 그때 별도 재도입, §2.10.7 참조).
 
 **편집 모드 제스처 격리**: 편집 모드에서는 `HorizontalPager userScrollEnabled = false`(현 `isScrollActive` 차단 선례) + 컴포넌트 자체 제스처 비활성으로 편집 드래그만 허용.
 

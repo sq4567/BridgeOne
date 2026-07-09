@@ -116,7 +116,7 @@ Wrapper 구성 요소:
 현재 배치 구성:
 - **Page 1 터치패드**: `CursorModeButton` 비표시, 나머지 버튼(`ClickModeButton`, `MoveModeButton`, `ScrollModeButton`, `DPIControlButton`, `ScrollSensitivityButton`) 모두 표시
 - **Page 2 터치패드**: 모든 버튼 표시 (`CursorModeButton` 포함) — 멀티 커서 기능이 활성화된 풀 와이드 터치패드. 컨테이너 폭은 위 풀 와이드 예외 규칙 적용
-- **Page 3 AbsolutePointingPad**: `ClickModeButton`만 표시, `ZoomButton`/`DragModeButton`은 각각 Phase 4.9.7/4.9.4까지 Disabled 슬롯. 컨테이너 폭은 위 풀 와이드 예외 규칙 적용(Page 2와 동일)
+- **Page 3 AbsolutePointingPad**: `ClickModeButton`만 표시, `ZoomButton`/`DragModeButton`은 각각 Phase 4.9.6/4.9.4까지 Disabled 슬롯. 컨테이너 폭은 위 풀 와이드 예외 규칙 적용(Page 2와 동일)
 
 #### 1.3.1 터치패드 모드 제어 버튼
 

@@ -28,10 +28,11 @@ updated: "2026-07-06"
 - 좌표 변환 알고리즘 (터치 비율 0.0~1.0)
 - **서버 중계 전송**: `buildAbsolutePositionCommand`(0xFF/0x02) 하나로 좌표를 서버에 전달
 - 드래그 앤 드롭 모드 (제스처 스코프 buttons bit0 유지)
-- 패드 비율 UX (Fill 기본 + 프리셋)
 - 모니터 셀렉터 + 역방향 모니터 개수 수신
 - 줌 기능 (앱 내) + Vendor CDC 줌 상태 UART 전송(Android 측까지)
 - Page 3 엣지존 편집 화면 연동
+
+**패드 비율/배치는 본 Phase 범위 밖** — Phase 4.15 페이지 커스터마이징이 그리드 배치(`colSpan`/`rowSpan`)로 소유한다. 자유 비율(접근성 목적의 왜곡 배치)과 모니터 종횡비 일치 둘 다 그리드 셀 크기 조정으로 표현 가능하며, 4.15 완성 전까지 패드는 Fill 유지.
 
 **펌웨어(ESP32)·서버(Windows) 구현은 본 Phase 범위 밖** — 후속 통합 Phase로 분리(하단 "펌웨어·서버 파트" 참조). Phase 4가 "Android 완성" 단계라는 원래 취지 유지.
 
@@ -60,12 +61,12 @@ updated: "2026-07-06"
 |---|---|---|
 | 0 | Page 1 터치패드+액션 | 구현 완료 |
 | 1 | Page 2 멀티커서 | 구현 완료 |
-| **2** | **Page 3 절대좌표 (본 Phase)** | 4.9.1~4.9.4 완료(기본 포인팅·서버 중계·엣지존 통합·드래그 앤 드롭), 패드 비율/모니터/줌은 4.9.5~4.9.7 |
+| **2** | **Page 3 절대좌표 (본 Phase)** | 4.9.1~4.9.4 완료(기본 포인팅·서버 중계·엣지존 통합·드래그 앤 드롭), 모니터/줌은 4.9.5~4.9.6. 패드 비율/배치는 본 Phase 범위 밖(Phase 4.15) |
 | 3 | Page 4 키보드 | placeholder (이동) |
 | 4 | Page 5 마인크래프트 | placeholder (이동) |
 | 5 | Page 6 설정 | 구현 완료 (이동) |
 
-> **⚠️ 인덱스 시프트 부작용 — `JumpToPage` 마이그레이션 필요**: 인덱스 삽입(2/3/4 → 3/4/5)으로 깨지는 곳은 `EdgeZoneAction.JumpToPage(pageIndex)` 하나뿐이다. `EdgeZoneJson.kt`가 이 액션을 페이지 논리 인덱스 정수 그대로 직렬화(`"page": N`)해서 영속화하므로, 이미 "페이지 5(설정, 구 index=4)로 점프"를 저장해둔 사용자가 있다면 시프트 후 `pageIndex=4`가 새 배치의 마인크래프트(구 index=3이 이동한 자리)를 가리키게 되어 엉뚱한 페이지로 점프하게 된다. 저장된 `JumpToPage` 값 중 `pageIndex >= 2`인 것을 +1 이동하는 1회성 마이그레이션이 필요(4.9.9 참조). 안전 항목(별도 조치 불필요): 엣지존 할당 저장 키(`TouchpadIds.standardPage`), `StandardModePrefs.kt`의 전역 설정, `PageIndicator`/`EdgeZoneEditorScreen.pageCount`(모두 `PAGE_COUNT` 상수로 자동 대응)
+> **⚠️ 인덱스 시프트 부작용 — `JumpToPage` 마이그레이션 필요**: 인덱스 삽입(2/3/4 → 3/4/5)으로 깨지는 곳은 `EdgeZoneAction.JumpToPage(pageIndex)` 하나뿐이다. `EdgeZoneJson.kt`가 이 액션을 페이지 논리 인덱스 정수 그대로 직렬화(`"page": N`)해서 영속화하므로, 이미 "페이지 5(설정, 구 index=4)로 점프"를 저장해둔 사용자가 있다면 시프트 후 `pageIndex=4`가 새 배치의 마인크래프트(구 index=3이 이동한 자리)를 가리키게 되어 엉뚱한 페이지로 점프하게 된다. 저장된 `JumpToPage` 값 중 `pageIndex >= 2`인 것을 +1 이동하는 1회성 마이그레이션이 필요(4.9.8 참조). 안전 항목(별도 조치 불필요): 엣지존 할당 저장 키(`TouchpadIds.standardPage`), `StandardModePrefs.kt`의 전역 설정, `PageIndicator`/`EdgeZoneEditorScreen.pageCount`(모두 `PAGE_COUNT` 상수로 자동 대응)
 
 ### 아키텍처 요약
 
@@ -123,7 +124,7 @@ Page 3 — AbsolutePointingPad
    - `ControlButtonConfig(showClickMode = true, showMoveMode = false, showScrollMode = false, showCursorMode = false, showDpi = false, showScrollSensitivity = false, showZoom = true, showDrag = true)`
    - **근거**: MoveMode(축 잠금)·DPI(델타 배율)는 델타 벡터 연산이라 절대좌표에서 성립하지 않음. ScrollMode는 드래그 앤 드롭 모드(4.9.4)로 대체. CursorMode(멀티커서)는 Page 2 전용 상태 결합으로 배제
    - ClickModeButton: 좌↔우 토글 (기존 로직 재사용)
-   - `showZoom`/`showDrag` 필드를 `ControlButtonConfig`에 신규 추가. 이 Phase에서는 둘 다 Disabled 상태(zoom은 4.9.7, drag는 4.9.4에서 각각 활성화)
+   - `showZoom`/`showDrag` 필드를 `ControlButtonConfig`에 신규 추가. 이 Phase에서는 둘 다 Disabled 상태(zoom은 4.9.6, drag는 4.9.4에서 각각 활성화)
 8. ~~엣지존/엣지스와이프 시스템 통합~~ → **Phase 4.9.3으로 분리** (하단 참조)
 
 > **⚠️ 구현 중 범위 조정(2026-07-06, 유저 확정)**: 세부 목표 8(엣지존/엣지스와이프 통합)은 `TouchpadWrapper.kt`의 제스처 상태머신(1700줄 이상, `TouchpadState`/`EdgeZoneConfig`에 강결합)을 복제해야 해서 4.9.1 범위에서 분리했다. 본 Phase는 PointingArea 핵심 포인팅·클릭·시각 피드백 + ControlButtonContainer 통합까지만 완료했고, 엣지존/엣지스와이프는 신규 하위 Phase **4.9.3**으로 넘겼다(서버 중계 전송(4.9.2)이 더 급한 핵심 경로라 먼저 두고, 엣지존은 그다음으로 배치 — 기존 4.9.3~4.9.8은 4.9.4~4.9.9로 한 칸씩 밀림).
@@ -133,10 +134,10 @@ Page 3 — AbsolutePointingPad
 - `src/android/app/src/main/java/com/bridgeone/app/ui/utils/AbsoluteCoordinateCalculator.kt` (+ `AbsoluteCoordinateCalculatorTest.kt`)
 - `src/android/app/src/main/java/com/bridgeone/app/ui/utils/AbsolutePointingConstants.kt` (신규 상수 중앙화, 기본값 주석 포함)
 - `src/android/app/src/main/java/com/bridgeone/app/ui/pages/standard/Page3AbsolutePointing.kt` (독립 파일, 파라미터 없이 `AbsolutePointingPad()` 호출)
-- `res/drawable/ic_zoom.xml`, `res/drawable/ic_drag_mode.xml` (ZoomButton/DragModeButton 아이콘, Disabled 슬롯이지만 각각 4.9.7/4.9.4에서 그대로 재사용)
+- `res/drawable/ic_zoom.xml`, `res/drawable/ic_drag_mode.xml` (ZoomButton/DragModeButton 아이콘, Disabled 슬롯이지만 각각 4.9.6/4.9.4에서 그대로 재사용)
 
 **수정 파일** (실제 구현):
-- `ui/pages/StandardModePage.kt` — `PAGE_COUNT` 5→6, 논리 인덱스 2에 `Page3AbsolutePointing()` 삽입, 기존 키보드/마인크래프트/설정을 3/4/5로 시프트 (⚠️ 저장된 `JumpToPage(pageIndex>=2)` 값은 4.9.9 마이그레이션 전까지 엉뚱한 페이지를 가리킴 — 문서 상단 경고와 동일)
+- `ui/pages/StandardModePage.kt` — `PAGE_COUNT` 5→6, 논리 인덱스 2에 `Page3AbsolutePointing()` 삽입, 기존 키보드/마인크래프트/설정을 3/4/5로 시프트 (⚠️ 저장된 `JumpToPage(pageIndex>=2)` 값은 4.9.8 마이그레이션 전까지 엉뚱한 페이지를 가리킴 — 문서 상단 경고와 동일)
 - `ui/components/touchpad/ControlButtonContainer.kt` — `ControlButtonConfig`에 `showZoom`/`showDrag: Boolean = false` 필드 추가, `hasRightSlot`(DPI/ScrollSensitivity 공유 슬롯)과 별도로 ZoomButton/DragModeButton을 각각 독립 슬롯(6·7번째)으로 렌더링(둘 다 동시 노출 가능해야 하므로 슬롯 공유 안 함). 이 Phase에서는 `enabled = false`로 렌더링만(클릭 무반응)
 - `ui/components/touchpad/TouchpadColors.kt` — `TouchpadColorPink(#E91E63)` 추가 (AbsolutePointingPad 기본 테두리, 좌클릭 상태)
 
@@ -214,7 +215,7 @@ Page 3 — AbsolutePointingPad
 > 1. **존 단위 gate**: DOWN 지점이 filtered config 상 화이트리스트 통과 존(Unassigned가 아닌 존)의 alongRatio 범위 안에 있을 때만 엣지 제스처 후보로 인식. 그 외 모든 위치(미할당 구간, TOP 전체)는 DOWN 즉시 일반 절대 포인팅 — 화면 4변 가장자리(예: PC 시작 버튼이 있는 왼쪽 아래 코너) 도달성 보존
 > 2. **엣지 띠 탭=좌표클릭**: 엣지 후보 제스처라도 UP 시 armed가 아니고 탭 조건(이동 ≤5dp)을 만족하면 DOWN 지점 좌표로 절대 클릭 전송. 안쪽 스와이프(armed)만 엣지 액션 실행. 탭 임계값과 armed 임계값(28dp)이 겹치지 않아 상호배타 → 예약 구간 위에서도 좌표 클릭 손실 0
 >
-> LEGACY_POPUP은 배제하고 ZONE 모드만 지원. 로테이션 존은 4.9.9(편집 UI) 전까지 후보 없어 `candidates.firstOrNull()` 정적 처리(회전 코루틴 미이식).
+> LEGACY_POPUP은 배제하고 ZONE 모드만 지원. 로테이션 존은 4.9.8(편집 UI) 전까지 후보 없어 `candidates.firstOrNull()` 정적 처리(회전 코루틴 미이식).
 >
 > **⚠️ 추가 반영(2026-07-09, 유저 요청)**: 최초 구현에는 기존 터치패드(`TouchpadWrapper.kt`)의 "산봉우리(Bump)" 시각 피드백이 누락되어 있었다. 엣지 안쪽으로 들어올수록 그라데이션 봉우리가 커지는 `EdgeBumpOverlay`를 동일 패턴으로 이식했다 — 진입 엣지 고정, 최대 피크 36dp 상한, release/취소 시 spring 수축 애니메이션(`LaunchedEffect(isEdgeCandidate)`), 색상은 현재 클릭모드(핑크/노랑) 연동.
 
@@ -223,10 +224,10 @@ Page 3 — AbsolutePointingPad
 2. `EdgeZoneOverlay`(ZONE 모드 시각화) 연결. `EdgeSwipeOverlay`(LEGACY_POPUP)는 배제(대상 모드가 CLICK 하나뿐) ✅
 3. `EdgeZoneDetector.findActiveZone()` + `EdgeZoneActionHandler.applyZoneAction()` 재사용 ✅
 4. 노출 액션 화이트리스트: `SendMacro`, `SendShortcut`, `CyclePage`, `JumpToPage`, `SetClickMode`, `ToggleMode(CLICK)`, `MouseHoldToggle`, `RestorePreviousMode` 등 좌표 무관 이산 트리거만 허용. `SetMoveMode`/`SetDpi`/`SetCustomDpi`/`SetScrollMode`/`SetScrollSpeed`/`ToggleMultiCursor` 등 델타·스크롤·멀티커서 계열은 전부 배제. **도메인 단위가 아닌 액션 타입 단위 필터**(`isAbsolutePadAllowed`)로 구현 — `EdgeZoneActionResolver.domainOf(ToggleMode(CURSOR))`가 `ActionDomain.CLICK`으로 매핑되는 함정 회피 ✅
-5. `TouchpadEdgeZoneAssignmentRepository`를 통한 Page 3 전용 존 할당 영속화(`page3Assignment`, 키 `standard_page_2`). **설정 화면 연동은 4.9.9에서 별도 처리** — `standardTouchpadPages`에는 여전히 2를 추가하지 않아 Page 3는 편집 대상이 아님 ✅
+5. `TouchpadEdgeZoneAssignmentRepository`를 통한 Page 3 전용 존 할당 영속화(`page3Assignment`, 키 `standard_page_2`). **설정 화면 연동은 4.9.8에서 별도 처리** — `standardTouchpadPages`에는 여전히 2를 추가하지 않아 Page 3는 편집 대상이 아님 ✅
 
 **실제 구현 파일**:
-- `ui/components/touchpad/AbsolutePadActionFilter.kt` (신규) — `isAbsolutePadAllowed()`/`filterConfigForAbsolutePad()` 순수 함수. **4.9.9에서 편집기 필터에 재사용 가능**
+- `ui/components/touchpad/AbsolutePadActionFilter.kt` (신규) — `isAbsolutePadAllowed()`/`filterConfigForAbsolutePad()` 순수 함수. **4.9.8에서 편집기 필터에 재사용 가능**
 - `ui/components/AbsolutePointingPad.kt` — `PointingArea`의 `pointerInput`에 존 단위 gate + ZONE 파이프라인(armed/disarm/취소) + 엣지 띠 탭=좌표클릭 로직 추가, `EdgeZoneOverlay` 배치(BoxWithConstraints), `EdgeBumpOverlay` 배치(진입 엣지 고정 + release/취소 spring 수축, `TouchpadWrapper.kt:290-362, 1615-1644` 패턴 이식), 시그니처에 `edgeZoneAssignment`/`onEdgeZoneAssignmentChange`/6개 액션 콜백 추가. **4.9.4(드래그)/4.9.6(모니터 셀렉터)/4.9.7(줌)이 이 시그니처를 추가 확장할 예정이므로 해당 Phase 착수 시 현재 파라미터 목록 확인 필요**
 - `ui/pages/standard/Page3AbsolutePointing.kt` — 8개 파라미터로 확장, `AbsolutePointingPad`에 그대로 전달
 - `ui/pages/StandardModePage.kt` — `page3Assignment` 상태 + 저장 `LaunchedEffect` 추가, `2 -> Page3AbsolutePointing(...)` 호출부에 배선. `standardTouchpadPages`는 `listOf(0, 1)` 그대로 유지(회귀 방지 핵심)
@@ -275,9 +276,9 @@ Page 3 — AbsolutePointingPad
 
 > **⚠️ 구현 확정 사항(2026-07-09, 유저 확정)**: 엣지존(4.9.3) 상호작용 — 드래그 ON이어도 엣지존 gate는 그대로 유지한다. DOWN이 엣지 존(화이트리스트 통과 존)이면 기존 엣지 파이프라인(전송 억제)이 우선하고, DOWN이 일반 영역일 때만 드래그 press를 시작한다. 엣지 후보가 도중 취소(`inwardMoved < 0f`/`perpMoved` 조건)되어 일반 포인팅으로 전환되면 그 전환 시점부터 press(`dragPressed = true`)를 시작한다. 엣지 띠 탭(UP 시 armed 아니고 탭 조건)은 드래그 상태와 무관하게 기존 좌표클릭 경로 그대로(드래그 press는 "일반 영역 DOWN"에서만 발생하므로 상호 충돌 없음).
 >
-> `sendAbsolutePosition(ratio)`는 이 Phase에서 `sendAbsolutePosition(ratio, buttons: UByte = 0x00u)`로 확장됐다(`AbsolutePointingPad.kt`). 4.9.6(모니터 셀렉터)에서 `targetMonitor` 파라미터가 추가될 때 이 시그니처를 다시 확장하게 된다.
+> `sendAbsolutePosition(ratio)`는 이 Phase에서 `sendAbsolutePosition(ratio, buttons: UByte = 0x00u)`로 확장됐다(`AbsolutePointingPad.kt`). 4.9.5(모니터 셀렉터)에서 `targetMonitor` 파라미터가 추가될 때 이 시그니처를 다시 확장하게 된다.
 >
-> `TouchpadState`(`TouchpadMode.kt`)에 `dragMode: Boolean = false` 필드 신규 추가(제스처 스코프 트랜지언트, `heldMouseButtons`의 영구 홀드와 별개). 테두리/EdgeBumpOverlay 색상 우선순위는 `dragMode(초록) > clickMode(핑크/노랑)`로 확정 — 4.9.7(줌, 주황) 구현 시 이 우선순위 체인에 줌을 추가로 끼워 넣어야 한다.
+> `TouchpadState`(`TouchpadMode.kt`)에 `dragMode: Boolean = false` 필드 신규 추가(제스처 스코프 트랜지언트, `heldMouseButtons`의 영구 홀드와 별개). 테두리/EdgeBumpOverlay 색상 우선순위는 `dragMode(초록) > clickMode(핑크/노랑)`로 확정 — 4.9.6(줌, 주황) 구현 시 이 우선순위 체인에 줌을 추가로 끼워 넣어야 한다.
 
 **실제 구현 파일**:
 - `ui/components/touchpad/TouchpadMode.kt` — `TouchpadState.dragMode: Boolean = false` 필드 추가
@@ -304,38 +305,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.5: 패드 비율 UX
-
-**목표**: 자유 비율을 "힘 들이지 않고 자연스럽게" 설정할 수 있는 UX 구현
-
-**개발 기간**: 0.5일
-
-**세부 목표**:
-1. **기본값 Fill**: 별도 설정 없이 PointingArea가 페이지 가용 영역 전체를 채움
-2. **프리셋 로우**: Fill / 16:9 / 21:9 / 4:3 원탭 전환
-3. **Match Monitor**: 1차 구현은 스텁(모니터 종횡비 미수신 시 16:9 폴백) — 실제 종횡비 반영은 후속 확장(모니터 지오메트리 역방향 채널 확장 필요)
-4. **드래그 리사이즈**: 범위 밖(파워유저 고급 옵션, 후속 Phase)
-5. `PadRatioConfig`: 유저 선택 프리셋 영속화(SharedPreferences)
-
-**신규 파일**:
-- `ui/layout/PadRatioConfig.kt`
-
-**수정 파일**:
-- `ui/components/AbsolutePointingPad.kt` — 프리셋 로우 UI
-- `ui/utils/AbsoluteCoordinateCalculator.kt` — 비율별 유효 영역 계산
-
-**참조 문서**:
-- `docs/android/technical-specification-app.md` §2.10.7 (패드 비율 UX 설계 근거)
-
-**검증**:
-- [ ] Fill 기본값으로 별도 설정 없이 정상 렌더링
-- [ ] 프리셋 3종(16:9/21:9/4:3) 원탭 전환 동작
-- [ ] 프리셋 선택 상태 영속화(앱 재시작 후 유지)
-- [ ] Match Monitor 스텁이 16:9로 정상 폴백
-
----
-
-## Phase 4.9.6: 모니터 셀렉터 + 역방향 개수 수신 (Android 측)
+## Phase 4.9.5: 모니터 셀렉터 + 역방향 개수 수신 (Android 측)
 
 **목표**: 유저가 매핑 대상 모니터를 선택할 수 있는 셀렉터 UI + 역방향 모니터 개수 수신
 
@@ -370,7 +340,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.7: 줌 기능 구현
+## Phase 4.9.6: 줌 기능 구현
 
 **목표**: 드래그 기반 줌 진입 + 줌 상태 좌표 변환 + 줌 해제
 
@@ -407,7 +377,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.8: Vendor CDC 줌 상태 UART 전송 (Android 측)
+## Phase 4.9.7: Vendor CDC 줌 상태 UART 전송 (Android 측)
 
 **목표**: Android에서 줌 상태(zoom_level, 매핑 범위, targetMonitor)를 UART 커스텀 명령으로 ESP32에 전송하는 부분까지 구현. ESP32 중계 및 PC 오버레이는 범위 밖.
 
@@ -436,7 +406,7 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.9: 엣지존 설정 화면 연동 (필터링 적용)
+## Phase 4.9.8: 엣지존 설정 화면 연동 (필터링 적용)
 
 **목표**: 절대좌표 패드(Page 3)를 엣지존 편집 대상에 추가하고, 편집기에서 절대좌표에 무의미한 모드/액션이 노출되지 않도록 필터링. `JumpToPage` 인덱스 시프트 마이그레이션 포함.
 
@@ -474,16 +444,16 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.10: 다중 모드 그라디언트 테두리
+## Phase 4.9.9: 다중 모드 그라디언트 테두리
 
-> **신규 하위 Phase(2026-07-09, 유저 확정)**: 절대좌표 패드는 여러 제어 상태(클릭모드/드래그모드/줌)가 동시에 활성화될 수 있는데, 지금은 우선순위 하나(`dragMode > clickMode`, 4.9.4/4.9.7에서 각각 확정)로 단색 테두리만 표시한다. 일반 터치패드(`TouchpadColors.kt`의 `touchpadBorderColors(state: TouchpadState): Pair<Color, Color>`)처럼 여러 모드가 겹칠 때 테두리를 그라디언트로 보여주는 편이 상태 조합을 더 정확히 전달한다. 단, 이 작업은 그라디언트에 들어갈 색상 후보(핑크/노랑/초록/주황)가 전부 구현되어야 의미가 있으므로, 줌(4.9.7)까지 끝난 뒤 마지막 하위 Phase로 진행한다. 번호를 4.9.8 자리에 끼워 넣지 않고 맨 뒤(4.9.10)에 붙인 이유는 문서 전체에 "4.9.9"(엣지존 설정 화면 연동)를 참조하는 곳이 다수라 중간 삽입 시 재배치 리스크가 크기 때문 — 실행 순서상으로는 선행 조건(줌 완료)만 지키면 되고 번호 순서 자체는 무관하다.
+> **신규 하위 Phase(2026-07-09, 유저 확정)**: 절대좌표 패드는 여러 제어 상태(클릭모드/드래그모드/줌)가 동시에 활성화될 수 있는데, 지금은 우선순위 하나(`dragMode > clickMode`, 4.9.4/4.9.6에서 각각 확정)로 단색 테두리만 표시한다. 일반 터치패드(`TouchpadColors.kt`의 `touchpadBorderColors(state: TouchpadState): Pair<Color, Color>`)처럼 여러 모드가 겹칠 때 테두리를 그라디언트로 보여주는 편이 상태 조합을 더 정확히 전달한다. 단, 이 작업은 그라디언트에 들어갈 색상 후보(핑크/노랑/초록/주황)가 전부 구현되어야 의미가 있으므로, 줌(4.9.6)까지 끝난 뒤 마지막 하위 Phase로 진행한다.
 
 **목표**: 클릭모드/드래그모드/줌이 동시에 활성화됐을 때 PointingArea 테두리를 단색이 아닌 그라디언트로 표시해 상태 조합을 시각적으로 구분
 
-**선행 조건**: Phase 4.9.7(줌) 완료 — 그라디언트에 들어갈 마지막 색상(주황)이 이 시점에 확정됨
+**선행 조건**: Phase 4.9.6(줌) 완료 — 그라디언트에 들어갈 마지막 색상(주황)이 이 시점에 확정됨
 
 **세부 목표**:
-1. 기존 우선순위 단색 로직(`AbsolutePointingPad.kt`의 `borderColor`/`bumpColor` when 체인, 4.9.4/4.9.7에서 누적)을 다중 색상 그라디언트로 교체
+1. 기존 우선순위 단색 로직(`AbsolutePointingPad.kt`의 `borderColor`/`bumpColor` when 체인, 4.9.4/4.9.6에서 누적)을 다중 색상 그라디언트로 교체
 2. `TouchpadColors.kt`의 `touchpadBorderColors(state: TouchpadState): Pair<Color, Color>` 패턴 재사용/확장 검토 — 절대좌표 패드는 클릭(2색)×드래그(2색)×줌(1색, on/off) 조합이라 기존 2색 페어보다 많은 동시 활성 색이 나올 수 있어 그라디언트 stop 개수/순서 규칙 별도 정의 필요
 3. 활성 상태 우선순위 → 그라디언트 색상 순서 매핑 규칙 확정(예: 클릭모드 색이 기본 stop, 드래그 ON/줌 ON이 추가되면 보조 stop으로 삽입)
 4. `EdgeBumpOverlay`의 `borderColors: Pair<Color, Color>` 파라미터도 동일 그라디언트 규칙과 일관되게 갱신
@@ -503,11 +473,11 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.11: 리팩토링
+## Phase 4.9.10: 리팩토링
 
-> **신규 하위 Phase(2026-07-09, 유저 확정)**: Page 3(절대좌표 패드) 관련 코드 전체를 마지막에 한 번 정리한다. 4.9.1~4.9.10에 걸쳐 `AbsolutePointingPad.kt`/`ControlButtonContainer.kt` 등에 기능이 순차적으로 누적되면서 생겼을 중복·비대해진 파일·임시방편 구조를 이 시점에 재검토한다.
+> **신규 하위 Phase(2026-07-09, 유저 확정)**: Page 3(절대좌표 패드) 관련 코드 전체를 마지막에 한 번 정리한다. 4.9.1~4.9.9에 걸쳐 `AbsolutePointingPad.kt`/`ControlButtonContainer.kt` 등에 기능이 순차적으로 누적되면서 생겼을 중복·비대해진 파일·임시방편 구조를 이 시점에 재검토한다.
 >
-> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.10)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
+> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.9)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
 
 **목표**: Page 3 구현 완료 시점의 코드를 검토해 중복 제거·함수 분리·상수 정리 등 리팩토링 수행
 

@@ -40,9 +40,11 @@ note: "본 문서에 존재하는 모든 상수값 및 설정값은 초기 값�
 
 ### 2.1 PointingArea (메인 터치 영역)
 
+> **⚠️ 설계 변경(2026-07-09, 유저 확정)**: 패드 비율은 Page 3 자체가 아니라 Phase 4.15 페이지 커스터마이징의 그리드 배치(`colSpan`/`rowSpan`)가 소유한다. 실시간 프리셋 토글 UX는 두지 않는다 — "이 지점을 누르면 저기쯤 커서가 간다"는 위치 감각을 유지하려면 한 번 정한 비율 관계를 빠르게 바꾸지 않아야 하기 때문이다. 자유 비율(예: 상하로 긴 패드로 좌우 이동 부담을 줄이는 접근성 배치)과 모니터 종횡비 일치 둘 다 4.15의 셀 크기 조정으로 표현 가능하다. 자세한 근거는 `technical-specification-app.md` §2.10.7 참조.
+
 - **배치**: 페이지 중앙, 가용 공간 최대 활용
-- **비율**: 유저 자유 설정. **기본값 = Fill**(가용 공간 전체를 별도 설정 없이 채움), 프리셋 로우(16:9/21:9/4:3)로 원탭 전환 가능. 자세한 UX는 `technical-specification-app.md` §2.10.7 참조
-- **최소 크기**: 프리셋별 최소 크기 하한만 적용 (구체 값은 구현 시 `PadRatioConfig` 상수로 확정)
+- **비율**: 4.15 완성 전까지는 **Fill**(가용 공간 전체를 채움) 고정. 4.15 완성 후에는 유저가 그리드 편집 화면에서 셀 크기를 조정해 원하는 비율로 배치하고 그 배치가 유지됨
+- **최소 크기**: 가용 화면에서 QuickKeyStrip과 `ControlButtonContainer` 영역을 제외한 나머지
 - **최대 크기**: 가용 화면에서 QuickKeyStrip과 `ControlButtonContainer` 영역을 제외한 전체
 - **모서리**: 8dp 라운드 코너
 - **테두리**: 2dp 두께, 상태에 따른 색상 변화 (`component-design-guide-app.md` §4.3, §4.5.7 참조)
@@ -270,12 +272,12 @@ ControlButtonContainer (상단 오버레이)
 ## 5. 반응형/적응 규칙
 
 - **소형 화면 (폭 < 360dp)**:
-  - PointingArea 최소 크기 적용 (프리셋별 최소 크기 하한, `PadRatioConfig` 참조)
+  - PointingArea 최소 크기 적용 (QuickKeyStrip/`ControlButtonContainer` 제외 나머지 전체, 4.15 완성 후에는 유저가 배치한 셀 크기 하한)
   - QuickKeyStrip 키 간격 4dp로 축소
   - `ControlButtonContainer` 버튼 간격 12dp로 축소
 - **중형 화면 (360dp ≤ 폭 < 600dp)**:
   - 기본 레이아웃 유지
-  - PointingArea가 가용 공간 최대 활용 (Fill 기본, 프리셋 선택 시 해당 비율 유지)
+  - PointingArea가 가용 공간 최대 활용 (Fill 기본, 4.15 완성 후에는 유저가 배치한 비율 유지)
 - **대형 화면 (폭 ≥ 600dp, Landscape)**:
   - PointingArea 가로 확장 (Fill 기본이므로 확장된 가용 공간을 그대로 채움)
 - **높이 제약**: QuickKeyStrip(40dp)과 `ControlButtonContainer`는 항상 고정 표시, PointingArea 크기를 줄여서 대응
@@ -299,7 +301,7 @@ ControlButtonContainer (상단 오버레이)
 - **좌표 변환**: `AbsoluteCoordinateCalculator`에서 줌 상태를 반영한 매핑 범위 계산(경로 공통, 비율 산출까지)
 - **좌표 전송**: `FrameBuilder.buildAbsolutePositionCommand()`(`frame[0]==0xFF, frame[1]==0x02`) 사용, Vendor CDC 서버 중계. 상세는 `technical-specification-app.md` §2.10.2
 - **전송 최적화**: 동일 좌표 연속 전송 방지, 120Hz 주기 준수
-- **상태 저장**: 줌 레벨/중심점, 클릭 모드, 드래그 모드, 패드 비율 프리셋(`PadRatioConfig`)을 페이지 전환 시 유지 (SharedPreferences)
+- **상태 저장**: 줌 레벨/중심점, 클릭 모드, 드래그 모드를 페이지 전환 시 유지 (SharedPreferences). 패드 비율/배치는 4.15의 `page_layouts.json`이 소유(본 페이지 자체는 별도 영속화 없음)
 - **성능**: 좌표 변환 < 1ms, 전송 지연 < 50ms 목표
 
 ---

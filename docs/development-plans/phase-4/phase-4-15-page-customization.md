@@ -47,6 +47,8 @@ updated: "2026-06-18"
    - 모든 역직렬화에 `optInt`/`optString` + `runCatching` 폴백
 3. `PageLayoutJsonTest.kt` — 라운드트립 단위 테스트
 
+> **⚠️ Phase 4.9 변경사항(2026-07-09, 유저 확정)**: 절대좌표 패드(Page 3, `AbsolutePointingPad`)의 배치·비율을 본 4.15가 소유하기로 확정됐다(`technical-specification-app.md` §2.10.7/§2.11.1 참조 — 자유 비율은 접근성 목적 필요 시나리오이므로 패드 자체에는 실시간 비율 토글을 두지 않고, 여기서 한 번 정한 배치를 유지). `ComponentType`에 `ABSOLUTE_POINTING_PAD` 추가, `PlacedComponentConfig`에 `AbsolutePad(edgeZoneAssignment: TouchpadEdgeZoneAssignment, defaultTargetMonitor: Int)` variant 추가해 Page 3의 엣지존 할당(Phase 4.9.3 `page3Assignment`)과 모니터 선택 기본값(Phase 4.9.5)을 흡수할 것.
+
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/layout/PageLayoutModel.kt`
 - `src/android/app/src/main/java/com/bridgeone/app/ui/layout/ComponentType.kt`
@@ -117,6 +119,7 @@ updated: "2026-06-18"
 4. `ComponentRenderer.kt` — `PlacedComponent` + `ComponentCallbacks` → 실제 Composable 디스패치
    - `TOUCHPAD`: `TouchpadWrapper` 본체만 셀에 렌더. DPI/Dynamics/ModePreset 팝업 오버레이는 `DynamicPageRenderer` 루트에서 1회 렌더 (이 파일에서는 제외)
    - `SHORTCUT_BUTTON`, `KEYBOARD_KEY`, `MACRO_BUTTON` 등 나머지 타입은 단순 Composable 호출
+   - `ABSOLUTE_POINTING_PAD`(Phase 4.9 변경사항): `AbsolutePointingPad` 셀 크기로 디스패치. 좌표 변환(`AbsoluteCoordinateCalculator`)은 패드 자체 rendered bounds 기준이라 셀 크기가 어떤 비율이든 코드 변경 없이 그대로 동작(`technical-specification-app.md` §2.10.7)
 
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/layout/GridContainer.kt`
@@ -262,6 +265,7 @@ updated: "2026-06-18"
    - `KEYBOARD_LAYOUT` — `KeyboardLayout` Composable 연결
    - `EDGE_ZONE_STRIP` — `EdgeStripEditor` 중첩
    - `SPECIAL_KEY_GRID` — 특수키 그리드 (현 `SpecialKeysGrid`)
+   - `ABSOLUTE_POINTING_PAD`(Phase 4.9 변경사항, 2026-07-09 유저 확정) — `AbsolutePointingPad` Composable 연결. 카탈로그 기본 `colSpan`/`rowSpan`은 Page 3 기본 템플릿(패드가 페이지 전체를 채움)과 동일하게 설정
 2. `ComponentConfigEditor.kt` — 타입별 config 편집 UI 디스패처:
    - `TOUCHPAD` → `TouchpadPageConfigSheet` 호출
    - `SHORTCUT_BUTTON` → 단축키 다이얼로그 (수식키 조합 + 키코드, 레이블; 기존 `ShortcutEditorPrefs` 패턴 참조)
@@ -270,6 +274,7 @@ updated: "2026-06-18"
    - `EDGE_ZONE_STRIP` → 스트립 방향·할당 액션 다이얼로그
    - `SPECIAL_KEY_GRID` → 표시할 특수키 선택 다이얼로그
    - `KEYBOARD_LAYOUT` → config 없음, 설정 버튼 비활성화
+   - `ABSOLUTE_POINTING_PAD` → `AbsolutePadConfigSheet` 호출(엣지존 설정 진입 + 기본 대상 모니터). "모니터 종횡비 자동 일치" 같은 편의 기능은 유저가 셀 크기를 모니터 비율에 맞게 직접 조정하는 것으로 충분하므로 이 시트에 넣지 않는다(`technical-specification-app.md` §2.10.7)
 3. `TouchpadPageConfigSheet.kt` — 터치패드 전용 config 편집 바텀시트:
    - 버튼 표시 토글 섹션:
      - 마스터 토글 `showControlButtons` (ON 시 개별 6개 토글 노출)
@@ -284,6 +289,7 @@ updated: "2026-06-18"
 **신규 파일**:
 - `src/android/app/src/main/java/com/bridgeone/app/ui/layout/editor/ComponentConfigEditor.kt`
 - `src/android/app/src/main/java/com/bridgeone/app/ui/layout/editor/TouchpadPageConfigSheet.kt`
+- `src/android/app/src/main/java/com/bridgeone/app/ui/layout/editor/AbsolutePadConfigSheet.kt` (Phase 4.9 변경사항)
 
 **수정 파일**:
 - `ui/layout/ComponentRegistry.kt` — 타입별 `CatalogEntry` 추가
