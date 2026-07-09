@@ -40,4 +40,31 @@ object AbsolutePointingConstants {
 
     /** targetMonitor: 특정 모니터가 아닌 가상 데스크톱 전체 매핑 (Phase 4.9.5). 기본값: 0x00 */
     val TARGET_MONITOR_ALL: UByte = 0x00u
+
+    /** 줌 최소 배율(해제 상태) (Phase 4.9.6). 기본값: 1f */
+    const val ZOOM_LEVEL_MIN: Float = 1f
+
+    /** 줌 최대 배율 (Phase 4.9.6). 기본값: 8f */
+    const val ZOOM_LEVEL_MAX: Float = 8f
+
+    /** 줌 드래그 거리 2x 지점 (dp) (Phase 4.9.6). 기본값: 50f */
+    const val ZOOM_DRAG_DP_2X: Float = 50f
+
+    /** 줌 드래그 거리 4x 지점 (dp) (Phase 4.9.6). 기본값: 100f */
+    const val ZOOM_DRAG_DP_4X: Float = 100f
+
+    /** 줌 드래그 거리 8x(최대) 지점 (dp) (Phase 4.9.6). 기본값: 150f */
+    const val ZOOM_DRAG_DP_8X: Float = 150f
+
+    /** PointingArea 우상단 줌 레벨 텍스트 크기 (sp, 확정된 줌 활성 상태). 기본값: 14f */
+    const val ZOOM_LEVEL_TEXT_SIZE_SP: Float = 14f
+
+    /** PointingArea 우상단 줌 레벨 텍스트 여백 (dp). 기본값: 8f */
+    const val ZOOM_LEVEL_TEXT_PADDING_DP: Float = 8f
+
+    /** 줌 정의/확정 대기 중 화면 정중앙 줌 레벨 텍스트 크기 (sp) (Phase 4.9.6). 기본값: 48f */
+    const val ZOOM_LEVEL_CENTER_TEXT_SIZE_SP: Float = 48f
+
+    /** 줌 확정 대기 중 안내 문구("탭하여 확정") 텍스트 크기 (sp) (Phase 4.9.6). 기본값: 16f */
+    const val ZOOM_CONFIRM_HINT_TEXT_SIZE_SP: Float = 16f
 }

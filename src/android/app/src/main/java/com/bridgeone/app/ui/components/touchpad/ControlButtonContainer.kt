@@ -90,7 +90,7 @@ private val ColorButtonText = TouchpadColorButtonText
  * @param showCursorMode CursorModeButton 표시 여부 (기본값: false — Page 1 구성)
  * @param showDpi DpiControlButton 표시 여부
  * @param showScrollSensitivity ScrollSensitivityButton 표시 여부 (DPI와 슬롯 공유)
- * @param showZoom ZoomButton 표시 여부 (AbsolutePointingPad 전용, Phase 4.9.1: Disabled 상태만).
+ * @param showZoom ZoomButton 표시 여부 (AbsolutePointingPad 전용, Phase 4.9.6: 줌 진입/해제 토글 활성).
  *   기본값: false
  * @param showDrag DragModeButton 표시 여부 (AbsolutePointingPad 전용, Phase 4.9.1: Disabled 상태만).
  *   기본값: false
@@ -130,6 +130,11 @@ data class ControlButtonConfig(
  * @param onCursorModeLongPress CursorModeButton 롱프레스 콜백 (그리드 분할 ↔ 직접 전환 버튼 레이아웃 모드 토글, Phase 4.8.4)
  * @param baseColor 기본(디폴트) 상태를 나타내는 버튼 배경색. 일반 터치패드 페이지는 파랑(기본값),
  *   절대좌표 패드(Page 3)는 고유 팔레트(핑크/노랑/초록)와의 통일감을 위해 빨강을 전달한다(Phase 4.9.4).
+ * @param zoomLevel 현재 줌 배율 (AbsolutePointingPad 전용, Phase 4.9.6). 기본값: 1f(해제)
+ * @param zoomArming ZoomButton 탭 후 패드 터치 대기 상태 (AbsolutePointingPad 전용, Phase 4.9.6).
+ *   true면 아직 줌 레벨은 1x이지만 버튼은 ON(풀사이즈 모드) 표시로 즉시 전환한다(다른 제어 버튼과
+ *   동일하게 탭 즉시 시각 피드백을 주기 위함). 기본값: false
+ * @param onZoomClick ZoomButton 탭 콜백 (AbsolutePointingPad 전용, Phase 4.9.6). null이면 Disabled 표시.
  * @param modifier 외부 Modifier
  */
 @Composable
@@ -142,6 +147,9 @@ fun ControlButtonContainer(
     onCursorModeLongPress: (() -> Unit)? = null,
     config: ControlButtonConfig = ControlButtonConfig(),
     baseColor: Color = ColorBlue,
+    zoomLevel: Float = 1f,
+    zoomArming: Boolean = false,
+    onZoomClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
@@ -378,17 +386,27 @@ fun ControlButtonContainer(
                 }
 
                 // 6. ZoomButton 슬롯 (AbsolutePointingPad 전용, DPI 슬롯과 동일 위치 개념)
-                // Phase 4.9.1: 기능 미구현 — Disabled 상태로만 표시(4.9.6에서 활성화)
+                // Phase 4.9.6: 줌 진입/해제 토글 활성화. 목적지 미리보기 컨벤션(ClickMode/DragMode와 동일):
+                // OFF(1x)일 때 활성화 목적지를 주황("줌\n모드")으로, ON(>1x)일 때 해제 목적지("풀사이즈\n모드",
+                // ic_fullscreen)를 baseColor로 표시. 정확한 배율 수치는 PointingArea 우상단 오버레이가
+                // 실시간으로 보여주므로 버튼은 다른 제어 버튼과 동일하게 "목적지 모드 이름"만 표시한다.
+                // ⚠️ 실기기 확인(2026-07-10): OFF 라벨을 1줄("줌")로 두면 Text 높이가 짧아져 하단
+                // Spacer(weight)가 커지고 아이콘이 다른 2줄 라벨 버튼보다 아래로 밀려 보임(Phase 4.9.4
+                // DragModeButton과 동일 이슈) → 2줄로 통일.
+                // ⚠️ 실기기 확인(2026-07-10): zoomLevel(>1f)만으로 판정하면 ZoomButton 탭 직후(arming,
+                // 아직 패드 미터치) 버튼 자체는 그대로라 "모드는 켜지는데 버튼이 안 바뀐다"는 혼동이
+                // 있었다. 다른 제어 버튼처럼 탭 즉시 피드백을 주기 위해 zoomArming도 ON 판정에 포함.
                 if (config.showZoom) {
                     Box(modifier = Modifier.size(buttonWidth, controlHeight)) {
+                        val zoomActive = zoomLevel > 1f || zoomArming
                         ControlButton(
-                            text = "줌",
-                            iconResId = R.drawable.ic_zoom,
-                            backgroundColor = baseColor,
+                            text = if (zoomActive) "풀사이즈\n모드" else "줌\n모드",
+                            iconResId = if (zoomActive) R.drawable.ic_fullscreen else R.drawable.ic_zoom,
+                            backgroundColor = if (zoomActive) baseColor else TouchpadColorZoom,
                             buttonWidth = buttonWidth,
                             buttonHeight = buttonHeight,
-                            enabled = false,
-                            onClick = {}
+                            enabled = onZoomClick != null,
+                            onClick = { onZoomClick?.invoke() }
                         )
                     }
                 }

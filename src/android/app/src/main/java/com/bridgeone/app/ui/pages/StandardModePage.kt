@@ -82,6 +82,7 @@ import com.bridgeone.app.ui.components.touchpad.PadModeState
 import com.bridgeone.app.ui.components.touchpad.PageNav
 import com.bridgeone.app.ui.components.touchpad.ScrollMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
+import com.bridgeone.app.ui.utils.AbsoluteZoomState
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.ui.pages.standard.Page1TouchpadActions
 import com.bridgeone.app.ui.pages.standard.Page2MultiCursorTouchpad
@@ -376,6 +377,10 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
     LaunchedEffect(page3Assignment) {
         assignmentRepo.save(TouchpadIds.standardPage(2), page3Assignment)
     }
+
+    // Phase 4.9.6: 줌 레벨/중심점. 페이저 바깥에서 hoisting해 페이지 전환에도 유지(SharedPreferences
+    // 영속화는 하지 않음 — 앱 재시작 시 1x로 리셋).
+    var page3ZoomState by remember { mutableStateOf(AbsoluteZoomState()) }
 
     // Phase 4.8.9: Page 2 멀티 커서 패드별 엣지 존 할당 (패드 인덱스 0~3, 항상 최대치 보유)
     // 패드 0·1은 그리드 어떤 개수든 항상 상단 행이라 제어 버튼과 겹치므로 TOP 기본값을 비운다.
@@ -713,7 +718,9 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onSendMacro = onSendMacro,
                         onMouseHoldToggle = onMouseHoldToggle,
                         onCyclePage = onCyclePage,
-                        onJumpToPage = onJumpToPage
+                        onJumpToPage = onJumpToPage,
+                        zoomState = page3ZoomState,
+                        onZoomStateChange = { page3ZoomState = it }
                     )
                     3 -> Page3KeyboardPlaceholder()
                     4 -> Page4MinecraftPlaceholder()

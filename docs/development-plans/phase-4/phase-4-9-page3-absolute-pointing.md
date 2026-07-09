@@ -366,9 +366,68 @@ Page 3 — AbsolutePointingPad
 6. **시각 피드백**: 테두리 주황색(`#FF9800`), 줌 레벨 텍스트(PointingArea 우상단)
 7. **상태 보존**: 페이지 전환 시 줌 레벨/중심점 유지
 
-**수정 파일**:
-- `ui/components/AbsolutePointingPad.kt`
-- `ui/utils/AbsoluteCoordinateCalculator.kt` (줌 매핑 범위 계산 추가)
+**개발 기간**: 완료 (2026-07-10)
+
+**실제 구현 파일**:
+- `ui/utils/AbsolutePointingConstants.kt` — 줌 상수 추가(`ZOOM_LEVEL_MIN/MAX`, `ZOOM_DRAG_DP_2X/4X/8X`, `ZOOM_LEVEL_TEXT_SIZE_SP`, `ZOOM_LEVEL_TEXT_PADDING_DP`)
+- `ui/utils/AbsoluteCoordinateCalculator.kt` — `data class AbsoluteZoomState(level, centerX, centerY)`(신규, `isActive` 프로퍼티 포함), `dragDistanceToZoomLevel(dp)`(구간별 선형 보간), `applyZoom(ratio, zoom)`(축 독립 재매핑, 경계 클램핑) 추가
+- `ui/components/touchpad/TouchpadColors.kt` — `TouchpadColorZoom = Color(0xFFFF9800)` 추가(기존 `TouchpadColorOrange` #FF8A00, 직각이동용과는 별개 색상)
+- `ui/components/touchpad/ControlButtonContainer.kt` — `zoomLevel: Float = 1f`, `onZoomClick: (() -> Unit)? = null` 파라미터 추가. ZoomButton 슬롯을 Disabled 스텁에서 활성화(DragModeButton과 동일한 목적지 미리보기 패턴): OFF(1x)일 때 주황 + "줌\n모드"(`ic_zoom`), ON(>1x)일 때 `baseColor` + "풀사이즈\n모드"(`ic_fullscreen`, 신규 아이콘)
+- `res/drawable/ic_fullscreen.xml`(신규) — 줌 ON 상태 목적지("풀사이즈 모드") 아이콘. 모서리 4방향 확장 화살표(Material "fullscreen" 스타일), `ic_zoom.xml`/`ic_move_mode.xml`과 동일한 24dp 벡터 컨벤션
+
+> **⚠️ 실기기 확인 후 텍스트/아이콘 조정(2026-07-10, 유저 확정)**:
+> 1. 초기 구현은 OFF 라벨을 1줄("줌")로 뒀으나, `ControlButton` 내부는 `Text`(실제 줄 수만큼만 높이
+>    차지) + `Spacer(weight=1f)` + `Icon` 순서 Column이라, 1줄 라벨은 Spacer가 커져 아이콘이 다른 2줄
+>    라벨 버튼(우클릭 모드/드래그 모드)보다 아래로 밀려 보이는 문제가 있었다(Phase 4.9.4 DragModeButton
+>    초기 구현과 동일 이슈, §288 참조). OFF 라벨을 "줌\n모드"(2줄)로 통일해 해결.
+> 2. ON 상태 라벨을 설계 문서 §4.5.6(배율 배지 "2x")이 아닌 **목적지 모드 이름**으로 확정. 처음
+>    "전체화면"(§4.5.1 "패드 = PC 전체 화면" 표현과 일치)을 제안했으나, 다른 제어 버튼이 전부 "~모드"
+>    접미사를 쓰는 것과 통일하기 위해 최종 "풀사이즈 모드"로 확정(유저 선택). 정확한 배율 수치는 이미
+>    `AbsolutePointingPad.kt`의 PointingArea 우상단 오버레이가 실시간으로 표시하므로, 버튼 자체는 다른
+>    제어 버튼(우클릭 모드/드래그 모드)과 동일하게 "탭하면 갈 목적지 모드 이름"만 표시하는 것으로
+>    일관성을 맞췄다. 아이콘도 목적지에 맞춰 `ic_fullscreen.xml`(신규)로 분리(DragModeButton의
+>    `ic_move_mode.xml` 선례와 동일 패턴).
+- `ui/components/AbsolutePointingPad.kt` — `zoomState: AbsoluteZoomState`, `onZoomStateChange` 파라미터 추가(hoisted). 로컬 트랜지언트 `zoomArming`(ZoomButton 탭 후 패드 터치 대기 상태). `PointingArea`의 DOWN/MOVE/UP 세 지점에 줌 정의 모드(`zoomDefining`) 배선 — DOWN 시 arming이면 중심점 기록·좌표 전송 억제(엣지 후보면 엣지존이 우선이라 줌 진입 안 함), MOVE 시 드래그 거리→레벨 실시간 갱신, UP 시 확정(arming 해제). 좌표 전송 6개 호출부를 로컬 헬퍼 `sendZoomed(ratio, buttons)`(줌 매핑 적용 후 전송)로 교체. `borderColor`/`bumpColor` when 체인을 설계 §4.5.7 우선순위(드래그 초록 > 우클릭 노랑 > 줌 주황 > 기본 핑크)로 확장. PointingArea 우상단에 줌 레벨 텍스트 오버레이 추가(`zoomState.isActive`일 때만 표시)
+
+> **⚠️ 실기기 확인 후 피드백 추가(2026-07-10)**: ZoomButton을 눌러도 "모드가 안 바뀐다"는 문제 발견 —
+> 원인은 로직 버그가 아니라 시각 피드백 누락. `zoomArming`이 true가 돼도(패드 터치 대기 상태)
+> `borderColor`/`bumpColor`는 `zoomState.isActive`만 봐서 실제로 패드를 터치·드래그하기 전까지는
+> 화면에 아무 변화가 없었다. 두 when 체인의 줌 분기 조건을 `zoomState.isActive || zoomArming`으로
+> 확장해, 버튼을 누르는 즉시 테두리가 주황으로 바뀌어 "줌 대기 중"임을 알 수 있게 했다.
+>
+> **⚠️ 후속 실기기 확인(2026-07-10)**: 테두리는 바뀌는데 "제어 버튼 자체가 안 바뀐다"는 재확인 —
+> `ControlButtonContainer.kt`의 ZoomButton 슬롯은 `zoomLevel > 1f`만으로 ON/OFF를 판정해서, arming
+> 상태(탭 직후, 아직 패드 미터치)에서는 버튼 배경/라벨이 그대로였다. 다른 제어 버튼(드래그 모드 등)은
+> 탭 즉시 버튼 자체가 바뀌는 것과 대비돼 혼동을 줬다. `ControlButtonContainer`에 `zoomArming: Boolean
+> = false` 파라미터를 추가하고 `zoomActive = zoomLevel > 1f || zoomArming`으로 판정을 통일(`onZoomClick`
+> 토글 로직이 이미 `isActive || arming`을 하나로 취급하는 것과 대칭). `AbsolutePointingPad.kt`의
+> `ControlButtonContainer` 호출부에 `zoomArming = zoomArming` 전달.
+- `ui/pages/standard/Page3AbsolutePointing.kt` / `ui/pages/StandardModePage.kt` — `zoomState`/`onZoomStateChange` 관통 배선. `page3Assignment`와 동일하게 페이저 바깥 `remember`로 hoisting(`page3ZoomState`). **SharedPreferences 영속화는 하지 않음** — 페이지 전환에만 유지, 앱 재시작 시 1x로 리셋(인메모리, 유저 미확정 사항이라 최소 범위로 구현)
+- `app/src/test/.../AbsoluteCoordinateCalculatorTest.kt` — `dragDistanceToZoomLevel`/`applyZoom`/`AbsoluteZoomState.isActive` 단위테스트 추가
+
+> **⚠️ 확정 흐름 변경(2026-07-10, 유저 확정)**: 원래 설계(§4.5.2, §361)는 "드래그 유지 → 손 떼기 →
+> 즉시 확정"이었으나, 손 떼는 타이밍을 정밀 제어하기 어려운 근육장애 사용자 접근성을 고려해 **"드래그로
+> 정의 → 손 떼면 확정 대기 → 별도의 원탭으로 확정"** 2단계 흐름으로 변경. `AbsolutePointingPad.kt`에
+> `zoomAwaitingConfirm: Boolean`(hoisted, `zoomArming`과 함께 존재) 신규 추가:
+> - 1번째 터치(정의 드래그): DOWN에서 중심점 기록, MOVE에서 드래그 거리→레벨 실시간 갱신(기존과 동일),
+>   UP에서는 더 이상 즉시 확정하지 않고 `zoomAwaitingConfirm = true`로 전환(arming은 유지, 레벨/중심은
+>   그 시점 값으로 고정)
+> - 2번째 이후 터치(확정 대기 중 재터치): `zoomArming && zoomAwaitingConfirm`일 때 새 DOWN은
+>   `zoomAdjusting`(제스처 로컬)으로만 표시하고 좌표/커서 전송을 억제, 기존 확정 후보 레벨은 유지.
+>   MOVE에서 이동 거리가 `CLICK_MAX_MOVEMENT_DP`를 넘으면 즉시 `zoomDefining`으로 전환해 재정의 드래그로
+>   취급(이 터치의 DOWN 위치를 새 중심점으로, 레벨을 처음부터 다시 계산 — **확정 전에는 몇 번이든
+>   다시 드래그해서 조절 가능**, 유저 확정 2026-07-10). 반대로 임계값을 넘지 못한 채 UP에 도달하면
+>   탭으로 판정(`isTapGesture`, 기존 클릭 판정 재사용)해 그 시점의 후보 레벨을 그대로 확정
+>   (`zoomArming = false`, `zoomAwaitingConfirm = false`). 탭도 재정의 드래그도 아니면(짧은 이동 없는
+>   롱프레스 등) 무시하고 대기 상태 유지
+> - ZoomButton 재탭으로 인한 취소(`onZoomClick`)는 arming/확정 대기 여부와 무관하게 항상 전체 리셋
+> - 줌 레벨 텍스트: `zoomArming`이 true인 동안(정의 중 + 확정 대기 중 전부)은 화면 정가운데 큰 글씨
+>   (`ZOOM_LEVEL_CENTER_TEXT_SIZE_SP=48sp`)로 표시, 확정 대기 중에는 그 아래 "탭하여 확정" 안내 문구
+>   추가. 확정 완료 후(정상 사용 중, `zoomState.isActive && !zoomArming`)에는 기존 설계(§4.5.4)대로
+>   우상단 작은 텍스트(`ZOOM_LEVEL_TEXT_SIZE_SP=14f`)로 전환
+> - `AbsolutePointingConstants.kt`에 `ZOOM_LEVEL_CENTER_TEXT_SIZE_SP`, `ZOOM_CONFIRM_HINT_TEXT_SIZE_SP` 추가
+
+> **⚠️ 색상 우선순위 정정**: 이 섹션 상단(§281, Phase 4.9.4 기록)에는 "줌을 최상위 우선순위로 끼워 넣는다"는 모호한 표현이 있었으나, 설계 문서(`component-design-guide-app.md` §4.5.7)가 정확한 순서를 명시한다 — **드래그 ON(초록) > 우클릭(노랑) > 줌 활성(주황) > 기본 좌클릭(핑크)**. 구현은 설계 문서 기준을 따랐다.
 
 > **⚠️ Phase 4.9.4 변경사항**: `ControlButtonContainer`에 `baseColor: Color = ColorBlue` 파라미터가 추가됐고, `AbsolutePointingPad.kt`는 `baseColor = TouchpadColorRed`를 전달한다(절대좌표 패드 고유 팔레트 통일). `ZoomButton` 슬롯은 이미 `backgroundColor = baseColor`로 배선되어 있으니(Disabled 스텁 상태) 활성화 시 그대로 재사용하면 된다. 또한 이 앱의 제어 버튼은 "지금 누르면 전환될 목적지 모드"를 라벨/색으로 미리보기하는 컨벤션(`ClickModeButton`/`DragModeButton` 선례)을 따른다 — ZoomButton도 OFF(1x) 상태에서는 진입 목적지를 암시하는 라벨/색(예: 주황 계열 배지 예고)을, ON(줌 활성) 상태에서는 해제(복귀) 목적지를 `baseColor`(빨강)로 보여주는 방향으로 설계할 것. 테두리는 버튼과 반대로 "현재 상태"를 표시(클릭모드 보더와 동일 원칙)하므로 혼동 주의.
 
@@ -376,11 +435,13 @@ Page 3 — AbsolutePointingPad
 - `docs/android/component-design-guide-app.md` §4.5 (줌 기능, Region Zoom)
 
 **검증**:
-- [ ] ZoomButton 탭 → 줌 모드 진입
-- [ ] 드래그 거리에 비례한 줌 레벨 증가
-- [ ] 줌 상태에서 포인팅 정밀도 향상 확인
-- [ ] 줌 해제 (1x 복귀)
-- [ ] 테두리 주황색 전환, 줌 레벨 텍스트 표시
+- [x] ZoomButton 탭 → 줌 모드 진입(arming), 재탭/줌 활성 중 재탭 → 1x 해제(코드 배선 완료)
+- [x] 드래그 거리에 비례한 줌 레벨 증가(`dragDistanceToZoomLevel` 단위테스트 검증)
+- [x] 줌 상태 좌표 변환(`applyZoom` 단위테스트 검증, 경계 클램핑 포함)
+- [x] 줌 해제 (1x 복귀) 코드 배선 완료
+- [x] 테두리 주황색 전환, 줌 레벨 텍스트 표시 코드 배선 완료
+- [x] 빌드 성공(`assembleDebug` 컴파일 에러 없음, 신규 경고 없음)
+- [ ] 실기기: 줌 진입/드래그/확정/해제 실동작, 포인팅 정밀도 향상 체감, 페이지 전환 후 줌 유지, 엣지존 회귀 없음 확인 필요
 
 ---
 
@@ -399,6 +460,8 @@ Page 3 — AbsolutePointingPad
 **수정 파일**:
 - `ui/components/AbsolutePointingPad.kt` (줌 상태 변경 시 전송 트리거)
 - `protocol/FrameBuilder.kt` (줌 상태 커스텀 명령 생성, `target_monitor` 필드 포함)
+
+> **⚠️ Phase 4.9.6 변경사항**: 줌 상태의 소스는 `AbsoluteZoomState`(`ui/utils/AbsoluteCoordinateCalculator.kt` 신규, `level`/`centerX`/`centerY`)이며 `StandardModePage.kt`의 `page3ZoomState`(페이저 바깥 hoisted, SharedPreferences 미영속화)에 보관된다. `AbsolutePointingPad.kt`의 `PointingArea` 내부 `zoomDefining` 제스처 블록에서 `onZoomStateChange` 호출 시점이 곧 "드래그 중 실시간 갱신"이고, UP 시 확정(`onZoomArmingChange(false)`)이 "줌 확정 1회" 트리거다. 해제는 ZoomButton `onZoomClick`에서 `onZoomStateChange(AbsoluteZoomState())`(level=1) 호출 시점. `min_x/min_y/max_x/max_y` payload 필드는 `AbsoluteZoomState`에 직접 없으므로 `applyZoom`과 동일한 윈도우 계산식(`windowSize = 1/level`, `center ± windowSize/2` 클램핑)을 전송 직전에 적용해 산출해야 한다.
 
 **참조 문서**:
 - `docs/technical-specification.md` §2.4.6.1.2 (줌 상태 Vendor CDC 메시지, JSON payload 스펙, `target_monitor` 필드 추가됨)
@@ -458,6 +521,13 @@ Page 3 — AbsolutePointingPad
 **목표**: 클릭모드/드래그모드/줌이 동시에 활성화됐을 때 PointingArea 테두리를 단색이 아닌 그라디언트로 표시해 상태 조합을 시각적으로 구분
 
 **선행 조건**: Phase 4.9.6(줌) 완료 — 그라디언트에 들어갈 마지막 색상(주황)이 이 시점에 확정됨
+
+> **⚠️ Phase 4.9.6 변경사항**: `borderColor`/`bumpColor` when 체인이 4분기로 확정됐다 —
+> `dragMode(초록) > clickMode==RIGHT_CLICK(노랑) > zoomState.isActive(주황, TouchpadColorZoom) > else(핑크)`.
+> 색상 우선순위는 설계 §4.5.7을 그대로 채택(이전 §469 기록의 "dragMode > clickMode" 표현은 줌 분기가 그
+> 사이에 끼워진 것으로 갱신 필요). 그라디언트 교체 시 이 4색이 stop 후보이며, 판정 소스는
+> `localState.dragMode`(Boolean), `clickMode == ClickMode.RIGHT_CLICK`(Boolean), `zoomState.isActive`
+> (Boolean, `AbsoluteZoomState`) 세 개의 독립 불리언 조합이다.
 
 **세부 목표**:
 1. 기존 우선순위 단색 로직(`AbsolutePointingPad.kt`의 `borderColor`/`bumpColor` when 체인, 4.9.4/4.9.6에서 누적)을 다중 색상 그라디언트로 교체

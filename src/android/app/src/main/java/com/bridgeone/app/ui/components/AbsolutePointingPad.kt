@@ -12,11 +12,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -40,7 +42,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignment
 import com.bridgeone.app.ui.common.loadTargetMonitor
@@ -64,6 +68,7 @@ import com.bridgeone.app.ui.components.touchpad.TouchpadColorGreen
 import com.bridgeone.app.ui.components.touchpad.TouchpadColorPink
 import com.bridgeone.app.ui.components.touchpad.TouchpadColorRed
 import com.bridgeone.app.ui.components.touchpad.TouchpadColorYellow
+import com.bridgeone.app.ui.components.touchpad.TouchpadColorZoom
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.components.touchpad.detectEntryEdge
 import com.bridgeone.app.ui.components.touchpad.filterConfigForAbsolutePad
@@ -74,6 +79,7 @@ import com.bridgeone.app.protocol.FrameBuilder
 import com.bridgeone.app.usb.UsbSerialManager
 import com.bridgeone.app.ui.utils.AbsoluteCoordinateCalculator
 import com.bridgeone.app.ui.utils.AbsolutePointingConstants
+import com.bridgeone.app.ui.utils.AbsoluteZoomState
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.ui.utils.TouchRatio
 import com.bridgeone.app.ui.utils.resolveTargetMonitor
@@ -117,6 +123,9 @@ private fun EdgeZoneTrigger.resolveAction(): EdgeZoneAction? = when (this) {
  * @param onEdgeZoneAssignmentChange 존 할당 변경 콜백(편집 UI는 4.9.9, 현재는 시그니처만 배선).
  * @param onRestorePrevious/onSendShortcut/onSendMacro/onMouseHoldToggle/onCyclePage/onJumpToPage
  *        엣지존 부수효과형 액션 콜백. Page 1이 쓰는 StandardModePage의 기존 콜백을 그대로 재사용.
+ * @param zoomState 줌 레벨/중심점 (Phase 4.9.6). 페이지 전환에도 유지되어야 하므로 호출측
+ *        (StandardModePage, 페이저 바깥)에서 hoisting해 전달한다.
+ * @param onZoomStateChange 줌 상태 변경 콜백.
  */
 @Composable
 fun AbsolutePointingPad(
@@ -128,11 +137,22 @@ fun AbsolutePointingPad(
     onSendMacro: (List<MacroStep>, Int) -> Unit = { _, _ -> },
     onMouseHoldToggle: (MouseButton, MouseHoldMode) -> Unit = { _, _ -> },
     onCyclePage: (PageNav) -> Unit = {},
-    onJumpToPage: (Int) -> Unit = {}
+    onJumpToPage: (Int) -> Unit = {},
+    zoomState: AbsoluteZoomState = AbsoluteZoomState(),
+    onZoomStateChange: (AbsoluteZoomState) -> Unit = {}
 ) {
     // 클릭 모드는 Page 1/2의 pageState.touchpadState와 공유하지 않는 페이지 로컬 상태.
     // ControlButtonContainer가 요구하는 TouchpadState 타입을 재사용하되 clickMode 외 필드는 미사용.
     var localState by remember { mutableStateOf(TouchpadState()) }
+
+    // ── 줌 arming 상태 (Phase 4.9.6) ──
+    // ZoomButton 탭으로 진입하는 "줌 모드 대기" 상태. 제스처 스코프 트랜지언트라 페이지 전환 시
+    // 리셋되어도 무방(zoomState의 레벨/중심점만 hoisted로 유지하면 됨).
+    var zoomArming by remember { mutableStateOf(false) }
+
+    // 줌 정의 드래그가 끝나고(손을 뗀 뒤) 별도의 탭으로 확정하기를 기다리는 상태(Phase 4.9.6,
+    // 유저 확정: 손 떼는 즉시 확정 대신 확정용 탭을 한 번 더 요구). zoomArming이 true인 동안만 의미 있다.
+    var zoomAwaitingConfirm by remember { mutableStateOf(false) }
 
     // ── 모니터 셀렉터 상태 (Phase 4.9.5) ──
     // targetMonitor: 0x00=전체 가상 데스크톱, 0x01~N=특정 모니터 인덱스. UByte 프레임 규약과 동일한 Int로 다룬다.
@@ -227,6 +247,12 @@ fun AbsolutePointingPad(
                 onCyclePage = onCyclePage,
                 onJumpToPage = onJumpToPage,
                 targetMonitor = targetMonitor.toUByte(),
+                zoomState = zoomState,
+                zoomArming = zoomArming,
+                zoomAwaitingConfirm = zoomAwaitingConfirm,
+                onZoomStateChange = onZoomStateChange,
+                onZoomArmingChange = { zoomArming = it },
+                onZoomAwaitingConfirmChange = { zoomAwaitingConfirm = it },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -237,10 +263,13 @@ fun AbsolutePointingPad(
             }
             val effectiveBumpInward = if (isBumpShrinking.value) bumpShrinkAnimatable.value else lastBumpInwardPx.value
             if (effectiveBumpEdge != null && effectiveBumpInward > 0f) {
+                // 색상 우선순위 (설계 component-design-guide-app.md §4.5.7):
+                // 드래그 ON(초록) > 우클릭(노랑) > 줌 활성(주황, Phase 4.9.6) > 기본 좌클릭(핑크)
                 val bumpColor = when {
                     localState.dragMode -> TouchpadColorGreen
-                    localState.clickMode == ClickMode.LEFT_CLICK -> TouchpadColorPink
-                    else -> TouchpadColorYellow
+                    localState.clickMode == ClickMode.RIGHT_CLICK -> TouchpadColorYellow
+                    zoomState.isActive || zoomArming -> TouchpadColorZoom
+                    else -> TouchpadColorPink
                 }
                 EdgeBumpOverlay(
                     entryEdge = effectiveBumpEdge,
@@ -294,6 +323,19 @@ fun AbsolutePointingPad(
                     showDrag = true
                 ),
                 baseColor = TouchpadColorRed,
+                zoomLevel = zoomState.level,
+                zoomArming = zoomArming,
+                onZoomClick = {
+                    if (zoomState.isActive || zoomArming) {
+                        // 줌 활성 중 재탭 → 즉시 1x 해제. arming/확정 대기 중(패드 탭 확정 전) 재탭 → 전부 취소.
+                        onZoomStateChange(AbsoluteZoomState())
+                        zoomArming = false
+                        zoomAwaitingConfirm = false
+                    } else {
+                        zoomArming = true
+                        zoomAwaitingConfirm = false
+                    }
+                },
                 modifier = Modifier.weight(1f)
             )
 
@@ -358,15 +400,24 @@ private fun PointingArea(
     onCyclePage: (PageNav) -> Unit,
     onJumpToPage: (Int) -> Unit,
     targetMonitor: UByte,
+    zoomState: AbsoluteZoomState,
+    zoomArming: Boolean,
+    zoomAwaitingConfirm: Boolean,
+    onZoomStateChange: (AbsoluteZoomState) -> Unit,
+    onZoomArmingChange: (Boolean) -> Unit,
+    onZoomAwaitingConfirmChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val view = LocalView.current
     // pointerInput은 clickMode/filteredConfig/localState.dragMode 변경 시에만 재시작되므로,
-    // targetMonitor(모니터 셀렉터 선택값) 변경을 실행 중인 제스처 루프에서도 즉시 반영하려면
+    // targetMonitor(모니터 셀렉터 선택값)·줌 상태 변경을 실행 중인 제스처 루프에서도 즉시 반영하려면
     // rememberUpdatedState로 최신값을 캡처해야 한다.
     val currentTargetMonitor by rememberUpdatedState(targetMonitor)
+    val currentZoomState by rememberUpdatedState(zoomState)
+    val currentZoomArming by rememberUpdatedState(zoomArming)
+    val currentZoomAwaitingConfirm by rememberUpdatedState(zoomAwaitingConfirm)
 
     var touchActive by remember { mutableStateOf(false) }
     var indicatorPosition by remember { mutableStateOf(Offset.Zero) }
@@ -379,10 +430,15 @@ private fun PointingArea(
         label = "coordinateIndicatorAlpha"
     )
 
+    // 색상 우선순위 (설계 component-design-guide-app.md §4.5.7):
+    // 드래그 ON(초록) > 우클릭(노랑) > 줌 활성/대기(주황, Phase 4.9.6) > 기본 좌클릭(핑크)
+    // zoomArming(ZoomButton 탭 후 패드 터치 대기 상태)도 주황으로 표시해야 버튼을 눌렀을 때
+    // 즉시 시각 피드백이 생긴다(그렇지 않으면 "눌러도 아무 변화 없음"으로 보임).
     val borderColor = when {
         localState.dragMode -> TouchpadColorGreen
-        clickMode == ClickMode.LEFT_CLICK -> TouchpadColorPink
-        else -> TouchpadColorYellow
+        clickMode == ClickMode.RIGHT_CLICK -> TouchpadColorYellow
+        zoomState.isActive || zoomArming -> TouchpadColorZoom
+        else -> TouchpadColorPink
     }
 
     Box(
@@ -414,6 +470,39 @@ private fun PointingArea(
                     // 제스처 스코프 트랜지언트 — heldMouseButtons(영구 홀드)와 무관.
                     var dragPressed = false
 
+                    // 줌 정의 모드(Phase 4.9.6): ZoomButton arming 상태에서 시작한 이번 제스처가
+                    // 줌 중심점 드래그로 인식됐는지. 제스처 스코프 트랜지언트.
+                    var zoomDefining = false
+                    var zoomCenterRatio = lastRatio
+
+                    // 줌 확정 대기 중(zoomAwaitingConfirm) 발생한 이번 제스처가 "탭(확정)"인지
+                    // "드래그(재정의)"인지 아직 판가름나지 않은 상태. 이동 거리가 CLICK_MAX_MOVEMENT_DP를
+                    // 넘는 순간 zoomDefining으로 전환(재정의)되고, 넘지 않은 채 손을 떼면 탭으로 판정해
+                    // 확정한다. 제스처 스코프 트랜지언트.
+                    var zoomAdjusting = false
+                    var zoomAdjustCenterCandidate = lastRatio
+
+                    // 줌 매핑을 적용해 좌표를 전송하는 헬퍼. zoomState가 비활성(1x)이면 항등 매핑.
+                    fun sendZoomed(ratio: TouchRatio, buttons: UByte = 0x00u) {
+                        val zoomed = AbsoluteCoordinateCalculator.applyZoom(ratio, currentZoomState)
+                        sendAbsolutePosition(zoomed, buttons, currentTargetMonitor)
+                    }
+
+                    // 이번 제스처의 DOWN 위치 대비 드래그 거리(dp) → 줌 레벨로 변환해 실시간 반영.
+                    // 최초 정의(zoomDefining)와 확정 대기 중 재정의(zoomAdjusting→zoomDefining 전환) 양쪽에서 재사용.
+                    fun updateZoomLevelFromDrag(pos: Offset) {
+                        val dragDistancePx = (pos - downPosition).getDistance()
+                        val dragDistanceDp = with(density) { dragDistancePx.toDp().value }
+                        val newLevel = AbsoluteCoordinateCalculator.dragDistanceToZoomLevel(dragDistanceDp)
+                        onZoomStateChange(
+                            AbsoluteZoomState(
+                                level = newLevel,
+                                centerX = zoomCenterRatio.x,
+                                centerY = zoomCenterRatio.y
+                            )
+                        )
+                    }
+
                     // ── 존 단위 gate: 화이트리스트 통과 존이 있는 위치에서 시작했을 때만 엣지 후보 ──
                     val detectedEdge = detectEntryEdge(downPosition, areaWidth, areaHeight, edgeHitWidthPx, filteredConfig.cornerPriority)
                     val gateZone = if (detectedEdge != null && detectedEdge != EntryEdge.TOP) {
@@ -439,10 +528,28 @@ private fun PointingArea(
                     } else {
                         isEdgeCandidate.value = false
                         entryEdge.value = null
-                        touchActive = true
-                        indicatorPosition = downPosition
-                        if (localState.dragMode) dragPressed = true
-                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u, currentTargetMonitor)
+                        if (currentZoomArming && currentZoomAwaitingConfirm) {
+                            // ── 확정 대기 중 추가 터치: 탭(확정)인지 드래그(재정의)인지 MOVE에서 판가름.
+                            // 판가름 전까지는 기존 확정 후보 레벨을 건드리지 않는다(zoomState는 그대로 유지).
+                            zoomAdjusting = true
+                            zoomAdjustCenterCandidate = lastRatio
+                        } else if (currentZoomArming) {
+                            // ── 줌 정의 모드 시작: DOWN 위치를 중심점으로, 좌표 전송은 억제 ──
+                            zoomDefining = true
+                            zoomCenterRatio = lastRatio
+                            onZoomStateChange(
+                                AbsoluteZoomState(
+                                    level = AbsolutePointingConstants.ZOOM_LEVEL_MIN,
+                                    centerX = zoomCenterRatio.x,
+                                    centerY = zoomCenterRatio.y
+                                )
+                            )
+                        } else {
+                            touchActive = true
+                            indicatorPosition = downPosition
+                            if (localState.dragMode) dragPressed = true
+                            sendZoomed(lastRatio, if (dragPressed) 0x01u else 0x00u)
+                        }
                     }
 
                     while (true) {
@@ -457,9 +564,23 @@ private fun PointingArea(
                             val isTapGesture = pressDuration <= AbsolutePointingConstants.CLICK_MAX_DURATION_MS &&
                                 movementDp <= AbsolutePointingConstants.CLICK_MAX_MOVEMENT_DP
 
-                            if (dragPressed) {
+                            if (zoomDefining) {
+                                // ── 줌 정의 드래그 종료: 레벨/중심점은 이 시점 값으로 고정, 확정은
+                                // 아직 안 됨 — arming 유지한 채 "확정 대기"로 전환(유저 확정: 손 떼는
+                                // 즉시 확정 대신 별도 탭을 한 번 더 요구) ──
+                                zoomDefining = false
+                                onZoomAwaitingConfirmChange(true)
+                            } else if (zoomAdjusting) {
+                                // ── 확정 대기 중 재터치가 끝까지 드래그로 전환되지 않음 → 탭 판정.
+                                // 탭이면 확정(arming 해제), 아니면(짧은 이동 없는 롱프레스 등) 무시하고 대기 유지 ──
+                                if (isTapGesture) {
+                                    onZoomArmingChange(false)
+                                    onZoomAwaitingConfirmChange(false)
+                                }
+                                zoomAdjusting = false
+                            } else if (dragPressed) {
                                 // ── 드래그 앤 드롭 모드: release 프레임 1회 전송(drop) — 클릭 판정과 상호배타 ──
-                                sendAbsolutePosition(lastRatio, 0x00u, currentTargetMonitor)
+                                sendZoomed(lastRatio, 0x00u)
                                 dragPressed = false
                             } else if (isZoneArmed.value) {
                                 // ── armed 상태에서 손 뗌 → 엣지 액션 실행 ──
@@ -491,7 +612,7 @@ private fun PointingArea(
                             } else if (isTapGesture) {
                                 // ── 엣지 띠 탭이든 일반 탭이든 → 클릭. 엣지 후보였다면 DOWN 지점 좌표를 먼저 전송 ──
                                 if (isEdgeCandidate.value) {
-                                    sendAbsolutePosition(lastRatio, targetMonitor = currentTargetMonitor)
+                                    sendZoomed(lastRatio)
                                 }
                                 val buttons: UByte = if (clickMode == ClickMode.LEFT_CLICK) 0x01u.toUByte() else 0x02u.toUByte()
                                 ClickDetector.sendFrame(ClickDetector.createMouseButtonFrame(buttons))
@@ -511,7 +632,21 @@ private fun PointingArea(
 
                         if (change.positionChanged()) {
                             val pos = change.position
-                            if (isEdgeCandidate.value) {
+                            if (zoomDefining) {
+                                // ── 줌 정의 모드: 중심점 대비 드래그 거리(dp) → 줌 레벨 실시간 갱신 ──
+                                updateZoomLevelFromDrag(pos)
+                            } else if (zoomAdjusting) {
+                                // ── 확정 대기 중 재터치: 탭/드래그 아직 미판정. 이동 거리가 클릭 임계값을
+                                // 넘으면 재정의 드래그로 전환(기존 확정 후보를 이 시점부터 덮어씀) ──
+                                val movedPx = (pos - downPosition).getDistance()
+                                val movedDp = with(density) { movedPx.toDp().value }
+                                if (movedDp > AbsolutePointingConstants.CLICK_MAX_MOVEMENT_DP) {
+                                    zoomDefining = true
+                                    zoomAdjusting = false
+                                    zoomCenterRatio = zoomAdjustCenterCandidate
+                                    updateZoomLevelFromDrag(pos)
+                                }
+                            } else if (isEdgeCandidate.value) {
                                 val edge = entryEdge.value
                                 val curInward = getInwardDistance(pos, edge, areaWidth, areaHeight)
                                 val inwardMoved = curInward - edgeStartInwardPx
@@ -546,7 +681,7 @@ private fun PointingArea(
                                         indicatorPosition = pos
                                         lastRatio = AbsoluteCoordinateCalculator.calculateTouchRatio(pos.x, pos.y, areaWidth, areaHeight)
                                         if (localState.dragMode) dragPressed = true
-                                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u, currentTargetMonitor)
+                                        sendZoomed(lastRatio, if (dragPressed) 0x01u else 0x00u)
                                     }
                                     perpMoved >= triggerDistancePx && inwardDistancePx.value < bumpAppearThresholdPx -> {
                                         // 산봉우리 등장 전에 엣지 방향으로 충분히 이동 → 일반 포인팅으로 전환
@@ -556,7 +691,7 @@ private fun PointingArea(
                                         indicatorPosition = pos
                                         lastRatio = AbsoluteCoordinateCalculator.calculateTouchRatio(pos.x, pos.y, areaWidth, areaHeight)
                                         if (localState.dragMode) dragPressed = true
-                                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u, currentTargetMonitor)
+                                        sendZoomed(lastRatio, if (dragPressed) 0x01u else 0x00u)
                                     }
                                 }
                             } else {
@@ -564,7 +699,7 @@ private fun PointingArea(
                                 val ratio = AbsoluteCoordinateCalculator.calculateTouchRatio(pos.x, pos.y, areaWidth, areaHeight)
                                 if (AbsoluteCoordinateCalculator.shouldTransmit(ratio, lastRatio)) {
                                     lastRatio = ratio
-                                    sendAbsolutePosition(ratio, if (dragPressed) 0x01u else 0x00u, currentTargetMonitor)
+                                    sendZoomed(ratio, if (dragPressed) 0x01u else 0x00u)
                                 }
                             }
                             change.consume()
@@ -577,6 +712,40 @@ private fun PointingArea(
     ) {
         if (indicatorAlpha > 0f) {
             CoordinateIndicator(position = indicatorPosition, alpha = indicatorAlpha)
+        }
+        // 줌 레벨 텍스트 (Phase 4.9.6): 정의/확정 대기 중(zoomArming)은 화면 정가운데 크게(유저 확정,
+        // 원탭 확정 흐름에서 진행 상태를 명확히 보여주기 위함), 확정된 활성 줌(zoomState.isActive만,
+        // arming 아님)은 설계 §4.5.4대로 우상단에 작게 표시. 1x(둘 다 아님)에서는 미표시.
+        if (zoomArming) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.align(Alignment.Center)
+            ) {
+                Text(
+                    text = "${"%.1f".format(zoomState.level)}x",
+                    color = TouchpadColorZoom,
+                    fontSize = AbsolutePointingConstants.ZOOM_LEVEL_CENTER_TEXT_SIZE_SP.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                if (zoomAwaitingConfirm) {
+                    Text(
+                        text = "탭하여 확정",
+                        color = TouchpadColorZoom,
+                        fontSize = AbsolutePointingConstants.ZOOM_CONFIRM_HINT_TEXT_SIZE_SP.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        } else if (zoomState.isActive) {
+            Text(
+                text = "${"%.1f".format(zoomState.level)}x",
+                color = TouchpadColorZoom,
+                fontSize = AbsolutePointingConstants.ZOOM_LEVEL_TEXT_SIZE_SP.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(AbsolutePointingConstants.ZOOM_LEVEL_TEXT_PADDING_DP.dp)
+            )
         }
     }
 }
