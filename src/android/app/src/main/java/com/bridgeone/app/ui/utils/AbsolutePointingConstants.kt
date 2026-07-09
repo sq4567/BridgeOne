@@ -67,4 +67,7 @@ object AbsolutePointingConstants {
 
     /** 줌 확정 대기 중 안내 문구("탭하여 확정") 텍스트 크기 (sp) (Phase 4.9.6). 기본값: 16f */
     const val ZOOM_CONFIRM_HINT_TEXT_SIZE_SP: Float = 16f
+
+    /** 줌 상태 Vendor CDC 전송 스로틀 간격 (ms), 드래그 중 30Hz 상한 (Phase 4.9.7). 기본값: 33L */
+    const val ZOOM_STATE_THROTTLE_MS: Long = 33L
 }

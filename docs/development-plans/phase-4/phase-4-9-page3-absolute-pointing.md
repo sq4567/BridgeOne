@@ -449,30 +449,45 @@ Page 3 — AbsolutePointingPad
 
 **목표**: Android에서 줌 상태(zoom_level, 매핑 범위, targetMonitor)를 UART 커스텀 명령으로 ESP32에 전송하는 부분까지 구현. ESP32 중계 및 PC 오버레이는 범위 밖.
 
-**개발 기간**: 0.5일
+**개발 기간**: 완료 (2026-07-10)
 
 **세부 목표**:
 1. **Android → ESP32 줌 상태 전송**:
-   - 0xFF 커스텀 명령(`VCDC_CMD_ZOOM_STATE`)으로 UART 전송
-   - JSON payload: `zoom_level`, `min_x`, `min_y`, `max_x`, `max_y`, `target_monitor`(신규 필드)
-   - 전송 시점: 줌 확정 시 1회, 드래그 중 30Hz 스로틀, 해제 시 1회
+   - 0xFF 커스텀 명령(`VCDC_CMD_ZOOM_STATE = 0x30`)으로 UART 전송 ✅
+   - JSON payload: `zoom_level`, `min_x`, `min_y`, `max_x`, `max_y`, `target_monitor` ✅
+   - 전송 시점: 줌 확정 시 1회, 드래그 중 30Hz 스로틀, 해제 시 1회 ✅
 
-**수정 파일**:
-- `ui/components/AbsolutePointingPad.kt` (줌 상태 변경 시 전송 트리거)
-- `protocol/FrameBuilder.kt` (줌 상태 커스텀 명령 생성, `target_monitor` 필드 포함)
+> **⚠️ 구현 확정 사항(2026-07-10)**: 조사 결과 `UsbSerialManager`의 sender 스레드는 큐에서 꺼낸 `ByteArray`를 통짜 `port.write()`로 전송하며 8바이트 가정 로직이 전혀 없었다. 8바이트 제약은 진입 API(`sendCommandBytes`/`sendFrame`)의 `check`에만 있었으므로, 기존 API를 완화하는 대신 **신규 진입점 `UsbSerialManager.sendVendorCdcFrame(ByteArray)`를 추가**했다(같은 `frameQueue` 공유, 크기 상한만 `UsbConstants.VENDOR_CDC_MAX_FRAME_SIZE=454`로 검증). 이렇게 8바이트 델타/절대좌표 프레임의 안전장치(정확히 8바이트 강제)를 그대로 유지했다.
+>
+> **⚠️ 계획 문서와 다른 구현(빌더 위치)**: 아래 원래 "수정 파일" 목록은 `protocol/FrameBuilder.kt`에 줌 커스텀 명령 생성 로직을 넣는 것으로 계획했으나, `FrameBuilder`는 8바이트 바이너리+시퀀스 관리 전용이라 JSON/CRC 로직이 전혀 없었고, 프로젝트에는 이미 JSON 커맨드 페이로드를 `protocol/` 하위 독립 파일에 두는 선례(`protocol/MultiCursorCommand.kt`, org.json 사용)가 있어 유저 확정 하에 **신규 `protocol/ZoomStateCommand.kt`**로 구현했다. `FrameBuilder.kt`는 이 Phase에서 수정하지 않았다.
+>
+> CRC16-CCITT(다항식 0x1021, 초기값 0x0000, payload만 대상)는 펌웨어 `src/board/BridgeOne/main/vendor_cdc_handler.c`의 `vendor_cdc_crc16()`을 그대로 Kotlin 포팅했다(`ZoomStateCommand.crc16Ccitt`).
 
-> **⚠️ Phase 4.9.6 변경사항**: 줌 상태의 소스는 `AbsoluteZoomState`(`ui/utils/AbsoluteCoordinateCalculator.kt` 신규, `level`/`centerX`/`centerY`)이며 `StandardModePage.kt`의 `page3ZoomState`(페이저 바깥 hoisted, SharedPreferences 미영속화)에 보관된다. `AbsolutePointingPad.kt`의 `PointingArea` 내부 `zoomDefining` 제스처 블록에서 `onZoomStateChange` 호출 시점이 곧 "드래그 중 실시간 갱신"이고, UP 시 확정(`onZoomArmingChange(false)`)이 "줌 확정 1회" 트리거다. 해제는 ZoomButton `onZoomClick`에서 `onZoomStateChange(AbsoluteZoomState())`(level=1) 호출 시점. `min_x/min_y/max_x/max_y` payload 필드는 `AbsoluteZoomState`에 직접 없으므로 `applyZoom`과 동일한 윈도우 계산식(`windowSize = 1/level`, `center ± windowSize/2` 클램핑)을 전송 직전에 적용해 산출해야 한다.
+**실제 구현 파일**:
+- `protocol/ZoomStateCommand.kt` (신규) — `buildPayload()`(JSON, org.json), `crc16Ccitt()`, `frame()`(`[0xFF][0x30][len LE][payload][CRC16 LE]` 조립), `buildFrame(zoom, targetMonitor)`(호출측 편의 함수)
+- `usb/UsbSerialManager.kt` — `sendVendorCdcFrame(ByteArray)` 신규 public API (`sendCommandBytes` 아래, 동일 `frameQueue` 공유)
+- `usb/UsbConstants.kt` — `VENDOR_CDC_MAX_FRAME_SIZE = 454` 신규 상수
+- `ui/utils/AbsoluteCoordinateCalculator.kt` — `ZoomMappingRange` data class + `calculateZoomMappingRange(zoom)` 순수 함수 신규(`applyZoom`과 동일 윈도우 계산을 절대좌표 스케일 0~32767 정수로 인코딩), `ABS_COORDINATE_MAX=32767` 상수
+- `ui/utils/AbsolutePointingConstants.kt` — `ZOOM_STATE_THROTTLE_MS = 33L`(30Hz 상한) 신규
+- `ui/components/AbsolutePointingPad.kt` — top-level 헬퍼 `sendZoomStateFrame(zoom, targetMonitor)` 신규. 전송 3지점 배선: (A) `zoomDefining` UP 분기(확정 1회, 스로틀 무시), (B) `updateZoomLevelFromDrag()` 내부(드래그 중 `System.currentTimeMillis()` 기반 30Hz 스로틀, 제스처 로컬 `lastZoomTxMs`/`pendingZoomState`), (C) `onZoomClick` 해제 분기(1x 해제 1회). `onZoomStateChange` 자체는 전역 래핑하지 않음(정의 시작 콜백은 전송 대상 아님)
+- `protocol/ZoomStateCommandTest.kt` (신규 테스트) — CRC16 골든 벡터(CRC-16/XMODEM 표준 체크값 `0x31C3`), 프레임 레이아웃, payload 필드, 크기 상한 예외
+- `ui/utils/AbsoluteCoordinateCalculatorTest.kt` (테스트 추가) — `calculateZoomMappingRange` 4건(1x 전체범위/level 2·8/경계 클램핑)
 
 **참조 문서**:
 - `docs/technical-specification.md` §2.4.6.1.2 (줌 상태 Vendor CDC 메시지, JSON payload 스펙, `target_monitor` 필드 추가됨)
 
 **검증** (Android 단독으로 완결 가능):
-- [ ] 줌 확정 시 UART로 줌 상태 전송(`target_monitor` 포함)
-- [ ] 줌 해제 시 zoom_level=1.0 전송
+- [x] 줌 확정 시 UART로 줌 상태 전송(`target_monitor` 포함) — 코드 배선 완료
+- [x] 줌 해제 시 zoom_level=1.0 전송 — 코드 배선 완료
+- [x] CRC16-CCITT 펌웨어 구현과 정합성(골든 벡터 단위테스트 통과)
+- [x] 프레임 레이아웃/payload 필드 단위테스트 통과 (`ZoomStateCommandTest` 10건)
+- [x] min/max 매핑 범위 인코딩 단위테스트 통과 (`AbsoluteCoordinateCalculatorTest` 4건 추가)
+- [x] 빌드 성공(`assembleDebug` 컴파일 에러 없음, 신규 경고 없음, `testDebugUnitTest` 전체 통과)
 
 **후속 통합 Phase에서 검증할 항목** (범위 밖):
 - [ ] ESP32가 UART 수신 → Vendor CDC Frame으로 투명 중계
 - [ ] Windows 서버 연동 시 PC 화면에 대상 모니터 기준 줌 영역 박스 표시 (실기기 검증)
+- [ ] 실기기: logcat 기준 드래그 중 0xFF/0x30 프레임 ~30Hz, 확정/해제 시 각 1회 전송 동작 확인
 
 ---
 

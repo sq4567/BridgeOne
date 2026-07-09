@@ -104,6 +104,12 @@ object UsbConstants {
     const val DELTA_FRAME_SIZE = 8  // 기본값: 8
 
     /**
+     * Vendor CDC 가변 길이 JSON 커스텀 명령 프레임의 최대 크기 (바이트, Phase 4.9.7).
+     * [0xFF][command 1B][length 2B][payload 최대 448B][CRC16 2B] = 1+1+2+448+2 = 454.
+     */
+    const val VENDOR_CDC_MAX_FRAME_SIZE = 454  // 기본값: 454
+
+    /**
      * 순번(sequence number) 최대값.
      * 0~253 범위에서 순환하여 패킷 유실을 감지합니다.
      * 0xFE(역방향 알림 프레임 헤더)와 0xFF(미래 예약)는 프로토콜 예약 바이트입니다.

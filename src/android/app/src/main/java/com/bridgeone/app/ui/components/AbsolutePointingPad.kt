@@ -76,6 +76,7 @@ import com.bridgeone.app.ui.components.touchpad.getAlongEdgePosition
 import com.bridgeone.app.ui.components.touchpad.getInwardDistance
 import com.bridgeone.app.ui.components.touchpad.unmapFromValid
 import com.bridgeone.app.protocol.FrameBuilder
+import com.bridgeone.app.protocol.ZoomStateCommand
 import com.bridgeone.app.usb.UsbSerialManager
 import com.bridgeone.app.ui.utils.AbsoluteCoordinateCalculator
 import com.bridgeone.app.ui.utils.AbsolutePointingConstants
@@ -331,6 +332,8 @@ fun AbsolutePointingPad(
                         onZoomStateChange(AbsoluteZoomState())
                         zoomArming = false
                         zoomAwaitingConfirm = false
+                        // (C) 줌 해제 1회 전송 (Phase 4.9.7)
+                        sendZoomStateFrame(AbsoluteZoomState(), targetMonitor)
                     } else {
                         zoomArming = true
                         zoomAwaitingConfirm = false
@@ -375,6 +378,22 @@ private fun sendAbsolutePosition(ratio: TouchRatio, buttons: UByte = 0x00u, targ
         UsbSerialManager.sendCommandBytes(command)
     } catch (e: IllegalStateException) {
         Log.w("AbsolutePointingPad", "Failed to send absolute position: ${e.message}")
+    }
+}
+
+/**
+ * 줌 상태 Vendor CDC 커스텀 명령을 UART로 전송합니다 (Phase 4.9.7).
+ *
+ * ZoomStateCommand.buildFrame()으로 [0xFF][0x30][len][JSON payload][CRC16] 프레임을 만들고
+ * UsbSerialManager.sendVendorCdcFrame()으로 전송한다. 포트 미연결 시 IllegalStateException이
+ * 발생할 수 있으므로 sendAbsolutePosition()과 동일하게 예외를 흡수한다.
+ * 전송 시점(확정 1회/드래그 중 30Hz 스로틀/해제 1회)은 호출측이 결정한다.
+ */
+private fun sendZoomStateFrame(zoom: AbsoluteZoomState, targetMonitor: Int) {
+    try {
+        UsbSerialManager.sendVendorCdcFrame(ZoomStateCommand.buildFrame(zoom, targetMonitor))
+    } catch (e: IllegalStateException) {
+        Log.w("AbsolutePointingPad", "Failed to send zoom state: ${e.message}")
     }
 }
 
@@ -475,6 +494,12 @@ private fun PointingArea(
                     var zoomDefining = false
                     var zoomCenterRatio = lastRatio
 
+                    // 줌 상태 Vendor CDC 전송용(Phase 4.9.7). pendingZoomState는 드래그 중 마지막으로
+                    // 계산된 상태를 보관해 UP 확정 시 재계산 없이 그대로 전송한다. lastZoomTxMs는
+                    // 드래그 중 30Hz 스로틀 기준 시각(제스처 스코프 — 단일 정의 드래그는 한 제스처 내 완결).
+                    var lastZoomTxMs = 0L
+                    var pendingZoomState = currentZoomState
+
                     // 줌 확정 대기 중(zoomAwaitingConfirm) 발생한 이번 제스처가 "탭(확정)"인지
                     // "드래그(재정의)"인지 아직 판가름나지 않은 상태. 이동 거리가 CLICK_MAX_MOVEMENT_DP를
                     // 넘는 순간 zoomDefining으로 전환(재정의)되고, 넘지 않은 채 손을 떼면 탭으로 판정해
@@ -494,13 +519,19 @@ private fun PointingArea(
                         val dragDistancePx = (pos - downPosition).getDistance()
                         val dragDistanceDp = with(density) { dragDistancePx.toDp().value }
                         val newLevel = AbsoluteCoordinateCalculator.dragDistanceToZoomLevel(dragDistanceDp)
-                        onZoomStateChange(
-                            AbsoluteZoomState(
-                                level = newLevel,
-                                centerX = zoomCenterRatio.x,
-                                centerY = zoomCenterRatio.y
-                            )
+                        val newState = AbsoluteZoomState(
+                            level = newLevel,
+                            centerX = zoomCenterRatio.x,
+                            centerY = zoomCenterRatio.y
                         )
+                        pendingZoomState = newState
+                        onZoomStateChange(newState)
+                        // (B) 줌 드래그 중 30Hz 스로틀 실시간 전송 (Phase 4.9.7)
+                        val now = System.currentTimeMillis()
+                        if (now - lastZoomTxMs >= AbsolutePointingConstants.ZOOM_STATE_THROTTLE_MS) {
+                            lastZoomTxMs = now
+                            sendZoomStateFrame(newState, currentTargetMonitor.toInt())
+                        }
                     }
 
                     // ── 존 단위 gate: 화이트리스트 통과 존이 있는 위치에서 시작했을 때만 엣지 후보 ──
@@ -570,6 +601,8 @@ private fun PointingArea(
                                 // 즉시 확정 대신 별도 탭을 한 번 더 요구) ──
                                 zoomDefining = false
                                 onZoomAwaitingConfirmChange(true)
+                                // (A) 줌 확정(정의 드래그 종료) 1회 전송 — 스로틀 무시 (Phase 4.9.7)
+                                sendZoomStateFrame(pendingZoomState, currentTargetMonitor.toInt())
                             } else if (zoomAdjusting) {
                                 // ── 확정 대기 중 재터치가 끝까지 드래그로 전환되지 않음 → 탭 판정.
                                 // 탭이면 확정(arming 해제), 아니면(짧은 이동 없는 롱프레스 등) 무시하고 대기 유지 ──

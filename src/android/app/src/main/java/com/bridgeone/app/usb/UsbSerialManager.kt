@@ -690,6 +690,29 @@ object UsbSerialManager {
         }
     }
 
+    /**
+     * Vendor CDC 가변 길이 JSON 커스텀 명령 프레임을 UART로 전송합니다 (Phase 4.9.7).
+     *
+     * sendCommandBytes()는 8바이트 델타/절대좌표 프레임 전용(정확히 DELTA_FRAME_SIZE 강제)이라
+     * [0xFF][command][length][payload][CRC16] 구조의 가변 길이 프레임을 보낼 수 없습니다.
+     * 이 진입점은 크기 상한만 검증하고 동일한 frameQueue를 통해 sender 스레드로 전달합니다.
+     * sender 스레드는 큐 아이템 하나를 한 번의 write로 통짜 전송하므로 다른 프레임과 섞이지 않습니다.
+     *
+     * @param bytes 완성된 Vendor CDC 프레임(헤더~CRC16 포함). 최대 UsbConstants.VENDOR_CDC_MAX_FRAME_SIZE 바이트.
+     * @throws IllegalStateException 포트가 열려있지 않거나 바이트 크기가 유효하지 않은 경우
+     */
+    fun sendVendorCdcFrame(bytes: ByteArray) {
+        check(usbSerialPort != null && isConnected) { "USB Serial port is not connected" }
+        check(bytes.isNotEmpty() && bytes.size <= UsbConstants.VENDOR_CDC_MAX_FRAME_SIZE) {
+            "Invalid vendor CDC frame size: ${bytes.size}"
+        }
+
+        if (!frameQueue.offer(bytes)) {
+            frameQueue.poll()
+            frameQueue.offer(bytes)
+        }
+    }
+
     // ========== 권한 처리 함수 (Phase 2.2.2.2에서 추가) ==========
 
     /**

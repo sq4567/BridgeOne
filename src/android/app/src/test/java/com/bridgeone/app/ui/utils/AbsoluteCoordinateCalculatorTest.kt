@@ -167,4 +167,54 @@ class AbsoluteCoordinateCalculatorTest {
         assertFalse(AbsoluteZoomState(level = 1f).isActive)
         assertTrue(AbsoluteZoomState(level = 2f).isActive)
     }
+
+    // ── calculateZoomMappingRange (Phase 4.9.7) ──────────────────────────
+
+    @Test
+    fun `calculateZoomMappingRange - level 1이면 전체 범위(0,0,32767,32767)`() {
+        val range = AbsoluteCoordinateCalculator.calculateZoomMappingRange(AbsoluteZoomState(level = 1f))
+        assertEquals(0, range.minX)
+        assertEquals(0, range.minY)
+        assertEquals(32767, range.maxX)
+        assertEquals(32767, range.maxY)
+    }
+
+    @Test
+    fun `calculateZoomMappingRange - level 2, center 0_5는 8192~24575`() {
+        // windowSize=0.5, min=(0.5-0.25)=0.25→round(0.25*32767)=8192, max=0.75→round(0.75*32767)=24575
+        val range = AbsoluteCoordinateCalculator.calculateZoomMappingRange(
+            AbsoluteZoomState(level = 2f, centerX = 0.5f, centerY = 0.5f)
+        )
+        assertEquals(8192, range.minX)
+        assertEquals(8192, range.minY)
+        assertEquals(24575, range.maxX)
+        assertEquals(24575, range.maxY)
+    }
+
+    @Test
+    fun `calculateZoomMappingRange - level 8, center 0_5는 14336~18431`() {
+        // windowSize=0.125, min=(0.5-0.0625)=0.4375→round(0.4375*32767)=14336, max=0.5625→round(0.5625*32767)=18431
+        val range = AbsoluteCoordinateCalculator.calculateZoomMappingRange(
+            AbsoluteZoomState(level = 8f, centerX = 0.5f, centerY = 0.5f)
+        )
+        assertEquals(14336, range.minX)
+        assertEquals(14336, range.minY)
+        assertEquals(18431, range.maxX)
+        assertEquals(18431, range.maxY)
+    }
+
+    @Test
+    fun `calculateZoomMappingRange - 경계 center(0,1)는 0~1 범위로 클램핑`() {
+        // windowSize=0.5. centerX=0: min=(0-0.25)→clamp 0, max=0.5→round(16383.5)=16384
+        // centerY=1: min=(1-0.25)=0.75→clamp 0.5→round(16383.5)=16384, max=1.0→32767
+        val range = AbsoluteCoordinateCalculator.calculateZoomMappingRange(
+            AbsoluteZoomState(level = 2f, centerX = 0f, centerY = 1f)
+        )
+        assertEquals(0, range.minX)
+        assertEquals(16384, range.maxX)
+        assertEquals(16384, range.minY)
+        assertEquals(32767, range.maxY)
+        assertTrue(range.minX in 0..32767)
+        assertTrue(range.maxY in 0..32767)
+    }
 }
