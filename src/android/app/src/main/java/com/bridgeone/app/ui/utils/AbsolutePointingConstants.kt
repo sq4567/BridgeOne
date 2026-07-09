@@ -35,6 +35,9 @@ object AbsolutePointingConstants {
     /** PointingArea 테두리 굵기 (dp). 기본값: 2f */
     const val POINTING_AREA_BORDER_WIDTH_DP: Float = 2f
 
-    /** 모니터 셀렉터(4.9.6) 도입 전 기본 대상 모니터 (주 모니터). 기본값: 0x01 */
+    /** 모니터 셀렉터 저장값 없음/모니터 구성 변경 시 폴백 대상 (주 모니터, Phase 4.9.5). 기본값: 0x01 */
     val DEFAULT_TARGET_MONITOR: UByte = 0x01u
+
+    /** targetMonitor: 특정 모니터가 아닌 가상 데스크톱 전체 매핑 (Phase 4.9.5). 기본값: 0x00 */
+    val TARGET_MONITOR_ALL: UByte = 0x00u
 }

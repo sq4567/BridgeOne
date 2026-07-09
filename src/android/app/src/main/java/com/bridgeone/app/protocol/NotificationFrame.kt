@@ -26,6 +26,9 @@ data class NotificationFrame(
         /** 이벤트 타입: 연결 상태 변경 (향후 확장용) */
         val EVENT_CONNECTION_STATE: UByte = 0x02u
 
+        /** 이벤트 타입: 모니터 개수 통지 (Phase 4.9.5). data = monitor_count */
+        val EVENT_MONITOR_COUNT: UByte = 0x03u
+
         /** 데이터: Essential 모드 */
         val MODE_ESSENTIAL: UByte = 0x00u
 

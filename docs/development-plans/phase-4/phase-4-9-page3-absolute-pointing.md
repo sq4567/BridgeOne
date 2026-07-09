@@ -321,22 +321,29 @@ Page 3 — AbsolutePointingPad
 
 **신규/수정 파일**:
 - `protocol/NotificationFrame.kt` — `EVENT_MONITOR_COUNT` 추가
-- `usb/UsbSerialManager.kt` — 역방향 파서 확장
-- `ui/components/AbsolutePointingPad.kt` — MonitorSelector UI + 선택값 영속화
+- `usb/UsbSerialManager.kt` — 역방향 파서 확장, `monitorCount: StateFlow<Int>` 노출
+- `ui/components/AbsolutePointingPad.kt` — MonitorSelector 배치 + 선택값 영속화 + `sendAbsolutePosition`/`PointingArea` targetMonitor 파라미터 배선
+- `ui/components/MonitorSelector.kt` (신규) — 칩 UI(전체/1..N), 커스텀 칩(선택=`TouchpadColorYellow`/비선택=`TouchpadColorRed`)
+- `ui/common/MonitorSelectorPrefs.kt` (신규) — `loadTargetMonitor`/`saveTargetMonitor` (SharedPreferences, `PadLabelPrefs.kt`와 동일 top-level 함수 헬퍼 컨벤션)
+- `ui/utils/MonitorSelectorLogic.kt` (신규) — `resolveTargetMonitor()` 순수 함수로 폴백 규칙 분리(단위테스트 목적)
+- `ui/utils/AbsolutePointingConstants.kt` — `TARGET_MONITOR_ALL = 0x00u` 추가, `DEFAULT_TARGET_MONITOR` 주석에서 "Phase 4.9.6" 오기 정정(폴백 값으로 계속 사용)
 
-> **⚠️ Phase 4.9.2 변경사항**: `AbsolutePointingConstants.DEFAULT_TARGET_MONITOR`(0x01 고정)를 `AbsolutePointingPad.kt`의 private 헬퍼 `sendAbsolutePosition()`이 항상 사용 중이다. 본 Phase에서 셀렉터 선택값(영속화된 `targetMonitor`)을 이 헬퍼에 파라미터로 전달하도록 확장해야 한다(4.9.4의 `buttons` 파라미터 확장과 함께 시그니처가 `sendAbsolutePosition(ratio, buttons, targetMonitor)`로 정리될 가능성 높음). `DEFAULT_TARGET_MONITOR` 상수 자체는 폴백 값(저장값 없음/모니터 구성 변경 시)으로 계속 재사용.
+> **✅ Phase 4.9.2 변경사항 반영 완료**: `sendAbsolutePosition(ratio, buttons, targetMonitor)`로 시그니처 확정. `targetMonitor` 파라미터는 기본값 없이 필수이며, 호출측(`PointingArea`)이 `rememberUpdatedState(targetMonitor)`로 캡처한 최신 셀렉터 선택값을 항상 명시적으로 전달한다.
+>
+> **UI 배치(사용자 확정)**: `ControlButtonContainer`와 같은 행(`Row`) 우측에 배치. `ControlButtonContainer`는 `Modifier.weight(1f)`로 남은 폭을 채우고, `MonitorSelector`는 `monitorCount >= 2`일 때만 그 오른쪽에 노출된다.
 
 **참조 문서**:
 - `docs/android/technical-specification-app.md` §2.10.6 (모니터 셀렉터 설계, 기본값/영속화 규칙)
 - `docs/technical-specification.md` §2.4.6.1.3 (`EVENT_MONITOR_COUNT` 프레임 규격)
 
 **검증**:
-- [ ] `EVENT_MONITOR_COUNT` 프레임 파싱 단위테스트
-- [ ] 모니터 개수 1일 때 셀렉터 숨김, 2 이상일 때 노출
-- [ ] 칩 선택 시 `targetMonitor` 값이 다음 전송 프레임에 반영되는지 단위테스트
-- [ ] 최초 진입(저장값 없음) 시 주 모니터(0x01)로 폴백되는지 단위테스트
-- [ ] 마지막 선택값이 앱 재시작 후에도 복원되는지 단위테스트
-- 실기기 필요: 실제 모니터 개수 통지(펌웨어·서버 완성 후)
+- [x] `EVENT_MONITOR_COUNT` 프레임 파싱 단위테스트 (`NotificationFrameTest.kt`)
+- [x] 모니터 개수 1일 때 셀렉터 숨김, 2 이상일 때 노출 (`monitorCount >= 2` 조건부 렌더링)
+- [x] 칩 선택 시 `targetMonitor` 값이 다음 전송 프레임에 반영되는지 단위테스트 (`FrameBuilderTest.testBuildAbsolutePositionCommandButtonsAndTargetMonitor`, Phase 4.9.2에서 이미 검증된 f[7] 배선을 그대로 재사용)
+- [x] 최초 진입(저장값 없음) 시 주 모니터(0x01)로 폴백되는지 단위테스트 (`MonitorSelectorLogicTest.testNoSavedValueFallsBackToPrimaryMonitor`)
+- [x] 마지막 선택값이 앱 재시작 후에도 복원되는지 단위테스트 (`MonitorSelectorLogicTest.testSavedValidIndexRestored`, 모니터 구성 변경 시 폴백은 `testSavedIndexExceedingMonitorCountFallsBack`)
+- [x] 빌드 성공(`assembleDebug` 컴파일 에러 없음, 신규 경고 없음)
+- [ ] 실기기 필요: 실제 모니터 개수 통지(펌웨어·서버 완성 후) — Android 측 수신·UI·영속화 경로는 완성, 실동작 검증은 보류
 
 ---
 

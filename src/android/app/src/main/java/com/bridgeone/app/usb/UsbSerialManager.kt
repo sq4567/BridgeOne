@@ -288,6 +288,7 @@ object UsbSerialManager {
             // lastNotification은 자동 초기화되지 않으므로 bridgeMode를 직접 초기화
             _bridgeMode.value = BridgeMode.ESSENTIAL
             _modeConfirmed.value = false
+            _monitorCount.value = 1
             Log.d(TAG, "BridgeMode reset to ESSENTIAL on port close")
         }
     }
@@ -378,6 +379,14 @@ object UsbSerialManager {
      */
     private val _modeConfirmed = MutableStateFlow(false)
     val modeConfirmed: StateFlow<Boolean> = _modeConfirmed.asStateFlow()
+
+    /**
+     * 모니터 개수 (Phase 4.9.5).
+     * EVENT_MONITOR_COUNT 알림 수신 시 업데이트됩니다.
+     * 미수신 시 단일 모니터로 가정. 기본값: 1
+     */
+    private val _monitorCount = MutableStateFlow(1)
+    val monitorCount: StateFlow<Int> = _monitorCount.asStateFlow()
 
     /**
      * 수신 전용 백그라운드 스레드.
@@ -525,6 +534,13 @@ object UsbSerialManager {
                         _modeConfirmed.value = true
                         lastModeResponseMs = System.currentTimeMillis()
                         Log.i(TAG, "BridgeMode changed: $oldMode → $newMode (confirmed)")
+                    }
+
+                    // Phase 4.9.5: EVENT_MONITOR_COUNT 수신 시 모니터 개수 업데이트
+                    if (frame.eventType == NotificationFrame.EVENT_MONITOR_COUNT) {
+                        val count = frame.data.toInt().coerceAtLeast(1)
+                        _monitorCount.value = count
+                        Log.i(TAG, "Monitor count received: $count")
                     }
 
                 } catch (e: InterruptedException) {

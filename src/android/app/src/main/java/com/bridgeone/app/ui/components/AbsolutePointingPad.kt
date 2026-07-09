@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,10 +20,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,11 +37,14 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
 import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignment
+import com.bridgeone.app.ui.common.loadTargetMonitor
+import com.bridgeone.app.ui.common.saveTargetMonitor
 import com.bridgeone.app.ui.components.touchpad.ClickMode
 import com.bridgeone.app.ui.components.touchpad.ControlButtonConfig
 import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
@@ -70,6 +76,7 @@ import com.bridgeone.app.ui.utils.AbsoluteCoordinateCalculator
 import com.bridgeone.app.ui.utils.AbsolutePointingConstants
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.ui.utils.TouchRatio
+import com.bridgeone.app.ui.utils.resolveTargetMonitor
 import com.bridgeone.app.ui.utils.getDistance
 import kotlin.math.abs
 import kotlinx.coroutines.delay
@@ -126,6 +133,17 @@ fun AbsolutePointingPad(
     // 클릭 모드는 Page 1/2의 pageState.touchpadState와 공유하지 않는 페이지 로컬 상태.
     // ControlButtonContainer가 요구하는 TouchpadState 타입을 재사용하되 clickMode 외 필드는 미사용.
     var localState by remember { mutableStateOf(TouchpadState()) }
+
+    // ── 모니터 셀렉터 상태 (Phase 4.9.5) ──
+    // targetMonitor: 0x00=전체 가상 데스크톱, 0x01~N=특정 모니터 인덱스. UByte 프레임 규약과 동일한 Int로 다룬다.
+    val context = LocalContext.current
+    val monitorCount by UsbSerialManager.monitorCount.collectAsState()
+    var targetMonitor by remember { mutableStateOf(AbsolutePointingConstants.DEFAULT_TARGET_MONITOR.toInt()) }
+
+    // 모니터 개수 통지 수신/변경 시 저장값 복원 또는 폴백(사용자 확정 규칙, styleframe-page3.md §2.2b)
+    LaunchedEffect(monitorCount) {
+        targetMonitor = resolveTargetMonitor(loadTargetMonitor(context), monitorCount)
+    }
 
     // 화이트리스트 필터: 델타·스크롤·DPI·멀티커서 계열 액션을 Unassigned로 치환.
     // detection·overlay 양쪽에 동일한 filteredConfig를 사용해 시각과 동작을 일치시킨다.
@@ -208,6 +226,7 @@ fun AbsolutePointingPad(
                 onMouseHoldToggle = onMouseHoldToggle,
                 onCyclePage = onCyclePage,
                 onJumpToPage = onJumpToPage,
+                targetMonitor = targetMonitor.toUByte(),
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -255,24 +274,42 @@ fun AbsolutePointingPad(
             )
         }
 
-        ControlButtonContainer(
-            touchpadState = localState,
-            onStateChange = { localState = it },
-            config = ControlButtonConfig(
-                showClickMode = true,
-                showMoveMode = false,
-                showScrollMode = false,
-                showCursorMode = false,
-                showDpi = false,
-                showScrollSensitivity = false,
-                showZoom = true,
-                showDrag = true
-            ),
-            baseColor = TouchpadColorRed,
+        Row(
             modifier = Modifier
                 .fillMaxWidth(controlButtonWidthFraction)
-                .align(Alignment.TopCenter)
-        )
+                .align(Alignment.TopCenter),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ControlButtonContainer(
+                touchpadState = localState,
+                onStateChange = { localState = it },
+                config = ControlButtonConfig(
+                    showClickMode = true,
+                    showMoveMode = false,
+                    showScrollMode = false,
+                    showCursorMode = false,
+                    showDpi = false,
+                    showScrollSensitivity = false,
+                    showZoom = true,
+                    showDrag = true
+                ),
+                baseColor = TouchpadColorRed,
+                modifier = Modifier.weight(1f)
+            )
+
+            // 모니터 셀렉터 (Phase 4.9.5): 모니터 2대 이상일 때만 노출, ControlButtonContainer 우측
+            if (monitorCount >= 2) {
+                MonitorSelector(
+                    monitorCount = monitorCount,
+                    selectedMonitor = targetMonitor,
+                    onSelect = { selected ->
+                        targetMonitor = selected
+                        saveTargetMonitor(context, selected)
+                    },
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+        }
     }
 }
 
@@ -284,14 +321,14 @@ fun AbsolutePointingPad(
  * 발생할 수 있으므로 터치 제스처 루프가 죽지 않도록 예외를 흡수한다.
  * buttons 기본값은 0x00(클릭은 별도 버튼 프레임으로 처리) — 드래그 앤 드롭 모드(Phase 4.9.4)에서는
  * 호출측이 bit0(0x01)을 press 상태 동안 명시적으로 전달한다.
- * targetMonitor는 모니터 셀렉터(Phase 4.9.6) 도입 전까지 기본값 사용.
+ * targetMonitor는 모니터 셀렉터(Phase 4.9.5)에서 선택한 값을 호출측이 전달한다.
  */
-private fun sendAbsolutePosition(ratio: TouchRatio, buttons: UByte = 0x00u) {
+private fun sendAbsolutePosition(ratio: TouchRatio, buttons: UByte = 0x00u, targetMonitor: UByte) {
     try {
         val command = FrameBuilder.buildAbsolutePositionCommand(
             ratio = ratio,
             buttons = buttons,
-            targetMonitor = AbsolutePointingConstants.DEFAULT_TARGET_MONITOR
+            targetMonitor = targetMonitor
         )
         UsbSerialManager.sendCommandBytes(command)
     } catch (e: IllegalStateException) {
@@ -320,11 +357,16 @@ private fun PointingArea(
     onMouseHoldToggle: (MouseButton, MouseHoldMode) -> Unit,
     onCyclePage: (PageNav) -> Unit,
     onJumpToPage: (Int) -> Unit,
+    targetMonitor: UByte,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val view = LocalView.current
+    // pointerInput은 clickMode/filteredConfig/localState.dragMode 변경 시에만 재시작되므로,
+    // targetMonitor(모니터 셀렉터 선택값) 변경을 실행 중인 제스처 루프에서도 즉시 반영하려면
+    // rememberUpdatedState로 최신값을 캡처해야 한다.
+    val currentTargetMonitor by rememberUpdatedState(targetMonitor)
 
     var touchActive by remember { mutableStateOf(false) }
     var indicatorPosition by remember { mutableStateOf(Offset.Zero) }
@@ -400,7 +442,7 @@ private fun PointingArea(
                         touchActive = true
                         indicatorPosition = downPosition
                         if (localState.dragMode) dragPressed = true
-                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u)
+                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u, currentTargetMonitor)
                     }
 
                     while (true) {
@@ -417,7 +459,7 @@ private fun PointingArea(
 
                             if (dragPressed) {
                                 // ── 드래그 앤 드롭 모드: release 프레임 1회 전송(drop) — 클릭 판정과 상호배타 ──
-                                sendAbsolutePosition(lastRatio, 0x00u)
+                                sendAbsolutePosition(lastRatio, 0x00u, currentTargetMonitor)
                                 dragPressed = false
                             } else if (isZoneArmed.value) {
                                 // ── armed 상태에서 손 뗌 → 엣지 액션 실행 ──
@@ -449,7 +491,7 @@ private fun PointingArea(
                             } else if (isTapGesture) {
                                 // ── 엣지 띠 탭이든 일반 탭이든 → 클릭. 엣지 후보였다면 DOWN 지점 좌표를 먼저 전송 ──
                                 if (isEdgeCandidate.value) {
-                                    sendAbsolutePosition(lastRatio)
+                                    sendAbsolutePosition(lastRatio, targetMonitor = currentTargetMonitor)
                                 }
                                 val buttons: UByte = if (clickMode == ClickMode.LEFT_CLICK) 0x01u.toUByte() else 0x02u.toUByte()
                                 ClickDetector.sendFrame(ClickDetector.createMouseButtonFrame(buttons))
@@ -504,7 +546,7 @@ private fun PointingArea(
                                         indicatorPosition = pos
                                         lastRatio = AbsoluteCoordinateCalculator.calculateTouchRatio(pos.x, pos.y, areaWidth, areaHeight)
                                         if (localState.dragMode) dragPressed = true
-                                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u)
+                                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u, currentTargetMonitor)
                                     }
                                     perpMoved >= triggerDistancePx && inwardDistancePx.value < bumpAppearThresholdPx -> {
                                         // 산봉우리 등장 전에 엣지 방향으로 충분히 이동 → 일반 포인팅으로 전환
@@ -514,7 +556,7 @@ private fun PointingArea(
                                         indicatorPosition = pos
                                         lastRatio = AbsoluteCoordinateCalculator.calculateTouchRatio(pos.x, pos.y, areaWidth, areaHeight)
                                         if (localState.dragMode) dragPressed = true
-                                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u)
+                                        sendAbsolutePosition(lastRatio, if (dragPressed) 0x01u else 0x00u, currentTargetMonitor)
                                     }
                                 }
                             } else {
@@ -522,7 +564,7 @@ private fun PointingArea(
                                 val ratio = AbsoluteCoordinateCalculator.calculateTouchRatio(pos.x, pos.y, areaWidth, areaHeight)
                                 if (AbsoluteCoordinateCalculator.shouldTransmit(ratio, lastRatio)) {
                                     lastRatio = ratio
-                                    sendAbsolutePosition(ratio, if (dragPressed) 0x01u else 0x00u)
+                                    sendAbsolutePosition(ratio, if (dragPressed) 0x01u else 0x00u, currentTargetMonitor)
                                 }
                             }
                             change.consume()
