@@ -1,10 +1,10 @@
 ---
 title: "BridgeOne Phase 4.9: Page 3 — 절대좌표 패드 페이지 (서버 중계 재설계)"
 description: "BridgeOne 프로젝트 Phase 4.9 - Standard 전용 Page 3: AbsolutePointingPad, 서버 SetCursorPos 중계, 자유 비율, 드래그 앤 드롭, 멀티모니터"
-tags: ["android", "absolute-pointing", "server-relay", "zoom", "vendor-cdc", "multi-monitor", "ui"]
-version: "v2.1"
+tags: ["android", "absolute-pointing", "server-relay", "zoom", "multi-zone", "vendor-cdc", "multi-monitor", "ui"]
+version: "v2.2"
 owner: "Chatterbones"
-updated: "2026-07-06"
+updated: "2026-07-10"
 ---
 
 # BridgeOne Phase 4.9: Page 3 — 절대좌표 패드 페이지 (서버 중계 재설계)
@@ -31,6 +31,7 @@ updated: "2026-07-06"
 - 모니터 셀렉터 + 역방향 모니터 개수 수신
 - 줌 기능 (앱 내) + Vendor CDC 줌 상태 UART 전송(Android 측까지)
 - Page 3 엣지존 편집 화면 연동
+- 멀티 존 모드 (패드 그리드 분할, 존별 독립 줌 매핑 + 모니터 배정, 터치 즉시 판정)
 
 **패드 비율/배치는 본 Phase 범위 밖** — Phase 4.15 페이지 커스터마이징이 그리드 배치(`colSpan`/`rowSpan`)로 소유한다. 자유 비율(접근성 목적의 왜곡 배치)과 모니터 종횡비 일치 둘 다 그리드 셀 크기 조정으로 표현 가능하며, 4.15 완성 전까지 패드는 Fill 유지.
 
@@ -215,7 +216,7 @@ Page 3 — AbsolutePointingPad
 > 1. **존 단위 gate**: DOWN 지점이 filtered config 상 화이트리스트 통과 존(Unassigned가 아닌 존)의 alongRatio 범위 안에 있을 때만 엣지 제스처 후보로 인식. 그 외 모든 위치(미할당 구간, TOP 전체)는 DOWN 즉시 일반 절대 포인팅 — 화면 4변 가장자리(예: PC 시작 버튼이 있는 왼쪽 아래 코너) 도달성 보존
 > 2. **엣지 띠 탭=좌표클릭**: 엣지 후보 제스처라도 UP 시 armed가 아니고 탭 조건(이동 ≤5dp)을 만족하면 DOWN 지점 좌표로 절대 클릭 전송. 안쪽 스와이프(armed)만 엣지 액션 실행. 탭 임계값과 armed 임계값(28dp)이 겹치지 않아 상호배타 → 예약 구간 위에서도 좌표 클릭 손실 0
 >
-> LEGACY_POPUP은 배제하고 ZONE 모드만 지원. 로테이션 존은 4.9.8(편집 UI) 전까지 후보 없어 `candidates.firstOrNull()` 정적 처리(회전 코루틴 미이식).
+> LEGACY_POPUP은 배제하고 ZONE 모드만 지원. 로테이션 존은 4.9.8(편집 UI) 전까지 후보 없어 `candidates.firstOrNull()` 정적 처리(회전 코루틴 미이식) — **4.9.8에서 `TouchpadWrapper.kt` 패턴의 회전 코루틴(`rotationJob`/`rotationIndex`)을 이식 완료, `resolveAction(rotationIndex)`로 동적 후보 실행.**
 >
 > **⚠️ 추가 반영(2026-07-09, 유저 요청)**: 최초 구현에는 기존 터치패드(`TouchpadWrapper.kt`)의 "산봉우리(Bump)" 시각 피드백이 누락되어 있었다. 엣지 안쪽으로 들어올수록 그라데이션 봉우리가 커지는 `EdgeBumpOverlay`를 동일 패턴으로 이식했다 — 진입 엣지 고정, 최대 피크 36dp 상한, release/취소 시 spring 수축 애니메이션(`LaunchedEffect(isEdgeCandidate)`), 색상은 현재 클릭모드(핑크/노랑) 연동.
 
@@ -514,11 +515,16 @@ Page 3 — AbsolutePointingPad
 **신규 파일**: 없음 (기존 파일 배선만)
 
 **수정 파일**:
-- `ui/pages/StandardModePage.kt` (`standardTouchpadPages`, `EdgeZoneEditorScreen` 호출부, `zoneEditorDisabledEdges`, `JumpToPage` 마이그레이션 로직)
-- `ui/components/touchpad/EdgeZoneEditorScreen.kt` (`excludeDomains` 파라미터 추가 및 관통 배선)
-- `ui/components/touchpad/ZoneActionPicker.kt` (CURSOR 예외 처리 필터 파라미터, 필요 시)
+- `ui/pages/StandardModePage.kt` (`standardTouchpadPages`에 `2` 추가, `page3Assignment` 별도 상태 제거 후 `standardAssignments[2]`로 통합, `EdgeZoneEditorScreen` 호출부, `zoneEditorDisabledEdges`, `assignmentRepo.migrateJumpToPageIndicesIfNeeded()` 호출)
+- `ui/components/touchpad/EdgeZoneEditorScreen.kt` (`excludeDomains` 파라미터 추가, `ActionDomainPicker`/`RotationEditor` 양쪽에 배선)
+- `ui/components/touchpad/ZoneRotationEditor.kt` (`RotationEditor`에 `excludeDomains` 파라미터 추가, 내부 `ActionDomainPicker` 호출에 병합 전달)
+- `ui/components/touchpad/EdgeZoneActionResolver.kt` (`ActionDomain` enum을 `internal` → public으로 변경 — `EdgeZoneEditorScreen`이 public 함수라 시그니처에 `internal` 타입을 노출할 수 없어 발생한 컴파일 에러 해결)
+- `ui/common/TouchpadEdgeZoneAssignmentRepository.kt` (`migrateJumpToPageIndicesIfNeeded()` 신규 — `EdgeZoneJson.kt`를 직접 건드리지 않고 기존 `load()`/`save()`의 디코드·인코드 왕복을 재사용해 저장된 모든 터치패드 ID를 순회하며 마이그레이션)
+- `ui/components/AbsolutePointingPad.kt` (세부 목표 6: 로테이션 존 회전 코루틴을 `TouchpadWrapper.kt:901-930` 패턴으로 이식. `rotationIndex: MutableState<Int>`를 상위에서 hoisting해 `PointingArea`와 `EdgeZoneOverlay` 양쪽에 전달, armed 진입/존 전환/disarm/취소 시점에 `rotationJob` 시작·재시작·취소, release 시 `resolveAction(rotationIndex)`로 현재 회전 후보를 실행)
 
-**검증**:
+> **⚠️ 구현 중 확인된 사실(2026-07-10)**: 세부 목표 3(CURSOR 예외 처리)은 코드 조사 결과 불필요한 것으로 판명됐다. `ZoneActionPicker.kt`의 `ActionDomainPicker` 내부 `ActionDomain.CLICK` 도메인 옵션 목록(`relativeAction = ToggleMode(CLICK)`, `specificOptions = [SetClickMode(LEFT), SetClickMode(RIGHT)]`)에는 애초에 `ToggleMode(CURSOR)`가 포함되어 있지 않다 — CURSOR 모드는 레거시 팝업 전용 토글(`config.showCursorMode`)로 별도 경로를 타며 편집기에서 선택 가능한 액션으로 노출된 적이 없다. 따라서 `excludeActions` 신규 파라미터나 `ZoneActionPicker.kt` 수정 없이, `ActionDomain.CLICK`을 exclude 목록에 넣지 않는 것만으로 "CLICK 유지 + CURSOR 미노출" 요구사항이 그대로 충족된다.
+
+**검증**: 빌드(`assembleDebug`) 및 관련 유닛 테스트(`EdgeZoneActionResolverTest`, `AbsolutePadActionFilterTest`, `EdgeZoneJsonTest`, `EdgeZoneEditorStateTest`, `EdgeZoneCanvasGeometryTest`)는 통과 확인. 아래 실기기 동작 검증은 유저 확인 필요:
 - [ ] Page 6 설정에서 "페이지 3"(절대좌표) 존 편집 진입 가능
 - [ ] Page 3 편집기에서 MOVE/DPI/DYNAMICS/SCROLL/SCROLL_SPEED 액션 미노출
 - [ ] Page 3 편집기에서 CURSOR 관련 옵션 미노출, CLICK(좌/우클릭)은 정상 노출
@@ -526,6 +532,7 @@ Page 3 — AbsolutePointingPad
 - [ ] 존 구조 편집(분할/병합/이동/삭제/비율조정)은 Page 3에서도 다른 페이지와 동일하게 동작
 - [ ] 마이그레이션 전 저장된 `JumpToPage(4)`(구 "설정")가 마이그레이션 후 `JumpToPage(5)`로 이동해 여전히 설정 페이지로 점프하는지 확인
 - [ ] 마이그레이션이 앱 재시작 시 중복 실행되지 않는지 확인
+- [ ] Page 3에서 로테이션 존(후보 2개 이상)을 생성 후 armed 상태를 유지하면 `intervalMs` 간격으로 하이라이트가 실제로 순환하고, 손을 뗐을 때 순환이 멈춘 시점의 후보가 실행되는지 확인
 
 ---
 
@@ -563,13 +570,111 @@ Page 3 — AbsolutePointingPad
 - [ ] EdgeBumpOverlay 색상도 동일 그라디언트 규칙으로 갱신되어 시각적 불일치 없음
 - [ ] Page 1/2 일반 터치패드 그라디언트 로직에 회귀 없음
 
+> **⚠️ Phase 4.9.10 변경사항 (선행 검토 필요)**: 멀티 존 모드가 4.9.10으로 추가되면서 절대좌표 패드에 "멀티존 활성" 상태가 하나 더 생긴다. 이 상태가 테두리 그라디언트 stop에 포함되어야 하는지(전용 색상 필요 여부, 기존 줌 주황과의 구분)를 4.9.10 구현 완료 후 재검토한다. 멀티존은 단일 줌과 배타적으로 동작하므로 최소한 "줌 주황"을 "멀티존 활성 시에도 재사용"하는 것으로 시작 가능하나, 전용 색이 필요하면 이 섹션의 4색 stop 규칙을 5색으로 확장해야 한다.
+
 ---
 
-## Phase 4.9.10: 리팩토링
+## Phase 4.9.10: 절대좌표 패드 멀티 존 모드
 
-> **신규 하위 Phase(2026-07-09, 유저 확정)**: Page 3(절대좌표 패드) 관련 코드 전체를 마지막에 한 번 정리한다. 4.9.1~4.9.9에 걸쳐 `AbsolutePointingPad.kt`/`ControlButtonContainer.kt` 등에 기능이 순차적으로 누적되면서 생겼을 중복·비대해진 파일·임시방편 구조를 이 시점에 재검토한다.
+> **신규 하위 Phase(2026-07-10, 유저 확정)**: 절대좌표 패드에 이미 구현된 줌(4.9.6)은 "패드 전체 → PC 화면의 한 부분(중심점+배율)"으로 좌표를 재매핑하는 기능이다. 멀티 존은 이 매핑을 여러 개로 일반화한다 — 패드를 2/3/4개 그리드 셀로 나누고, 각 셀이 화면의 서로 다른 부분을 각자의 배율/모니터로 확대 담당한다. 손가락이 위치한 셀에 따라 실시간으로 조작 대상 화면 영역이 즉시 전환된다(활성 존을 별도로 전환하는 개념 없음). 터치패드의 멀티커서 모드(Phase 4.8, "커서를 여러 개로 나눔")와 대비되는 개념으로, 이쪽은 "줌 영역을 여러 개로 나눔"이다.
 >
-> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.9)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
+> 좌표 매핑은 기존 줌과 동일하게 **앱 내에서 전부 완료**되므로, 서버로는 기존 절대좌표 프레임(`0xFF/0x02`)과 줌 상태 프레임(`0xFF/0x30`)을 그대로 재사용해 전송한다. **프로토콜/펌웨어/서버 변경 없음.**
+
+**목표**: 패드를 N분할(2/3/4)하여 각 셀(존)이 독립적인 줌 매핑(중심점/배율/대상 모니터)을 갖게 하고, 터치 위치에 따라 실시간으로 해당 존의 매핑을 적용해 좌표를 전송한다
+
+**선행 조건**: Phase 4.9.5(모니터 셀렉터), Phase 4.9.6(줌 기능), Phase 4.8(멀티커서 그리드 분할 — `MultiCursorGridGeometry.kt` 재사용) 완료
+
+### 상태 구조
+
+`AbsoluteCoordinateCalculator.kt`에 추가:
+```kotlin
+data class ZoneMapping(
+    val zoom: AbsoluteZoomState = AbsoluteZoomState(),   // 기존 재사용
+    val targetMonitor: Int = DEFAULT_TARGET_MONITOR,     // 존별 모니터 배정
+    val defined: Boolean = false                          // 미정의 존 = 1x 항등
+)
+
+data class MultiZoneState(
+    val enabled: Boolean = false,
+    val zoneCount: Int = MULTI_ZONE_COUNT_DEFAULT,       // 2/3/4
+    val zones: List<ZoneMapping> = List(MULTI_ZONE_COUNT_MAX) { ZoneMapping() }
+)
+```
+- `zones`는 항상 최대(4)개를 보유하고 `zoneCount`로 앞에서 잘라 씀(멀티커서 `page2PadAssignments`와 동일 패턴) — 존 개수를 바꿔도 이미 정의한 매핑이 보존됨
+- 기존 단일 줌 상태(`page3ZoomState: AbsoluteZoomState`, `StandardModePage.kt:376`)는 그대로 두고, **`page3MultiZoneState: MultiZoneState`를 별도 hoisted 상태로 신설**(같은 위치, 페이저 바깥에서 remember). 모드 배타(아래 참조)로 동시 활성은 없음
+- `Page3AbsolutePointing`/`AbsolutePointingPad` 시그니처에 `multiZoneState`/`onMultiZoneStateChange` 파라미터 추가, 제스처 루프는 `rememberUpdatedState`로 최신값 참조(기존 `currentZoomState` 패턴과 동일 — 빠뜨리면 실행 중 변경이 반영 안 됨)
+
+### 터치 → 존 → 좌표 변환 파이프라인
+
+신규 순수 함수(아래 "신규 파일" 참조):
+- `normalizeInZone(pos, zoneRect)`: 패드 절대 px 좌표를 해당 셀 기준 0~1로 재정규화. **이 정규화를 빠뜨리면 좌표가 셀 오프셋만큼 어긋난다 — 구현 시 가장 주의할 지점.**
+- `resolveZoneRatio(pos, zoneRect, mapping)`: 셀 로컬 정규화 후 `mapping.defined`면 기존 `applyZoom()` 적용, 아니면 1x 항등(안전 동작)
+
+DOWN/MOVE 처리:
+1. 제스처 시작 시 `MultiCursorGridGeometry.divideGridAreas(areaWidth, areaHeight, zoneCount)`로 셀 Rect 목록 계산 (그대로 재사용)
+2. 매 DOWN/MOVE마다 `MultiCursorGridGeometry.hitTestPad(pos, areas)`로 존 인덱스 판정 (실시간, 활성 존 개념 없이 즉시 전환)
+3. `resolveZoneRatio`로 최종 화면 비율 계산 → `zones[idx].targetMonitor`와 함께 전송
+
+> `divideGridAreas`/`hitTestPad`는 `internal`이라 touchpad 패키지 밖에서 직접 재사용 불가 — 신규 파일을 같은 패키지(`ui/components/touchpad/`)에 두어 가시성 확보
+
+### 전송 흐름 (기존 헬퍼 무변경 재사용)
+
+- 존 전환 감지(`curZoneIdx != lastSentZoneIdx`) 시 그 존의 `sendZoomStateFrame(zone.zoom, zone.targetMonitor)`를 스로틀 없이 1회 전송, `lastSentZoneIdx` 갱신으로 중복 억제
+- `sendAbsolutePosition(ratio, buttons, zone.targetMonitor)`로 좌표 전송 — 이때 `targetMonitor`는 모니터 셀렉터 값이 아니라 **존별 배정값**을 사용
+- 존 정의 중 배율 드래그에는 기존 `ZOOM_STATE_THROTTLE_MS`(30Hz) 스로틀 그대로 적용
+
+### 존 정의 UX
+
+기존 단일 줌 정의 흐름(중심점 DOWN → 드래그 배율 → 손 뗌 → 원탭 확정)을 존마다 순차 반복:
+1. **진입**: ZoomButton **롱프레스**로 멀티존 모드 진입(멀티커서 CursorModeButton의 탭=선택/롱프레스=전환 이원화 관용구 답습) → `CursorCountSelectionPopup` 재사용(문구만 "존 개수"로, 범위는 `MULTI_ZONE_COUNT_MIN~MAX` = 기존 커서 개수 범위와 동일한 2~4)
+2. `definingZoneIndex`(0부터) 순서로 각 셀을 정의: 그리드 분할선 오버레이 + "존 k/N 정의 중" 안내 + 대상 셀 하이라이트, 나머지 셀은 흐리게
+3. 대상 셀 안에서 중심점 DOWN → 드래그로 배율(`dragDistanceToZoomLevel`/`updateZoomLevelFromDrag` 재사용, 중심점은 셀 로컬 정규화 좌표로 저장) → 손 뗌 → 원탭 확정 → `zones[definingZoneIndex]` 갱신, `definingZoneIndex++`
+4. 마지막 존까지 정의되면 `enabled=true`로 전환, 이후 실시간 점프 모드로 동작
+5. 멀티존 활성 중 ZoomButton 재탭 → 전체 해제(`MultiZoneState()`로 리셋 + 해제 프레임 1회 전송)
+
+미정의 존(`defined=false`)은 1x 항등 매핑으로 취급(확대 없이 셀 영역을 그대로 stretch).
+
+### 모드 배타성
+
+단일 줌 / 멀티 존 / 드래그 앤 드롭은 상호 배타. 각 모드 진입 지점(ZoomButton 탭·롱프레스, 커서수팝업 확정)에서 다른 모드를 강제 해제한다. 멀티존은 "즉시 점프 포인팅"이라 드래그 홀드와 개념이 충돌(존 경계를 넘으면 좌표가 순간이동해 드래그 궤적이 깨짐) — 멀티존 활성 시 드래그 앤 드롭 진입 차단. 엣지존(좌표 무관 이산 액션)은 기존 gate 로직 그대로 공존.
+
+### 신규 파일
+- `ui/components/touchpad/MultiZoneCalculator.kt` — `normalizeInZone`, `resolveZoneRatio` (순수 함수, `divideGridAreas`/`hitTestPad` 재사용을 위해 touchpad 패키지에 배치)
+- `src/android/app/src/test/.../MultiZoneCalculatorTest.kt` — 셀 로컬 정규화 경계값, 존별 `applyZoom` 합성, 미정의 존 항등 매핑, 존 인덱스별 매핑 선택 검증
+
+### 수정 파일
+- `ui/utils/AbsoluteCoordinateCalculator.kt` — `ZoneMapping`/`MultiZoneState` 데이터 클래스 추가
+- `ui/utils/AbsolutePointingConstants.kt` — `MULTI_ZONE_COUNT_MIN=2`/`MAX=4`/`DEFAULT=2`(기본값 주석 필수) + 그리드 오버레이 렌더 상수(분할선 굵기/alpha, 하이라이트 alpha, 안내 텍스트 크기)
+- `ui/components/AbsolutePointingPad.kt` — 제스처 루프에 멀티존 DOWN/MOVE 브랜치, 존 정의 세션 상태(`multiZoneDefining`, `definingZoneIndex`), 그리드 오버레이 렌더, ZoomButton 롱프레스 배선
+- `ui/pages/StandardModePage.kt` — `page3MultiZoneState` hoisting + `Page3AbsolutePointing` 파라미터 전달
+
+### 재사용 (무변경)
+`MultiCursorGridGeometry.divideGridAreas`/`hitTestPad`, `AbsoluteCoordinateCalculator.applyZoom`/`calculateTouchRatio`/`calculateZoomMappingRange`/`dragDistanceToZoomLevel`/`updateZoomLevelFromDrag`, `AbsolutePointingPad.sendAbsolutePosition`/`sendZoomStateFrame`, `ZoomStateCommand.buildFrame`, `FrameBuilder.buildAbsolutePositionCommand`, `CursorCountSelectionPopup`(touchpad 패키지)
+
+**참조 문서**:
+- `docs/android/component-touchpad.md` §1.2.1 (멀티커서 그리드 분할 — 존 분할 형태의 근거)
+- 본 문서 Phase 4.9.6(줌 기능) — 존별 매핑 단위(`AbsoluteZoomState`)와 정의 UX 원형
+- 본 문서 Phase 4.9.5(모니터 셀렉터) — 존별 모니터 배정의 `targetMonitor` 규약
+
+**검증**:
+- [ ] `MultiZoneCalculatorTest` — 셀 로컬 정규화, 존별 줌 합성, 미정의 존 항등, 경계값 통과
+- [ ] 2/3/4분할 각각에서 존 판정(`hitTestPad`)이 셀 경계를 정확히 구분
+- [ ] 존 전환 시 `ZOOM_STATE`+`targetMonitor` 프레임이 스로틀 없이 1회 전송(중복 없음)
+- [ ] 정의 세션: N개 존을 순차 정의 후 실시간 점프 모드 정상 전환
+- [ ] 미정의 존 진입 시 1x 항등 매핑(확대 없음) 확인
+- [ ] 단일 줌/드래그 앤 드롭과 상호 배타 동작(동시 활성 불가) 확인
+- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트(줌/모니터셀렉터) 회귀 없음
+- [ ] 실기기 필요: 존 경계를 넘나드는 실제 조작감, 서버 측 존 전환 시 커서 텔레포트 체감 지연(펌웨어/서버 완성 후 후속 통합 Phase에서 검증)
+
+---
+
+## Phase 4.9.11: 리팩토링
+
+> **신규 하위 Phase(2026-07-09, 유저 확정)**: Page 3(절대좌표 패드) 관련 코드 전체를 마지막에 한 번 정리한다. 4.9.1~4.9.10에 걸쳐 `AbsolutePointingPad.kt`/`ControlButtonContainer.kt` 등에 기능이 순차적으로 누적되면서 생겼을 중복·비대해진 파일·임시방편 구조를 이 시점에 재검토한다.
+>
+> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.10)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
+>
+> **⚠️ Phase 4.9.10 변경사항**: 멀티 존 모드 추가로 `AbsoluteCoordinateCalculator.kt`(`ZoneMapping`/`MultiZoneState`), 신규 `MultiZoneCalculator.kt`, `AbsolutePointingPad.kt`의 존 정의 세션 상태가 추가됐다. 단일 줌(4.9.6)과 멀티존(4.9.10)의 정의 UX 상태머신이 유사한 구조를 반복하므로(중심점 DOWN→드래그 배율→확정), 이 시점에 공통화 여지가 있는지 검토 대상에 포함한다.
 
 **목표**: Page 3 구현 완료 시점의 코드를 검토해 중복 제거·함수 분리·상수 정리 등 리팩토링 수행
 
@@ -610,15 +715,17 @@ Page 3 — AbsolutePointingPad
 ├── PointingArea (자유 비율, Fill 기본)
 │   ├── 터치 → 비율(0.0~1.0) 변환 → 서버 중계 프레임 전송
 │   ├── 줌 시 매핑 범위 축소 (비율 기반)
+│   ├── 멀티 존 시 그리드 분할(2/3/4) + 존별 독립 줌 매핑, 터치 즉시 판정
 │   ├── CoordinateIndicator (십자선 + 점)
 │   └── 엣지존/엣지스와이프 시스템 (좌표 무관 기능만)
 ├── ControlButtonContainer (상단 오버레이, 기존 컴포넌트 재사용)
 │   ├── ClickModeButton (좌/우 토글)
-│   ├── ZoomButton (DPI 슬롯 자리)
+│   ├── ZoomButton (탭=단일 줌, 롱프레스=멀티 존 진입, DPI 슬롯 자리)
 │   └── DragModeButton (ScrollSensitivity 슬롯 자리, 드래그 앤 드롭)
 ├── MonitorSelector (모니터 2개 이상 시)
 └── 시각 피드백
     ├── 테두리 색상 (핑크/노란/초록/주황, 다중 모드 동시 활성 시 그라디언트)
     ├── 줌 레벨 텍스트 (앱 내)
+    ├── 멀티 존 그리드 오버레이 (분할선 + 정의 중 셀 하이라이트, 앱 내)
     └── 줌 영역 박스 (PC 화면 — Android는 UART 전송까지만, ESP32 중계/Windows 렌더링은 후속 통합 Phase)
 ```
