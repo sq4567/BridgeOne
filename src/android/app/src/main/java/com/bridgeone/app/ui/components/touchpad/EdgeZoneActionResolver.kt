@@ -4,7 +4,7 @@ package com.bridgeone.app.ui.components.touchpad
  * 액션 도메인 분류. ActionDomainPicker의 폴더 트리/그리드 그룹핑과
  * 현재 액션의 도메인 판정에 사용된다.
  */
-internal enum class ActionDomain {
+enum class ActionDomain {
     CLICK, SCROLL, MOVE, DPI, SCROLL_SPEED, DYNAMICS, MODE_PRESET, HISTORY, COMBO, MACRO, MOUSE_HOLD, PAGE, MULTI_CURSOR, UNASSIGNED
 }
 

@@ -101,6 +101,7 @@ internal fun RotationEditor(
     onBeforeIntervalChange: (() -> Unit)? = null,
     pageCount: Int = 5,
     onSwipeShortcutRequest: ((EdgeZoneAction.SendShortcut, (EdgeZoneAction.SendShortcut) -> Unit, ((draft: EdgeZoneAction.SendShortcut, iconKey: String, name: String) -> Unit)?) -> Unit)? = null,
+    excludeDomains: Set<ActionDomain> = emptySet(),
 ) {
     val cs = MaterialTheme.colorScheme
     val rotationSwipeCtrl = LocalSwipeFocusController.current
@@ -134,7 +135,8 @@ internal fun RotationEditor(
 
             rotation.candidates.forEachIndexed { idx, candidate ->
                 val isAutoLabel = candidate.label.isEmpty()
-                val displayLabel = candidate.label.ifEmpty { candidate.action.defaultLabel() }
+                val displayLabel = if (candidate.action is EdgeZoneAction.Unassigned) ""
+                    else candidate.label.ifEmpty { candidate.action.defaultLabel() }
                 val displayIconKey = candidate.iconKey.ifEmpty { candidate.action.defaultIconKey() }
 
                 val rowGrid = 40 + idx
@@ -470,7 +472,7 @@ internal fun RotationEditor(
             ActionDomainPicker(
                 current = draftCandidate.action,
                 onSelect = onCandidateActionSelected,
-                excludeDomains = setOf(ActionDomain.UNASSIGNED),
+                excludeDomains = excludeDomains + ActionDomain.UNASSIGNED,
                 pageCount = pageCount,
                 inputMode = inputMode,
                 onAddAsCandidate = null,

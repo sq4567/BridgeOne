@@ -421,6 +421,17 @@ data class EdgeZone(
             is EdgeZoneTrigger.Rotation -> t.candidates.firstOrNull()?.colorHex ?: ""
         }
 
+    /** 편집기 표시용 라벨. action이 Unassigned면 저장된 label 값과 무관하게 항상 빈 문자열(미할당으로 표시). */
+    val displayLabel: String
+        get() = when (val t = trigger) {
+            is EdgeZoneTrigger.SingleAction ->
+                if (t.action is EdgeZoneAction.Unassigned) "" else t.label.ifEmpty { t.action.defaultLabel() }
+            is EdgeZoneTrigger.Rotation ->
+                t.candidates.firstOrNull()?.let { c ->
+                    if (c.action is EdgeZoneAction.Unassigned) "" else c.label.ifEmpty { c.action.defaultLabel() }
+                } ?: ""
+        }
+
     fun withLabel(label: String): EdgeZone = copy(
         trigger = when (val t = trigger) {
             is EdgeZoneTrigger.SingleAction -> t.copy(label = label)

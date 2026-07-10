@@ -161,6 +161,7 @@ fun EdgeZoneEditorScreen(
     initialPresetId: String? = null,
     presetsRepo: EdgeZonePresetsRepository? = null,
     disabledEdges: Map<EntryEdge, String> = emptyMap(),
+    excludeDomains: Set<ActionDomain> = emptySet(),
     bottomLeftButtonLabel: String? = "다이나믹스",
     bottomRightButtonLabel: String? = "모드 프리셋",
     customPresets: List<CustomPointerDynamicsPreset> = emptyList(),
@@ -1284,10 +1285,7 @@ fun EdgeZoneEditorScreen(
                         val pz = if (picked != null) workConfig.zonesFor(picked.edge).firstOrNull { it.startRatio == picked.startRatio } else null
                         val meta: Pair<Int, String>? = if (picked != null && pz != null) {
                             val colorIndex = workConfig.zonesFor(picked.edge).indexOfFirst { it.startRatio == picked.startRatio }.coerceAtLeast(0)
-                            val label = pz.label.ifEmpty {
-                                if (pz.trigger is EdgeZoneTrigger.SingleAction && pz.action !is EdgeZoneAction.Unassigned) pz.action.defaultLabel() else ""
-                            }
-                            colorIndex to label
+                            colorIndex to pz.displayLabel
                         } else null
                         when {
                             // 드롭 후보 있음(SWIPE 포커스 슬롯 / NORMAL 드래그 dropTarget): 이웃 reflow + float 슬라이드
@@ -1960,6 +1958,7 @@ fun EdgeZoneEditorScreen(
                                     // ── 3. 액션 선택 ──
                                     ActionDomainPicker(
                                         current = sel.action,
+                                        excludeDomains = excludeDomains,
                                         onSelect = { action ->
                                             if (inputMode == InputMode.SWIPE) {
                                                 nextFocusOnZoneChange =
@@ -2128,6 +2127,7 @@ fun EdgeZoneEditorScreen(
                                     RotationEditor(
                                         rotation = rotation,
                                         onRotationChanged = { updateSelectedZone(sel.copy(trigger = it)) },
+                                        excludeDomains = excludeDomains,
                                         onRequestLabelKeyboard = { current, onResult ->
                                             candidateLabelCurrent = current
                                             candidateLabelKeyboard = onResult

@@ -30,6 +30,15 @@ data class TouchpadButtonVisibility(
                 showModePresetButton = false,
                 showScrollButtons = true,
             )
+            // Phase 4.9.8 후속 수정: Page 3(절대좌표 패드)는 다이나믹스/모드 프리셋/스크롤 버튼이 없다.
+            // 이 값이 true로 폴백되면 엣지존 편집기의 "코너 버튼 크기" 슬라이더가 실제로 없는
+            // 코너 버튼을 근거로 잘못 노출된다.
+            TouchpadIds.standardPage(2) -> TouchpadButtonVisibility(
+                showControlButtons = true,
+                showDynamicsButton = false,
+                showModePresetButton = false,
+                showScrollButtons = false,
+            )
             else -> default()
         }
     }

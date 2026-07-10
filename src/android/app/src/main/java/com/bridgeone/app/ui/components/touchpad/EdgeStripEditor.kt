@@ -357,11 +357,7 @@ fun EdgeStripEditor(
                 style = Stroke(width = borderWidth)
             )
 
-            val displayZoneLabel = zone.label.ifEmpty {
-                if (zone.trigger is EdgeZoneTrigger.SingleAction && zone.action !is EdgeZoneAction.Unassigned)
-                    zone.action.defaultLabel()
-                else ""
-            }
+            val displayZoneLabel = zone.displayLabel
             if (displayZoneLabel.isNotEmpty()) {
                 val displayText = displayZoneLabel
                 // 존 폭이 좁아 라벨이 다 안 들어가면 말줄임(…) 처리

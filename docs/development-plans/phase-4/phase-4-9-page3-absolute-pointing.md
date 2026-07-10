@@ -4,7 +4,7 @@ description: "BridgeOne 프로젝트 Phase 4.9 - Standard 전용 Page 3: Absolut
 tags: ["android", "absolute-pointing", "server-relay", "zoom", "multi-zone", "vendor-cdc", "multi-monitor", "ui"]
 version: "v2.2"
 owner: "Chatterbones"
-updated: "2026-07-10"
+updated: "2026-07-11"
 ---
 
 # BridgeOne Phase 4.9: Page 3 — 절대좌표 패드 페이지 (서버 중계 재설계)
@@ -524,15 +524,28 @@ Page 3 — AbsolutePointingPad
 
 > **⚠️ 구현 중 확인된 사실(2026-07-10)**: 세부 목표 3(CURSOR 예외 처리)은 코드 조사 결과 불필요한 것으로 판명됐다. `ZoneActionPicker.kt`의 `ActionDomainPicker` 내부 `ActionDomain.CLICK` 도메인 옵션 목록(`relativeAction = ToggleMode(CLICK)`, `specificOptions = [SetClickMode(LEFT), SetClickMode(RIGHT)]`)에는 애초에 `ToggleMode(CURSOR)`가 포함되어 있지 않다 — CURSOR 모드는 레거시 팝업 전용 토글(`config.showCursorMode`)로 별도 경로를 타며 편집기에서 선택 가능한 액션으로 노출된 적이 없다. 따라서 `excludeActions` 신규 파라미터나 `ZoneActionPicker.kt` 수정 없이, `ActionDomain.CLICK`을 exclude 목록에 넣지 않는 것만으로 "CLICK 유지 + CURSOR 미노출" 요구사항이 그대로 충족된다.
 
-**검증**: 빌드(`assembleDebug`) 및 관련 유닛 테스트(`EdgeZoneActionResolverTest`, `AbsolutePadActionFilterTest`, `EdgeZoneJsonTest`, `EdgeZoneEditorStateTest`, `EdgeZoneCanvasGeometryTest`)는 통과 확인. 아래 실기기 동작 검증은 유저 확인 필요:
-- [ ] Page 6 설정에서 "페이지 3"(절대좌표) 존 편집 진입 가능
-- [ ] Page 3 편집기에서 MOVE/DPI/DYNAMICS/SCROLL/SCROLL_SPEED 액션 미노출
-- [ ] Page 3 편집기에서 CURSOR 관련 옵션 미노출, CLICK(좌/우클릭)은 정상 노출
-- [ ] Page 1/2 편집기는 기존과 동일하게 전체 액션 노출 (회귀 없음)
-- [ ] 존 구조 편집(분할/병합/이동/삭제/비율조정)은 Page 3에서도 다른 페이지와 동일하게 동작
-- [ ] 마이그레이션 전 저장된 `JumpToPage(4)`(구 "설정")가 마이그레이션 후 `JumpToPage(5)`로 이동해 여전히 설정 페이지로 점프하는지 확인
-- [ ] 마이그레이션이 앱 재시작 시 중복 실행되지 않는지 확인
-- [ ] Page 3에서 로테이션 존(후보 2개 이상)을 생성 후 armed 상태를 유지하면 `intervalMs` 간격으로 하이라이트가 실제로 순환하고, 손을 뗐을 때 순환이 멈춘 시점의 후보가 실행되는지 확인
+**검증**: 빌드(`assembleDebug`) 및 관련 유닛 테스트(`EdgeZoneActionResolverTest`, `AbsolutePadActionFilterTest`, `EdgeZoneJsonTest`, `EdgeZoneEditorStateTest`, `EdgeZoneCanvasGeometryTest`)는 통과 확인. 아래 실기기 동작 검증도 유저 확인 완료(2026-07-11):
+- [x] Page 6 설정에서 "페이지 3"(절대좌표) 존 편집 진입 가능
+- [x] Page 3 편집기에서 MOVE/DPI/DYNAMICS/SCROLL/SCROLL_SPEED 액션 미노출
+- [x] Page 3 편집기에서 CURSOR 관련 옵션 미노출, CLICK(좌/우클릭)은 정상 노출
+- [x] Page 1/2 편집기는 기존과 동일하게 전체 액션 노출 (회귀 없음)
+- [x] 존 구조 편집(분할/병합/이동/삭제/비율조정)은 Page 3에서도 다른 페이지와 동일하게 동작
+- [x] 마이그레이션 전 저장된 `JumpToPage(4)`(구 "설정")가 마이그레이션 후 `JumpToPage(5)`로 이동해 여전히 설정 페이지로 점프하는지 확인
+- [x] 마이그레이션이 앱 재시작 시 중복 실행되지 않는지 확인
+- [x] Page 3에서 로테이션 존(후보 2개 이상)을 생성 후 armed 상태를 유지하면 `intervalMs` 간격으로 하이라이트가 실제로 순환하고, 손을 뗐을 때 순환이 멈춘 시점의 후보가 실행되는지 확인
+
+> **⚠️ 실기기 검증 중 발견된 후속 버그 3건 수정(2026-07-10)**: 최초 구현 검증 중 유저가 세 가지 문제를 발견 — (1) 편집기에서 미할당 존인데도 라벨이 남아 할당된 것처럼 보임, (2) Page 3에 없는 코너 버튼(다이나믹스/모드 프리셋)의 크기 조절 슬라이더가 노출됨, (3) `excludeDomains` 목록이 런타임 화이트리스트(`isAbsolutePadAllowed`)와 어긋나 "멀티 커서"/"프리셋" 액션이 여전히 노출됨.
+>
+> **원인 및 수정**:
+> 1. 편집기 미리보기(`EdgeZoneEditorPreviewCanvas.kt`/`EdgeStripEditor.kt`/`EdgeZoneEditorScreen.kt` 이동 프리뷰)의 `zone.label.ifEmpty{...}` 패턴이 라벨이 이미 비어있지 않으면 액션이 Unassigned인지 확인하지 않던 표시 로직 버그. `EdgeZone.kt`에 `displayLabel` 확장 프로퍼티(action이 Unassigned면 저장된 label과 무관하게 항상 빈 문자열)를 추가해 위 3개 파일 + `ZoneRotationEditor.kt`(로테이션 후보 목록 뷰)까지 통일. 추가로 `StandardModePage.kt`에서 Page 3 편집기 진입 시 `initialConfig`에 `filterConfigForAbsolutePad`를 미리 적용해, `EdgeZoneConfig.default()`에서 물려받은(이제는 선택 불가능한 도메인의) 이동/스크롤/DPI 액션이 처음부터 미할당으로 보이도록 정리.
+> 2. `TouchpadButtonVisibility.kt`의 `defaultFor()`에 `standardPage(2)`(Page 3) 케이스가 없어 범용 `default()`(다이나믹스/모드 프리셋 버튼 true)로 폴백되던 게 원인. Page 1과 동일한 구조로 `standardPage(2)` 분기 추가(`showDynamicsButton`/`showModePresetButton`/`showScrollButtons` 모두 false).
+>    - **추가 발견(2026-07-10, 실기기 재검증)**: 위 수정만으로는 안 고쳐짐 — 최초 구현 당시 `TouchpadButtonVisibilityRepository.load()`가 이미 잘못된 기본값을 `touchpad_button_visibility.json`에 "standard_page_2" 키로 저장해뒀고, `load()`는 파일에 값이 있으면 `defaultFor()`를 아예 안 타므로 새 분기가 무력화됨. `AbsolutePointingPad`는 애초에 `TouchpadButtonVisibility`를 파라미터로 받지도 않아(코너 버튼이 구조적으로 없음) 이 값이 실제 토글이 아니라 편집기 힌트 전용이므로, `StandardModePage.kt`에서 `selectedZonePage == 2`일 때는 `standardButtonVisibility` 맵(영속 데이터)을 거치지 않고 `TouchpadButtonVisibility.defaultFor(standardPage(2))`를 직접 사용하도록 변경 — 과거 저장분과 무관하게 항상 올바른 값을 반환.
+> 3. `AbsolutePadActionFilter.kt`에 `ABSOLUTE_PAD_ALLOWED_DOMAINS` 상수(`isAbsolutePadAllowed`와 1:1 대응, `CLICK/PAGE/COMBO/MACRO/MOUSE_HOLD/HISTORY`만 허용) 신규 추가. `StandardModePage.kt`의 `zoneEditorExcludeDomains`를 하드코딩 목록 대신 `ActionDomain.entries - ABSOLUTE_PAD_ALLOWED_DOMAINS - UNASSIGNED`로 파생하도록 변경 — 향후 `ActionDomain` 추가 시 기본적으로 Page 3에서 제외되는 안전한 방향이라 같은 종류의 누락이 재발하지 않음.
+>
+> 빌드(`assembleDebug`) + 유닛 테스트 통과 확인. 실기기 재검증 완료(2026-07-11) — 3건 모두 해결 확인:
+> - [x] Page 3 편집기에서 클릭 존을 제외한 나머지 존이 처음부터 완전히 빈 상태(미할당)로 표시됨
+> - [x] Page 3 편집기에서 코너 버튼 크기 슬라이더가 더 이상 노출되지 않음
+> - [x] Page 3 액션 목록에서 멀티 커서/프리셋 항목이 더 이상 노출되지 않음
 
 ---
 

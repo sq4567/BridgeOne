@@ -353,30 +353,23 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
         TouchpadEdgeZoneAssignmentRepository(context).also {
             it.migrateLegacyIfNeeded(context)
             it.migrateStandardPrimaryKeyIfNeeded()
+            it.migrateJumpToPageIndicesIfNeeded(context)
         }
     }
     // 페이지 인덱스(0-based)를 터치패드 ID로 사용. 터치패드가 있는 페이지만 포함.
     // Phase 4.8.9: 페이지 1(index 1, Page 2 싱글 커서 모드)은 제어 버튼과 TOP이 겹치므로
     // 커스텀 편집 안 한(builtin_default) 경우 로드 시점에 TOP 존을 비운다.
-    val standardTouchpadPages = remember { listOf(0, 1) }
+    // Phase 4.9.8: 페이지 2(index 2, Page 3 절대좌표 패드)도 ControlButtonContainer와 TOP이
+    // 겹치므로 동일하게 편집 대상에 포함하면서 TOP을 비운다.
+    val standardTouchpadPages = remember { listOf(0, 1, 2) }
     var standardAssignments by remember {
         mutableStateOf(standardTouchpadPages.associateWith { pageIdx ->
             val loaded = assignmentRepo.load(TouchpadIds.standardPage(pageIdx))
-            if (pageIdx == 1) loaded.withTopClearedIfDefault() else loaded
+            if (pageIdx == 1 || pageIdx == 2) loaded.withTopClearedIfDefault() else loaded
         })
     }
     // Page 5 설정에서 현재 선택된 페이지 인덱스 (엣지 존 + 버튼 표시 공유)
     var selectedZonePage by remember { mutableStateOf(0) }
-
-    // Phase 4.9.3: Page 3(절대좌표 패드) 전용 엣지 존 할당. standardTouchpadPages에는
-    // 넣지 않는다(4.9.9 편집 UI 연동 전까지 편집기 대상에서 배제하기 위함). TOP은
-    // ControlButtonContainer와 겹치므로 Page 2와 동일하게 builtin_default에서만 비운다.
-    var page3Assignment by remember {
-        mutableStateOf(assignmentRepo.load(TouchpadIds.standardPage(2)).withTopClearedIfDefault())
-    }
-    LaunchedEffect(page3Assignment) {
-        assignmentRepo.save(TouchpadIds.standardPage(2), page3Assignment)
-    }
 
     // Phase 4.9.6: 줌 레벨/중심점. 페이저 바깥에서 hoisting해 페이지 전환에도 유지(SharedPreferences
     // 영속화는 하지 않음 — 앱 재시작 시 1x로 리셋).
@@ -711,8 +704,8 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onPadLabelDismiss = { padLabelEditorTarget = null }
                     )
                     2 -> Page3AbsolutePointing(
-                        edgeZoneAssignment = page3Assignment,
-                        onEdgeZoneAssignmentChange = { updated -> page3Assignment = updated },
+                        edgeZoneAssignment = standardAssignments[2] ?: TouchpadEdgeZoneAssignment.default(),
+                        onEdgeZoneAssignmentChange = { updated -> standardAssignments = standardAssignments + (2 to updated) },
                         onRestorePrevious = onRestorePrevious,
                         onSendShortcut = onSendShortcut,
                         onSendMacro = onSendMacro,
@@ -793,19 +786,46 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
         // 전체 화면)이라 제어 버튼과 겹친다. 패드 2·3은 4분할 그리드에서만 존재하며 항상 하단 행이라
         // TOP 엣지가 자유롭다(직접 전환 버튼 모드에서 해당 패드가 활성화되면 실제로는 버튼에 가려질 수
         // 있으나, 버튼이 터치를 우선 소비해 크래시 없이 그 존만 무용지물이 되는 정도라 별도 제약을 두지 않는다).
-        val zoneEditorVisibility = standardButtonVisibility[selectedZonePage]
-            ?: TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(selectedZonePage))
+        // Phase 4.9.8 후속 수정: Page 3(index 2)는 AbsolutePointingPad가 TouchpadButtonVisibility를
+        // 아예 소비하지 않아(코너 버튼 자체가 없음) 이 값이 실사용 토글이 아니라 편집기 힌트 전용이다.
+        // standardButtonVisibility[2]에는 최초 구현 당시 잘못된 기본값(다이나믹스/모드 프리셋 true)이
+        // 이미 파일로 저장돼 있을 수 있어(구 defaultFor()가 standardPage(2) 케이스 없이 default()로
+        // 폴백하던 시절 저장분), 맵을 거치지 않고 항상 defaultFor()로 직접 계산한다.
+        val zoneEditorVisibility = if (selectedZonePage == 2) {
+            TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(2))
+        } else {
+            standardButtonVisibility[selectedZonePage]
+                ?: TouchpadButtonVisibility.defaultFor(TouchpadIds.standardPage(selectedZonePage))
+        }
         val zoneEditorDisabledEdges: Map<com.bridgeone.app.ui.components.touchpad.EntryEdge, String> = when {
             !zoneEditorVisibility.showControlButtons -> emptyMap()
             selectedZonePage == 0 -> mapOf(com.bridgeone.app.ui.components.touchpad.EntryEdge.TOP to "제어 버튼")
             selectedZonePage == 1 && selectedZonePad in -1..1 -> mapOf(com.bridgeone.app.ui.components.touchpad.EntryEdge.TOP to "제어 버튼")
+            // Phase 4.9.8: Page 3(절대좌표 패드)도 ControlButtonContainer가 항상 상단에 표시되어 TOP과 겹친다.
+            selectedZonePage == 2 -> mapOf(com.bridgeone.app.ui.components.touchpad.EntryEdge.TOP to "제어 버튼")
             else -> emptyMap()
         }
+        // Phase 4.9.8 후속 수정: 하드코딩 목록 대신 AbsolutePadActionFilter.kt의
+        // ABSOLUTE_PAD_ALLOWED_DOMAINS(런타임 화이트리스트 isAbsolutePadAllowed와 1:1 대응)에서
+        // 파생 — 향후 ActionDomain이 추가돼도 기본적으로 Page 3에서 제외되는 안전한 방향이 된다.
+        val zoneEditorExcludeDomains: Set<com.bridgeone.app.ui.components.touchpad.ActionDomain> = if (selectedZonePage == 2) {
+            com.bridgeone.app.ui.components.touchpad.ActionDomain.entries.toSet() -
+                com.bridgeone.app.ui.components.touchpad.ABSOLUTE_PAD_ALLOWED_DOMAINS -
+                com.bridgeone.app.ui.components.touchpad.ActionDomain.UNASSIGNED
+        } else emptySet()
+        // Phase 4.9.8 후속 수정: Page 3는 편집기 진입 시점에 이미 filterConfigForAbsolutePad로
+        // 걸러진 config를 보여줘야, 범용 EdgeZoneConfig.default()에서 물려받은(또는 이제는 선택
+        // 불가능한 도메인의) 이동/스크롤/DPI 등 액션이 "라벨은 있지만 실제로는 동작 안 함" 상태로
+        // 남지 않고 처음부터 미할당으로 보인다.
+        val zoneEditorInitialConfig = if (selectedZonePage == 2) {
+            com.bridgeone.app.ui.components.touchpad.filterConfigForAbsolutePad(targetAssignment.config)
+        } else targetAssignment.config
         com.bridgeone.app.ui.components.touchpad.EdgeZoneEditorScreen(
-            initialConfig = targetAssignment.config,
+            initialConfig = zoneEditorInitialConfig,
             initialPresetId = targetAssignment.presetId,
             presetsRepo = edgeZonePresetsRepo,
             disabledEdges = zoneEditorDisabledEdges,
+            excludeDomains = zoneEditorExcludeDomains,
             bottomLeftButtonLabel = if (zoneEditorVisibility.showDynamicsButton) "다이나믹스" else null,
             bottomRightButtonLabel = if (zoneEditorVisibility.showModePresetButton) "모드 프리셋" else null,
             customPresets = customPresets,

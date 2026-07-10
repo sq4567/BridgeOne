@@ -11,6 +11,16 @@ package com.bridgeone.app.ui.components.touchpad
 // Reference: docs/development-plans/phase-4/phase-4-9-page3-absolute-pointing.md Phase 4.9.3
 
 /**
+ * Page 3(절대좌표 패드) 엣지존 편집기에서 선택 가능한 액션 도메인. [isAbsolutePadAllowed]와 1:1 대응.
+ * `ActionDomain.values() - ABSOLUTE_PAD_ALLOWED_DOMAINS - UNASSIGNED`를 편집기 excludeDomains로 사용하면
+ * 향후 ActionDomain이 추가돼도 기본적으로 Page 3에서 제외되는 안전한 방향이 된다(Phase 4.9.8 후속 수정).
+ */
+internal val ABSOLUTE_PAD_ALLOWED_DOMAINS: Set<ActionDomain> = setOf(
+    ActionDomain.CLICK, ActionDomain.PAGE, ActionDomain.COMBO,
+    ActionDomain.MACRO, ActionDomain.MOUSE_HOLD, ActionDomain.HISTORY
+)
+
+/**
  * 액션이 AbsolutePointingPad(Page 3)에서 허용되는지 판정합니다.
  *
  * 허용: SendMacro, SendShortcut, CyclePage, JumpToPage, SetClickMode,

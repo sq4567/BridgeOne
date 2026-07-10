@@ -86,6 +86,7 @@ import com.bridgeone.app.ui.utils.TouchRatio
 import com.bridgeone.app.ui.utils.resolveTargetMonitor
 import com.bridgeone.app.ui.utils.getDistance
 import kotlin.math.abs
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -110,10 +111,10 @@ private fun EdgeZoneTrigger.hasAssignedAction(): Boolean = when (this) {
     is EdgeZoneTrigger.Rotation -> candidates.isNotEmpty()
 }
 
-/** [EdgeZoneTrigger]에서 실행할 액션을 결정(로테이션은 4.9.9 전까지 첫 후보로 고정). */
-private fun EdgeZoneTrigger.resolveAction(): EdgeZoneAction? = when (this) {
+/** [EdgeZoneTrigger]에서 실행할 액션을 결정. 로테이션은 armed 동안 회전 코루틴이 갱신한 [rotationIndex] 후보(Phase 4.9.8). */
+private fun EdgeZoneTrigger.resolveAction(rotationIndex: Int): EdgeZoneAction? = when (this) {
     is EdgeZoneTrigger.SingleAction -> action.takeIf { it !is EdgeZoneAction.Unassigned }
-    is EdgeZoneTrigger.Rotation -> candidates.firstOrNull()?.action?.takeIf { it !is EdgeZoneAction.Unassigned }
+    is EdgeZoneTrigger.Rotation -> candidates.getOrNull(rotationIndex)?.action?.takeIf { it !is EdgeZoneAction.Unassigned }
 }
 
 /**
@@ -176,6 +177,9 @@ fun AbsolutePointingPad(
     val fingerAlongEdgePx = remember { mutableStateOf(0f) }
     val inwardDistancePx = remember { mutableStateOf(0f) }
     val isZoneArmed = remember { mutableStateOf(false) }
+    // 로테이션 존 회전 코루틴이 갱신하는 현재 후보 인덱스 (Phase 4.9.8, TouchpadWrapper.kt 패턴 이식).
+    // EdgeZoneOverlay(하이라이트 표시)와 PointingArea(release 시 실행할 후보 결정) 양쪽이 읽어야 해 상위로 hoisting.
+    val rotationIndex = remember { mutableStateOf(0) }
 
     // ── 산봉우리(Bump) 시각화 상태 (Phase 4.9.3, TouchpadWrapper.kt 패턴 이식) ──
     // 드래그 중 마지막 유효 값(release 시 즉시 0으로 리셋되지 않음 → 수축 애니메이션 시작점)
@@ -237,6 +241,7 @@ fun AbsolutePointingPad(
                 fingerAlongEdgePx = fingerAlongEdgePx,
                 inwardDistancePx = inwardDistancePx,
                 isZoneArmed = isZoneArmed,
+                rotationIndex = rotationIndex,
                 lastBumpInwardPx = lastBumpInwardPx,
                 lastBumpAlongPx = lastBumpAlongPx,
                 lastBumpEntryAlongPx = lastBumpEntryAlongPx,
@@ -296,7 +301,7 @@ fun AbsolutePointingPad(
                 touchpadWidthPx = touchpadWidthPx,
                 touchpadHeightPx = touchpadHeightPx,
                 isZoneArmed = isZoneArmed.value,
-                rotationIndex = 0,
+                rotationIndex = rotationIndex.value,
                 hasBottomLeft = false,
                 hasBottomRight = false,
                 blockedRatio = EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO,
@@ -408,6 +413,7 @@ private fun PointingArea(
     fingerAlongEdgePx: MutableState<Float>,
     inwardDistancePx: MutableState<Float>,
     isZoneArmed: MutableState<Boolean>,
+    rotationIndex: MutableState<Int>,
     lastBumpInwardPx: MutableState<Float>,
     lastBumpAlongPx: MutableState<Float>,
     lastBumpEntryAlongPx: MutableState<Float>,
@@ -488,6 +494,11 @@ private fun PointingArea(
                     // 드래그 앤 드롭 모드(Phase 4.9.4): 이번 제스처에서 실제 press를 시작했는지.
                     // 제스처 스코프 트랜지언트 — heldMouseButtons(영구 홀드)와 무관.
                     var dragPressed = false
+
+                    // 로테이션 존 회전 상태(Phase 4.9.8, TouchpadWrapper.kt:901-930 패턴 이식).
+                    // 제스처 스코프 트랜지언트 — armed 동안만 의미 있고 release/cancel 시 정리된다.
+                    var rotationJob: Job? = null
+                    var armedZoneKey: Pair<Float, Float>? = null
 
                     // 줌 정의 모드(Phase 4.9.6): ZoomButton arming 상태에서 시작한 이번 제스처가
                     // 줌 중심점 드래그로 인식됐는지. 제스처 스코프 트랜지언트.
@@ -624,7 +635,7 @@ private fun PointingArea(
                                     unmapFromValid(edge, rawRatio, false, false, EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO)
                                         ?.let { EdgeZoneDetector.findActiveZone(filteredConfig, edge, it) }
                                 } else null
-                                val actionToApply = activeZone?.trigger?.resolveAction()
+                                val actionToApply = activeZone?.trigger?.resolveAction(rotationIndex.value)
                                 if (actionToApply != null) {
                                     when (actionToApply) {
                                         EdgeZoneAction.RestorePreviousMode -> onRestorePrevious()
@@ -642,6 +653,10 @@ private fun PointingArea(
                                         }
                                     }
                                 }
+                                rotationJob?.cancel()
+                                rotationJob = null
+                                rotationIndex.value = 0
+                                armedZoneKey = null
                             } else if (isTapGesture) {
                                 // ── 엣지 띠 탭이든 일반 탭이든 → 클릭. 엣지 후보였다면 DOWN 지점 좌표를 먼저 전송 ──
                                 if (isEdgeCandidate.value) {
@@ -696,19 +711,62 @@ private fun PointingArea(
 
                                 when {
                                     inwardMoved >= triggerDistancePx -> {
+                                        // 로테이션 존이면 armed 유지 중에도 손가락이 다른 존으로 옮겨갈 때마다
+                                        // 회전 코루틴을 재시작해야 하므로 현재 존을 매 MOVE마다 판정한다.
+                                        val zoneEdgeLen = if (edge == EntryEdge.LEFT || edge == EntryEdge.RIGHT) areaHeight else areaWidth
+                                        val zoneAlongRatio = if (zoneEdgeLen > 0f && edge != null)
+                                            unmapFromValid(edge, curAlong / zoneEdgeLen, false, false, EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO)
+                                        else null
+                                        val curZone = if (zoneAlongRatio != null && edge != null)
+                                            EdgeZoneDetector.findActiveZone(filteredConfig, edge, zoneAlongRatio)
+                                        else null
+                                        val curZoneKey = curZone?.let { it.startRatio to it.endRatio }
+
+                                        fun restartRotationIfNeeded() {
+                                            val rotTrigger = curZone?.trigger as? EdgeZoneTrigger.Rotation
+                                            if (rotTrigger != null && rotTrigger.candidates.size >= EdgeSwipeConstants.EDGE_ZONE_ROTATION_MIN_CANDIDATES) {
+                                                rotationJob = coroutineScope.launch {
+                                                    while (true) {
+                                                        delay(rotTrigger.intervalMs.toLong())
+                                                        rotationIndex.value = (rotationIndex.value + 1) % rotTrigger.candidates.size
+                                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         if (!isZoneArmed.value) {
                                             isZoneArmed.value = true
                                             view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                            rotationIndex.value = 0
+                                            rotationJob?.cancel()
+                                            restartRotationIfNeeded()
+                                            armedZoneKey = curZoneKey
+                                        } else if (curZoneKey != armedZoneKey) {
+                                            // 이미 armed 상태에서 다른 존으로 이동 → 회전 재시작
+                                            armedZoneKey = curZoneKey
+                                            rotationJob?.cancel()
+                                            rotationJob = null
+                                            rotationIndex.value = 0
+                                            restartRotationIfNeeded()
                                         }
                                     }
                                     isZoneArmed.value && inwardMoved < triggerDistancePx -> {
                                         // 임계값 아래로 후퇴 → disarm (재진입 시 재발동 가능)
                                         isZoneArmed.value = false
+                                        rotationJob?.cancel()
+                                        rotationJob = null
+                                        rotationIndex.value = 0
+                                        armedZoneKey = null
                                     }
                                     inwardMoved < 0f -> {
                                         // 시작점보다 엣지 방향으로 되돌아감 → 후보 취소, 일반 포인팅 재개
                                         isZoneArmed.value = false
                                         isEdgeCandidate.value = false
+                                        rotationJob?.cancel()
+                                        rotationJob = null
+                                        rotationIndex.value = 0
+                                        armedZoneKey = null
                                         entryEdge.value = null
                                         touchActive = true
                                         indicatorPosition = pos

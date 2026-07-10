@@ -257,11 +257,7 @@ fun EdgeZoneEditorPreviewCanvas(
                         style = Stroke(width = if (isLifted) focusBorderPx else lerp(1f, focusBorderPx, sel))
                     )
 
-                    val displayZoneLabel = zone.label.ifEmpty {
-                        if (zone.trigger is EdgeZoneTrigger.SingleAction && zone.action !is EdgeZoneAction.Unassigned)
-                            zone.action.defaultLabel()
-                        else ""
-                    }
+                    val displayZoneLabel = zone.displayLabel
                     if (!isEdgeDisabled && displayZoneLabel.isNotEmpty()) {
                         val isVerticalEdge = edge == EntryEdge.LEFT || edge == EntryEdge.RIGHT
                         val displayText = if (isVerticalEdge) {
