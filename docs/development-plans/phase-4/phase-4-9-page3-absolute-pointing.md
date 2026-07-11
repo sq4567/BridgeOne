@@ -31,6 +31,7 @@ updated: "2026-07-11"
 - 모니터 셀렉터 + 역방향 모니터 개수 수신
 - 줌 기능 (앱 내) + Vendor CDC 줌 상태 UART 전송(Android 측까지)
 - Page 3 엣지존 편집 화면 연동
+- 엣지존 줌/드래그 모드 토글 액션
 - 멀티 존 모드 (패드 그리드 분할, 존별 독립 줌 매핑 + 모니터 배정, 터치 즉시 판정)
 - 손떨림 보정 (원시 좌표 EMA 스무딩)
 - 존 경계 진동 피드백 (멀티존 전환 시 햅틱)
@@ -553,7 +554,51 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.9: 절대좌표 패드 멀티 존 모드
+## Phase 4.9.9: 절대좌표 패드 엣지존 줌/드래그 모드 액션
+
+**목표**: 절대좌표 패드 엣지존 액션에 "줌 모드 토글"과 "드래그 앤 드롭 모드 토글"을 추가한다. 두 액션 모두 Page 3 전용이며, 실행 시 각각 ZoomButton 탭 / DragModeButton 탭과 동일한 상태 전환을 일으킨다.
+
+**선행 조건**: Phase 4.9.4(드래그 앤 드롭 모드), Phase 4.9.6(줌 기능), Phase 4.9.8(엣지존 설정 화면 연동) 완료. 멀티 존 모드는 이 Phase 뒤인 4.9.10이므로, 이 Phase의 줌 토글은 단일 줌만 대상으로 한다.
+
+**세부 목표**:
+1. **신규 액션 타입 2개** — `EdgeZone.kt`의 `EdgeZoneAction` sealed class에 `object ToggleAbsoluteZoom`, `object ToggleAbsoluteDrag` 추가. exhaustive `when`이라 `categoryColor()`(줌=주황 계열, 드래그=초록 계열), `defaultIconKey()`, `displayName()`("줌 모드 토글"/"드래그 모드 토글") 세 함수에 분기 추가 필수
+2. **도메인 신설** — `EdgeZoneActionResolver.kt`의 `ActionDomain` enum에 신규 값(예: `ABSOLUTE_MODE`) 추가, `domainOf()`에 두 액션 매핑, `actionEquals()`에 동일성 비교 분기 추가
+3. **화이트리스트 반영** — `AbsolutePadActionFilter.kt`의 `ABSOLUTE_PAD_ALLOWED_DOMAINS`에 `ABSOLUTE_MODE` 추가, `isAbsolutePadAllowed()`에 두 액션 허용 분기 추가. `AbsolutePadActionFilterTest.kt` 갱신
+4. **편집기 노출(Page 3 전용, 일반 터치패드 제외)**:
+   - `ZoneActionPicker.kt`의 `DEFAULT_DOMAIN_GROUPS` 적절한 그룹에 `ABSOLUTE_MODE` 추가, `domains`(`DomainInfo`) 목록에 신규 항목 추가(액션 2개를 `specificOptions`로 노출, `buildActionTree()` auto-flatten 규칙 확인)
+   - `StandardModePage.kt`의 Page 1/2 엣지존 편집기 호출부에 `excludeDomains = setOf(ActionDomain.ABSOLUTE_MODE)` 배선(일반 터치패드는 이 도메인 미노출). Page 3의 `zoneEditorExcludeDomains = ActionDomain.entries - ABSOLUTE_PAD_ALLOWED_DOMAINS - UNASSIGNED` 파생식은 3번 반영 후 자동으로 허용되므로 별도 수정 불필요
+5. **실행 배선**:
+   - `EdgeZoneActionHandler.kt`의 `applyZoneAction()` — `ToggleAbsoluteDrag → state.copy(dragMode = !state.dragMode)`(순수 상태 변환 가능), `ToggleAbsoluteZoom → state` 그대로 반환(줌은 hoisted `AbsoluteZoomState`/`zoomArming`이라 부수효과형으로 위임)
+   - `AbsolutePointingPad.kt`의 런타임 디스패처(`when(actionToApply)`) — `ToggleAbsoluteZoom`은 기존 ZoomButton `onClick` 토글 로직(isActive/arming이면 해제+`sendZoomStateFrame`, 아니면 `zoomArming = true`)을 로컬 헬퍼로 추출해 버튼과 엣지존이 공유. `ToggleAbsoluteDrag`는 `else` 분기(`applyZoneAction` 경유)로 자연 처리
+   - `TouchpadWrapper.kt`(일반 터치패드 디스패처)는 이 액션들이 편집기에서 숨겨지므로 별도 분기 불필요(`else` 흡수로 안전)
+6. **직렬화** — `ui/common/EdgeZoneJson.kt`의 encode/decode `when`에 `ToggleAbsoluteZoom`/`ToggleAbsoluteDrag` 타입 추가
+
+**수정 파일**:
+- `ui/components/touchpad/EdgeZone.kt` (액션 정의 + `categoryColor`/`defaultIconKey`/`displayName`)
+- `ui/components/touchpad/EdgeZoneActionResolver.kt` (`ActionDomain` enum + `domainOf` + `actionEquals`)
+- `ui/components/touchpad/AbsolutePadActionFilter.kt` (+ `AbsolutePadActionFilterTest.kt`)
+- `ui/components/touchpad/ZoneActionPicker.kt` (도메인 그룹 + `DomainInfo`)
+- `ui/components/touchpad/EdgeZoneActionHandler.kt` (`applyZoneAction`)
+- `ui/components/AbsolutePointingPad.kt` (디스패처 + ZoomButton 토글 로직 헬퍼 추출)
+- `ui/common/EdgeZoneJson.kt` (encode/decode)
+- `ui/pages/StandardModePage.kt` (Page 1/2 `excludeDomains` 배선)
+
+**참조 문서**:
+- 본 문서 Phase 4.9.3(엣지존 통합, `isAbsolutePadAllowed` 원형), 4.9.4(드래그 모드), 4.9.6(줌), 4.9.8(편집기 필터 배선)
+- `docs/android/technical-specification-app.md` §2.10 (Page 3 스펙) — 엣지존 액션 화이트리스트에 줌/드래그 토글 추가됨을 보강
+
+**검증**:
+- [ ] `AbsolutePadActionFilterTest` — `ToggleAbsoluteZoom`/`ToggleAbsoluteDrag` 허용 확인 + Page 1/2 `excludeDomains` 회귀 없음
+- [ ] 편집기에서 Page 3만 "줌/드래그 토글" 액션 노출, Page 1/2 편집기엔 미노출
+- [ ] 엣지 스와이프로 줌 토글 실행 시 ZoomButton 탭과 동일 동작(arming 진입/해제) 확인
+- [ ] 엣지 스와이프로 드래그 토글 실행 시 DragModeButton 탭과 동일 동작(테두리 초록 전환) 확인
+- [ ] 직렬화 왕복(저장→재로드) 후 두 액션 보존 확인
+- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
+- [ ] 실기기 필요: 엣지 스와이프 줌/드래그 토글 체감, 컨트롤 버튼과의 상태 동기화 확인
+
+---
+
+## Phase 4.9.10: 절대좌표 패드 멀티 존 모드
 
 **목표**: 패드를 N분할(2~8)하여 각 셀(존)이 독립적인 줌 매핑(중심점/배율/대상 모니터)을 갖게 하고, 터치 위치에 따라 실시간으로 해당 존의 매핑을 적용해 좌표를 전송한다. 좌표 매핑은 기존 줌과 동일하게 앱 내에서 전부 완료되므로 서버로는 기존 절대좌표 프레임(`0xFF/0x02`)과 줌 상태 프레임(`0xFF/0x30`)을 그대로 재사용(프로토콜/펌웨어/서버 변경 없음)
 
@@ -653,13 +698,13 @@ DOWN/MOVE 처리:
 
 ---
 
-## Phase 4.9.10: 다중 모드 그라디언트 테두리
+## Phase 4.9.11: 다중 모드 그라디언트 테두리
 
 **목표**: 클릭모드/드래그모드/확대모드(단일 줌 또는 멀티존)가 동시에 활성화됐을 때 PointingArea 테두리를 단색이 아닌 그라디언트로 표시해 상태 조합을 시각적으로 구분
 
-**선행 조건**: Phase 4.9.6(줌), Phase 4.9.9(멀티 존 모드, `MagnificationMode` sealed class 도입) 완료
+**선행 조건**: Phase 4.9.6(줌), Phase 4.9.10(멀티 존 모드, `MagnificationMode` sealed class 도입) 완료
 
-`borderColor`/`bumpColor` when 체인은 현재 4분기다 — `dragMode(초록) > clickMode==RIGHT_CLICK(노랑) > magnificationMode !is Off(주황, TouchpadColorZoom) > else(핑크)`. 색상 우선순위는 설계 §4.5.7을 그대로 채택. 판정 소스는 `localState.dragMode`(Boolean), `clickMode == ClickMode.RIGHT_CLICK`(Boolean), `magnificationMode !is MagnificationMode.Off`(Boolean, 4.9.9에서 확대 모드가 `MagnificationMode` sealed class로 통합됨에 따라 단일 줌·멀티존이 이 하나의 불리언으로 합쳐짐 — 별도 stop 불필요) 세 개의 독립 불리언 조합이므로, 그라디언트 역시 이 4색(핑크/노랑/초록/주황) 안에서 조합된다.
+`borderColor`/`bumpColor` when 체인은 현재 4분기다 — `dragMode(초록) > clickMode==RIGHT_CLICK(노랑) > magnificationMode !is Off(주황, TouchpadColorZoom) > else(핑크)`. 색상 우선순위는 설계 §4.5.7을 그대로 채택. 판정 소스는 `localState.dragMode`(Boolean), `clickMode == ClickMode.RIGHT_CLICK`(Boolean), `magnificationMode !is MagnificationMode.Off`(Boolean, 4.9.10에서 확대 모드가 `MagnificationMode` sealed class로 통합됨에 따라 단일 줌·멀티존이 이 하나의 불리언으로 합쳐짐 — 별도 stop 불필요) 세 개의 독립 불리언 조합이므로, 그라디언트 역시 이 4색(핑크/노랑/초록/주황) 안에서 조합된다.
 
 **세부 목표**:
 1. 기존 우선순위 단색 로직(`AbsolutePointingPad.kt`의 `borderColor`/`bumpColor` when 체인, 4.9.4/4.9.6에서 누적)을 다중 색상 그라디언트로 교체
@@ -683,11 +728,11 @@ DOWN/MOVE 처리:
 
 ---
 
-## Phase 4.9.11: 손떨림 보정
+## Phase 4.9.12: 손떨림 보정
 
 **목표**: 원시 터치 좌표에 지수이동평균(EMA) 스무딩을 적용해 미세한 떨림이 커서 위치에 그대로 반영되지 않도록 한다
 
-**선행 조건**: 없음(Phase 4.9.1의 터치 파이프라인만 있으면 적용 가능) — 문서 순서상 그라디언트 테두리(4.9.10)가 끝난 뒤로 배치
+**선행 조건**: 없음(Phase 4.9.1의 터치 파이프라인만 있으면 적용 가능) — 문서 순서상 그라디언트 테두리(4.9.11)가 끝난 뒤로 배치
 
 ### 스무딩 알고리즘
 
@@ -733,15 +778,15 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.12: 존 경계 진동 피드백
+## Phase 4.9.13: 존 경계 진동 피드백
 
-**목표**: 멀티존(4.9.9) 활성 중 손가락이 다른 존으로 넘어갈 때 짧은 햅틱 틱을 줘서, 시선을 떼지 않은 상태에서도 손끝으로 존 전환을 인지할 수 있게 한다
+**목표**: 멀티존(4.9.10) 활성 중 손가락이 다른 존으로 넘어갈 때 짧은 햅틱 틱을 줘서, 시선을 떼지 않은 상태에서도 손끝으로 존 전환을 인지할 수 있게 한다
 
-**선행 조건**: Phase 4.9.9(멀티 존 모드) 완료
+**선행 조건**: Phase 4.9.10(멀티 존 모드) 완료
 
 ### 적용 위치
 
-- 4.9.9 "전송 흐름"에 이미 정의된 존 전환 감지 지점(`curZoneIdx != lastSentZoneIdx`, `ZOOM_STATE` 프레임 전송을 트리거하는 동일 지점)에 `view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)` 호출을 추가
+- 4.9.10 "전송 흐름"에 이미 정의된 존 전환 감지 지점(`curZoneIdx != lastSentZoneIdx`, `ZOOM_STATE` 프레임 전송을 트리거하는 동일 지점)에 `view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)` 호출을 추가
 - `AbsolutePointingPad.kt:568`에서 엣지존 후보 진입 시 이미 같은 상수(`CLOCK_TICK`)를 쓰고 있어 동일한 세기/패턴을 재사용 — 새 상수나 세기 조정 불필요
 - 단일 줌(`MagnificationMode.Single`)이나 확대모드 Off 상태에서는 발생하지 않음(존 전환 개념 자체가 없음)
 - 시스템 햅틱 설정(단말 진동 끄기 등)은 `performHapticFeedback` 자체가 따르므로 별도 온/오프 토글 불필요(기존 엣지존 햅틱과 동일한 전제)
@@ -749,7 +794,7 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 ### 수정 파일
 - `ui/components/AbsolutePointingPad.kt` — 존 전환 감지 지점에 햅틱 호출 추가
 
-**참조 문서**: 본 문서 Phase 4.9.9(멀티 존 모드) "전송 흐름" — 존 전환 감지 지점
+**참조 문서**: 본 문서 Phase 4.9.10(멀티 존 모드) "전송 흐름" — 존 전환 감지 지점
 
 **검증**:
 - [ ] 멀티존 활성 중 존 경계를 넘을 때마다 햅틱 발생, 같은 존 안에서는 미발생
@@ -759,7 +804,7 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.13: 터치 시작 확정 디바운스
+## Phase 4.9.14: 터치 시작 확정 디바운스
 
 **목표**: 패드에 손가락이 닿는 순간의 스치는 접촉(의도치 않은 짧은 터치)이 즉시 커서 이동/클릭으로 이어지지 않도록, DOWN 후 아주 짧은 시간 유지되는지 확인한 뒤에만 포인팅을 확정한다
 
@@ -768,9 +813,9 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 ### 동작 방식
 
 - DOWN 발생 시 좌표 전송/`CoordinateIndicator` 표시를 즉시 시작하지 않고 대기
-- `AbsolutePointingConstants.TOUCH_START_CONFIRM_MS`(기본값 예: 30L)가 지날 때까지 터치가 유지되면 그 시점부터 기존 파이프라인(좌표 전송, 4.9.11 손떨림 보정 등)을 정상 시작
+- `AbsolutePointingConstants.TOUCH_START_CONFIRM_MS`(기본값 예: 30L)가 지날 때까지 터치가 유지되면 그 시점부터 기존 파이프라인(좌표 전송, 4.9.12 손떨림 보정 등)을 정상 시작
 - 그 전에 UP이 발생하면 스치는 접촉으로 간주해 클릭/드래그/좌표 전송 없이 전부 무시
-- 손떨림 보정(4.9.11)이 "이동 중" 떨림을 다루는 것과 달리, 이 기능은 "터치 시작 순간"의 오조작을 다뤄 상호 보완적 — 적용 순서는 디바운스 통과 후에만 스무딩이 시작됨
+- 손떨림 보정(4.9.12)이 "이동 중" 떨림을 다루는 것과 달리, 이 기능은 "터치 시작 순간"의 오조작을 다뤄 상호 보완적 — 적용 순서는 디바운스 통과 후에만 스무딩이 시작됨
 - 기본값(30ms)은 의도된 가장 빠른 탭(사람의 최소 반응/모터 타이밍상 80ms 이상)보다 충분히 작게 잡아, 진짜 스치는 접촉(통상 20ms 미만)만 걸러내도록 함 — `CLICK_MAX_DURATION_MS`(500ms)와는 별개 단계
 
 ### 신규 상수
@@ -785,13 +830,13 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 **검증**:
 - [ ] `TOUCH_START_CONFIRM_MS` 미만 접촉은 좌표 전송/클릭/CoordinateIndicator 표시 없이 무시
 - [ ] `TOUCH_START_CONFIRM_MS` 이상 유지된 접촉은 기존과 동일하게 동작(클릭/드래그/좌표 전송 회귀 없음)
-- [ ] 손떨림 보정(4.9.11)과 조합 시 정상 동작(디바운스 통과 후 스무딩 시작)
+- [ ] 손떨림 보정(4.9.12)과 조합 시 정상 동작(디바운스 통과 후 스무딩 시작)
 - [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
 - [ ] 실기기 필요: 의도된 빠른 탭이 걸러지지 않는지, 스치는 접촉이 실제로 걸러지는지 체감 확인
 
 ---
 
-## Phase 4.9.14: 스크롤 모드
+## Phase 4.9.15: 스크롤 모드
 
 **목표**: 절대좌표로 커서를 원하는 위치에 둔 채로, 그 지점의 창을 상대(델타) 방식으로 스크롤할 수 있게 한다(일반 스크롤 + 무한 스크롤 둘 다 지원)
 
@@ -802,7 +847,7 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 - `ControlButtonConfig.showScrollMode`(4.9.1에서 Page 3용으로 false 처리했던 슬롯)를 true로 전환, 기존 ScrollModeButton UI(OFF→NORMAL_SCROLL→INFINITE_SCROLL 3단 순환 토글, `ControlButtonContainer.kt:607~676`의 라벨/아이콘/색상/전이 로직)를 그대로 재사용
 - `AbsolutePointingPad`/`Page3AbsolutePointing`에 `scrollMode: ScrollMode`/`onScrollModeChange` 파라미터 추가(hoisted, `page3ScrollMode` in `StandardModePage.kt`)
 - 드래그 앤 드롭 모드와 상호 배타 — 둘 다 "터치가 곧 좌표 지정"이라는 절대좌표 패드의 기본 전제를 깨는 축이라 동시 존재 불가. ScrollModeButton 진입 시 dragMode 강제 OFF, 반대도 마찬가지
-- 테두리 그라디언트(4.9.10)는 드래그모드와 동일한 초록 계열을 재사용(둘 다 "터치가 위치 지정이 아님"을 의미하는 상호 배타 상태라 별도 색 불필요)
+- 테두리 그라디언트(4.9.11)는 드래그모드와 동일한 초록 계열을 재사용(둘 다 "터치가 위치 지정이 아님"을 의미하는 상호 배타 상태라 별도 색 불필요)
 
 > **⚠️ 색상 충돌**: `AbsolutePointingPad.kt`의 `ControlButtonContainer` 호출부는 4.9.4에서 `baseColor = TouchpadColorRed`로 확정됐다(ClickModeButton 기본/ZoomButton OFF/DragModeButton "이동 모드"가 전부 이 빨강을 씀). 그런데 일반 터치패드의 `ScrollMode.INFINITE_SCROLL` 버튼 색도 동일한 `TouchpadColorRed`(`ControlButtonContainer.kt`의 `ColorRed`)라, ScrollModeButton을 그대로 재사용하면 "무한 스크롤 활성" 색이 페이지 기본색과 구분되지 않는다. `baseColor`를 `TouchpadColorRed` → `TouchpadColorPink`로 변경해 해결한다 — 핑크는 이미 PointingArea 테두리의 기본(else) 색이라 "아무 모드도 없는 기본 상태"라는 의미가 버튼과 테두리 양쪽에서 일관되게 맞고, 현재 다른 버튼 색(노랑/초록/주황)과도 겹치지 않는다. `MonitorSelector.kt`의 비선택 칩 색도 `TouchpadColorRed`를 쓰고 있어(4.9.5) 이것도 무한 스크롤 빨강과 같은 화면에 동시에 보일 수 있는지 착수 시점에 재확인
 
@@ -843,17 +888,19 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.15: 리팩토링
+## Phase 4.9.16: 리팩토링
 
-> **신규 하위 Phase(2026-07-09, 유저 확정)**: Page 3(절대좌표 패드) 관련 코드 전체를 마지막에 한 번 정리한다. 4.9.1~4.9.14에 걸쳐 `AbsolutePointingPad.kt`/`ControlButtonContainer.kt` 등에 기능이 순차적으로 누적되면서 생겼을 중복·비대해진 파일·임시방편 구조를 이 시점에 재검토한다.
+> **신규 하위 Phase(2026-07-09, 유저 확정)**: Page 3(절대좌표 패드) 관련 코드 전체를 마지막에 한 번 정리한다. 4.9.1~4.9.15에 걸쳐 `AbsolutePointingPad.kt`/`ControlButtonContainer.kt` 등에 기능이 순차적으로 누적되면서 생겼을 중복·비대해진 파일·임시방편 구조를 이 시점에 재검토한다.
 >
-> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.14)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
+> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.15)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
 >
-> **⚠️ Phase 4.9.9 변경사항**: 멀티 존 모드 추가로 `AbsoluteCoordinateCalculator.kt`(`ZoneMapping`/`MultiZoneState`/`MagnificationMode`), 신규 `MultiZoneCalculator.kt`(`divideZoneAreas`/`normalizeInZone`/`resolveZoneRatio`), `AbsolutePointingPad.kt`의 존 정의 세션 상태가 추가됐다. 저장 상태는 `MagnificationMode` sealed class로 이미 통합됐지만, 단일 줌(4.9.6)과 멀티존(4.9.9)의 정의 UX 상태머신(중심점 DOWN→드래그 배율→확정)은 여전히 별도 구현이므로, 이 시점에 공통화 여지가 있는지 검토 대상에 포함한다. 또한 `CursorCountSelectionPopup.kt`에 `countRange` 파라미터가 추가됐는데, 멀티존이 실제로 요구하는 것(개수 선택만)과 멀티커서 전용 PRESET 단계가 한 컴포넌트에 섞여 있어 분리 여지가 있는지도 검토 대상.
+> **⚠️ Phase 4.9.9 변경사항**: 엣지존에 줌/드래그 모드 토글 액션(`ToggleAbsoluteZoom`/`ToggleAbsoluteDrag`)이 추가되며 `AbsolutePointingPad.kt`의 ZoomButton 토글 로직이 엣지존 디스패처와 공유하도록 헬퍼로 추출됐다. 이 헬퍼가 이후 Phase(멀티존 등)의 줌 진입 로직과 자연스럽게 합쳐지는지 이 시점에 재확인 대상.
 >
-> **⚠️ Phase 4.9.14 변경사항**: `ScrollEngine` 추출로 `TouchpadWrapper.kt`의 스크롤 로직과 `AbsolutePointingPad.kt`의 스크롤 브랜치가 공통 코드를 쓰게 됐다. 추출이 깔끔하게 끝났는지, 두 호출부에 여전히 남은 중복이 있는지 이 시점에 재확인 대상.
+> **⚠️ Phase 4.9.10 변경사항**: 멀티 존 모드 추가로 `AbsoluteCoordinateCalculator.kt`(`ZoneMapping`/`MultiZoneState`/`MagnificationMode`), 신규 `MultiZoneCalculator.kt`(`divideZoneAreas`/`normalizeInZone`/`resolveZoneRatio`), `AbsolutePointingPad.kt`의 존 정의 세션 상태가 추가됐다. 저장 상태는 `MagnificationMode` sealed class로 이미 통합됐지만, 단일 줌(4.9.6)과 멀티존(4.9.10)의 정의 UX 상태머신(중심점 DOWN→드래그 배율→확정)은 여전히 별도 구현이므로, 이 시점에 공통화 여지가 있는지 검토 대상에 포함한다. 또한 `CursorCountSelectionPopup.kt`에 `countRange` 파라미터가 추가됐는데, 멀티존이 실제로 요구하는 것(개수 선택만)과 멀티커서 전용 PRESET 단계가 한 컴포넌트에 섞여 있어 분리 여지가 있는지도 검토 대상.
 >
-> **⚠️ Phase 4.9.11~4.9.13 변경사항**: 손떨림 보정(4.9.11)으로 `AbsoluteCoordinateCalculator.kt`에 `smoothRatio`, 신규 `TremorSmoothingPrefs.kt`가 추가됐다. 존 경계 진동 피드백(4.9.12)과 터치 시작 확정 디바운스(4.9.13)가 모두 `AbsolutePointingPad.kt`의 같은 DOWN/MOVE 제스처 루프에 손을 대므로, 이 시점에 코드가 지나치게 얽혀 있지 않은지 함께 검토 대상에 포함한다.
+> **⚠️ Phase 4.9.15 변경사항**: `ScrollEngine` 추출로 `TouchpadWrapper.kt`의 스크롤 로직과 `AbsolutePointingPad.kt`의 스크롤 브랜치가 공통 코드를 쓰게 됐다. 추출이 깔끔하게 끝났는지, 두 호출부에 여전히 남은 중복이 있는지 이 시점에 재확인 대상.
+>
+> **⚠️ Phase 4.9.12~4.9.14 변경사항**: 손떨림 보정(4.9.12)으로 `AbsoluteCoordinateCalculator.kt`에 `smoothRatio`, 신규 `TremorSmoothingPrefs.kt`가 추가됐다. 존 경계 진동 피드백(4.9.13)과 터치 시작 확정 디바운스(4.9.14)가 모두 `AbsolutePointingPad.kt`의 같은 DOWN/MOVE 제스처 루프에 손을 대므로, 이 시점에 코드가 지나치게 얽혀 있지 않은지 함께 검토 대상에 포함한다.
 
 **목표**: Page 3 구현 완료 시점의 코드를 검토해 중복 제거·함수 분리·상수 정리 등 리팩토링 수행
 
@@ -896,7 +943,7 @@ Page 3 — AbsolutePointingPad
 │   ├── 줌 시 매핑 범위 축소 (비율 기반)
 │   ├── 멀티 존 시 그리드 분할(2~8) + 존별 독립 줌 매핑, 터치 즉시 판정
 │   ├── CoordinateIndicator (십자선 + 점)
-│   └── 엣지존/엣지스와이프 시스템 (좌표 무관 기능만)
+│   └── 엣지존/엣지스와이프 시스템 (좌표 무관 기능만, 줌/드래그 모드 토글 포함)
 ├── ControlButtonContainer (상단 오버레이, 기존 컴포넌트 재사용)
 │   ├── ClickModeButton (좌/우 토글)
 │   ├── ZoomButton (탭=단일 줌, 롱프레스=멀티 존 진입, DPI 슬롯 자리)
