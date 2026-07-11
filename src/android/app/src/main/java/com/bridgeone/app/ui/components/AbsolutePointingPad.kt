@@ -70,6 +70,7 @@ import com.bridgeone.app.ui.components.touchpad.TouchpadColorRed
 import com.bridgeone.app.ui.components.touchpad.TouchpadColorYellow
 import com.bridgeone.app.ui.components.touchpad.TouchpadColorZoom
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
+import com.bridgeone.app.ui.components.touchpad.applyRoi
 import com.bridgeone.app.ui.components.touchpad.detectEntryEdge
 import com.bridgeone.app.ui.components.touchpad.filterConfigForAbsolutePad
 import com.bridgeone.app.ui.components.touchpad.getAlongEdgePosition
@@ -82,7 +83,10 @@ import com.bridgeone.app.ui.utils.AbsoluteCoordinateCalculator
 import com.bridgeone.app.ui.utils.AbsolutePointingConstants
 import com.bridgeone.app.ui.utils.AbsoluteZoomState
 import com.bridgeone.app.ui.utils.ClickDetector
+import com.bridgeone.app.ui.utils.MagnificationMode
 import com.bridgeone.app.ui.utils.TouchRatio
+import com.bridgeone.app.ui.utils.ZoneMapping
+import com.bridgeone.app.ui.utils.ZoneRect
 import com.bridgeone.app.ui.utils.resolveTargetMonitor
 import com.bridgeone.app.ui.utils.getDistance
 import kotlin.math.abs
@@ -125,9 +129,9 @@ private fun EdgeZoneTrigger.resolveAction(rotationIndex: Int): EdgeZoneAction? =
  * @param onEdgeZoneAssignmentChange 존 할당 변경 콜백(편집 UI는 4.9.9, 현재는 시그니처만 배선).
  * @param onRestorePrevious/onSendShortcut/onSendMacro/onMouseHoldToggle/onCyclePage/onJumpToPage
  *        엣지존 부수효과형 액션 콜백. Page 1이 쓰는 StandardModePage의 기존 콜백을 그대로 재사용.
- * @param zoomState 줌 레벨/중심점 (Phase 4.9.6). 페이지 전환에도 유지되어야 하므로 호출측
- *        (StandardModePage, 페이저 바깥)에서 hoisting해 전달한다.
- * @param onZoomStateChange 줌 상태 변경 콜백.
+ * @param magnificationMode 확대 매핑 모드(단일 줌/멀티 존은 상호 배타, Phase 4.9.10). 페이지 전환에도
+ *        유지되어야 하므로 호출측(StandardModePage, 페이저 바깥)에서 hoisting해 전달한다.
+ * @param onMagnificationModeChange 확대 매핑 모드 변경 콜백.
  */
 @Composable
 fun AbsolutePointingPad(
@@ -140,16 +144,18 @@ fun AbsolutePointingPad(
     onMouseHoldToggle: (MouseButton, MouseHoldMode) -> Unit = { _, _ -> },
     onCyclePage: (PageNav) -> Unit = {},
     onJumpToPage: (Int) -> Unit = {},
-    zoomState: AbsoluteZoomState = AbsoluteZoomState(),
-    onZoomStateChange: (AbsoluteZoomState) -> Unit = {}
+    magnificationMode: MagnificationMode = MagnificationMode.Off,
+    onMagnificationModeChange: (MagnificationMode) -> Unit = {}
 ) {
+    // 단일 줌 좌표 계산/UI에 쓰는 파생값(멀티 존은 4.9.11에서 배선, 이 Phase는 Single만 다룬다).
+    val currentMapping = (magnificationMode as? MagnificationMode.Single)?.mapping ?: ZoneMapping()
     // 클릭 모드는 Page 1/2의 pageState.touchpadState와 공유하지 않는 페이지 로컬 상태.
     // ControlButtonContainer가 요구하는 TouchpadState 타입을 재사용하되 clickMode 외 필드는 미사용.
     var localState by remember { mutableStateOf(TouchpadState()) }
 
     // ── 줌 arming 상태 (Phase 4.9.6) ──
     // ZoomButton 탭으로 진입하는 "줌 모드 대기" 상태. 제스처 스코프 트랜지언트라 페이지 전환 시
-    // 리셋되어도 무방(zoomState의 레벨/중심점만 hoisted로 유지하면 됨).
+    // 리셋되어도 무방(magnificationMode의 매핑만 hoisted로 유지하면 됨).
     var zoomArming by remember { mutableStateOf(false) }
 
     // 줌 정의 드래그가 끝나고(손을 뗀 뒤) 별도의 탭으로 확정하기를 기다리는 상태(Phase 4.9.6,
@@ -253,10 +259,10 @@ fun AbsolutePointingPad(
                 onCyclePage = onCyclePage,
                 onJumpToPage = onJumpToPage,
                 targetMonitor = targetMonitor.toUByte(),
-                zoomState = zoomState,
+                magnificationMode = magnificationMode,
                 zoomArming = zoomArming,
                 zoomAwaitingConfirm = zoomAwaitingConfirm,
-                onZoomStateChange = onZoomStateChange,
+                onMagnificationModeChange = onMagnificationModeChange,
                 onZoomArmingChange = { zoomArming = it },
                 onZoomAwaitingConfirmChange = { zoomAwaitingConfirm = it },
                 modifier = Modifier.fillMaxSize()
@@ -274,7 +280,7 @@ fun AbsolutePointingPad(
                 val bumpColor = when {
                     localState.dragMode -> TouchpadColorGreen
                     localState.clickMode == ClickMode.RIGHT_CLICK -> TouchpadColorYellow
-                    zoomState.isActive || zoomArming -> TouchpadColorZoom
+                    currentMapping.defined || zoomArming -> TouchpadColorZoom
                     else -> TouchpadColorPink
                 }
                 EdgeBumpOverlay(
@@ -329,14 +335,14 @@ fun AbsolutePointingPad(
                     showDrag = true
                 ),
                 baseColor = TouchpadColorRed,
-                zoomLevel = zoomState.level,
+                zoomLevel = AbsoluteCoordinateCalculator.zoomLevelFromPcRect(currentMapping.pcRect),
                 zoomArming = zoomArming,
                 onZoomClick = {
                     toggleAbsoluteZoom(
-                        isActive = zoomState.isActive,
+                        isActive = currentMapping.defined,
                         isArming = zoomArming,
                         targetMonitor = targetMonitor,
-                        onZoomStateChange = onZoomStateChange,
+                        onMagnificationModeChange = onMagnificationModeChange,
                         onZoomArmingChange = { zoomArming = it },
                         onZoomAwaitingConfirmChange = { zoomAwaitingConfirm = it },
                     )
@@ -407,13 +413,13 @@ private fun toggleAbsoluteZoom(
     isActive: Boolean,
     isArming: Boolean,
     targetMonitor: Int,
-    onZoomStateChange: (AbsoluteZoomState) -> Unit,
+    onMagnificationModeChange: (MagnificationMode) -> Unit,
     onZoomArmingChange: (Boolean) -> Unit,
     onZoomAwaitingConfirmChange: (Boolean) -> Unit,
 ) {
     if (isActive || isArming) {
         // 줌 활성 중 재탭 → 즉시 1x 해제. arming/확정 대기 중(패드 탭 확정 전) 재탭 → 전부 취소.
-        onZoomStateChange(AbsoluteZoomState())
+        onMagnificationModeChange(MagnificationMode.Off)
         onZoomArmingChange(false)
         onZoomAwaitingConfirmChange(false)
         // (C) 줌 해제 1회 전송 (Phase 4.9.7)
@@ -447,10 +453,10 @@ private fun PointingArea(
     onCyclePage: (PageNav) -> Unit,
     onJumpToPage: (Int) -> Unit,
     targetMonitor: UByte,
-    zoomState: AbsoluteZoomState,
+    magnificationMode: MagnificationMode,
     zoomArming: Boolean,
     zoomAwaitingConfirm: Boolean,
-    onZoomStateChange: (AbsoluteZoomState) -> Unit,
+    onMagnificationModeChange: (MagnificationMode) -> Unit,
     onZoomArmingChange: (Boolean) -> Unit,
     onZoomAwaitingConfirmChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -458,11 +464,13 @@ private fun PointingArea(
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val view = LocalView.current
+    // 단일 줌 좌표 계산/UI에 쓰는 파생값(멀티 존은 4.9.11에서 배선, 이 Phase는 Single만 다룬다).
+    val mapping = (magnificationMode as? MagnificationMode.Single)?.mapping ?: ZoneMapping()
     // pointerInput은 clickMode/filteredConfig/localState.dragMode 변경 시에만 재시작되므로,
-    // targetMonitor(모니터 셀렉터 선택값)·줌 상태 변경을 실행 중인 제스처 루프에서도 즉시 반영하려면
-    // rememberUpdatedState로 최신값을 캡처해야 한다.
+    // targetMonitor(모니터 셀렉터 선택값)·확대 매핑 모드 변경을 실행 중인 제스처 루프에서도 즉시
+    // 반영하려면 rememberUpdatedState로 최신값을 캡처해야 한다.
     val currentTargetMonitor by rememberUpdatedState(targetMonitor)
-    val currentZoomState by rememberUpdatedState(zoomState)
+    val currentMapping by rememberUpdatedState(mapping)
     val currentZoomArming by rememberUpdatedState(zoomArming)
     val currentZoomAwaitingConfirm by rememberUpdatedState(zoomAwaitingConfirm)
 
@@ -484,7 +492,7 @@ private fun PointingArea(
     val borderColor = when {
         localState.dragMode -> TouchpadColorGreen
         clickMode == ClickMode.RIGHT_CLICK -> TouchpadColorYellow
-        zoomState.isActive || zoomArming -> TouchpadColorZoom
+        mapping.defined || zoomArming -> TouchpadColorZoom
         else -> TouchpadColorPink
     }
 
@@ -530,8 +538,10 @@ private fun PointingArea(
                     // 줌 상태 Vendor CDC 전송용(Phase 4.9.7). pendingZoomState는 드래그 중 마지막으로
                     // 계산된 상태를 보관해 UP 확정 시 재계산 없이 그대로 전송한다. lastZoomTxMs는
                     // 드래그 중 30Hz 스로틀 기준 시각(제스처 스코프 — 단일 정의 드래그는 한 제스처 내 완결).
+                    // 프로토콜 프레임(0xFF/0x30)은 여전히 level+center 스칼라 기반이라(Phase 4.9.10 범위
+                    // 밖) AbsoluteZoomState로 계산·전송하고, hoisted 외부 상태로 내보낼 때만 ZoneRect로 변환한다.
                     var lastZoomTxMs = 0L
-                    var pendingZoomState = currentZoomState
+                    var pendingZoomState = AbsoluteCoordinateCalculator.zoomStateFromZoneMapping(currentMapping)
 
                     // 줌 확정 대기 중(zoomAwaitingConfirm) 발생한 이번 제스처가 "탭(확정)"인지
                     // "드래그(재정의)"인지 아직 판가름나지 않은 상태. 이동 거리가 CLICK_MAX_MOVEMENT_DP를
@@ -540,14 +550,17 @@ private fun PointingArea(
                     var zoomAdjusting = false
                     var zoomAdjustCenterCandidate = lastRatio
 
-                    // 줌 매핑을 적용해 좌표를 전송하는 헬퍼. zoomState가 비활성(1x)이면 항등 매핑.
+                    // 직사각형 ROI 매핑을 적용해 좌표를 전송하는 헬퍼(Phase 4.9.10). 미정의 존은
+                    // pcRect=ZoneRect.FULL(항등)이라 applyRoi가 자동으로 원본 ratio를 그대로 반환한다.
                     fun sendZoomed(ratio: TouchRatio, buttons: UByte = 0x00u) {
-                        val zoomed = AbsoluteCoordinateCalculator.applyZoom(ratio, currentZoomState)
+                        val zoomed = applyRoi(ratio, currentMapping.pcRect)
                         sendAbsolutePosition(zoomed, buttons, currentTargetMonitor)
                     }
 
                     // 이번 제스처의 DOWN 위치 대비 드래그 거리(dp) → 줌 레벨로 변환해 실시간 반영.
                     // 최초 정의(zoomDefining)와 확정 대기 중 재정의(zoomAdjusting→zoomDefining 전환) 양쪽에서 재사용.
+                    // 정의 제스처 자체(배율 스칼라 계산)는 이 Phase에서 바꾸지 않는다(4.9.12 예정) —
+                    // 계산 결과만 ZoneRect로 변환해 hoisted MagnificationMode로 내보낸다.
                     fun updateZoomLevelFromDrag(pos: Offset) {
                         val dragDistancePx = (pos - downPosition).getDistance()
                         val dragDistanceDp = with(density) { dragDistancePx.toDp().value }
@@ -558,7 +571,14 @@ private fun PointingArea(
                             centerY = zoomCenterRatio.y
                         )
                         pendingZoomState = newState
-                        onZoomStateChange(newState)
+                        onMagnificationModeChange(
+                            MagnificationMode.Single(
+                                ZoneMapping(
+                                    pcRect = AbsoluteCoordinateCalculator.zoneRectFromZoomState(newState),
+                                    defined = newState.isActive
+                                )
+                            )
+                        )
                         // (B) 줌 드래그 중 30Hz 스로틀 실시간 전송 (Phase 4.9.7)
                         val now = System.currentTimeMillis()
                         if (now - lastZoomTxMs >= AbsolutePointingConstants.ZOOM_STATE_THROTTLE_MS) {
@@ -594,18 +614,19 @@ private fun PointingArea(
                         entryEdge.value = null
                         if (currentZoomArming && currentZoomAwaitingConfirm) {
                             // ── 확정 대기 중 추가 터치: 탭(확정)인지 드래그(재정의)인지 MOVE에서 판가름.
-                            // 판가름 전까지는 기존 확정 후보 레벨을 건드리지 않는다(zoomState는 그대로 유지).
+                            // 판가름 전까지는 기존 확정 후보(currentMapping)를 건드리지 않는다.
                             zoomAdjusting = true
                             zoomAdjustCenterCandidate = lastRatio
                         } else if (currentZoomArming) {
                             // ── 줌 정의 모드 시작: DOWN 위치를 중심점으로, 좌표 전송은 억제 ──
                             zoomDefining = true
                             zoomCenterRatio = lastRatio
-                            onZoomStateChange(
-                                AbsoluteZoomState(
-                                    level = AbsolutePointingConstants.ZOOM_LEVEL_MIN,
-                                    centerX = zoomCenterRatio.x,
-                                    centerY = zoomCenterRatio.y
+                            onMagnificationModeChange(
+                                MagnificationMode.Single(
+                                    ZoneMapping(
+                                        pcRect = ZoneRect.FULL,
+                                        defined = false
+                                    )
                                 )
                             )
                         } else {
@@ -670,10 +691,10 @@ private fun PointingArea(
                                         is EdgeZoneAction.CyclePage -> onCyclePage(actionToApply.direction)
                                         is EdgeZoneAction.JumpToPage -> onJumpToPage(actionToApply.pageIndex)
                                         EdgeZoneAction.ToggleAbsoluteZoom -> toggleAbsoluteZoom(
-                                            isActive = currentZoomState.isActive,
+                                            isActive = currentMapping.defined,
                                             isArming = currentZoomArming,
                                             targetMonitor = currentTargetMonitor.toInt(),
-                                            onZoomStateChange = onZoomStateChange,
+                                            onMagnificationModeChange = onMagnificationModeChange,
                                             onZoomArmingChange = onZoomArmingChange,
                                             onZoomAwaitingConfirmChange = onZoomAwaitingConfirmChange,
                                         )
@@ -835,15 +856,16 @@ private fun PointingArea(
             CoordinateIndicator(position = indicatorPosition, alpha = indicatorAlpha)
         }
         // 줌 레벨 텍스트 (Phase 4.9.6): 정의/확정 대기 중(zoomArming)은 화면 정가운데 크게(유저 확정,
-        // 원탭 확정 흐름에서 진행 상태를 명확히 보여주기 위함), 확정된 활성 줌(zoomState.isActive만,
+        // 원탭 확정 흐름에서 진행 상태를 명확히 보여주기 위함), 확정된 활성 줌(mapping.defined만,
         // arming 아님)은 설계 §4.5.4대로 우상단에 작게 표시. 1x(둘 다 아님)에서는 미표시.
+        // 배율 수치는 pcRect 폭에서 역산(Phase 4.9.10, zoomLevelFromPcRect).
         if (zoomArming) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.align(Alignment.Center)
             ) {
                 Text(
-                    text = "${"%.1f".format(zoomState.level)}x",
+                    text = "${"%.1f".format(AbsoluteCoordinateCalculator.zoomLevelFromPcRect(mapping.pcRect))}x",
                     color = TouchpadColorZoom,
                     fontSize = AbsolutePointingConstants.ZOOM_LEVEL_CENTER_TEXT_SIZE_SP.sp,
                     fontWeight = FontWeight.Bold
@@ -857,9 +879,9 @@ private fun PointingArea(
                     )
                 }
             }
-        } else if (zoomState.isActive) {
+        } else if (mapping.defined) {
             Text(
-                text = "${"%.1f".format(zoomState.level)}x",
+                text = "${"%.1f".format(AbsoluteCoordinateCalculator.zoomLevelFromPcRect(mapping.pcRect))}x",
                 color = TouchpadColorZoom,
                 fontSize = AbsolutePointingConstants.ZOOM_LEVEL_TEXT_SIZE_SP.sp,
                 fontWeight = FontWeight.Bold,

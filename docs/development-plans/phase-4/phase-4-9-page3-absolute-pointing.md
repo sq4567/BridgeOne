@@ -680,10 +680,21 @@ DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9
 - 본 문서 Phase 4.9.6(줌 기능) — 마이그레이션 대상인 기존 `AbsoluteZoomState` 모델과 `page3ZoomState`
 - 본 문서 Phase 4.9.5(모니터 셀렉터) — 존별 모니터 배정의 `targetMonitor` 규약
 
+> **⚠️ 구현 확정 사항(2026-07-11)**: `AbsoluteZoomState`(줌 정의 제스처용 배율+중심점 스칼라 표현)는 제거하지
+> 않고 그대로 유지했다 — `applyZoom`/`dragDistanceToZoomLevel`은 여전히 정의 제스처 계산에 쓰이고
+> (4.9.12에서 직사각형 드래그로 교체 예정), `AbsoluteCoordinateCalculator.kt`에 양방향 변환 헬퍼
+> `zoneRectFromZoomState(zoom)`/`zoomStateFromZoneMapping(mapping)`/`zoomLevelFromPcRect(pcRect)`를
+> 신규 추가해 hoisted 상태(`MagnificationMode`)와 제스처 로컬 상태(`AbsoluteZoomState`) 사이를 매 프레임
+> 변환한다. `AbsolutePointingPad.kt`의 `sendZoomed()`는 `applyZoom` 대신 `MultiZoneCalculator.applyRoi`를
+> 호출하도록 교체했고, `toggleAbsoluteZoom()` 해제 시에는 `MagnificationMode.Off`를 내보낸다(Single(빈
+> ZoneMapping) 대신 Off로 명확히 구분). `page3ZoomState` → `page3MagnificationMode`(`StandardModePage.kt`),
+> `Page3AbsolutePointing.kt`의 `zoomState`/`onZoomStateChange` → `magnificationMode`/`onMagnificationModeChange`로
+> 전량 배선 교체.
+
 **검증**:
-- [ ] `MultiZoneCalculatorTest` — `divideZoneAreas` 2~8분할(5~8의 2행 그리드 포함) 경계값, 셀 로컬 정규화, `applyRoi` 임의 종횡비 합성, 미정의 존 항등, `rectFromCenterDrag` 클램핑
-- [ ] `page3ZoomState` → `page3MagnificationMode` 마이그레이션 후 기존 단일 줌(4.9.6) 좌표 계산 결과 회귀 없음(동일 배율/중심점 입력에 대해 `applyRoi` 결과가 기존 `applyZoom` 결과와 동치)
-- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트(줌/모니터셀렉터) 회귀 없음
+- [x] `MultiZoneCalculatorTest` — `divideZoneAreas` 2~8분할(5~8의 2행 그리드 포함) 경계값, 셀 로컬 정규화, `applyRoi` 임의 종횡비 합성, 미정의 존 항등, `rectFromCenterDrag` 클램핑
+- [x] `page3ZoomState` → `page3MagnificationMode` 마이그레이션 후 기존 단일 줌(4.9.6) 좌표 계산 결과 회귀 없음(동일 배율/중심점 입력에 대해 `applyRoi` 결과가 기존 `applyZoom` 결과와 동치, `AbsoluteCoordinateCalculatorTest`에 회귀 테스트 추가)
+- [x] `assembleDebug` 빌드 성공 + 기존 단위테스트(줌/모니터셀렉터) 회귀 없음
 
 ---
 

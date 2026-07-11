@@ -9,7 +9,7 @@ import com.bridgeone.app.ui.components.touchpad.MacroStep
 import com.bridgeone.app.ui.components.touchpad.MouseButton
 import com.bridgeone.app.ui.components.touchpad.MouseHoldMode
 import com.bridgeone.app.ui.components.touchpad.PageNav
-import com.bridgeone.app.ui.utils.AbsoluteZoomState
+import com.bridgeone.app.ui.utils.MagnificationMode
 
 // ============================================================
 // Page 3: 절대좌표 패드 (Phase 4.9.1, 엣지존 통합은 Phase 4.9.3)
@@ -25,8 +25,8 @@ internal fun Page3AbsolutePointing(
     onMouseHoldToggle: (MouseButton, MouseHoldMode) -> Unit = { _, _ -> },
     onCyclePage: (PageNav) -> Unit = {},
     onJumpToPage: (Int) -> Unit = {},
-    zoomState: AbsoluteZoomState = AbsoluteZoomState(),
-    onZoomStateChange: (AbsoluteZoomState) -> Unit = {}
+    magnificationMode: MagnificationMode = MagnificationMode.Off,
+    onMagnificationModeChange: (MagnificationMode) -> Unit = {}
 ) {
     AbsolutePointingPad(
         modifier = Modifier.fillMaxSize(),
@@ -38,7 +38,7 @@ internal fun Page3AbsolutePointing(
         onMouseHoldToggle = onMouseHoldToggle,
         onCyclePage = onCyclePage,
         onJumpToPage = onJumpToPage,
-        zoomState = zoomState,
-        onZoomStateChange = onZoomStateChange
+        magnificationMode = magnificationMode,
+        onMagnificationModeChange = onMagnificationModeChange
     )
 }

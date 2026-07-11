@@ -38,6 +38,48 @@ const val ABS_COORDINATE_MAX = 32767
  */
 data class ZoomMappingRange(val minX: Int, val minY: Int, val maxX: Int, val maxY: Int)
 
+/**
+ * 0~1 모니터 비율 기준 직사각형, 임의 종횡비를 허용한다 (Phase 4.9.10).
+ * [FULL]은 미정의 상태의 항등 매핑(전체 화면)을 나타낸다.
+ */
+data class ZoneRect(val minX: Float, val minY: Float, val maxX: Float, val maxY: Float) {
+    companion object {
+        val FULL = ZoneRect(0f, 0f, 1f, 1f)
+    }
+}
+
+/**
+ * 존(단일 줌 또는 멀티 존의 한 칸) 하나의 매핑 정보 (Phase 4.9.10).
+ * [padRect]는 자유 배치(4.9.13) 전용 Android 입력 영역이며 null이면 자동 그리드 셀을 의미한다.
+ */
+data class ZoneMapping(
+    val pcRect: ZoneRect = ZoneRect.FULL,
+    val targetMonitor: Int = AbsolutePointingConstants.DEFAULT_TARGET_MONITOR.toInt(),
+    val padRect: ZoneRect? = null,
+    val defined: Boolean = false
+)
+
+/** 멀티 존 배치 방식 (Phase 4.9.10). FREE는 Phase 4.9.13에서 사용. */
+enum class ZonePlacement { AUTO, FREE }
+
+/** 멀티 존 모드 전체 상태 (Phase 4.9.10). */
+data class MultiZoneState(
+    val enabled: Boolean = false,
+    val zoneCount: Int = AbsolutePointingConstants.MULTI_ZONE_COUNT_DEFAULT,
+    val placement: ZonePlacement = ZonePlacement.AUTO,
+    val zones: List<ZoneMapping> = List(AbsolutePointingConstants.MULTI_ZONE_COUNT_MAX) { ZoneMapping() }
+)
+
+/**
+ * 확대 매핑 모드: 비활성/단일 줌/멀티 존은 상호 배타적이다 (Phase 4.9.10).
+ * 별개 필드 두 개 + 런타임 강제 해제 대신, 한 값이 한 번에 하나의 case만 갖는 타입으로 배타성을 보장한다.
+ */
+sealed class MagnificationMode {
+    data object Off : MagnificationMode()
+    data class Single(val mapping: ZoneMapping = ZoneMapping()) : MagnificationMode()
+    data class Zone(val state: MultiZoneState = MultiZoneState()) : MagnificationMode()
+}
+
 object AbsoluteCoordinateCalculator {
 
     /**
@@ -125,5 +167,39 @@ object AbsoluteCoordinateCalculator {
             maxX = encode(minXRatio + windowSize),
             maxY = encode(minYRatio + windowSize)
         )
+    }
+
+    /**
+     * [AbsoluteZoomState](정사각 배율+중심점)를 [ZoneRect]로 변환하는 마이그레이션 헬퍼 (Phase 4.9.10).
+     * applyZoom()과 동일한 윈도우 계산을 그대로 재사용해 회귀 없이 직사각형 ROI로 흡수한다.
+     * 단일 줌 정의 제스처(드래그 거리→배율) 자체는 이 Phase에서 바꾸지 않으므로(4.9.12 예정),
+     * 제스처 로컬에서 계산한 AbsoluteZoomState를 hoisted MagnificationMode.Single로 내보낼 때 사용한다.
+     */
+    fun zoneRectFromZoomState(zoom: AbsoluteZoomState): ZoneRect {
+        if (!zoom.isActive) return ZoneRect.FULL
+        val windowSize = 1f / zoom.level
+        val minX = (zoom.centerX - windowSize / 2f).coerceIn(0f, 1f - windowSize)
+        val minY = (zoom.centerY - windowSize / 2f).coerceIn(0f, 1f - windowSize)
+        return ZoneRect(minX, minY, minX + windowSize, minY + windowSize)
+    }
+
+    /**
+     * [zoneRectFromZoomState]의 역변환 (Phase 4.9.10). hoisted [ZoneMapping]에서 제스처 로컬
+     * 계산(30Hz 스로틀 전송 등)에 필요한 [AbsoluteZoomState]를 복원할 때 사용한다.
+     */
+    fun zoomStateFromZoneMapping(mapping: ZoneMapping): AbsoluteZoomState {
+        if (!mapping.defined) return AbsoluteZoomState()
+        val rect = mapping.pcRect
+        val width = (rect.maxX - rect.minX).coerceAtLeast(0.0001f)
+        val level = (1f / width).coerceIn(AbsolutePointingConstants.ZOOM_LEVEL_MIN, AbsolutePointingConstants.ZOOM_LEVEL_MAX)
+        val centerX = rect.minX + width / 2f
+        val centerY = rect.minY + (rect.maxY - rect.minY) / 2f
+        return AbsoluteZoomState(level = level, centerX = centerX, centerY = centerY)
+    }
+
+    /** [ZoneRect] 폭에서 등가 줌 배율을 역산합니다(정사각형 윈도우 가정, UI 텍스트 표시용, Phase 4.9.10). */
+    fun zoomLevelFromPcRect(pcRect: ZoneRect): Float {
+        val width = (pcRect.maxX - pcRect.minX).coerceAtLeast(0.0001f)
+        return (1f / width).coerceIn(AbsolutePointingConstants.ZOOM_LEVEL_MIN, AbsolutePointingConstants.ZOOM_LEVEL_MAX)
     }
 }

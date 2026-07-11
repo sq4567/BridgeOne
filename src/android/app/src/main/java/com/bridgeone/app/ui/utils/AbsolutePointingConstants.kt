@@ -70,4 +70,13 @@ object AbsolutePointingConstants {
 
     /** 줌 상태 Vendor CDC 전송 스로틀 간격 (ms), 드래그 중 30Hz 상한 (Phase 4.9.7). 기본값: 33L */
     const val ZOOM_STATE_THROTTLE_MS: Long = 33L
+
+    /** 멀티 존 개수 최소값 (Phase 4.9.10). 기본값: 2 */
+    const val MULTI_ZONE_COUNT_MIN: Int = 2
+
+    /** 멀티 존 개수 최대값 (Phase 4.9.10). 기본값: 8 */
+    const val MULTI_ZONE_COUNT_MAX: Int = 8
+
+    /** 멀티 존 개수 기본값 (Phase 4.9.10). 기본값: 2 */
+    const val MULTI_ZONE_COUNT_DEFAULT: Int = 2
 }
