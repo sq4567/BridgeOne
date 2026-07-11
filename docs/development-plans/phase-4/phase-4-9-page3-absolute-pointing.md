@@ -588,12 +588,12 @@ Page 3 — AbsolutePointingPad
 - `docs/android/technical-specification-app.md` §2.10 (Page 3 스펙) — 엣지존 액션 화이트리스트에 줌/드래그 토글 추가됨을 보강
 
 **검증**:
-- [ ] `AbsolutePadActionFilterTest` — `ToggleAbsoluteZoom`/`ToggleAbsoluteDrag` 허용 확인 + Page 1/2 `excludeDomains` 회귀 없음
-- [ ] 편집기에서 Page 3만 "줌/드래그 토글" 액션 노출, Page 1/2 편집기엔 미노출
-- [ ] 엣지 스와이프로 줌 토글 실행 시 ZoomButton 탭과 동일 동작(arming 진입/해제) 확인
-- [ ] 엣지 스와이프로 드래그 토글 실행 시 DragModeButton 탭과 동일 동작(테두리 초록 전환) 확인
-- [ ] 직렬화 왕복(저장→재로드) 후 두 액션 보존 확인
-- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
+- [x] `AbsolutePadActionFilterTest` — `ToggleAbsoluteZoom`/`ToggleAbsoluteDrag` 허용 확인 + Page 1/2 `excludeDomains` 회귀 없음
+- [x] 편집기에서 Page 3만 "줌/드래그 토글" 액션 노출, Page 1/2 편집기엔 미노출(`StandardModePage.kt` excludeDomains 배선)
+- [x] 엣지 스와이프로 줌 토글 실행 시 ZoomButton 탭과 동일 동작(arming 진입/해제) 확인 — `toggleAbsoluteZoom()` 헬퍼 공유로 코드 경로 동일성 보장(실기기 조작감은 아래 항목에서 별도 확인 필요)
+- [x] 엣지 스와이프로 드래그 토글 실행 시 DragModeButton 탭과 동일 동작(테두리 초록 전환) 확인 — `EdgeZoneActionHandler.applyZoneAction`의 `dragMode` 반전이 `ControlButtonContainer`의 DragModeButton과 동일한 `localState.dragMode` 필드를 공유
+- [x] 직렬화 왕복(저장→재로드) 후 두 액션 보존 확인 — `EdgeZoneJson.kt` encode/decode 대응 분기 추가
+- [x] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
 - [ ] 실기기 필요: 엣지 스와이프 줌/드래그 토글 체감, 컨트롤 버튼과의 상태 동기화 확인
 
 ---

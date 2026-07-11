@@ -185,6 +185,8 @@ private fun zoneActionToJson(action: EdgeZoneAction): JSONObject {
             obj.put("type", "CyclePad")
             obj.put("dir", action.direction.name)
         }
+        EdgeZoneAction.ToggleAbsoluteZoom -> obj.put("type", "ToggleAbsoluteZoom")
+        EdgeZoneAction.ToggleAbsoluteDrag -> obj.put("type", "ToggleAbsoluteDrag")
     }
     return obj
 }
@@ -316,5 +318,7 @@ private fun zoneActionFromJson(obj: JSONObject): EdgeZoneAction = when (obj.getS
     "CyclePad"        -> EdgeZoneAction.CyclePad(
         direction = runCatching { PageNav.valueOf(obj.getString("dir")) }.getOrDefault(PageNav.NEXT)
     )
+    "ToggleAbsoluteZoom" -> EdgeZoneAction.ToggleAbsoluteZoom
+    "ToggleAbsoluteDrag" -> EdgeZoneAction.ToggleAbsoluteDrag
     else              -> EdgeZoneAction.Unassigned
 }

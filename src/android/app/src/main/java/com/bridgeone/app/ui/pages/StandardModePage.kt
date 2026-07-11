@@ -808,11 +808,14 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
         // Phase 4.9.8 후속 수정: 하드코딩 목록 대신 AbsolutePadActionFilter.kt의
         // ABSOLUTE_PAD_ALLOWED_DOMAINS(런타임 화이트리스트 isAbsolutePadAllowed와 1:1 대응)에서
         // 파생 — 향후 ActionDomain이 추가돼도 기본적으로 Page 3에서 제외되는 안전한 방향이 된다.
+        // Phase 4.9.9: 절대좌표 패드 전용 도메인(줌/드래그 토글)은 일반 터치패드(Page 1/2)
+        // 편집기에서 노출하지 않는다 — Page 3에는 존재하지 않는 ZoomButton/DragModeButton과
+        // 동일 동작이라 배정해도 실행할 대상이 없다.
         val zoneEditorExcludeDomains: Set<com.bridgeone.app.ui.components.touchpad.ActionDomain> = if (selectedZonePage == 2) {
             com.bridgeone.app.ui.components.touchpad.ActionDomain.entries.toSet() -
                 com.bridgeone.app.ui.components.touchpad.ABSOLUTE_PAD_ALLOWED_DOMAINS -
                 com.bridgeone.app.ui.components.touchpad.ActionDomain.UNASSIGNED
-        } else emptySet()
+        } else setOf(com.bridgeone.app.ui.components.touchpad.ActionDomain.ABSOLUTE_MODE)
         // Phase 4.9.8 후속 수정: Page 3는 편집기 진입 시점에 이미 filterConfigForAbsolutePad로
         // 걸러진 config를 보여줘야, 범용 EdgeZoneConfig.default()에서 물려받은(또는 이제는 선택
         // 불가능한 도메인의) 이동/스크롤/DPI 등 액션이 "라벨은 있지만 실제로는 동작 안 함" 상태로

@@ -41,6 +41,9 @@ object EdgeZoneActionHandler {
         is EdgeZoneAction.SetCursorCount -> state
         is EdgeZoneAction.ActivatePad -> state
         is EdgeZoneAction.CyclePad -> state
+        // 절대좌표 패드(Page 3) 전용 — 드래그는 순수 상태 반전, 줌은 AbsolutePointingPad 디스패처가 부수효과로 위임
+        EdgeZoneAction.ToggleAbsoluteDrag -> state.copy(dragMode = !state.dragMode)
+        EdgeZoneAction.ToggleAbsoluteZoom -> state
     }
 
     private fun applyToggle(state: TouchpadState, mode: EdgeSwipeMode, customPresetsCount: Int): TouchpadState =

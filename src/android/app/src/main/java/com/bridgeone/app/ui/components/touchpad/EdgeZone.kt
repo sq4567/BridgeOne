@@ -58,6 +58,8 @@ fun EdgeZoneAction.categoryColor(): Color = when (this) {
         SettingsType.SCROLL_SPEED -> Color(0xFF1A5C4A)               // 스크롤 속도 설정 → 딥 틸
     }
     is EdgeZoneAction.Unassigned -> Color(0xFF1A1A1A)                // 미할당 → 거의 투명 (alpha 적용 후 무채색)
+    is EdgeZoneAction.ToggleAbsoluteZoom -> Color(0xFFB84A00)         // 절대좌표 줌 토글 → 딥 오렌지
+    is EdgeZoneAction.ToggleAbsoluteDrag -> Color(0xFF1A5C1A)         // 절대좌표 드래그 토글 → 딥 그린
 }
 
 // ============================================================
@@ -172,6 +174,12 @@ sealed class EdgeZoneAction {
     /** 멀티 커서 레이아웃 모드 토글 (그리드 분할 ↔ 직접 전환 버튼). */
     object ToggleMultiCursorLayout : EdgeZoneAction()
 
+    /** 절대좌표 패드(Page 3) 줌 모드 토글. ZoomButton 탭과 동일 동작(arming 진입/해제). Page 3 전용. */
+    object ToggleAbsoluteZoom : EdgeZoneAction()
+
+    /** 절대좌표 패드(Page 3) 드래그 앤 드롭 모드 토글. DragModeButton 탭과 동일 동작. Page 3 전용. */
+    object ToggleAbsoluteDrag : EdgeZoneAction()
+
     /**
      * 매크로 순차 키 입력 (여러 스텝을 딜레이를 두고 순차 전송).
      * @param steps 각 스텝의 키 조합 목록. 기본값: emptyList()
@@ -230,6 +238,8 @@ sealed class EdgeZoneAction {
         is SetCursorCount -> "Tune"
         is ActivatePad -> "Adjust"
         is CyclePad -> if (direction == PageNav.NEXT) "ArrowForward" else "ArrowBack"
+        ToggleAbsoluteZoom -> "ZoomIn"
+        ToggleAbsoluteDrag -> "OpenWith"
         Unassigned -> ""
     }
 
@@ -284,6 +294,8 @@ sealed class EdgeZoneAction {
         is SetCursorCount -> "커서 ${count}개"
         is ActivatePad -> "패드 ${index + 1}"
         is CyclePad -> if (direction == PageNav.NEXT) "다음 패드" else "이전 패드"
+        ToggleAbsoluteZoom -> "줌 모드 토글"
+        ToggleAbsoluteDrag -> "드래그 모드 토글"
     }
 }
 

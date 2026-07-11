@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -160,8 +161,8 @@ private val DEFAULT_DOMAIN_GROUPS = listOf(
         listOf(ActionDomain.SCROLL, ActionDomain.SCROLL_SPEED, ActionDomain.DPI, ActionDomain.DYNAMICS)),
     DomainGroup("KEY", "키 입력", "단축키·매크로", Icons.Filled.Keyboard,
         listOf(ActionDomain.COMBO, ActionDomain.MACRO)),
-    DomainGroup("MODE_NAV", "모드·탐색", "프리셋·되돌리기·페이지·멀티 커서", Icons.Filled.Tune,
-        listOf(ActionDomain.MODE_PRESET, ActionDomain.HISTORY, ActionDomain.PAGE, ActionDomain.MULTI_CURSOR)),
+    DomainGroup("MODE_NAV", "모드·탐색", "프리셋·되돌리기·페이지·멀티 커서·절대좌표", Icons.Filled.Tune,
+        listOf(ActionDomain.MODE_PRESET, ActionDomain.HISTORY, ActionDomain.PAGE, ActionDomain.MULTI_CURSOR, ActionDomain.ABSOLUTE_MODE)),
 )
 
 // Phase 4.7.5-A: ActionDomain enum + domainOf → EdgeZoneActionResolver.kt로 이관
@@ -381,6 +382,14 @@ internal fun ActionDomainPicker(
                         EdgeZoneAction.ActivatePad(i)))
                 }
             }),
+        DomainInfo(ActionDomain.ABSOLUTE_MODE, "절대좌표 모드", "Page 3 줌·드래그 모드 토글", Icons.Filled.ZoomIn,
+            null, "", "",
+            listOf(
+                ActionOption("줌 모드 토글", "ZoomButton과 동일 동작", Icons.Filled.ZoomIn,
+                    EdgeZoneAction.ToggleAbsoluteZoom),
+                ActionOption("드래그 모드 토글", "DragModeButton과 동일 동작", Icons.Filled.OpenWith,
+                    EdgeZoneAction.ToggleAbsoluteDrag)
+            )),
     )
 
     val filteredDomains = if (excludeDomains.isEmpty()) domains else domains.filter { it.domain !in excludeDomains }

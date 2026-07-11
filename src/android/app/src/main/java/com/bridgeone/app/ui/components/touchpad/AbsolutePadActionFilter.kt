@@ -17,14 +17,14 @@ package com.bridgeone.app.ui.components.touchpad
  */
 internal val ABSOLUTE_PAD_ALLOWED_DOMAINS: Set<ActionDomain> = setOf(
     ActionDomain.CLICK, ActionDomain.PAGE, ActionDomain.COMBO,
-    ActionDomain.MACRO, ActionDomain.MOUSE_HOLD, ActionDomain.HISTORY
+    ActionDomain.MACRO, ActionDomain.MOUSE_HOLD, ActionDomain.HISTORY, ActionDomain.ABSOLUTE_MODE
 )
 
 /**
  * 액션이 AbsolutePointingPad(Page 3)에서 허용되는지 판정합니다.
  *
  * 허용: SendMacro, SendShortcut, CyclePage, JumpToPage, SetClickMode,
- * ToggleMode(CLICK만), MouseHoldToggle, RestorePreviousMode.
+ * ToggleMode(CLICK만), MouseHoldToggle, RestorePreviousMode, ToggleAbsoluteZoom, ToggleAbsoluteDrag.
  * 그 외(델타·스크롤·DPI·멀티커서·프리셋 계열)는 전부 배제.
  */
 internal fun isAbsolutePadAllowed(action: EdgeZoneAction): Boolean = when (action) {
@@ -36,6 +36,8 @@ internal fun isAbsolutePadAllowed(action: EdgeZoneAction): Boolean = when (actio
     is EdgeZoneAction.ToggleMode -> action.mode == EdgeSwipeMode.CLICK
     is EdgeZoneAction.MouseHoldToggle -> true
     EdgeZoneAction.RestorePreviousMode -> true
+    EdgeZoneAction.ToggleAbsoluteZoom -> true
+    EdgeZoneAction.ToggleAbsoluteDrag -> true
     else -> false
 }
 

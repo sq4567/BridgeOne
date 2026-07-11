@@ -332,17 +332,14 @@ fun AbsolutePointingPad(
                 zoomLevel = zoomState.level,
                 zoomArming = zoomArming,
                 onZoomClick = {
-                    if (zoomState.isActive || zoomArming) {
-                        // 줌 활성 중 재탭 → 즉시 1x 해제. arming/확정 대기 중(패드 탭 확정 전) 재탭 → 전부 취소.
-                        onZoomStateChange(AbsoluteZoomState())
-                        zoomArming = false
-                        zoomAwaitingConfirm = false
-                        // (C) 줌 해제 1회 전송 (Phase 4.9.7)
-                        sendZoomStateFrame(AbsoluteZoomState(), targetMonitor)
-                    } else {
-                        zoomArming = true
-                        zoomAwaitingConfirm = false
-                    }
+                    toggleAbsoluteZoom(
+                        isActive = zoomState.isActive,
+                        isArming = zoomArming,
+                        targetMonitor = targetMonitor,
+                        onZoomStateChange = onZoomStateChange,
+                        onZoomArmingChange = { zoomArming = it },
+                        onZoomAwaitingConfirmChange = { zoomAwaitingConfirm = it },
+                    )
                 },
                 modifier = Modifier.weight(1f)
             )
@@ -399,6 +396,31 @@ private fun sendZoomStateFrame(zoom: AbsoluteZoomState, targetMonitor: Int) {
         UsbSerialManager.sendVendorCdcFrame(ZoomStateCommand.buildFrame(zoom, targetMonitor))
     } catch (e: IllegalStateException) {
         Log.w("AbsolutePointingPad", "Failed to send zoom state: ${e.message}")
+    }
+}
+
+/**
+ * ZoomButton 탭 토글 로직. 엣지존 `ToggleAbsoluteZoom` 액션(Phase 4.9.9)이 동일 동작을 공유하도록
+ * 콜백 기반으로 추출한 헬퍼 — 줌 활성/arming 중 재호출 시 즉시 1x 해제, 아니면 arming 진입.
+ */
+private fun toggleAbsoluteZoom(
+    isActive: Boolean,
+    isArming: Boolean,
+    targetMonitor: Int,
+    onZoomStateChange: (AbsoluteZoomState) -> Unit,
+    onZoomArmingChange: (Boolean) -> Unit,
+    onZoomAwaitingConfirmChange: (Boolean) -> Unit,
+) {
+    if (isActive || isArming) {
+        // 줌 활성 중 재탭 → 즉시 1x 해제. arming/확정 대기 중(패드 탭 확정 전) 재탭 → 전부 취소.
+        onZoomStateChange(AbsoluteZoomState())
+        onZoomArmingChange(false)
+        onZoomAwaitingConfirmChange(false)
+        // (C) 줌 해제 1회 전송 (Phase 4.9.7)
+        sendZoomStateFrame(AbsoluteZoomState(), targetMonitor)
+    } else {
+        onZoomArmingChange(true)
+        onZoomAwaitingConfirmChange(false)
     }
 }
 
@@ -647,6 +669,14 @@ private fun PointingArea(
                                             onMouseHoldToggle(actionToApply.button, actionToApply.mode)
                                         is EdgeZoneAction.CyclePage -> onCyclePage(actionToApply.direction)
                                         is EdgeZoneAction.JumpToPage -> onJumpToPage(actionToApply.pageIndex)
+                                        EdgeZoneAction.ToggleAbsoluteZoom -> toggleAbsoluteZoom(
+                                            isActive = currentZoomState.isActive,
+                                            isArming = currentZoomArming,
+                                            targetMonitor = currentTargetMonitor.toInt(),
+                                            onZoomStateChange = onZoomStateChange,
+                                            onZoomArmingChange = onZoomArmingChange,
+                                            onZoomAwaitingConfirmChange = onZoomAwaitingConfirmChange,
+                                        )
                                         else -> {
                                             val newState = EdgeZoneActionHandler.applyZoneAction(localState, actionToApply, 0)
                                             onLocalStateChange(newState)

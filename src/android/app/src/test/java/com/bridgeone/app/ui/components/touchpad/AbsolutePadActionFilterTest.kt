@@ -24,6 +24,8 @@ class AbsolutePadActionFilterTest {
         assertTrue(isAbsolutePadAllowed(EdgeZoneAction.ToggleMode(EdgeSwipeMode.CLICK)))
         assertTrue(isAbsolutePadAllowed(EdgeZoneAction.MouseHoldToggle(MouseButton.LEFT)))
         assertTrue(isAbsolutePadAllowed(EdgeZoneAction.RestorePreviousMode))
+        assertTrue(isAbsolutePadAllowed(EdgeZoneAction.ToggleAbsoluteZoom))
+        assertTrue(isAbsolutePadAllowed(EdgeZoneAction.ToggleAbsoluteDrag))
     }
 
     @Test

@@ -150,6 +150,7 @@ import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material.icons.filled.WbCloudy
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.bridgeone.app.ui.common.AppIconDef
@@ -174,6 +175,7 @@ object IconRegistry {
         "Mouse"         to AppIconDef(Icons.Filled.Mouse, IconCategory.POINTER),
         "TouchApp"      to AppIconDef(Icons.Filled.TouchApp, IconCategory.POINTER),
         "OpenWith"      to AppIconDef(Icons.Filled.OpenWith, IconCategory.POINTER),
+        "ZoomIn"        to AppIconDef(Icons.Filled.ZoomIn, IconCategory.POINTER),
         "SwapVert"      to AppIconDef(Icons.Filled.SwapVert, IconCategory.POINTER),
         "Gesture"       to AppIconDef(Icons.Filled.Gesture, IconCategory.POINTER),
         "PanTool"       to AppIconDef(Icons.Filled.PanTool, IconCategory.POINTER),
