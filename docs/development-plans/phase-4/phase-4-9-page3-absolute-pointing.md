@@ -2,7 +2,7 @@
 title: "BridgeOne Phase 4.9: Page 3 — 절대좌표 패드 페이지 (서버 중계 재설계)"
 description: "BridgeOne 프로젝트 Phase 4.9 - Standard 전용 Page 3: AbsolutePointingPad, 서버 SetCursorPos 중계, 자유 비율, 드래그 앤 드롭, 멀티모니터"
 tags: ["android", "absolute-pointing", "server-relay", "zoom", "multi-zone", "vendor-cdc", "multi-monitor", "ui"]
-version: "v2.2"
+version: "v2.5"
 owner: "Chatterbones"
 updated: "2026-07-11"
 ---
@@ -29,10 +29,10 @@ updated: "2026-07-11"
 - **서버 중계 전송**: `buildAbsolutePositionCommand`(0xFF/0x02) 하나로 좌표를 서버에 전달
 - 드래그 앤 드롭 모드 (제스처 스코프 buttons bit0 유지)
 - 모니터 셀렉터 + 역방향 모니터 개수 수신
-- 줌 기능 (앱 내) + Vendor CDC 줌 상태 UART 전송(Android 측까지)
+- 줌 기능: 임의 종횡비 직사각형 ROI 정의(앱 내) + Vendor CDC 줌 상태 UART 전송(Android 측까지)
 - Page 3 엣지존 편집 화면 연동
 - 엣지존 줌/드래그 모드 토글 액션
-- 멀티 존 모드 (패드 그리드 분할, 존별 독립 줌 매핑 + 모니터 배정, 터치 즉시 판정)
+- 멀티 존 모드: 임의 종횡비 직사각형 ROI 존별 매핑(모니터 배정 포함) + 자동/자유 배치 + 프리셋 저장/불러오기 + 활성 구성 존 추가/제거, 터치 즉시 판정
 - 손떨림 보정 (원시 좌표 EMA 스무딩)
 - 존 경계 진동 피드백 (멀티존 전환 시 햅틱)
 - 터치 시작 확정 디바운스 (스치는 접촉 필터링)
@@ -598,9 +598,11 @@ Page 3 — AbsolutePointingPad
 
 ---
 
-## Phase 4.9.10: 절대좌표 패드 멀티 존 모드
+## Phase 4.9.10: 멀티 존 데이터 모델 + 직사각형 ROI 좌표 변환
 
-**목표**: 패드를 N분할(2~8)하여 각 셀(존)이 독립적인 줌 매핑(중심점/배율/대상 모니터)을 갖게 하고, 터치 위치에 따라 실시간으로 해당 존의 매핑을 적용해 좌표를 전송한다. 좌표 매핑은 기존 줌과 동일하게 앱 내에서 전부 완료되므로 서버로는 기존 절대좌표 프레임(`0xFF/0x02`)과 줌 상태 프레임(`0xFF/0x30`)을 그대로 재사용(프로토콜/펌웨어/서버 변경 없음)
+**목표**: 확대 매핑(단일 줌 + 멀티 존)을 임의 종횡비 **직사각형 ROI**로 통일하는 데이터 모델과 좌표 변환 순수 함수를 마련하고, 이미 완료된 단일 줌(4.9.6, `AbsoluteZoomState`의 중심점+배율 모델)을 새 모델로 마이그레이션한다. 이 Phase는 데이터 표현 교체까지만 다루고, 멀티 존 진입·정의 UI는 4.9.11, 4.9.13~4.9.15에서 순차로 얹는다(4.9.12는 단일 줌 전용 후속 작업).
+
+> **⚠️ 설계 변경 배경**: 기존(v2.2) 계획은 존 매핑을 "중심점+배율"(`AbsoluteZoomState`)로 정의했으나, 이 모델은 모니터 종횡비에 고정되어 세로로 긴 존처럼 임의 종횡비 직사각형을 표현할 수 없다. 유저 요청(2026-07-11)에 따라 존 매핑을 **직사각형 ROI**로 재설계하고, 자유 배치(4.9.13)·프리셋(4.9.14)까지 4개 Phase로 분리했다. 이후 유저 요청(2026-07-11)에 따라 단일 줌도 동일한 직사각형 정의 UX를 쓰도록 4.9.12(단일 줌 직사각형 ROI 정의 UX 통합)를 추가 삽입했다.
 
 **선행 조건**: Phase 4.9.5(모니터 셀렉터), Phase 4.9.6(줌 기능) 완료. `MultiCursorGridGeometry.kt`(Phase 4.8)는 셀 최대 4개까지의 분할 로직만 있어 8분할에는 재사용하지 않는다(아래 참조)
 
@@ -609,96 +611,322 @@ Page 3 — AbsolutePointingPad
 단일 줌과 멀티 존은 같은 트리거(ZoomButton 탭=단일 줌, 롱프레스=멀티존)에서 갈라지는 상호 배타적인 "확대 모드"의 두 변형이다. 별개 필드 두 개 + 런타임 강제 해제로 배타성을 관리하는 대신, `AbsoluteCoordinateCalculator.kt`에 이를 감싸는 sealed class를 신설한다:
 
 ```kotlin
+// 0~1 모니터 비율, 임의 종횡비 허용
+data class ZoneRect(val minX: Float, val minY: Float, val maxX: Float, val maxY: Float) {
+    companion object { val FULL = ZoneRect(0f, 0f, 1f, 1f) }   // 미정의 = 전체(항등)
+}
+
 data class ZoneMapping(
-    val zoom: AbsoluteZoomState = AbsoluteZoomState(),   // 기존 재사용
+    val pcRect: ZoneRect = ZoneRect.FULL,                // PC 대상 직사각형(임의 종횡비)
     val targetMonitor: Int = DEFAULT_TARGET_MONITOR,     // 존별 모니터 배정
-    val defined: Boolean = false                          // 미정의 존 = 1x 항등
+    val padRect: ZoneRect? = null,                       // 자유배치 전용 Android 입력 영역(4.9.13), null=자동 그리드 셀
+    val defined: Boolean = false                          // 미정의 존 = 항등 매핑
 )
+
+enum class ZonePlacement { AUTO, FREE }                  // 4.9.13에서 사용
 
 data class MultiZoneState(
     val enabled: Boolean = false,
     val zoneCount: Int = MULTI_ZONE_COUNT_DEFAULT,       // 2~8
+    val placement: ZonePlacement = ZonePlacement.AUTO,
     val zones: List<ZoneMapping> = List(MULTI_ZONE_COUNT_MAX) { ZoneMapping() }
 )
 
 sealed class MagnificationMode {
     data object Off : MagnificationMode()
-    data class Single(val zoom: AbsoluteZoomState = AbsoluteZoomState()) : MagnificationMode()
+    data class Single(val mapping: ZoneMapping = ZoneMapping()) : MagnificationMode()  // 직사각형 ROI로 통일
     data class Zone(val state: MultiZoneState = MultiZoneState()) : MagnificationMode()
 }
 ```
 - `zones`는 항상 최대(8)개를 보유하고 `zoneCount`로 앞에서 잘라 씀(멀티커서 `page2PadAssignments`와 동일 패턴) — 존 개수를 바꿔도 이미 정의한 매핑이 보존됨
-- **마이그레이션**: `StandardModePage.kt:376`의 기존 `page3ZoomState: AbsoluteZoomState`(4.9.6에서 구현) hoisted 상태를 `page3MagnificationMode: MagnificationMode`로 교체한다. 단일 줌은 `MagnificationMode.Single(zoom)`, 멀티존은 `MagnificationMode.Zone(state)`로 표현되므로 "동시 활성 불가"가 런타임 강제 해제가 아니라 타입 자체로 보장됨(한 값은 한 번에 하나의 case만 가짐)
-- `Page3AbsolutePointing`/`AbsolutePointingPad` 시그니처의 `zoomState: AbsoluteZoomState` 파라미터를 `magnificationMode: MagnificationMode`로 교체(`onZoomStateChange` → `onMagnificationModeChange`). 단일 줌 렌더링/좌표 계산 경로는 `(magnificationMode as? MagnificationMode.Single)?.zoom ?: AbsoluteZoomState()`로 파생. 제스처 루프는 `rememberUpdatedState`로 최신값 참조(기존 `currentZoomState` 패턴과 동일 — 빠뜨리면 실행 중 변경이 반영 안 됨)
+- **단일 줌 마이그레이션**: 기존 `AbsoluteZoomState(level, centerX, centerY)`가 표현하던 정사각(모니터 종횡비 고정) 매핑을 `ZoneMapping.pcRect`(임의 종횡비 직사각형)로 흡수한다. `StandardModePage.kt:376`의 기존 `page3ZoomState: AbsoluteZoomState`(4.9.6) hoisted 상태를 `page3MagnificationMode: MagnificationMode`로 교체. 단일 줌은 `MagnificationMode.Single(mapping)`, 멀티존은 `MagnificationMode.Zone(state)`로 표현되므로 "동시 활성 불가"가 런타임 강제 해제가 아니라 타입 자체로 보장됨(한 값은 한 번에 하나의 case만 가짐)
+- `Page3AbsolutePointing`/`AbsolutePointingPad` 시그니처의 `zoomState: AbsoluteZoomState` 파라미터를 `magnificationMode: MagnificationMode`로 교체(`onZoomStateChange` → `onMagnificationModeChange`). 단일 줌 렌더링/좌표 계산 경로는 `(magnificationMode as? MagnificationMode.Single)?.mapping ?: ZoneMapping()`로 파생. 제스처 루프는 `rememberUpdatedState`로 최신값 참조(기존 `currentZoomState` 패턴과 동일 — 빠뜨리면 실행 중 변경이 반영 안 됨)
+- 단일 줌의 **정의 UX**(중심점 DOWN → 바깥 드래그로 배율 조절 → 확정 대기 → 원탭 확정, 4.9.6에서 구현된 2단계 흐름)는 이 Phase에서 직사각형 방식으로 갱신하지 않는다 — 배율(스칼라) 대신 직사각형(2축)을 드래그로 정의하는 제스처는 4.9.11의 `rectFromCenterDrag`를 단일 줌에도 동일 적용하는 후속 작업으로 넘기고, 이 Phase는 **데이터 표현 교체 + 좌표 계산 회귀 없음**까지만 다룬다
 
-### 터치 → 존 → 좌표 변환 파이프라인
+### 직사각형 ROI 좌표 변환 파이프라인
 
-신규 순수 함수(아래 "신규 파일" 참조):
-- `divideZoneAreas(width, height, zoneCount)`: 패드 전체 영역을 `zoneCount`(2~8)개 셀로 분할. `MultiCursorGridGeometry.divideGridAreas`는 2/3/4 전용 하드코딩(`require`가 `MULTI_CURSOR_COUNT_MAX`=4로 고정)이라 8분할에 재사용 불가하므로 별도 구현: 2~4는 기존과 동일한 레이아웃(1×2/1×3/2×2), 5~8은 2행 그리드로 열을 `ceil(N/2)`/`floor(N/2)`로 나눠 배치(행 우선 번호: 윗줄 좌→우, 아랫줄 좌→우)
-- `normalizeInZone(pos, zoneRect)`: 패드 절대 px 좌표를 해당 셀 기준 0~1로 재정규화. **이 정규화를 빠뜨리면 좌표가 셀 오프셋만큼 어긋난다 — 구현 시 가장 주의할 지점.**
-- `resolveZoneRatio(pos, zoneRect, mapping)`: 셀 로컬 정규화 후 `mapping.defined`면 기존 `applyZoom()` 적용, 아니면 1x 항등(안전 동작)
+신규 순수 함수(아래 "신규 파일" 참조, `ui/components/touchpad/MultiZoneCalculator.kt`):
+- `divideZoneAreas(width, height, zoneCount)`: 패드 전체 영역을 `zoneCount`(2~8)개 셀로 분할(자동 배치 그리드용, 4.9.11에서 사용). `MultiCursorGridGeometry.divideGridAreas`는 2/3/4 전용 하드코딩(`require`가 `MULTI_CURSOR_COUNT_MAX`=4로 고정)이라 8분할에 재사용 불가하므로 별도 구현: 2~4는 기존과 동일한 레이아웃(1×2/1×3/2×2), 5~8은 2행 그리드로 열을 `ceil(N/2)`/`floor(N/2)`로 나눠 배치(행 우선 번호: 윗줄 좌→우, 아랫줄 좌→우)
+- `normalizeInZone(pos, padRect)`: 패드 절대 px 좌표를 해당 셀(또는 자유배치 `padRect`) 기준 0~1로 재정규화. **이 정규화를 빠뜨리면 좌표가 셀 오프셋만큼 어긋난다 — 구현 시 가장 주의할 지점.**
+- `applyRoi(localRatio, pcRect)`: 셀 로컬 0~1 좌표를 `pcRect`(임의 종횡비 직사각형) 안으로 재매핑. 기존 단일 줌의 `applyZoom()`(정사각 배율+중심점 기반 축 독립 재매핑)을 일반화한 형태 — `x' = pcRect.minX + local.x * (pcRect.maxX - pcRect.minX)`, `y`도 동일하게 독립 계산(x/y 스케일이 다를 수 있어 임의 종횡비 표현 가능)
+- `resolveZoneRatio(pos, padRect, mapping)`: `normalizeInZone` 후 `mapping.defined`면 `applyRoi(local, mapping.pcRect)` 적용, 아니면 항등(안전 동작, 확대 없이 셀 영역 그대로 stretch)
+- `rectFromCenterDrag(center, finger)`: 존/영역 정의 제스처용(멀티 존 4.9.11, 단일 줌 4.9.12에서 사용) — `dx = |finger.x - center.x|`, `dy = |finger.y - center.y|`로 `[center∓dx, center∓dy]`(0~1 클램프) 직사각형을 실시간 계산. 손가락이 화면 밖으로 나가면 해당 축이 0 또는 1에서 클램프되어 모니터 끝까지 확장
 
-DOWN/MOVE 처리:
-1. 제스처 시작 시 `divideZoneAreas(areaWidth, areaHeight, zoneCount)`로 셀 Rect 목록 계산
-2. 매 DOWN/MOVE마다 `MultiCursorGridGeometry.hitTestPad(pos, areas)`로 존 인덱스 판정 (그대로 재사용 — 개수와 무관하게 주어진 Rect 목록에서 순수 히트테스트만 수행하므로 8분할에도 그대로 적용 가능. 실시간, 활성 존 개념 없이 즉시 전환)
+DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9.13~4.9.15 참조, 단일 줌 정의 UI는 4.9.12 참조):
+1. 제스처 시작 시 `divideZoneAreas(areaWidth, areaHeight, zoneCount)`(AUTO) 또는 각 존의 `padRect`(FREE, 4.9.13)로 셀 Rect 목록 계산
+2. 매 DOWN/MOVE마다 `MultiCursorGridGeometry.hitTestPad(pos, areas)`(AUTO) 또는 `hitTestByPadRect`(FREE, 4.9.13)로 존 인덱스 판정. 그대로 재사용 — 개수와 무관하게 주어진 Rect 목록에서 순수 히트테스트만 수행하므로 8분할에도 그대로 적용 가능(실시간, 활성 존 개념 없이 즉시 전환)
 3. `resolveZoneRatio`로 최종 화면 비율 계산 → `zones[idx].targetMonitor`와 함께 전송
 
 > `hitTestPad`는 `internal`이라 touchpad 패키지 밖에서 직접 재사용 불가 — 신규 파일을 같은 패키지(`ui/components/touchpad/`)에 두어 가시성 확보. `divideZoneAreas`는 이 신규 파일에 직접 정의되므로 가시성 문제 없음
 
-### 전송 흐름 (기존 헬퍼 무변경 재사용)
+> **프로토콜/서버 참고**: 앱이 `applyRoi`로 최종 절대좌표까지 계산해 기존 절대좌표 프레임(`0xFF/0x02`)으로 전송하므로 서버·펌웨어는 최종 좌표만 수신(변경 없음). 단, 기존 줌 상태 프레임(`0xFF/0x30`)은 `level+center` 스칼라 기반이라 임의 종횡비 ROI를 그대로 담지 못한다 — 이 Phase 시리즈는 앱 내 좌표 매핑 완결에 집중하고, 서버 측 존 영역 시각화용 프레임 규격 확장은 4.9.5/4.9.9와 동일하게 후속 통합 Phase로 미룬다
 
-- 존 전환 감지(`curZoneIdx != lastSentZoneIdx`) 시 그 존의 `sendZoomStateFrame(zone.zoom, zone.targetMonitor)`를 스로틀 없이 1회 전송, `lastSentZoneIdx` 갱신으로 중복 억제
+### 신규 파일
+- `ui/components/touchpad/MultiZoneCalculator.kt` — `divideZoneAreas`, `normalizeInZone`, `applyRoi`, `resolveZoneRatio`, `rectFromCenterDrag` (순수 함수, `hitTestPad` 재사용을 위해 touchpad 패키지에 배치). `rectsOverlap`/`hitTestByPadRect`는 4.9.13에서 이 파일에 추가
+- `src/android/app/src/test/.../MultiZoneCalculatorTest.kt` — `divideZoneAreas` 2~8분할 경계값(특히 5~8의 2행 그리드 배치), 셀 로컬 정규화 경계값, `applyRoi` 임의 종횡비 합성, 미정의 존 항등 매핑, `rectFromCenterDrag` 클램핑 경계값
+
+### 수정 파일
+- `ui/utils/AbsoluteCoordinateCalculator.kt` — `ZoneRect`/`ZoneMapping`/`ZonePlacement`/`MultiZoneState` 데이터 클래스 + `MagnificationMode` sealed class(`Off`/`Single`/`Zone`) 추가. 기존 `AbsoluteZoomState`는 `ZoneMapping.pcRect` 계산의 중간 표현으로 당분간 유지하거나(마이그레이션 헬퍼용) 완전 제거 — 착수 시점에 `applyZoom` 호출부 잔존 여부 확인 후 결정
+- `ui/utils/AbsolutePointingConstants.kt` — `MULTI_ZONE_COUNT_MIN=2`/`MAX=8`/`DEFAULT=2`(기본값 주석 필수)
+- `ui/components/AbsolutePointingPad.kt` — 단일 줌 좌표 계산 경로를 `applyRoi` 기반으로 교체, `zoomState: AbsoluteZoomState` 파라미터를 `magnificationMode: MagnificationMode`로 교체. 멀티존 DOWN/MOVE 브랜치·정의 UI는 이 Phase에서 배선하지 않음(4.9.11~)
+- `ui/pages/StandardModePage.kt` — 기존 `page3ZoomState`(4.9.6)를 `page3MagnificationMode: MagnificationMode`로 교체 + `Page3AbsolutePointing` 파라미터 전달
+- `ui/pages/standard/Page3AbsolutePointing.kt` — `magnificationMode`/`onMagnificationModeChange` 파라미터 관통 배선
+
+### 재사용 (무변경)
+`MultiCursorGridGeometry.hitTestPad`, `AbsoluteCoordinateCalculator.calculateTouchRatio`, `AbsolutePointingPad.sendAbsolutePosition`/`sendZoomStateFrame`, `ZoomStateCommand.buildFrame`, `FrameBuilder.buildAbsolutePositionCommand`
+
+**참조 문서**:
+- `docs/android/component-touchpad.md` §1.2.1 (멀티커서 그리드 분할 — 존 분할 형태의 근거, `hitTestPad` 재사용의 출처)
+- 본 문서 Phase 4.9.6(줌 기능) — 마이그레이션 대상인 기존 `AbsoluteZoomState` 모델과 `page3ZoomState`
+- 본 문서 Phase 4.9.5(모니터 셀렉터) — 존별 모니터 배정의 `targetMonitor` 규약
+
+**검증**:
+- [ ] `MultiZoneCalculatorTest` — `divideZoneAreas` 2~8분할(5~8의 2행 그리드 포함) 경계값, 셀 로컬 정규화, `applyRoi` 임의 종횡비 합성, 미정의 존 항등, `rectFromCenterDrag` 클램핑
+- [ ] `page3ZoomState` → `page3MagnificationMode` 마이그레이션 후 기존 단일 줌(4.9.6) 좌표 계산 결과 회귀 없음(동일 배율/중심점 입력에 대해 `applyRoi` 결과가 기존 `applyZoom` 결과와 동치)
+- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트(줌/모니터셀렉터) 회귀 없음
+
+---
+
+## Phase 4.9.11: 멀티 존 자동 배치 + PC 존 정의 UX
+
+**목표**: 멀티 존 모드 진입 → 존 개수 선택 → 자동 그리드 분할 → 각 서브 패드(셀)의 PC 대상 영역을 직사각형으로 순차 정의 → 탭 확정/롱프레스로 재정의 → 정의 완료 시 실시간 점프 매핑으로 전환한다. 이 Phase는 배치 방식을 `ZonePlacement.AUTO`로 고정한다(자유 배치는 4.9.13).
+
+**선행 조건**: Phase 4.9.10(데이터 모델 + 좌표 변환) 완료
+
+### 진입 및 정의 흐름
+
+1. **진입**: ZoomButton **롱프레스**로 멀티존 모드 진입(탭=단일 줌은 그대로 유지, 멀티커서 CursorModeButton의 탭=선택/롱프레스=전환 이원화 관용구 답습) → `CursorCountSelectionPopup` 재사용(문구만 "존 개수"로, 범위는 `MULTI_ZONE_COUNT_MIN~MAX`인 2~8 — 커서 개수 범위(2~4)보다 넓으므로 팝업에 `countRange: IntRange` 파라미터를 신규 추가해 호출측에서 범위를 지정. 기본값은 기존 `MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX`로 둬 Page 2(멀티커서) 호출부는 그대로 동작)
+2. `definingZoneIndex`(0부터) 순서로 각 셀을 정의: 그리드 분할선 오버레이 + "존 k/N 정의 중" 안내 + 대상 셀 하이라이트, 나머지 셀은 흐리게. **패드 전체 화면을 대상 모니터의 미리보기 캔버스로 간주**하고 그 위에서 PC 매핑 직사각형을 그린다
+3. 대상 셀 안에서 중심점 DOWN → 손가락을 바깥으로 드래그(`rectFromCenterDrag(center, finger)`로 실시간 직사각형 프리뷰 계산·렌더 — 손가락을 아래로 내리면 세로로 긴 직사각형이 되는 등 종횡비 자유. 손가락이 패드 밖으로 나가면 해당 축이 모니터 끝까지 클램프) → 손 뗌 → **확정 대기** 상태로 전환(4.9.6의 `zoomAwaitingConfirm` 2단계 확정 패턴 재사용: 확정 전 몇 번이든 재드래그로 직사각형 재조정 가능)
+4. 확정 대기 중 **원탭** → `zones[definingZoneIndex] = ZoneMapping(pcRect = 정의된 직사각형, defined = true)`, `definingZoneIndex++`로 다음 셀로 이동
+5. 확정 대기 중 **롱프레스** → 이번 존 정의를 취소하고 1번(개수 선택 팝업)으로 되돌아감(전체 재시작)
+6. 마지막 존까지 정의되면 `page3MagnificationMode`를 `MagnificationMode.Zone(state.copy(enabled = true))`로 전환, 이후 실시간 점프 모드로 동작
+7. 멀티존 활성 중 ZoomButton 재탭 → `page3MagnificationMode = MagnificationMode.Off`로 전환 + 해제 프레임 1회 전송
+
+미정의 존(`defined=false`)은 항등 매핑으로 취급(확대 없이 셀 영역을 그대로 stretch).
+
+### 실시간 점프 전송 (기존 헬퍼 무변경 재사용)
+
+- 존 전환 감지(`curZoneIdx != lastSentZoneIdx`) 시 그 존의 `sendZoomStateFrame(zone.mapping, zone.targetMonitor)`를 스로틀 없이 1회 전송, `lastSentZoneIdx` 갱신으로 중복 억제
 - `sendAbsolutePosition(ratio, buttons, zone.targetMonitor)`로 좌표 전송 — 이때 `targetMonitor`는 모니터 셀렉터 값이 아니라 **존별 배정값**을 사용
-- 존 정의 중 배율 드래그에는 기존 `ZOOM_STATE_THROTTLE_MS`(30Hz) 스로틀 그대로 적용
-
-### 존 정의 UX
-
-기존 단일 줌 정의 흐름(중심점 DOWN → 드래그 배율 → 손 뗌 → 원탭 확정)을 존마다 순차 반복:
-1. **진입**: ZoomButton **롱프레스**로 멀티존 모드 진입(멀티커서 CursorModeButton의 탭=선택/롱프레스=전환 이원화 관용구 답습) → `CursorCountSelectionPopup` 재사용(문구만 "존 개수"로, 범위는 `MULTI_ZONE_COUNT_MIN~MAX`인 2~8 — 커서 개수 범위(2~4)보다 넓으므로 팝업에 `countRange: IntRange` 파라미터를 신규 추가해 호출측에서 범위를 지정. 기본값은 기존 `MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX`로 둬 Page 2(멀티커서) 호출부는 그대로 동작)
-2. `definingZoneIndex`(0부터) 순서로 각 셀을 정의: 그리드 분할선 오버레이 + "존 k/N 정의 중" 안내 + 대상 셀 하이라이트, 나머지 셀은 흐리게
-3. 대상 셀 안에서 중심점 DOWN → 드래그로 배율(`dragDistanceToZoomLevel`/`updateZoomLevelFromDrag` 재사용, 중심점은 셀 로컬 정규화 좌표로 저장) → 손 뗌 → 원탭 확정 → `zones[definingZoneIndex]` 갱신, `definingZoneIndex++`
-4. 마지막 존까지 정의되면 `page3MagnificationMode`를 `MagnificationMode.Zone(state.copy(enabled = true))`로 전환, 이후 실시간 점프 모드로 동작
-5. 멀티존 활성 중 ZoomButton 재탭 → `page3MagnificationMode = MagnificationMode.Off`로 전환 + 해제 프레임 1회 전송
-
-미정의 존(`defined=false`)은 1x 항등 매핑으로 취급(확대 없이 셀 영역을 그대로 stretch).
+- 존 정의 중 직사각형 드래그에는 기존 `ZOOM_STATE_THROTTLE_MS`(30Hz) 스로틀 그대로 적용
 
 ### 모드 배타성
 
 단일 줌 / 멀티 존 / 드래그 앤 드롭은 상호 배타. 단일 줌과 멀티 존 사이의 배타는 `MagnificationMode` sealed class 자체가 보장(한 값은 Single 또는 Zone 중 하나만 가짐, 강제 해제 코드 불필요). 드래그 앤 드롭은 별개 상태(`localState.dragMode`)라 여전히 진입 지점(ZoomButton 탭·롱프레스, 커서수팝업 확정)에서 명시적으로 차단해야 한다. 멀티존은 "즉시 점프 포인팅"이라 드래그 홀드와 개념이 충돌(존 경계를 넘으면 좌표가 순간이동해 드래그 궤적이 깨짐) — 멀티존 활성 시 드래그 앤 드롭 진입 차단. 엣지존(좌표 무관 이산 액션)은 기존 gate 로직 그대로 공존.
 
-### 신규 파일
-- `ui/components/touchpad/MultiZoneCalculator.kt` — `divideZoneAreas`, `normalizeInZone`, `resolveZoneRatio` (순수 함수, `hitTestPad` 재사용을 위해 touchpad 패키지에 배치)
-- `src/android/app/src/test/.../MultiZoneCalculatorTest.kt` — `divideZoneAreas` 2~8분할 경계값(특히 5~8의 2행 그리드 배치), 셀 로컬 정규화 경계값, 존별 `applyZoom` 합성, 미정의 존 항등 매핑, 존 인덱스별 매핑 선택 검증
-
 ### 수정 파일
-- `ui/utils/AbsoluteCoordinateCalculator.kt` — `ZoneMapping`/`MultiZoneState` 데이터 클래스 + `MagnificationMode` sealed class(`Off`/`Single`/`Zone`) 추가
-- `ui/utils/AbsolutePointingConstants.kt` — `MULTI_ZONE_COUNT_MIN=2`/`MAX=8`/`DEFAULT=2`(기본값 주석 필수) + 그리드 오버레이 렌더 상수(분할선 굵기/alpha, 하이라이트 alpha, 안내 텍스트 크기)
-- `ui/components/AbsolutePointingPad.kt` — 제스처 루프에 멀티존 DOWN/MOVE 브랜치, 존 정의 세션 상태(`multiZoneDefining`, `definingZoneIndex`), 그리드 오버레이 렌더, ZoomButton 롱프레스 배선, `zoomState: AbsoluteZoomState` 파라미터를 `magnificationMode: MagnificationMode`로 교체
-- `ui/pages/StandardModePage.kt` — 기존 `page3ZoomState`(4.9.6)를 `page3MagnificationMode: MagnificationMode`로 교체 + `Page3AbsolutePointing` 파라미터 전달
+- `ui/components/AbsolutePointingPad.kt` — 제스처 루프에 멀티존 DOWN/MOVE 실시간 점프 브랜치, 존 정의 세션 상태(`multiZoneDefining`, `definingZoneIndex`, `zoneRectDefining`/`zoneRectAwaitingConfirm`), 직사각형 프리뷰·그리드 분할선 오버레이 렌더, ZoomButton 롱프레스 배선, 확정 대기 중 롱프레스 취소 브랜치
 - `ui/components/touchpad/CursorCountSelectionPopup.kt` — 개수 선택 루프의 범위를 신규 `countRange: IntRange` 파라미터로 파라미터화(기본값은 기존 `MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX`라 Page 2 동작은 그대로 유지). 멀티존 호출측은 `MULTI_ZONE_COUNT_MIN..MULTI_ZONE_COUNT_MAX`(2~8) 전달
-
-### 재사용 (무변경)
-`MultiCursorGridGeometry.hitTestPad`, `AbsoluteCoordinateCalculator.applyZoom`/`calculateTouchRatio`/`calculateZoomMappingRange`/`dragDistanceToZoomLevel`/`updateZoomLevelFromDrag`, `AbsolutePointingPad.sendAbsolutePosition`/`sendZoomStateFrame`, `ZoomStateCommand.buildFrame`, `FrameBuilder.buildAbsolutePositionCommand`
+- `ui/utils/AbsolutePointingConstants.kt` — 그리드 오버레이 렌더 상수(분할선 굵기/alpha, 하이라이트 alpha, 직사각형 프리뷰 굵기/alpha, 안내 텍스트 크기, 모두 기본값 주석 필수)
 
 **참조 문서**:
-- `docs/android/component-touchpad.md` §1.2.1 (멀티커서 그리드 분할 — 존 분할 형태의 근거, `hitTestPad` 재사용의 출처)
-- 본 문서 Phase 4.9.6(줌 기능) — 존별 매핑 단위(`AbsoluteZoomState`)와 정의 UX 원형, `page3ZoomState`가 이 Phase에서 `page3MagnificationMode`로 교체됨
+- 본 문서 Phase 4.9.10(데이터 모델) — `MultiZoneCalculator`의 `divideZoneAreas`/`rectFromCenterDrag`/`resolveZoneRatio`
+- 본 문서 Phase 4.9.6(줌 기능) — 2단계 확정(드래그→확정 대기→원탭) UX 패턴의 원형(`zoomDefining`/`zoomAwaitingConfirm`/`zoomAdjusting`)
 - 본 문서 Phase 4.9.5(모니터 셀렉터) — 존별 모니터 배정의 `targetMonitor` 규약
 
 **검증**:
-- [ ] `MultiZoneCalculatorTest` — `divideZoneAreas` 2~8분할(5~8의 2행 그리드 포함) 경계값, 셀 로컬 정규화, 존별 줌 합성, 미정의 존 항등
 - [ ] 2~8분할 각각에서 존 판정(`hitTestPad`)이 셀 경계를 정확히 구분
+- [ ] 정의 세션: N개 존을 순차 정의(탭 확정) 후 실시간 점프 모드 정상 전환
+- [ ] 확정 대기 중 재드래그로 직사각형이 몇 번이든 재조정되는지, 롱프레스로 개수 선택부터 재시작되는지 확인
+- [ ] 손가락을 패드 밖으로 밀었을 때 해당 축이 모니터 끝까지 클램프되는지(임의 종횡비 직사각형 생성 확인)
+- [ ] 미정의 존 진입 시 항등 매핑(확대 없음) 확인
 - [ ] 존 전환 시 `ZOOM_STATE`+`targetMonitor` 프레임이 스로틀 없이 1회 전송(중복 없음)
-- [ ] 정의 세션: N개 존을 순차 정의 후 실시간 점프 모드 정상 전환
-- [ ] 미정의 존 진입 시 1x 항등 매핑(확대 없음) 확인
-- [ ] `page3ZoomState` → `page3MagnificationMode` 마이그레이션 후 기존 단일 줌(4.9.6) 동작 회귀 없음
 - [ ] 단일 줌/드래그 앤 드롭과 상호 배타 동작(동시 활성 불가) 확인
-- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트(줌/모니터셀렉터) 회귀 없음
-- [ ] 실기기 필요: 존 경계를 넘나드는 실제 조작감, 서버 측 존 전환 시 커서 텔레포트 체감 지연(펌웨어/서버 완성 후 후속 통합 Phase에서 검증)
+- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
+- [ ] 실기기 필요: 존 경계를 넘나드는 실제 조작감, 직사각형 정의 드래그 체감, 서버 측 존 전환 시 커서 텔레포트 체감 지연(펌웨어/서버 완성 후 후속 통합 Phase에서 검증)
 
 ---
 
-## Phase 4.9.11: 다중 모드 그라디언트 테두리
+## Phase 4.9.12: 단일 줌 직사각형 ROI 정의 UX 통합
+
+**목표**: 단일 줌(4.9.6)의 정의 제스처를 "드래그 거리 → 배율 스칼라"(모니터 종횡비 고정)에서 4.9.11의 `rectFromCenterDrag` 기반 직사각형 정의로 교체해, 단일 줌도 멀티 존과 동일하게 임의 종횡비 PC 영역을 그릴 수 있게 한다.
+
+> **⚠️ 설계 배경**: 4.9.10에서 데이터 모델(`MagnificationMode.Single(mapping: ZoneMapping)`)은 이미 직사각형 ROI(`ZoneMapping.pcRect`)를 담을 수 있게 통일됐지만, 그 시점에는 "데이터 표현 교체 + 좌표 계산 회귀 없음"까지만 다루고 정의 제스처 자체는 갱신하지 않은 채 이 Phase로 미뤘다(4.9.10 "상태 구조" 참조). 이 Phase는 그 후속 작업이다.
+
+**선행 조건**: Phase 4.9.11(자동 배치 + PC 존 정의 UX, `rectFromCenterDrag` 신설) 완료
+
+### 제스처 교체
+
+- 기존(4.9.6) 단일 줌 정의 흐름: ZoomButton 탭 → PointingArea 중심점 DOWN → 드래그 거리 비례 배율 증가(`dragDistanceToZoomLevel`, 0dp→1x, 50dp→2x, 100dp→4x, 150dp+→8x 선형 보간) → 손 뗌 → 확정 대기(`zoomAwaitingConfirm`) → 원탭 확정. 이 2단계 확정 골격(드래그 → 손 뗌 → 확정 대기 → 원탭, 확정 전 몇 번이든 재드래그 가능) 자체는 유지
+- 신규 흐름: 배율 스칼라 계산 대신 `rectFromCenterDrag(center, finger)`로 직사각형을 실시간 계산·프리뷰. 손가락을 세로/가로로만 밀면 그 축만 늘어나는 임의 종횡비 직사각형(4.9.11 멀티존 정의와 동일한 조작 감각). 손가락이 패드 밖으로 나가면 해당 축이 모니터 끝까지 클램프(4.9.11과 동일 규칙)
+- 확정 시 `page3MagnificationMode = MagnificationMode.Single(ZoneMapping(pcRect = 정의된 직사각형, defined = true))`로 반영
+
+### 정리 대상
+
+- `dragDistanceToZoomLevel`/`updateZoomLevelFromDrag`(4.9.6)는 이 Phase 이후 단일 줌 경로에서 더 이상 호출되지 않는다 — 멀티존 자동 배치 정의(4.9.11)도 이미 `rectFromCenterDrag`를 쓰므로, 이 시점부터 두 함수는 코드베이스 전체에서 미사용 상태가 된다. 규모가 작으므로 즉시 삭제 권장(단위테스트 포함)
+- 줌 레벨 텍스트 오버레이(PointingArea 우상단, "2x" 등)는 배율이라는 스칼라 값이 사라지므로 표시할 값이 없다 — 제거하거나, `pcRect` 면적 비율로 근사 배율을 역산해 표시할지는 착수 시점에 결정(유저 확인 필요 항목)
+
+### 수정 파일
+- `ui/components/AbsolutePointingPad.kt` — 단일 줌 제스처 루프(`zoomDefining`/`zoomAwaitingConfirm`/`zoomAdjusting`)의 내부 계산을 `dragDistanceToZoomLevel` 대신 `rectFromCenterDrag` 호출로 교체. 줌 레벨 텍스트 오버레이 처리 방식 갱신
+- `ui/utils/AbsoluteCoordinateCalculator.kt` — `dragDistanceToZoomLevel`/`updateZoomLevelFromDrag` 제거(코드베이스 전체 참조 없음 확인 후)
+- `src/android/app/src/test/.../AbsoluteCoordinateCalculatorTest.kt` — 제거되는 함수의 기존 단위테스트 정리
+
+**참조 문서**:
+- 본 문서 Phase 4.9.6(기존 단일 줌 정의 UX 원형, 2단계 확정 골격)
+- 본 문서 Phase 4.9.10(데이터 모델, `ZoneMapping.pcRect`)
+- 본 문서 Phase 4.9.11(`rectFromCenterDrag` 신설)
+
+**검증**:
+- [ ] 단일 줌 정의 시 손가락을 세로로만 밀면 세로로 긴 직사각형이, 가로로만 밀면 가로로 긴 직사각형이 만들어지는지(임의 종횡비 확인)
+- [ ] 확정 전 재드래그로 몇 번이든 재조정 가능한지(4.9.6 2단계 확정 UX 회귀 없음)
+- [ ] 손가락이 패드 밖으로 나갔을 때 해당 축이 모니터 끝까지 클램프되는지
+- [ ] 줌 레벨 텍스트 오버레이 처리 방식이 착수 시점 결정대로 반영됐는지
+- [ ] `dragDistanceToZoomLevel`/`updateZoomLevelFromDrag` 제거 후 참조 잔존 없음, 관련 단위테스트 정리 확인
+- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
+- [ ] 실기기 필요: 단일 줌 직사각형 정의 조작감
+
+---
+
+## Phase 4.9.13: 멀티 존 자유 배치 (Android 입력 영역 직사각형)
+
+**목표**: 존 개수 선택 직후 `자동 배치`(4.9.11, 균등 그리드) vs `자유 배치`(이 Phase) 선택 단계를 추가하고, 자유 배치를 고르면 PC 대상 영역뿐 아니라 **Android 쪽 입력 영역**도 임의 직사각형으로 정의할 수 있게 한다(다른 서브 패드와 겹칠 수 없음).
+
+**선행 조건**: Phase 4.9.11(자동 배치 + PC 존 정의 UX) 완료
+
+### 배치 방식 선택
+
+- `CursorCountSelectionPopup`(개수 선택) 확정 직후, `ZonePlacement` 선택 팝업(신규 Composable) 노출: "자동 배치"(기본, 4.9.11 흐름) / "자유 배치"
+- 선택값을 `MultiZoneState.placement`에 저장
+
+### 자유 배치 정의 흐름
+
+존마다 두 단계로 정의(순서: PC 영역 먼저, 그다음 Android 영역):
+1. **PC 대상 영역 정의**: 4.9.11과 동일한 흐름(패드 전체를 모니터 캔버스로 간주, 중심점 DOWN → 바깥 드래그 → 확정 대기 → 원탭 확정 / 롱프레스 재시작)으로 `pcRect` 정의
+2. **Android 입력 영역 정의**: PC 영역 확정 직후, Android 화면 전체가 입력 영역 정의 캔버스로 전환. 중심점 DOWN → 바깥 드래그(`rectFromCenterDrag` 재사용) → 손 뗌 → **겹침 검사**(`rectsOverlap(신규 padRect, 이미 확정된 존들의 padRect)`) — 겹치면 확정 차단 + 붉은 경계 피드백(기존 엣지존 경계 히트 피드백 패턴 참고: 붉은 점멸 + 롱프레스 햅틱) 후 재드래그 유도, 겹치지 않으면 확정 대기 → 원탭 확정 → `zones[definingZoneIndex].padRect` 갱신, 다음 존으로 이동
+
+자동 배치와 달리 자유 배치는 `padRect`가 셀 자동 분할이 아니라 유저가 그린 임의 영역이므로, 정의 완료 후에도 패드에 매핑되지 않은 여백이 남을 수 있다(무매핑 영역, 아래 참조).
+
+### 실시간 점프 히트테스트 분기
+
+- `placement == AUTO`: 4.9.11과 동일하게 `divideZoneAreas` + `hitTestPad`
+- `placement == FREE`: `hitTestByPadRect(pos, zones)`(신규)로 터치 위치가 속한 `padRect`를 가진 존을 찾음. 어느 `padRect`에도 속하지 않는 영역은 무매핑으로 취급(좌표 전송 억제 — 존이 정의되지 않은 패드 여백을 실수로 건드려도 커서가 움직이지 않도록)
+
+### 신규 파일 / 수정 파일
+- `ui/components/touchpad/MultiZoneCalculator.kt`(수정) — `rectsOverlap(a, b)`, `hitTestByPadRect(pos, mappings)` 추가
+- `src/android/app/src/test/.../MultiZoneCalculatorTest.kt`(수정) — `rectsOverlap` 경계값(접함/포함/분리), `hitTestByPadRect` 판정 + 무매핑 영역 검증
+- `ui/components/touchpad/ZonePlacementSelectionPopup.kt`(신규) — AUTO/FREE 선택 팝업(`CursorCountSelectionPopup` 옆 배치, 유사 스타일)
+- `ui/components/AbsolutePointingPad.kt`(수정) — 배치 선택 단계 배선, 자유 배치 시 `padRect` 정의 세션 상태, 겹침 검사·경계 피드백, FREE 히트테스트 분기, 무매핑 영역 처리
+
+**참조 문서**:
+- 본 문서 Phase 4.9.11(자동 배치 + PC 존 정의 UX) — 직사각형 정의 제스처(2단계 확정) 재사용 대상
+- `docs/development-plans/`의 엣지존 경계 히트 피드백 선례(`feedback_swipe_boundary_feedback` 패턴 — 붉은 점멸 + 롱프레스 햅틱)
+
+**검증**:
+- [ ] 개수 선택 후 자동/자유 배치 선택이 정상 노출·분기되는지
+- [ ] 자유 배치에서 PC 영역 → Android 영역 순서로 두 단계 정의가 정상 동작하는지
+- [ ] 새 `padRect`가 기존 확정 존과 겹칠 때 확정이 차단되고 붉은 피드백이 표시되는지, 겹치지 않는 위치로 재드래그하면 확정되는지
+- [ ] 자유 배치 완료 후 어느 `padRect`에도 속하지 않는 패드 영역 터치 시 좌표 전송이 억제되는지(무매핑)
+- [ ] 자동 배치(4.9.11) 흐름에 회귀가 없는지
+- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
+- [ ] 실기기 필요: 자유 배치 영역 정의 조작감, 겹침 판정 체감
+
+---
+
+## Phase 4.9.14: 멀티 존 프리셋
+
+**목표**: 정의를 마친 멀티 존 구성(개수/배치 방식/존별 PC·Android 영역·모니터 배정)을 이름을 붙여 저장하고, 다음 진입 시 프리셋을 불러와 개수 선택부터 정의까지 전 과정을 생략할 수 있게 한다.
+
+**선행 조건**: Phase 4.9.13(자유 배치) 완료
+
+### 진입 흐름 변경
+
+- ZoomButton 롱프레스 진입 지점이 바로 개수 선택 팝업으로 가지 않고, 먼저 **"멀티 존 프리셋" 팝업**을 띄운다: 저장된 프리셋 목록(있으면) + "새로 정의" 옵션
+  - 프리셋 선택 → 해당 `MultiZoneState`를 그대로 불러와 `page3MagnificationMode = MagnificationMode.Zone(state.copy(enabled = true))`로 즉시 활성화(개수 선택~정의 전 과정 생략)
+  - "새로 정의" 선택 → 기존 흐름(4.9.11 개수 선택 → 4.9.13 배치 방식 선택 → 정의) 그대로 진행
+
+> **▶ 순방향 참조(4.9.15에서 확장)**: 멀티존이 이미 활성화된 상태에서 ZoomButton을 롱프레스하면, 이 팝업에 "현재 구성 편집" 옵션이 하나 더 추가되어 존 추가/제거 재편집 세션으로 진입한다(4.9.15 참조). 이 Phase(4.9.14) 시점에는 아직 이 옵션이 없다.
+
+### 저장 흐름
+
+- 4.9.11/4.9.13의 정의 흐름이 모든 존 확정으로 끝나면(마지막 존 정의 완료 직후, 실시간 점프 모드 진입 전) "이 구성을 프리셋에 저장하시겠습니까?" 확인 → 저장 선택 시 이름 입력 → `MultiZoneState`(개수/배치/`zones` 전체)를 이름과 함께 저장. 저장하지 않으면 이번 세션에서만 인메모리로 사용(기존 4.9.11/4.9.13 동작과 동일)
+
+### 영속화
+
+- `ui/common/MultiZonePresetsRepository.kt`(신규) — `EdgeZonePresetsRepository.kt`의 JSON + SharedPreferences 영속화 패턴, top-level 함수 헬퍼 컨벤션(`loadPresets`/`savePreset`/`deletePreset` 등)을 그대로 답습
+- `ui/common/MultiZonePresetConstants.kt`(신규) — `EdgeZonePresetConstants.kt`와 동일하게 SharedPreferences 키/기본값 상수 분리(기본값 주석 필수)
+- 직렬화: `ZoneRect`/`ZoneMapping`(`pcRect`/`padRect`/`targetMonitor`/`defined`)/`ZonePlacement`/`zoneCount`가 왕복 보존돼야 함. 기존 `EdgeZoneJson.kt`의 encode/decode `when` 패턴 참고(신규 파일 또는 `MultiZonePresetsRepository.kt` 내부에 직렬화 함수 배치)
+
+### 신규 파일
+- `ui/common/MultiZonePresetsRepository.kt`
+- `ui/common/MultiZonePresetConstants.kt`
+- `ui/components/touchpad/MultiZonePresetPopup.kt`(신규) — 프리셋 목록/새로 정의 선택 UI + 저장 시 이름 입력 UI
+- 직렬화 단위테스트(신규, 파일 위치는 착수 시점 확정)
+
+### 수정 파일
+- `ui/components/AbsolutePointingPad.kt` — 진입 지점을 프리셋 팝업 경유로 변경, 정의 완료 후 저장 프롬프트 배선
+
+**참조 문서**:
+- `ui/common/EdgeZonePresetsRepository.kt`/`EdgeZonePresetConstants.kt` — 영속화 패턴 원형
+- 본 문서 Phase 4.9.11/4.9.13 — 저장 대상이 되는 정의 완료 시점과 `MultiZoneState` 구조
+
+**검증**:
+- [ ] 정의 완료 후 프리셋 저장 시 이름과 함께 `MultiZoneState` 전체(개수/배치/존별 영역/모니터 배정)가 보존되는지
+- [ ] 저장한 프리셋을 다음 진입 시 불러오면 개수 선택~정의 없이 즉시 실시간 점프 모드로 활성화되는지
+- [ ] "새로 정의" 선택 시 기존 4.9.11/4.9.13 흐름이 회귀 없이 그대로 동작하는지
+- [ ] 직렬화 왕복(저장→재로드) 단위테스트 — `ZoneRect`/`padRect`/`targetMonitor`/`placement` 값 손실 없음
+- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
+- [ ] 실기기 필요: 프리셋 저장/불러오기 체감, 여러 프리셋 간 전환
+
+---
+
+## Phase 4.9.15: 멀티 존 추가/제거
+
+**목표**: 이미 활성화된 멀티 존 구성(`MagnificationMode.Zone`, `enabled=true`)을 재편집 모드로 열어 존을 추가하거나 제거할 수 있게 한다. 최초 정의(4.9.11/4.9.13)는 이 Phase의 대상이 아니다 — 새 존은 정의 흐름 도중이 아니라 **이미 활성화되어 실시간 점프 중인 멀티존을 다시 열었을 때만** 추가/제거할 수 있다.
+
+**선행 조건**: Phase 4.9.11(자동 배치), 4.9.13(자유 배치), 4.9.14(프리셋) 완료
+
+### 재편집 진입
+
+- 멀티존 활성 중(`MagnificationMode.Zone`) ZoomButton 롱프레스 재진입 시, 4.9.14의 "멀티 존 프리셋" 팝업에 **"현재 구성 편집"** 옵션을 추가(프리셋 목록/새로 정의 옵션과 나란히 노출, 멀티존이 비활성 상태일 때는 이 옵션 자체가 숨김)
+- "현재 구성 편집" 선택 → 재편집 세션(`multiZoneEditing = true`) 진입, 그리드/맵 오버레이에 현재 `zones`를 확정 상태(하이라이트 없이)로 렌더링
+
+### 존 추가
+
+- 오버레이에 "+ 존 추가" 버튼(신규) 노출. `zoneCount == MULTI_ZONE_COUNT_MAX`(8)이면 비활성화
+- 탭 시 `zoneCount + 1`로 갱신:
+  - **AUTO**: `divideZoneAreas`를 새 `zoneCount`로 재계산해 Android 쪽 그리드 셀 배치 전체를 다시 나눈다(예: 4→5분할은 2×2에서 2행 비대칭 그리드로 레이아웃 자체가 바뀜). 이미 `defined=true`였던 존들의 **`pcRect`(PC 매핑)는 그대로 유지** — 재그리드로 바뀌는 것은 "그 존이 Android 화면의 어느 칸을 차지하느냐"뿐이고 "그 칸이 PC 어디를 가리키느냐"는 바뀌지 않는다. 새로 늘어난 마지막 슬롯(`defined=false`)에 대해서만 4.9.11과 동일한 정의 UX(중심점 DOWN → 바깥 드래그 → 확정 대기 → 원탭 확정 / 롱프레스 재시작)로 진입
+  - **FREE**: 그리드 개념이 없으므로 재계산 불필요. 새 존만 `padRect=null, defined=false`로 추가되고, 4.9.13와 동일한 흐름(PC 영역 정의 → Android 영역 정의 → 겹침 검사)으로 새 존만 정의
+- 새 존 정의(탭 확정) 완료 시 `zones[zoneCount-1]`에 반영, 재편집 세션은 종료되지 않고 유지(추가/제거를 연속으로 반복 가능)
+
+### 존 제거
+
+- 그리드/맵 오버레이에서 제거할 존을 **탭**하면 선택 하이라이트(빨간 테두리 등, 오조작 방지를 위해 탭만으로는 삭제되지 않음), 그 상태에서 **롱프레스**하면 확인 후 제거
+- 삭제 로직(순수 함수, `MultiZoneCalculator.kt`): 해당 인덱스를 리스트에서 제거하고 뒤 인덱스를 앞으로 시프트, 맨 뒤에 빈 `ZoneMapping()`을 채워 리스트 길이(8)를 유지, `zoneCount - 1`
+  - **AUTO**: 시프트 후 남은 존들은 `divideZoneAreas`로 재계산된 새 그리드 셀 위치를 받되, 각 존의 `pcRect`(정의된 PC 매핑)는 유지 — 추가 때와 동일하게 "칸 위치"만 바뀌고 "매핑 대상"은 유지
+  - **FREE**: `padRect`는 좌표 자체이며 인덱스에 종속되지 않으므로 시프트해도 값 그대로 유지, 겹침 재검사 불필요(원래 겹치지 않던 것들이므로)
+- `zoneCount`가 `MULTI_ZONE_COUNT_MIN`(2) 미만으로 줄어들지 않도록 방지 — 존이 2개 남은 상태에서는 제거 대상 선택 자체를 막거나(탭 무시) 롱프레스 확인 단계에서 차단
+
+### 재편집 종료
+
+- 재편집 세션에서 별도 종료 조작(예: 오버레이 바깥 롱프레스 또는 "완료" 버튼)으로 나가면 실시간 점프 모드로 복귀
+- 종료 시 4.9.14과 동일한 저장 프롬프트("이 구성을 프리셋에 저장하시겠습니까?")를 재노출 — 새 이름으로 저장하거나, 원래 불러온 프리셋이 있었다면 덮어쓸지 선택하는 옵션도 포함(덮어쓰기 UX는 착수 시점에 4.9.14 저장 흐름과 함께 구체화)
+
+### 신규/수정 파일
+- `ui/components/touchpad/MultiZoneCalculator.kt`(수정) — `insertZone(zones, zoneCount)`/`removeZoneAt(zones, idx, zoneCount)` 순수 함수(리스트 시프트 + 빈 슬롯 패딩), AUTO 재그리드 후 기존 `pcRect` 보존 로직
+- `src/android/app/src/test/.../MultiZoneCalculatorTest.kt`(수정) — 추가/제거 시 리스트 시프트, `pcRect` 보존, `zoneCount` 최소/최대 클램프 단위테스트
+- `ui/components/AbsolutePointingPad.kt`(수정) — 재편집 세션 상태(`multiZoneEditing`, 존 선택/롱프레스 삭제 제스처), "+ 존 추가" 버튼 UI, 재편집 종료 시 저장 프롬프트 재노출 배선
+- `ui/components/touchpad/MultiZonePresetPopup.kt`(수정, 4.9.14에서 신설) — 멀티존 활성 중일 때 "현재 구성 편집" 옵션 추가
+
+**참조 문서**:
+- 본 문서 Phase 4.9.11(자동 배치 + PC 존 정의 UX) — 새 존 정의에 재사용하는 2단계 확정 UX
+- 본 문서 Phase 4.9.13(자유 배치) — FREE 배치에서 새 존 정의·겹침 검사 흐름
+- 본 문서 Phase 4.9.14(멀티 존 프리셋) — 재진입 팝업과 저장 프롬프트의 확장 대상
+
+**검증**:
+- [ ] AUTO에서 존 추가 시 재그리드 후 기존 존들의 `pcRect`가 유지되고 새 슬롯만 정의를 요구하는지
+- [ ] AUTO에서 존 제거 시 재그리드 + 리스트 시프트 후 남은 존들의 `pcRect`가 유지되는지
+- [ ] FREE에서 존 추가/제거 시 기존 `padRect`와 겹침 규칙이 유지되고 새 존만 정의를 요구하는지
+- [ ] `zoneCount`가 2 미만으로 줄어들지 않는지(최소 2개 강제)
+- [ ] `zoneCount`가 8을 초과해 늘어나지 않는지(최대 8개 강제, "+ 존 추가" 버튼 비활성화)
+- [ ] 오버레이에서 존 탭(선택)만으로는 삭제되지 않고, 탭 후 롱프레스라는 2단계를 거쳐야 삭제되는지
+- [ ] 재편집 종료 후 프리셋 저장 프롬프트가 재노출되는지
+- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
+- [ ] 실기기 필요: 재그리드 후 셀 위치 변경 체감, 탭→롱프레스 제거 제스처 조작감
+
+---
+
+## Phase 4.9.16: 다중 모드 그라디언트 테두리
 
 **목표**: 클릭모드/드래그모드/확대모드(단일 줌 또는 멀티존)가 동시에 활성화됐을 때 PointingArea 테두리를 단색이 아닌 그라디언트로 표시해 상태 조합을 시각적으로 구분
 
@@ -728,11 +956,11 @@ DOWN/MOVE 처리:
 
 ---
 
-## Phase 4.9.12: 손떨림 보정
+## Phase 4.9.17: 손떨림 보정
 
 **목표**: 원시 터치 좌표에 지수이동평균(EMA) 스무딩을 적용해 미세한 떨림이 커서 위치에 그대로 반영되지 않도록 한다
 
-**선행 조건**: 없음(Phase 4.9.1의 터치 파이프라인만 있으면 적용 가능) — 문서 순서상 그라디언트 테두리(4.9.11)가 끝난 뒤로 배치
+**선행 조건**: 없음(Phase 4.9.1의 터치 파이프라인만 있으면 적용 가능) — 문서 순서상 그라디언트 테두리(4.9.16)가 끝난 뒤로 배치
 
 ### 스무딩 알고리즘
 
@@ -778,15 +1006,15 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.13: 존 경계 진동 피드백
+## Phase 4.9.18: 존 경계 진동 피드백
 
-**목표**: 멀티존(4.9.10) 활성 중 손가락이 다른 존으로 넘어갈 때 짧은 햅틱 틱을 줘서, 시선을 떼지 않은 상태에서도 손끝으로 존 전환을 인지할 수 있게 한다
+**목표**: 멀티존(4.9.10, 4.9.11, 4.9.13~4.9.15 — 4.9.12는 단일 줌 전용이라 제외) 활성 중 손가락이 다른 존으로 넘어갈 때 짧은 햅틱 틱을 줘서, 시선을 떼지 않은 상태에서도 손끝으로 존 전환을 인지할 수 있게 한다
 
-**선행 조건**: Phase 4.9.10(멀티 존 모드) 완료
+**선행 조건**: Phase 4.9.11(자동 배치 + PC 존 정의 UX) 완료 — 존 전환 감지 지점이 이 Phase에서 정의됨
 
 ### 적용 위치
 
-- 4.9.10 "전송 흐름"에 이미 정의된 존 전환 감지 지점(`curZoneIdx != lastSentZoneIdx`, `ZOOM_STATE` 프레임 전송을 트리거하는 동일 지점)에 `view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)` 호출을 추가
+- 4.9.11 "실시간 점프 전송"에 이미 정의된 존 전환 감지 지점(`curZoneIdx != lastSentZoneIdx`, `ZOOM_STATE` 프레임 전송을 트리거하는 동일 지점)에 `view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)` 호출을 추가
 - `AbsolutePointingPad.kt:568`에서 엣지존 후보 진입 시 이미 같은 상수(`CLOCK_TICK`)를 쓰고 있어 동일한 세기/패턴을 재사용 — 새 상수나 세기 조정 불필요
 - 단일 줌(`MagnificationMode.Single`)이나 확대모드 Off 상태에서는 발생하지 않음(존 전환 개념 자체가 없음)
 - 시스템 햅틱 설정(단말 진동 끄기 등)은 `performHapticFeedback` 자체가 따르므로 별도 온/오프 토글 불필요(기존 엣지존 햅틱과 동일한 전제)
@@ -794,7 +1022,7 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 ### 수정 파일
 - `ui/components/AbsolutePointingPad.kt` — 존 전환 감지 지점에 햅틱 호출 추가
 
-**참조 문서**: 본 문서 Phase 4.9.10(멀티 존 모드) "전송 흐름" — 존 전환 감지 지점
+**참조 문서**: 본 문서 Phase 4.9.11(자동 배치 + PC 존 정의 UX) "실시간 점프 전송" — 존 전환 감지 지점
 
 **검증**:
 - [ ] 멀티존 활성 중 존 경계를 넘을 때마다 햅틱 발생, 같은 존 안에서는 미발생
@@ -804,7 +1032,7 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.14: 터치 시작 확정 디바운스
+## Phase 4.9.19: 터치 시작 확정 디바운스
 
 **목표**: 패드에 손가락이 닿는 순간의 스치는 접촉(의도치 않은 짧은 터치)이 즉시 커서 이동/클릭으로 이어지지 않도록, DOWN 후 아주 짧은 시간 유지되는지 확인한 뒤에만 포인팅을 확정한다
 
@@ -813,9 +1041,9 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 ### 동작 방식
 
 - DOWN 발생 시 좌표 전송/`CoordinateIndicator` 표시를 즉시 시작하지 않고 대기
-- `AbsolutePointingConstants.TOUCH_START_CONFIRM_MS`(기본값 예: 30L)가 지날 때까지 터치가 유지되면 그 시점부터 기존 파이프라인(좌표 전송, 4.9.12 손떨림 보정 등)을 정상 시작
+- `AbsolutePointingConstants.TOUCH_START_CONFIRM_MS`(기본값 예: 30L)가 지날 때까지 터치가 유지되면 그 시점부터 기존 파이프라인(좌표 전송, 4.9.17 손떨림 보정 등)을 정상 시작
 - 그 전에 UP이 발생하면 스치는 접촉으로 간주해 클릭/드래그/좌표 전송 없이 전부 무시
-- 손떨림 보정(4.9.12)이 "이동 중" 떨림을 다루는 것과 달리, 이 기능은 "터치 시작 순간"의 오조작을 다뤄 상호 보완적 — 적용 순서는 디바운스 통과 후에만 스무딩이 시작됨
+- 손떨림 보정(4.9.17)이 "이동 중" 떨림을 다루는 것과 달리, 이 기능은 "터치 시작 순간"의 오조작을 다뤄 상호 보완적 — 적용 순서는 디바운스 통과 후에만 스무딩이 시작됨
 - 기본값(30ms)은 의도된 가장 빠른 탭(사람의 최소 반응/모터 타이밍상 80ms 이상)보다 충분히 작게 잡아, 진짜 스치는 접촉(통상 20ms 미만)만 걸러내도록 함 — `CLICK_MAX_DURATION_MS`(500ms)와는 별개 단계
 
 ### 신규 상수
@@ -830,13 +1058,13 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 **검증**:
 - [ ] `TOUCH_START_CONFIRM_MS` 미만 접촉은 좌표 전송/클릭/CoordinateIndicator 표시 없이 무시
 - [ ] `TOUCH_START_CONFIRM_MS` 이상 유지된 접촉은 기존과 동일하게 동작(클릭/드래그/좌표 전송 회귀 없음)
-- [ ] 손떨림 보정(4.9.12)과 조합 시 정상 동작(디바운스 통과 후 스무딩 시작)
+- [ ] 손떨림 보정(4.9.17)과 조합 시 정상 동작(디바운스 통과 후 스무딩 시작)
 - [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
 - [ ] 실기기 필요: 의도된 빠른 탭이 걸러지지 않는지, 스치는 접촉이 실제로 걸러지는지 체감 확인
 
 ---
 
-## Phase 4.9.15: 스크롤 모드
+## Phase 4.9.20: 스크롤 모드
 
 **목표**: 절대좌표로 커서를 원하는 위치에 둔 채로, 그 지점의 창을 상대(델타) 방식으로 스크롤할 수 있게 한다(일반 스크롤 + 무한 스크롤 둘 다 지원)
 
@@ -847,7 +1075,7 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 - `ControlButtonConfig.showScrollMode`(4.9.1에서 Page 3용으로 false 처리했던 슬롯)를 true로 전환, 기존 ScrollModeButton UI(OFF→NORMAL_SCROLL→INFINITE_SCROLL 3단 순환 토글, `ControlButtonContainer.kt:607~676`의 라벨/아이콘/색상/전이 로직)를 그대로 재사용
 - `AbsolutePointingPad`/`Page3AbsolutePointing`에 `scrollMode: ScrollMode`/`onScrollModeChange` 파라미터 추가(hoisted, `page3ScrollMode` in `StandardModePage.kt`)
 - 드래그 앤 드롭 모드와 상호 배타 — 둘 다 "터치가 곧 좌표 지정"이라는 절대좌표 패드의 기본 전제를 깨는 축이라 동시 존재 불가. ScrollModeButton 진입 시 dragMode 강제 OFF, 반대도 마찬가지
-- 테두리 그라디언트(4.9.11)는 드래그모드와 동일한 초록 계열을 재사용(둘 다 "터치가 위치 지정이 아님"을 의미하는 상호 배타 상태라 별도 색 불필요)
+- 테두리 그라디언트(4.9.16)는 드래그모드와 동일한 초록 계열을 재사용(둘 다 "터치가 위치 지정이 아님"을 의미하는 상호 배타 상태라 별도 색 불필요)
 
 > **⚠️ 색상 충돌**: `AbsolutePointingPad.kt`의 `ControlButtonContainer` 호출부는 4.9.4에서 `baseColor = TouchpadColorRed`로 확정됐다(ClickModeButton 기본/ZoomButton OFF/DragModeButton "이동 모드"가 전부 이 빨강을 씀). 그런데 일반 터치패드의 `ScrollMode.INFINITE_SCROLL` 버튼 색도 동일한 `TouchpadColorRed`(`ControlButtonContainer.kt`의 `ColorRed`)라, ScrollModeButton을 그대로 재사용하면 "무한 스크롤 활성" 색이 페이지 기본색과 구분되지 않는다. `baseColor`를 `TouchpadColorRed` → `TouchpadColorPink`로 변경해 해결한다 — 핑크는 이미 PointingArea 테두리의 기본(else) 색이라 "아무 모드도 없는 기본 상태"라는 의미가 버튼과 테두리 양쪽에서 일관되게 맞고, 현재 다른 버튼 색(노랑/초록/주황)과도 겹치지 않는다. `MonitorSelector.kt`의 비선택 칩 색도 `TouchpadColorRed`를 쓰고 있어(4.9.5) 이것도 무한 스크롤 빨강과 같은 화면에 동시에 보일 수 있는지 착수 시점에 재확인
 
@@ -888,19 +1116,19 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.16: 리팩토링
+## Phase 4.9.21: 리팩토링
 
-> **신규 하위 Phase(2026-07-09, 유저 확정)**: Page 3(절대좌표 패드) 관련 코드 전체를 마지막에 한 번 정리한다. 4.9.1~4.9.15에 걸쳐 `AbsolutePointingPad.kt`/`ControlButtonContainer.kt` 등에 기능이 순차적으로 누적되면서 생겼을 중복·비대해진 파일·임시방편 구조를 이 시점에 재검토한다.
+> **신규 하위 Phase(2026-07-09, 유저 확정)**: Page 3(절대좌표 패드) 관련 코드 전체를 마지막에 한 번 정리한다. 4.9.1~4.9.20에 걸쳐 `AbsolutePointingPad.kt`/`ControlButtonContainer.kt` 등에 기능이 순차적으로 누적되면서 생겼을 중복·비대해진 파일·임시방편 구조를 이 시점에 재검토한다.
 >
-> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.15)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
+> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.20)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
 >
 > **⚠️ Phase 4.9.9 변경사항**: 엣지존에 줌/드래그 모드 토글 액션(`ToggleAbsoluteZoom`/`ToggleAbsoluteDrag`)이 추가되며 `AbsolutePointingPad.kt`의 ZoomButton 토글 로직이 엣지존 디스패처와 공유하도록 헬퍼로 추출됐다. 이 헬퍼가 이후 Phase(멀티존 등)의 줌 진입 로직과 자연스럽게 합쳐지는지 이 시점에 재확인 대상.
 >
-> **⚠️ Phase 4.9.10 변경사항**: 멀티 존 모드 추가로 `AbsoluteCoordinateCalculator.kt`(`ZoneMapping`/`MultiZoneState`/`MagnificationMode`), 신규 `MultiZoneCalculator.kt`(`divideZoneAreas`/`normalizeInZone`/`resolveZoneRatio`), `AbsolutePointingPad.kt`의 존 정의 세션 상태가 추가됐다. 저장 상태는 `MagnificationMode` sealed class로 이미 통합됐지만, 단일 줌(4.9.6)과 멀티존(4.9.10)의 정의 UX 상태머신(중심점 DOWN→드래그 배율→확정)은 여전히 별도 구현이므로, 이 시점에 공통화 여지가 있는지 검토 대상에 포함한다. 또한 `CursorCountSelectionPopup.kt`에 `countRange` 파라미터가 추가됐는데, 멀티존이 실제로 요구하는 것(개수 선택만)과 멀티커서 전용 PRESET 단계가 한 컴포넌트에 섞여 있어 분리 여지가 있는지도 검토 대상.
+> **⚠️ Phase 4.9.10~4.9.15 변경사항**: 확대 매핑이 직사각형 ROI(`ZoneRect`/`ZoneMapping`/`MagnificationMode`, 4.9.10)로 통일되고, 멀티 존 자동 배치 정의 UX(4.9.11)·단일 줌 직사각형 정의 UX 통합(4.9.12)·자유 배치(4.9.13)·프리셋 영속화(4.9.14)·존 추가/제거 재편집(4.9.15)이 순차로 추가됐다. `AbsoluteCoordinateCalculator.kt`(모델), `MultiZoneCalculator.kt`(`divideZoneAreas`/`normalizeInZone`/`applyRoi`/`resolveZoneRatio`/`rectFromCenterDrag`/`rectsOverlap`/`hitTestByPadRect`/`insertZone`/`removeZoneAt`), `AbsolutePointingPad.kt`의 존 정의·재편집 세션 상태(단일 줌 + 자동/자유 배치 + 추가/제거)가 이 여섯 Phase에 걸쳐 누적됐다. 저장 상태(`MagnificationMode`)와 정의 제스처(`rectFromCenterDrag` 기반 2단계 확정)가 4.9.12부터 단일 줌·멀티존 양쪽에서 이미 같은 함수를 쓰지만, 실제 호출부(`AbsolutePointingPad.kt`의 제스처 루프)는 각자 다른 세션 상태 변수(`zoomDefining` 계열 vs `multiZoneDefining` 계열)로 병렬 구현돼 있을 가능성이 높으므로, 공통 상태머신으로 더 묶을 여지가 있는지 검토 대상. 자동 배치(4.9.11)·자유 배치(4.9.13)·추가/제거(4.9.15)의 세션 상태가 한 컴포넌트에 분기로 섞여 있어 분리 여지가 있는지, `CursorCountSelectionPopup.kt`의 `countRange` 파라미터가 멀티커서 전용 PRESET 단계와 섞여 있어 분리 여지가 있는지도 검토 대상.
 >
-> **⚠️ Phase 4.9.15 변경사항**: `ScrollEngine` 추출로 `TouchpadWrapper.kt`의 스크롤 로직과 `AbsolutePointingPad.kt`의 스크롤 브랜치가 공통 코드를 쓰게 됐다. 추출이 깔끔하게 끝났는지, 두 호출부에 여전히 남은 중복이 있는지 이 시점에 재확인 대상.
+> **⚠️ Phase 4.9.20 변경사항**: `ScrollEngine` 추출로 `TouchpadWrapper.kt`의 스크롤 로직과 `AbsolutePointingPad.kt`의 스크롤 브랜치가 공통 코드를 쓰게 됐다. 추출이 깔끔하게 끝났는지, 두 호출부에 여전히 남은 중복이 있는지 이 시점에 재확인 대상.
 >
-> **⚠️ Phase 4.9.12~4.9.14 변경사항**: 손떨림 보정(4.9.12)으로 `AbsoluteCoordinateCalculator.kt`에 `smoothRatio`, 신규 `TremorSmoothingPrefs.kt`가 추가됐다. 존 경계 진동 피드백(4.9.13)과 터치 시작 확정 디바운스(4.9.14)가 모두 `AbsolutePointingPad.kt`의 같은 DOWN/MOVE 제스처 루프에 손을 대므로, 이 시점에 코드가 지나치게 얽혀 있지 않은지 함께 검토 대상에 포함한다.
+> **⚠️ Phase 4.9.17~4.9.19 변경사항**: 손떨림 보정(4.9.17)으로 `AbsoluteCoordinateCalculator.kt`에 `smoothRatio`, 신규 `TremorSmoothingPrefs.kt`가 추가됐다. 존 경계 진동 피드백(4.9.18)과 터치 시작 확정 디바운스(4.9.19)가 모두 `AbsolutePointingPad.kt`의 같은 DOWN/MOVE 제스처 루프에 손을 대므로, 이 시점에 코드가 지나치게 얽혀 있지 않은지 함께 검토 대상에 포함한다.
 
 **목표**: Page 3 구현 완료 시점의 코드를 검토해 중복 제거·함수 분리·상수 정리 등 리팩토링 수행
 
@@ -940,8 +1168,8 @@ Phase 4가 "Android 완성" 단계라는 원래 취지에 맞춰, 아래 항목�
 Page 3 — AbsolutePointingPad
 ├── PointingArea (자유 비율, Fill 기본)
 │   ├── 터치 → 비율(0.0~1.0) 변환 → 서버 중계 프레임 전송
-│   ├── 줌 시 매핑 범위 축소 (비율 기반)
-│   ├── 멀티 존 시 그리드 분할(2~8) + 존별 독립 줌 매핑, 터치 즉시 판정
+│   ├── 줌 시 직사각형 ROI로 매핑 범위 축소 (임의 종횡비, 비율 기반)
+│   ├── 멀티 존 시 자동(그리드)/자유 배치(2~8) + 존별 독립 직사각형 ROI 매핑, 터치 즉시 판정, 활성 구성 재편집으로 존 추가/제거
 │   ├── CoordinateIndicator (십자선 + 점)
 │   └── 엣지존/엣지스와이프 시스템 (좌표 무관 기능만, 줌/드래그 모드 토글 포함)
 ├── ControlButtonContainer (상단 오버레이, 기존 컴포넌트 재사용)
@@ -950,10 +1178,11 @@ Page 3 — AbsolutePointingPad
 │   ├── DragModeButton (드래그 앤 드롭)
 │   └── ScrollModeButton (OFF→일반→무한 순환 토글, 커서 위치 고정 + 델타 스크롤)
 ├── MonitorSelector (모니터 2개 이상 시)
+├── 멀티 존 프리셋 (저장/불러오기, SharedPreferences 영속화)
 ├── 시각 피드백
 │   ├── 테두리 색상 (핑크/노란/초록/주황, 다중 모드 동시 활성 시 그라디언트)
-│   ├── 줌 레벨 텍스트 (앱 내)
-│   ├── 멀티 존 그리드 오버레이 (분할선 + 정의 중 셀 하이라이트, 앱 내)
+│   ├── 줌 레벨 텍스트 (앱 내, 4.9.12에서 배율 스칼라 폐지 후 유지/대체 여부 결정)
+│   ├── 멀티 존 정의 오버레이 (그리드 분할선/직사각형 프리뷰 + 정의 중 셀 하이라이트, 앱 내)
 │   └── 줌 영역 박스 (PC 화면 — Android는 UART 전송까지만, ESP32 중계/Windows 렌더링은 후속 통합 Phase)
 └── 조작 보조 기능
     ├── 손떨림 보정 (원시 좌표 EMA 스무딩)
