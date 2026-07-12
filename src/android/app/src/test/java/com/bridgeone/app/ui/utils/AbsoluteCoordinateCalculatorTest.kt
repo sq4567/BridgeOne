@@ -1,6 +1,5 @@
 package com.bridgeone.app.ui.utils
 
-import com.bridgeone.app.ui.components.touchpad.applyRoi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -92,43 +91,6 @@ class AbsoluteCoordinateCalculatorTest {
         assertTrue(AbsoluteCoordinateCalculator.shouldTransmit(TouchRatio(0.3f, 0.41f), TouchRatio(0.3f, 0.4f)))
     }
 
-    // ── dragDistanceToZoomLevel (Phase 4.9.6) ──────────────────────────
-
-    @Test
-    fun `dragDistanceToZoomLevel - 0dp는 1x`() {
-        assertEquals(1f, AbsoluteCoordinateCalculator.dragDistanceToZoomLevel(0f), 0.0001f)
-    }
-
-    @Test
-    fun `dragDistanceToZoomLevel - 50dp는 2x`() {
-        assertEquals(2f, AbsoluteCoordinateCalculator.dragDistanceToZoomLevel(50f), 0.0001f)
-    }
-
-    @Test
-    fun `dragDistanceToZoomLevel - 100dp는 4x`() {
-        assertEquals(4f, AbsoluteCoordinateCalculator.dragDistanceToZoomLevel(100f), 0.0001f)
-    }
-
-    @Test
-    fun `dragDistanceToZoomLevel - 150dp는 8x(최대)`() {
-        assertEquals(8f, AbsoluteCoordinateCalculator.dragDistanceToZoomLevel(150f), 0.0001f)
-    }
-
-    @Test
-    fun `dragDistanceToZoomLevel - 75dp는 선형보간으로 3x`() {
-        assertEquals(3f, AbsoluteCoordinateCalculator.dragDistanceToZoomLevel(75f), 0.0001f)
-    }
-
-    @Test
-    fun `dragDistanceToZoomLevel - 150dp 초과는 8x로 클램핑`() {
-        assertEquals(8f, AbsoluteCoordinateCalculator.dragDistanceToZoomLevel(200f), 0.0001f)
-    }
-
-    @Test
-    fun `dragDistanceToZoomLevel - 음수 거리는 1x로 안전 처리`() {
-        assertEquals(1f, AbsoluteCoordinateCalculator.dragDistanceToZoomLevel(-10f), 0.0001f)
-    }
-
     // ── applyZoom (Phase 4.9.6) ──────────────────────────────────────
 
     @Test
@@ -167,58 +129,6 @@ class AbsoluteCoordinateCalculatorTest {
     fun `AbsoluteZoomState isActive - level 1이면 false, 1 초과면 true`() {
         assertFalse(AbsoluteZoomState(level = 1f).isActive)
         assertTrue(AbsoluteZoomState(level = 2f).isActive)
-    }
-
-    // ── zoneRectFromZoomState / applyRoi 회귀 (Phase 4.9.10) ──────────────
-    // page3ZoomState → page3MagnificationMode 마이그레이션 후에도 동일 배율/중심점 입력에 대해
-    // applyRoi(zoneRectFromZoomState(zoom)) 결과가 기존 applyZoom 결과와 동치인지 검증.
-
-    @Test
-    fun `zoneRectFromZoomState+applyRoi - level 1(비활성)은 applyZoom과 동치(항등)`() {
-        val zoom = AbsoluteZoomState(level = 1f)
-        val ratio = TouchRatio(0.3f, 0.7f)
-        val expected = AbsoluteCoordinateCalculator.applyZoom(ratio, zoom)
-        val actual = applyRoi(ratio, AbsoluteCoordinateCalculator.zoneRectFromZoomState(zoom))
-        assertEquals(expected.x, actual.x, 0.0001f)
-        assertEquals(expected.y, actual.y, 0.0001f)
-    }
-
-    @Test
-    fun `zoneRectFromZoomState+applyRoi - level 2, center 0_5는 applyZoom과 동치`() {
-        val zoom = AbsoluteZoomState(level = 2f, centerX = 0.5f, centerY = 0.5f)
-        val pcRect = AbsoluteCoordinateCalculator.zoneRectFromZoomState(zoom)
-        listOf(TouchRatio(0f, 0f), TouchRatio(1f, 1f), TouchRatio(0.5f, 0.5f), TouchRatio(0.2f, 0.8f)).forEach { ratio ->
-            val expected = AbsoluteCoordinateCalculator.applyZoom(ratio, zoom)
-            val actual = applyRoi(ratio, pcRect)
-            assertEquals(expected.x, actual.x, 0.0001f)
-            assertEquals(expected.y, actual.y, 0.0001f)
-        }
-    }
-
-    @Test
-    fun `zoneRectFromZoomState+applyRoi - 경계 근처 center(0,1)도 applyZoom과 동치`() {
-        val zoom = AbsoluteZoomState(level = 4f, centerX = 0f, centerY = 1f)
-        val ratio = TouchRatio(0f, 1f)
-        val expected = AbsoluteCoordinateCalculator.applyZoom(ratio, zoom)
-        val actual = applyRoi(ratio, AbsoluteCoordinateCalculator.zoneRectFromZoomState(zoom))
-        assertEquals(expected.x, actual.x, 0.0001f)
-        assertEquals(expected.y, actual.y, 0.0001f)
-    }
-
-    @Test
-    fun `zoomStateFromZoneMapping - zoneRectFromZoomState의 역변환`() {
-        val zoom = AbsoluteZoomState(level = 4f, centerX = 0.3f, centerY = 0.6f)
-        val mapping = ZoneMapping(pcRect = AbsoluteCoordinateCalculator.zoneRectFromZoomState(zoom), defined = true)
-        val restored = AbsoluteCoordinateCalculator.zoomStateFromZoneMapping(mapping)
-        assertEquals(zoom.level, restored.level, 0.001f)
-        assertEquals(zoom.centerX, restored.centerX, 0.001f)
-        assertEquals(zoom.centerY, restored.centerY, 0.001f)
-    }
-
-    @Test
-    fun `zoomStateFromZoneMapping - 미정의 존은 기본값(1x)`() {
-        val restored = AbsoluteCoordinateCalculator.zoomStateFromZoneMapping(ZoneMapping(defined = false))
-        assertFalse(restored.isActive)
     }
 
     @Test

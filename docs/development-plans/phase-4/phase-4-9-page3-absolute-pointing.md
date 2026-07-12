@@ -787,7 +787,7 @@ DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9
 
 ## Phase 4.9.12: 단일 줌 직사각형 ROI 정의 UX 통합
 
-**목표**: 단일 줌(4.9.6)의 정의 제스처를 "드래그 거리 → 배율 스칼라"(모니터 종횡비 고정)에서 4.9.11의 `rectFromCenterDrag` 기반 직사각형 정의로 교체해, 단일 줌도 멀티 존과 동일하게 임의 종횡비 PC 영역을 그릴 수 있게 한다.
+**목표**: 단일 줌(4.9.6)의 정의 제스처를 "드래그 거리 → 배율 스칼라"(모니터 종횡비 고정)에서 4.9.11의 `rectFromCenterDrag` 기반 직사각형 정의로 교체해, 단일 줌도 멀티 존과 동일하게 임의 종횡비 PC 영역을 그릴 수 있게 한다. 배율 스칼라가 사라지는 데 따른 UI 피드백(진입/확정 시 화면 전환 애니메이션, 안내 문구, 롱프레스 취소)도 함께 정비한다.
 
 > **⚠️ 설계 배경**: 4.9.10에서 데이터 모델(`MagnificationMode.Single(mapping: ZoneMapping)`)은 이미 직사각형 ROI(`ZoneMapping.pcRect`)를 담을 수 있게 통일됐지만, 그 시점에는 "데이터 표현 교체 + 좌표 계산 회귀 없음"까지만 다루고 정의 제스처 자체는 갱신하지 않은 채 이 Phase로 미뤘다(4.9.10 "상태 구조" 참조). 이 Phase는 그 후속 작업이다.
 
@@ -804,9 +804,20 @@ DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9
 - `dragDistanceToZoomLevel`/`updateZoomLevelFromDrag`(4.9.6)는 이 Phase 이후 단일 줌 경로에서 더 이상 호출되지 않는다 — 멀티존 자동 배치 정의(4.9.11)도 이미 `rectFromCenterDrag`를 쓰므로, 이 시점부터 두 함수는 코드베이스 전체에서 미사용 상태가 된다. 규모가 작으므로 즉시 삭제 권장(단위테스트 포함)
 - 줌 레벨 텍스트 오버레이(PointingArea 우상단, "2x" 등)는 배율이라는 스칼라 값이 사라지므로 표시할 값이 없다 — 제거하거나, `pcRect` 면적 비율로 근사 배율을 역산해 표시할지는 착수 시점에 결정(유저 확인 필요 항목)
 
+### 진입/확정 UI 피드백
+
+배율 스칼라 텍스트가 사라지는 대신, 정의 진입부터 확정까지 화면 전환을 명확히 보여주는 애니메이션과 안내 문구를 둔다.
+
+- ZoomButton 탭으로 arming 진입 시 제어 버튼(`ControlButtonContainer`)·`PointingArea` 테두리·`EdgeZoneOverlay`를 공용 알파(`zoomDefineElementsAlpha`)로 즉시 fade-out(150ms) — 정의 모드 진입을 명확히 알리고 배경 UI가 시선을 뺏지 않게 한다. `PointingArea` 테두리는 `background`/`pointerInput`과 한 modifier 체인이라 Box 전체 알파 대신 `borderColor.copy(alpha = ...)`로 색상 알파만 조절
+- 안내 문구: arming 진입 직후(확정 대기 전)엔 "드래그하여 확대할 영역을 지정하세요", 확정 대기 중엔 "탭하여 확정 · 길게 눌러 취소"(멀티 존 "존 N/M 정의 중" · "탭하여 확정 · 길게 눌러 재시작"과 동형이나, 단일 줌은 재시작할 이전 존이 없으므로 취소=전체 해제). 두 문구 모두 정의 중인 rect의 세로 중심이 상/하 어느 절반에 있는지 계산해(`guideTextAlignment`) 반대쪽 절반에 배치 — rect와 겹치지 않게 하고, rect가 아직 없으면 상단에 고정
+- 확정 탭 시 마지막 정의 프리뷰 직사각형이 패드 전체 경계로 확대(4변 `Animatable` + 모서리 반경 보간, 250ms, `Page2MultiCursorTouchpad.kt`의 슬라이드 하이라이트 패턴 재사용)되며 패드 테두리 자리를 차지하는 것처럼 보이게 한다. 확대 완료 시점부터 제어 버튼·실제 패드 테두리·엣지존이 200ms fade-in — 확대 오버레이는 `1 - zoomDefineElementsAlpha`로 유도해 별도 상태 없이 자동 크로스페이드되며 사라진다
+- 확정 대기 중 재터치가 롱프레스로 판정되면(500ms, `ZOOM_DEFINE_CANCEL_LONGPRESS_MS`) 줌 모드를 완전히 해제(`MagnificationMode.Off`) — 멀티 존의 "롱프레스 재시작"(`zoneRestartJob`)과 동형 타이머(`zoomCancelJob`)이나, 단일 줌은 재시작할 이전 존이 없으므로 취소로 귀결
+- 이 UI 피드백 일체는 단일 줌 전용이며 멀티 존에는 적용하지 않는다(`!isZoneMode` 가드) — 멀티 존은 존이 여러 개라 "하나의 존이 커져서 테두리가 된다"는 그림이 맞지 않는다
+
 ### 수정 파일
-- `ui/components/AbsolutePointingPad.kt` — 단일 줌 제스처 루프(`zoomDefining`/`zoomAwaitingConfirm`/`zoomAdjusting`)의 내부 계산을 `dragDistanceToZoomLevel` 대신 `rectFromCenterDrag` 호출로 교체. 줌 레벨 텍스트 오버레이 처리 방식 갱신
+- `ui/components/AbsolutePointingPad.kt` — 단일 줌 제스처 루프(`zoomDefining`/`zoomAwaitingConfirm`/`zoomAdjusting`)의 내부 계산을 `dragDistanceToZoomLevel` 대신 `rectFromCenterDrag` 호출로 교체. 줌 레벨 텍스트 오버레이 제거, 진입/확정 UI 전환 애니메이션(`zoomDefineElementsAlpha`, `zoomExpandLeft/Top/Right/Bottom`, `zoomExpandCornerRadiusPx`, `isZoomExpanding`) 신설, 안내 문구 배치 헬퍼(`guideTextAlignment`) 추가, 확정 대기 롱프레스 취소 타이머(`zoomCancelJob`) 추가
 - `ui/utils/AbsoluteCoordinateCalculator.kt` — `dragDistanceToZoomLevel`/`updateZoomLevelFromDrag` 제거(코드베이스 전체 참조 없음 확인 후)
+- `ui/utils/AbsolutePointingConstants.kt` — `ZOOM_DEFINE_FADE_OUT_MS`/`ZOOM_DEFINE_EXPAND_MS`/`ZOOM_DEFINE_FADE_IN_MS`/`GUIDE_TEXT_EDGE_PADDING_DP`/`ZOOM_DEFINE_CANCEL_LONGPRESS_MS` 신설
 - `src/android/app/src/test/.../AbsoluteCoordinateCalculatorTest.kt` — 제거되는 함수의 기존 단위테스트 정리
 
 **참조 문서**:
@@ -814,14 +825,19 @@ DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9
 - 본 문서 Phase 4.9.10(데이터 모델, `ZoneMapping.pcRect`)
 - 본 문서 Phase 4.9.11(`rectFromCenterDrag` 신설)
 
+> **착수 시점 결정 완료**: 줌 레벨 텍스트 오버레이는 완전 제거(배율 스칼라 개념 소멸). 정의 드래그 중심점 표시(흰 점+오렌지 테두리)는 단일 줌에도 추가. 텍스트 제거로 정의 대상이 안 보이는 문제는 직사각형 실시간 프리뷰 오버레이를 단일 줌에 신설해 해결(멀티존 §799 오버레이 패턴과 동형). 프레임 전송은 `sendZoomStateFrame`(정사각 윈도우 강제) 대신 `sendZoneStateFrame`(4축 독립 인코딩)으로 통일 — `rectFromCenterDrag`는 비정사각 직사각형을 만들 수 있어 정사각 강제 전송 시 손실이 발생하기 때문. 두 전송 경로는 동일 와이어 프레임 스키마([0xFF][0x30][len][JSON][CRC16])라 서버·펌웨어 변경 불필요.
+
 **검증**:
-- [ ] 단일 줌 정의 시 손가락을 세로로만 밀면 세로로 긴 직사각형이, 가로로만 밀면 가로로 긴 직사각형이 만들어지는지(임의 종횡비 확인)
-- [ ] 확정 전 재드래그로 몇 번이든 재조정 가능한지(4.9.6 2단계 확정 UX 회귀 없음)
-- [ ] 손가락이 패드 밖으로 나갔을 때 해당 축이 모니터 끝까지 클램프되는지
-- [ ] 줌 레벨 텍스트 오버레이 처리 방식이 착수 시점 결정대로 반영됐는지
-- [ ] `dragDistanceToZoomLevel`/`updateZoomLevelFromDrag` 제거 후 참조 잔존 없음, 관련 단위테스트 정리 확인
-- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
-- [ ] 실기기 필요: 단일 줌 직사각형 정의 조작감
+- [x] 단일 줌 정의 시 손가락을 세로로만 밀면 세로로 긴 직사각형이, 가로로만 밀면 가로로 긴 직사각형이 만들어지는지(임의 종횡비 확인) — `rectFromCenterDrag` 재사용, 4.9.11 `MultiZoneCalculatorTest`에서 이미 검증된 순수함수라 회귀 없음
+- [x] 확정 전 재드래그로 몇 번이든 재조정 가능한지(4.9.6 2단계 확정 UX 회귀 없음) — `zoomDefining`/`zoomAdjusting`/`zoomAwaitingConfirm` 상태 전이 골격 유지, 계산만 교체
+- [x] 손가락이 패드 밖으로 나갔을 때 해당 축이 모니터 끝까지 클램프되는지 — `rectFromCenterDrag` 내부 `coerceIn(0f, 1f)` 상속
+- [x] 줌 레벨 텍스트 오버레이 처리 방식이 착수 시점 결정대로 반영됐는지 — 완전 제거 + 직사각형 프리뷰·중심점 오버레이 신설
+- [x] `dragDistanceToZoomLevel`/`updateZoomLevelFromDrag` 제거 후 참조 잔존 없음, 관련 단위테스트 정리 확인 — Grep 확인 완료, `zoneRectFromZoomState`/`zoomStateFromZoneMapping`도 연쇄적으로 dead가 되어 함께 제거
+- [x] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
+- [x] arming 진입 시 제어 버튼/패드 테두리/엣지존이 fade-out되고 안내 문구가 표시되는지, 확정 시 프리뷰 rect가 패드 테두리로 확대되며 fade-in되는지 — 코드 반영 완료
+- [x] 안내 문구가 정의 중인 rect와 겹치지 않고 반대쪽 절반에 배치되는지
+- [x] 확정 대기 중 롱프레스 시 줌 모드가 완전히 해제되는지, 재드래그/탭 확정 시 타이머가 정상적으로 취소되는지
+- [x] 실기기 검증 완료: 단일 줌 직사각형 정의 조작감(의미 반전 — 이제 finger가 center에서 멀어질수록 저배율), 진입/확정 UI 전환 애니메이션·안내 문구 배치·롱프레스 취소의 실제 체감
 
 ---
 
@@ -979,6 +995,8 @@ DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9
 
 **선행 조건**: Phase 4.9.6(줌), Phase 4.9.10(멀티 존 모드, `MagnificationMode` sealed class 도입) 완료
 
+> **⚠️ Phase 4.9.12 변경사항**: 단일 줌 정의 진입/확정 UI 전환 애니메이션이 추가되며 `PointingArea`의 `.border(...)` 색상이 `borderColor.copy(alpha = borderColor.alpha * borderFadeAlpha)`로 감싸졌다(`borderFadeAlpha`는 상위에서 계산해 파라미터로 전달, arming 중 0으로 fade-out). 그라디언트로 교체할 때 이 `borderFadeAlpha` 곱셈을 함께 이관해야 단일 줌 정의 진입 시 테두리 fade-out이 유지된다 — 그라디언트 각 stop 색상에 동일하게 곱하거나, 그라디언트 Brush 자체를 감싸는 alpha로 처리할지 착수 시점에 결정.
+
 `borderColor`/`bumpColor` when 체인은 현재 4분기다 — `dragMode(초록) > clickMode==RIGHT_CLICK(노랑) > magnificationMode !is Off(주황, TouchpadColorZoom) > else(핑크)`. 색상 우선순위는 설계 §4.5.7을 그대로 채택. 판정 소스는 `localState.dragMode`(Boolean), `clickMode == ClickMode.RIGHT_CLICK`(Boolean), `magnificationMode !is MagnificationMode.Off`(Boolean, 4.9.10에서 확대 모드가 `MagnificationMode` sealed class로 통합됨에 따라 단일 줌·멀티존이 이 하나의 불리언으로 합쳐짐 — 별도 stop 불필요) 세 개의 독립 불리언 조합이므로, 그라디언트 역시 이 4색(핑크/노랑/초록/주황) 안에서 조합된다.
 
 **세부 목표**:
@@ -1053,7 +1071,7 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.19: 터치 시작 확정 디바운스
+## Phase 4.9.18: 터치 시작 확정 디바운스
 
 **목표**: 패드에 손가락이 닿는 순간의 스치는 접촉(의도치 않은 짧은 터치)이 즉시 커서 이동/클릭으로 이어지지 않도록, DOWN 후 아주 짧은 시간 유지되는지 확인한 뒤에만 포인팅을 확정한다
 
@@ -1085,7 +1103,7 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.20: 스크롤 모드
+## Phase 4.9.19: 스크롤 모드
 
 **목표**: 절대좌표로 커서를 원하는 위치에 둔 채로, 그 지점의 창을 상대(델타) 방식으로 스크롤할 수 있게 한다(일반 스크롤 + 무한 스크롤 둘 다 지원)
 
@@ -1137,19 +1155,17 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.21: 리팩토링
+## Phase 4.9.20: 리팩토링
 
-> **신규 하위 Phase(2026-07-09, 유저 확정)**: Page 3(절대좌표 패드) 관련 코드 전체를 마지막에 한 번 정리한다. 4.9.1~4.9.20에 걸쳐 `AbsolutePointingPad.kt`/`ControlButtonContainer.kt` 등에 기능이 순차적으로 누적되면서 생겼을 중복·비대해진 파일·임시방편 구조를 이 시점에 재검토한다.
->
-> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.20)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
+> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.19)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
 >
 > **⚠️ Phase 4.9.9 변경사항**: 엣지존에 줌/드래그 모드 토글 액션(`ToggleAbsoluteZoom`/`ToggleAbsoluteDrag`)이 추가되며 `AbsolutePointingPad.kt`의 ZoomButton 토글 로직이 엣지존 디스패처와 공유하도록 헬퍼로 추출됐다. 이 헬퍼가 이후 Phase(멀티존 등)의 줌 진입 로직과 자연스럽게 합쳐지는지 이 시점에 재확인 대상.
 >
-> **⚠️ Phase 4.9.10~4.9.15 변경사항**: 확대 매핑이 직사각형 ROI(`ZoneRect`/`ZoneMapping`/`MagnificationMode`, 4.9.10)로 통일되고, 멀티 존 자동 배치 정의 UX(4.9.11)·단일 줌 직사각형 정의 UX 통합(4.9.12)·자유 배치(4.9.13)·프리셋 영속화(4.9.14)·존 추가/제거 재편집(4.9.15)이 순차로 추가됐다. `AbsoluteCoordinateCalculator.kt`(모델), `MultiZoneCalculator.kt`(`divideZoneAreas`/`normalizeInZone`/`applyRoi`/`resolveZoneRatio`/`rectFromCenterDrag`/`rectsOverlap`/`hitTestByPadRect`/`insertZone`/`removeZoneAt`), `AbsolutePointingPad.kt`의 존 정의·재편집 세션 상태(단일 줌 + 자동/자유 배치 + 추가/제거)가 이 여섯 Phase에 걸쳐 누적됐다. 저장 상태(`MagnificationMode`)와 정의 제스처(`rectFromCenterDrag` 기반 2단계 확정)가 4.9.12부터 단일 줌·멀티존 양쪽에서 이미 같은 함수를 쓰지만, 실제 호출부(`AbsolutePointingPad.kt`의 제스처 루프)는 각자 다른 세션 상태 변수(`zoomDefining` 계열 vs `multiZoneDefining` 계열)로 병렬 구현돼 있을 가능성이 높으므로, 공통 상태머신으로 더 묶을 여지가 있는지 검토 대상. 자동 배치(4.9.11)·자유 배치(4.9.13)·추가/제거(4.9.15)의 세션 상태가 한 컴포넌트에 분기로 섞여 있어 분리 여지가 있는지, `CursorCountSelectionPopup.kt`의 `countRange` 파라미터가 멀티커서 전용 PRESET 단계와 섞여 있어 분리 여지가 있는지도 검토 대상.
+> **⚠️ Phase 4.9.10~4.9.15 변경사항**: 확대 매핑이 직사각형 ROI(`ZoneRect`/`ZoneMapping`/`MagnificationMode`, 4.9.10)로 통일되고, 멀티 존 자동 배치 정의 UX(4.9.11)·단일 줌 직사각형 정의 UX 통합(4.9.12)·자유 배치(4.9.13)·프리셋 영속화(4.9.14)·존 추가/제거 재편집(4.9.15)이 순차로 추가됐다. `AbsoluteCoordinateCalculator.kt`(모델), `MultiZoneCalculator.kt`(`divideZoneAreas`/`normalizeInZone`/`applyRoi`/`resolveZoneRatio`/`rectFromCenterDrag`/`rectsOverlap`/`hitTestByPadRect`/`insertZone`/`removeZoneAt`), `AbsolutePointingPad.kt`의 존 정의·재편집 세션 상태(단일 줌 + 자동/자유 배치 + 추가/제거)가 이 여섯 Phase에 걸쳐 누적됐다. 저장 상태(`MagnificationMode`)와 정의 제스처(`rectFromCenterDrag` 기반 2단계 확정)가 4.9.12부터 단일 줌·멀티존 양쪽에서 이미 같은 함수를 쓰지만, 실제 호출부(`AbsolutePointingPad.kt`의 제스처 루프)는 각자 다른 세션 상태 변수(`zoomDefining` 계열 vs `multiZoneDefining` 계열)로 병렬 구현돼 있을 가능성이 높으므로, 공통 상태머신으로 더 묶을 여지가 있는지 검토 대상. 자동 배치(4.9.11)·자유 배치(4.9.13)·추가/제거(4.9.15)의 세션 상태가 한 컴포넌트에 분기로 섞여 있어 분리 여지가 있는지, `CursorCountSelectionPopup.kt`의 `countRange` 파라미터가 멀티커서 전용 PRESET 단계와 섞여 있어 분리 여지가 있는지도 검토 대상. 4.9.12에는 단일 줌 전용 진입/확정 UI 전환 애니메이션(`zoomDefineElementsAlpha`/`zoomExpandLeft`~`Bottom`/`zoomExpandCornerRadiusPx`/`isZoomExpanding`, 안내 문구 배치 헬퍼 `guideTextAlignment`, 확정 대기 롱프레스 취소 타이머 `zoomCancelJob`)도 함께 추가됐다 — 멀티 존의 대응 상태(`zoneRectPreview`/`zoneCenterPoint`/`zoneRestartJob` 등)와 이름·구조가 유사한 짝을 이루므로, 공통 상태머신 검토 시 이 UI 전환 계열도 함께 묶을 여지가 있는지 포함해서 본다.
 >
-> **⚠️ Phase 4.9.20 변경사항**: `ScrollEngine` 추출로 `TouchpadWrapper.kt`의 스크롤 로직과 `AbsolutePointingPad.kt`의 스크롤 브랜치가 공통 코드를 쓰게 됐다. 추출이 깔끔하게 끝났는지, 두 호출부에 여전히 남은 중복이 있는지 이 시점에 재확인 대상.
+> **⚠️ Phase 4.9.19 변경사항**: `ScrollEngine` 추출로 `TouchpadWrapper.kt`의 스크롤 로직과 `AbsolutePointingPad.kt`의 스크롤 브랜치가 공통 코드를 쓰게 됐다. 추출이 깔끔하게 끝났는지, 두 호출부에 여전히 남은 중복이 있는지 이 시점에 재확인 대상.
 >
-> **⚠️ Phase 4.9.17, 4.9.19 변경사항**: 손떨림 보정(4.9.17)으로 `AbsoluteCoordinateCalculator.kt`에 `smoothRatio`, 신규 `TremorSmoothingPrefs.kt`가 추가됐다. 원래 별도 Phase(4.9.18, 존 경계 진동 피드백)로 계획했던 멀티존 전환 햅틱은 4.9.11 구현 도중 앞당겨져 `ZoneCrossBehavior`(끄기/진동/점프 금지 3지선다, `ui/common/ZoneCrossBehaviorPrefs.kt`)로 흡수됐고, 이미 코드에 반영되어 있어 4.9.18은 문서에서 삭제했다(항상 켜짐이 아니라 설정 가능한 형태로 대체 구현). 터치 시작 확정 디바운스(4.9.19)는 `AbsolutePointingPad.kt`의 같은 DOWN/MOVE 제스처 루프에 손을 대므로, 이 시점에 `ZoneCrossBehavior` 분기와 얽혀 있지 않은지 함께 검토 대상에 포함한다.
+> **⚠️ Phase 4.9.17, 4.9.18 변경사항**: 손떨림 보정(4.9.17)으로 `AbsoluteCoordinateCalculator.kt`에 `smoothRatio`, 신규 `TremorSmoothingPrefs.kt`가 추가됐다. 원래 별도 하위 Phase(존 경계 진동 피드백)로 계획했던 멀티존 전환 햅틱은 4.9.11 구현 도중 앞당겨져 `ZoneCrossBehavior`(끄기/진동/점프 금지 3지선다, `ui/common/ZoneCrossBehaviorPrefs.kt`)로 흡수됐고, 이미 코드에 반영되어 있어 해당 계획은 문서에서 삭제했다(항상 켜짐이 아니라 설정 가능한 형태로 대체 구현). 터치 시작 확정 디바운스(4.9.18)는 `AbsolutePointingPad.kt`의 같은 DOWN/MOVE 제스처 루프에 손을 대므로, 이 시점에 `ZoneCrossBehavior` 분기와 얽혀 있지 않은지 함께 검토 대상에 포함한다.
 
 **목표**: Page 3 구현 완료 시점의 코드를 검토해 중복 제거·함수 분리·상수 정리 등 리팩토링 수행
 

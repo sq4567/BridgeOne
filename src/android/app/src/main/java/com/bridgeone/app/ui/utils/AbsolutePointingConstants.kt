@@ -47,29 +47,20 @@ object AbsolutePointingConstants {
     /** 줌 최대 배율 (Phase 4.9.6). 기본값: 8f */
     const val ZOOM_LEVEL_MAX: Float = 8f
 
-    /** 줌 드래그 거리 2x 지점 (dp) (Phase 4.9.6). 기본값: 50f */
-    const val ZOOM_DRAG_DP_2X: Float = 50f
-
-    /** 줌 드래그 거리 4x 지점 (dp) (Phase 4.9.6). 기본값: 100f */
-    const val ZOOM_DRAG_DP_4X: Float = 100f
-
-    /** 줌 드래그 거리 8x(최대) 지점 (dp) (Phase 4.9.6). 기본값: 150f */
-    const val ZOOM_DRAG_DP_8X: Float = 150f
-
-    /** PointingArea 우상단 줌 레벨 텍스트 크기 (sp, 확정된 줌 활성 상태). 기본값: 14f */
-    const val ZOOM_LEVEL_TEXT_SIZE_SP: Float = 14f
-
-    /** PointingArea 우상단 줌 레벨 텍스트 여백 (dp). 기본값: 8f */
-    const val ZOOM_LEVEL_TEXT_PADDING_DP: Float = 8f
-
-    /** 줌 정의/확정 대기 중 화면 정중앙 줌 레벨 텍스트 크기 (sp) (Phase 4.9.6). 기본값: 48f */
-    const val ZOOM_LEVEL_CENTER_TEXT_SIZE_SP: Float = 48f
-
     /** 줌 확정 대기 중 안내 문구("탭하여 확정") 텍스트 크기 (sp) (Phase 4.9.6). 기본값: 16f */
     const val ZOOM_CONFIRM_HINT_TEXT_SIZE_SP: Float = 16f
 
     /** 줌 상태 Vendor CDC 전송 스로틀 간격 (ms), 드래그 중 30Hz 상한 (Phase 4.9.7). 기본값: 33L */
     const val ZOOM_STATE_THROTTLE_MS: Long = 33L
+
+    /** 단일 줌 arming 진입 시 제어버튼/패드테두리/엣지존 fade-out 시간 (ms) (Phase 4.9.12). 기본값: 150L */
+    const val ZOOM_DEFINE_FADE_OUT_MS: Long = 150L
+
+    /** 단일 줌 확정 시 정의 프리뷰 직사각형이 패드 전체 경계로 확대되는 애니메이션 시간 (ms) (Phase 4.9.12). 기본값: 250L */
+    const val ZOOM_DEFINE_EXPAND_MS: Long = 250L
+
+    /** 단일 줌 확대 완료(또는 취소) 후 제어버튼/패드테두리/엣지존 fade-in·확대 오버레이 크로스페이드 시간 (ms) (Phase 4.9.12). 기본값: 200L */
+    const val ZOOM_DEFINE_FADE_IN_MS: Long = 200L
 
     /** 멀티 존 개수 최소값 (Phase 4.9.10). 기본값: 2 */
     const val MULTI_ZONE_COUNT_MIN: Int = 2
@@ -89,8 +80,14 @@ object AbsolutePointingConstants {
     /** 멀티 존 정의 중 안내 텍스트("존 k/N 정의 중") 크기 (sp) (Phase 4.9.11). 기본값: 16f */
     const val MULTI_ZONE_GUIDE_TEXT_SIZE_SP: Float = 16f
 
+    /** 정의 중 안내 텍스트가 정의 rect와 겹치지 않도록 패드 상/하단에서 띄우는 여백 (dp) (Phase 4.9.12). 기본값: 24f */
+    const val GUIDE_TEXT_EDGE_PADDING_DP: Float = 24f
+
     /** 멀티 존 확정 대기 중 재터치가 롱프레스로 판정되어 개수 선택 팝업부터 재시작되는 임계 시간 (ms) (Phase 4.9.11). 기본값: 500L */
     const val MULTI_ZONE_RESTART_LONGPRESS_MS: Long = 500L
+
+    /** 단일 줌 확정 대기 중 재터치가 롱프레스로 판정되어 줌 모드가 완전히 해제되는 임계 시간 (ms) (Phase 4.9.12). 기본값: 500L */
+    const val ZOOM_DEFINE_CANCEL_LONGPRESS_MS: Long = 500L
 
     /** 멀티 존 정의 중 이미 확정된 이전 존 오버레이 불투명도(현재 프리뷰보다 옅게, 겹침 확인용) (Phase 4.9.11). 기본값: 0.35f */
     const val MULTI_ZONE_PREVIOUS_RECT_ALPHA: Float = 0.35f

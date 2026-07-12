@@ -107,32 +107,6 @@ object AbsoluteCoordinateCalculator {
     }
 
     /**
-     * 줌 진입 드래그 거리(dp)를 줌 배율로 변환합니다 (Phase 4.9.6).
-     * 구간별 선형 보간: 0dp→1x, 50dp→2x, 100dp→4x, 150dp+→8x(최대).
-     */
-    fun dragDistanceToZoomLevel(dragDistanceDp: Float): Float {
-        val d = dragDistanceDp.coerceAtLeast(0f)
-        return when {
-            d <= 0f -> AbsolutePointingConstants.ZOOM_LEVEL_MIN
-            d <= AbsolutePointingConstants.ZOOM_DRAG_DP_2X ->
-                lerp(1f, 2f, d / AbsolutePointingConstants.ZOOM_DRAG_DP_2X)
-            d <= AbsolutePointingConstants.ZOOM_DRAG_DP_4X -> lerp(
-                2f, 4f,
-                (d - AbsolutePointingConstants.ZOOM_DRAG_DP_2X) /
-                    (AbsolutePointingConstants.ZOOM_DRAG_DP_4X - AbsolutePointingConstants.ZOOM_DRAG_DP_2X)
-            )
-            d <= AbsolutePointingConstants.ZOOM_DRAG_DP_8X -> lerp(
-                4f, AbsolutePointingConstants.ZOOM_LEVEL_MAX,
-                (d - AbsolutePointingConstants.ZOOM_DRAG_DP_4X) /
-                    (AbsolutePointingConstants.ZOOM_DRAG_DP_8X - AbsolutePointingConstants.ZOOM_DRAG_DP_4X)
-            )
-            else -> AbsolutePointingConstants.ZOOM_LEVEL_MAX
-        }
-    }
-
-    private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
-
-    /**
      * 줌 상태를 반영해 터치 비율을 PC 좌표 매핑 범위 비율로 재매핑합니다 (Phase 4.9.6).
      * 축(x/y) 독립적으로 처리하며, 줌 윈도우는 중심점 기준 0.0~1.0 범위 안에 클램핑됩니다.
      * level이 1x 이하이면 원본 ratio를 그대로 반환합니다.
@@ -169,35 +143,7 @@ object AbsoluteCoordinateCalculator {
         )
     }
 
-    /**
-     * [AbsoluteZoomState](정사각 배율+중심점)를 [ZoneRect]로 변환하는 마이그레이션 헬퍼 (Phase 4.9.10).
-     * applyZoom()과 동일한 윈도우 계산을 그대로 재사용해 회귀 없이 직사각형 ROI로 흡수한다.
-     * 단일 줌 정의 제스처(드래그 거리→배율) 자체는 이 Phase에서 바꾸지 않으므로(4.9.12 예정),
-     * 제스처 로컬에서 계산한 AbsoluteZoomState를 hoisted MagnificationMode.Single로 내보낼 때 사용한다.
-     */
-    fun zoneRectFromZoomState(zoom: AbsoluteZoomState): ZoneRect {
-        if (!zoom.isActive) return ZoneRect.FULL
-        val windowSize = 1f / zoom.level
-        val minX = (zoom.centerX - windowSize / 2f).coerceIn(0f, 1f - windowSize)
-        val minY = (zoom.centerY - windowSize / 2f).coerceIn(0f, 1f - windowSize)
-        return ZoneRect(minX, minY, minX + windowSize, minY + windowSize)
-    }
-
-    /**
-     * [zoneRectFromZoomState]의 역변환 (Phase 4.9.10). hoisted [ZoneMapping]에서 제스처 로컬
-     * 계산(30Hz 스로틀 전송 등)에 필요한 [AbsoluteZoomState]를 복원할 때 사용한다.
-     */
-    fun zoomStateFromZoneMapping(mapping: ZoneMapping): AbsoluteZoomState {
-        if (!mapping.defined) return AbsoluteZoomState()
-        val rect = mapping.pcRect
-        val width = (rect.maxX - rect.minX).coerceAtLeast(0.0001f)
-        val level = (1f / width).coerceIn(AbsolutePointingConstants.ZOOM_LEVEL_MIN, AbsolutePointingConstants.ZOOM_LEVEL_MAX)
-        val centerX = rect.minX + width / 2f
-        val centerY = rect.minY + (rect.maxY - rect.minY) / 2f
-        return AbsoluteZoomState(level = level, centerX = centerX, centerY = centerY)
-    }
-
-    /** [ZoneRect] 폭에서 등가 줌 배율을 역산합니다(정사각형 윈도우 가정, UI 텍스트 표시용, Phase 4.9.10). */
+    /** [ZoneRect] 폭에서 등가 줌 배율을 역산합니다(정사각형 윈도우 가정, ZoomButton 아이콘 배율 표시용, Phase 4.9.10). */
     fun zoomLevelFromPcRect(pcRect: ZoneRect): Float {
         val width = (pcRect.maxX - pcRect.minX).coerceAtLeast(0.0001f)
         return (1f / width).coerceIn(AbsolutePointingConstants.ZOOM_LEVEL_MIN, AbsolutePointingConstants.ZOOM_LEVEL_MAX)
