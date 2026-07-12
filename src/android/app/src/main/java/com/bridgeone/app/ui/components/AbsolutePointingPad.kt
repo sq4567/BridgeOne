@@ -33,11 +33,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -46,12 +49,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridgeone.app.ui.common.EdgeSwipeConstants
+import com.bridgeone.app.ui.common.ToastController
+import com.bridgeone.app.ui.common.ToastType
 import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignment
+import com.bridgeone.app.ui.common.ZoneCrossBehavior
 import com.bridgeone.app.ui.common.loadTargetMonitor
 import com.bridgeone.app.ui.common.saveTargetMonitor
 import com.bridgeone.app.ui.components.touchpad.ClickMode
 import com.bridgeone.app.ui.components.touchpad.ControlButtonConfig
 import com.bridgeone.app.ui.components.touchpad.ControlButtonContainer
+import com.bridgeone.app.ui.components.touchpad.CursorCountSelectionPopup
 import com.bridgeone.app.ui.components.touchpad.EdgeBumpOverlay
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneAction
 import com.bridgeone.app.ui.components.touchpad.EdgeZoneActionHandler
@@ -72,9 +79,14 @@ import com.bridgeone.app.ui.components.touchpad.TouchpadColorZoom
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 import com.bridgeone.app.ui.components.touchpad.applyRoi
 import com.bridgeone.app.ui.components.touchpad.detectEntryEdge
+import com.bridgeone.app.ui.components.touchpad.divideZoneAreas
 import com.bridgeone.app.ui.components.touchpad.filterConfigForAbsolutePad
 import com.bridgeone.app.ui.components.touchpad.getAlongEdgePosition
 import com.bridgeone.app.ui.components.touchpad.getInwardDistance
+import com.bridgeone.app.ui.components.touchpad.hitTestPad
+import com.bridgeone.app.ui.components.touchpad.rectFromCenterDrag
+import com.bridgeone.app.ui.components.touchpad.rectsOverlap
+import com.bridgeone.app.ui.components.touchpad.resolveZoneRatio
 import com.bridgeone.app.ui.components.touchpad.unmapFromValid
 import com.bridgeone.app.protocol.FrameBuilder
 import com.bridgeone.app.protocol.ZoomStateCommand
@@ -84,8 +96,10 @@ import com.bridgeone.app.ui.utils.AbsolutePointingConstants
 import com.bridgeone.app.ui.utils.AbsoluteZoomState
 import com.bridgeone.app.ui.utils.ClickDetector
 import com.bridgeone.app.ui.utils.MagnificationMode
+import com.bridgeone.app.ui.utils.MultiZoneState
 import com.bridgeone.app.ui.utils.TouchRatio
 import com.bridgeone.app.ui.utils.ZoneMapping
+import com.bridgeone.app.ui.utils.ZonePlacement
 import com.bridgeone.app.ui.utils.ZoneRect
 import com.bridgeone.app.ui.utils.resolveTargetMonitor
 import com.bridgeone.app.ui.utils.getDistance
@@ -132,6 +146,8 @@ private fun EdgeZoneTrigger.resolveAction(rotationIndex: Int): EdgeZoneAction? =
  * @param magnificationMode 확대 매핑 모드(단일 줌/멀티 존은 상호 배타, Phase 4.9.10). 페이지 전환에도
  *        유지되어야 하므로 호출측(StandardModePage, 페이저 바깥)에서 hoisting해 전달한다.
  * @param onMagnificationModeChange 확대 매핑 모드 변경 콜백.
+ * @param zoneCrossBehavior 멀티 존 실시간 점프 중 손을 떼지 않고 다른 서브 패드로 경계를 넘었을 때의
+ *        동작(끄기/진동/점프 금지, Phase 4.9.11). 환경 설정(Page 5)에서 편집, StandardModePage에서 hoisting.
  */
 @Composable
 fun AbsolutePointingPad(
@@ -145,10 +161,14 @@ fun AbsolutePointingPad(
     onCyclePage: (PageNav) -> Unit = {},
     onJumpToPage: (Int) -> Unit = {},
     magnificationMode: MagnificationMode = MagnificationMode.Off,
-    onMagnificationModeChange: (MagnificationMode) -> Unit = {}
+    onMagnificationModeChange: (MagnificationMode) -> Unit = {},
+    zoneCrossBehavior: ZoneCrossBehavior = ZoneCrossBehavior.OFF
 ) {
-    // 단일 줌 좌표 계산/UI에 쓰는 파생값(멀티 존은 4.9.11에서 배선, 이 Phase는 Single만 다룬다).
+    // 단일 줌 좌표 계산/UI에 쓰는 파생값(멀티 존은 Phase 4.9.11에서 배선).
     val currentMapping = (magnificationMode as? MagnificationMode.Single)?.mapping ?: ZoneMapping()
+    // 멀티 존 파생값 (Phase 4.9.11). Zone(enabled=false)이면 정의 세션 진행 중, enabled=true면 실시간 점프.
+    val zoneState = (magnificationMode as? MagnificationMode.Zone)?.state
+    val isZoneMode = zoneState != null
     // 클릭 모드는 Page 1/2의 pageState.touchpadState와 공유하지 않는 페이지 로컬 상태.
     // ControlButtonContainer가 요구하는 TouchpadState 타입을 재사용하되 clickMode 외 필드는 미사용.
     var localState by remember { mutableStateOf(TouchpadState()) }
@@ -161,6 +181,21 @@ fun AbsolutePointingPad(
     // 줌 정의 드래그가 끝나고(손을 뗀 뒤) 별도의 탭으로 확정하기를 기다리는 상태(Phase 4.9.6,
     // 유저 확정: 손 떼는 즉시 확정 대신 확정용 탭을 한 번 더 요구). zoomArming이 true인 동안만 의미 있다.
     var zoomAwaitingConfirm by remember { mutableStateOf(false) }
+
+    // ── 멀티 존 정의 세션 상태 (Phase 4.9.11) ──
+    // 개수 선택 팝업 표시 여부. ZoomButton 롱프레스로 true가 된다.
+    var multiZonePopupVisible by remember { mutableStateOf(false) }
+    // 정의 순서(0부터). 개수 선택 확정 시 0으로 리셋, 존 하나 확정마다 ++.
+    val definingZoneIndex = remember { mutableStateOf(0) }
+    // 정의 드래그가 끝나고 별도 탭으로 확정하기를 기다리는 상태(4.9.6 zoomAwaitingConfirm과 동형).
+    val zoneRectAwaitingConfirm = remember { mutableStateOf(false) }
+    // 정의 중/확정 대기 중인 PC 매핑 직사각형(오버레이 프리뷰와 UP 커밋이 공유).
+    val zoneRectPreview = remember { mutableStateOf<ZoneRect?>(null) }
+    // 정의 드래그의 중심점(오버레이에 점으로 표시). zoneRectPreview와 생명주기를 함께한다(설정/해제 동시).
+    val zoneCenterPoint = remember { mutableStateOf<TouchRatio?>(null) }
+    // 확정 대기 중 롱프레스 재시작이 "이번 존 재정의"인지(true) 최초 정의인지(false) 구분 —
+    // 오버레이 안내 텍스트를 "정의 중"/"재정의 중"으로 분기하는 데만 쓰인다. 존 커밋 시 false로 리셋.
+    val zoneRedefining = remember { mutableStateOf(false) }
 
     // ── 모니터 셀렉터 상태 (Phase 4.9.5) ──
     // targetMonitor: 0x00=전체 가상 데스크톱, 0x01~N=특정 모니터 인덱스. UByte 프레임 규약과 동일한 Int로 다룬다.
@@ -260,11 +295,34 @@ fun AbsolutePointingPad(
                 onJumpToPage = onJumpToPage,
                 targetMonitor = targetMonitor.toUByte(),
                 magnificationMode = magnificationMode,
+                zoneCrossBehavior = zoneCrossBehavior,
                 zoomArming = zoomArming,
                 zoomAwaitingConfirm = zoomAwaitingConfirm,
                 onMagnificationModeChange = onMagnificationModeChange,
                 onZoomArmingChange = { zoomArming = it },
                 onZoomAwaitingConfirmChange = { zoomAwaitingConfirm = it },
+                definingZoneIndex = definingZoneIndex,
+                zoneRectAwaitingConfirm = zoneRectAwaitingConfirm,
+                zoneRectPreview = zoneRectPreview,
+                zoneCenterPoint = zoneCenterPoint,
+                zoneRedefining = zoneRedefining,
+                onRequestRestartDefinition = {
+                    // 확정 대기 중 롱프레스 재시작(§713). 첫 존(idx==0)은 아직 확정된 존이 없으므로
+                    // 개수 선택 팝업부터 전체 재시작. 두 번째 존부터는 이미 확정된 이전 존들을
+                    // 잃지 않도록 이번 존의 직사각형만 지우고 같은 존을 다시 그리게 한다(재정의 중).
+                    if (definingZoneIndex.value == 0) {
+                        onMagnificationModeChange(MagnificationMode.Off)
+                        zoneRectAwaitingConfirm.value = false
+                        zoneRectPreview.value = null
+                        zoneCenterPoint.value = null
+                        multiZonePopupVisible = true
+                    } else {
+                        zoneRectAwaitingConfirm.value = false
+                        zoneRectPreview.value = null
+                        zoneCenterPoint.value = null
+                        zoneRedefining.value = true
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -280,7 +338,7 @@ fun AbsolutePointingPad(
                 val bumpColor = when {
                     localState.dragMode -> TouchpadColorGreen
                     localState.clickMode == ClickMode.RIGHT_CLICK -> TouchpadColorYellow
-                    currentMapping.defined || zoomArming -> TouchpadColorZoom
+                    currentMapping.defined || zoomArming || isZoneMode -> TouchpadColorZoom
                     else -> TouchpadColorPink
                 }
                 EdgeBumpOverlay(
@@ -315,10 +373,18 @@ fun AbsolutePointingPad(
             )
         }
 
+        // ControlButtonContainer 실제 렌더 높이 측정 (멀티 존 개수 선택 팝업 앵커링용, Phase 4.9.11.
+        // Page2MultiCursorTouchpad.kt의 커서 수 팝업 앵커링 패턴과 동일).
+        val controlButtonDensity = LocalDensity.current
+        var controlButtonHeightDp by remember { mutableStateOf(0.dp) }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth(controlButtonWidthFraction)
-                .align(Alignment.TopCenter),
+                .align(Alignment.TopCenter)
+                .onGloballyPositioned {
+                    controlButtonHeightDp = with(controlButtonDensity) { it.size.height.toDp() }
+                },
             verticalAlignment = Alignment.CenterVertically
         ) {
             ControlButtonContainer(
@@ -335,17 +401,35 @@ fun AbsolutePointingPad(
                     showDrag = true
                 ),
                 baseColor = TouchpadColorRed,
-                zoomLevel = AbsoluteCoordinateCalculator.zoomLevelFromPcRect(currentMapping.pcRect),
+                // 멀티 존 활성(실시간 점프) 중엔 버튼이 "풀사이즈 모드"(해제 목적지)로 표시되도록 최대
+                // 배율로 취급한다(단일 줌과 동일한 "목적지 미리보기" 관용구, Phase 4.9.11).
+                zoomLevel = if (zoneState?.enabled == true) {
+                    AbsolutePointingConstants.ZOOM_LEVEL_MAX
+                } else {
+                    AbsoluteCoordinateCalculator.zoomLevelFromPcRect(currentMapping.pcRect)
+                },
                 zoomArming = zoomArming,
                 onZoomClick = {
-                    toggleAbsoluteZoom(
-                        isActive = currentMapping.defined,
-                        isArming = zoomArming,
-                        targetMonitor = targetMonitor,
-                        onMagnificationModeChange = onMagnificationModeChange,
-                        onZoomArmingChange = { zoomArming = it },
-                        onZoomAwaitingConfirmChange = { zoomAwaitingConfirm = it },
-                    )
+                    if (isZoneMode) {
+                        // 멀티 존 활성/정의 중 재탭 → 즉시 해제 + 해제 프레임 1회 전송(§715).
+                        onMagnificationModeChange(MagnificationMode.Off)
+                        sendZoneStateFrame(ZoneRect.FULL, targetMonitor)
+                    } else {
+                        toggleAbsoluteZoom(
+                            isActive = currentMapping.defined,
+                            isArming = zoomArming,
+                            targetMonitor = targetMonitor,
+                            onMagnificationModeChange = onMagnificationModeChange,
+                            onZoomArmingChange = { zoomArming = it },
+                            onZoomAwaitingConfirmChange = { zoomAwaitingConfirm = it },
+                        )
+                    }
+                },
+                onZoomLongClick = {
+                    // 멀티 존 진입(Phase 4.9.11): 단일 줌 arming 취소 후 개수 선택 팝업 표시.
+                    zoomArming = false
+                    zoomAwaitingConfirm = false
+                    multiZonePopupVisible = true
                 },
                 modifier = Modifier.weight(1f)
             )
@@ -363,6 +447,51 @@ fun AbsolutePointingPad(
                 )
             }
         }
+
+        // 멀티 존 개수 선택 팝업 (Phase 4.9.11). CursorCountSelectionPopup 재사용 —
+        // 범위는 2~8(countRange), 패드별 프리셋 개념이 없으므로 skipPreset=true로 즉시 확정.
+        CursorCountSelectionPopup(
+            visible = multiZonePopupVisible,
+            onDismiss = { multiZonePopupVisible = false },
+            currentCount = if (zoneState?.enabled == true) zoneState.zoneCount else null,
+            onDisable = if (zoneState?.enabled == true) {
+                {
+                    onMagnificationModeChange(MagnificationMode.Off)
+                    sendZoneStateFrame(ZoneRect.FULL, targetMonitor)
+                    multiZonePopupVisible = false
+                }
+            } else null,
+            anchorTopDp = controlButtonHeightDp,
+            countRange = AbsolutePointingConstants.MULTI_ZONE_COUNT_MIN..AbsolutePointingConstants.MULTI_ZONE_COUNT_MAX,
+            skipPreset = true,
+            onConfirm = { count, _ ->
+                // 정의 세션 시작(§709): 모든 존을 미정의 상태로 초기화하고 idx=0부터 순차 정의.
+                onMagnificationModeChange(
+                    MagnificationMode.Zone(
+                        MultiZoneState(
+                            enabled = false,
+                            zoneCount = count,
+                            placement = ZonePlacement.AUTO,
+                            zones = List(AbsolutePointingConstants.MULTI_ZONE_COUNT_MAX) {
+                                ZoneMapping(targetMonitor = targetMonitor)
+                            }
+                        )
+                    )
+                )
+                definingZoneIndex.value = 0
+                zoneRectAwaitingConfirm.value = false
+                zoneRectPreview.value = null
+                zoneCenterPoint.value = null
+                zoneRedefining.value = false
+                zoomArming = false
+                zoomAwaitingConfirm = false
+                localState = localState.copy(dragMode = false)
+                multiZonePopupVisible = false
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(12.dp))
+        )
     }
 }
 
@@ -402,6 +531,20 @@ private fun sendZoomStateFrame(zoom: AbsoluteZoomState, targetMonitor: Int) {
         UsbSerialManager.sendVendorCdcFrame(ZoomStateCommand.buildFrame(zoom, targetMonitor))
     } catch (e: IllegalStateException) {
         Log.w("AbsolutePointingPad", "Failed to send zoom state: ${e.message}")
+    }
+}
+
+/**
+ * 멀티 존 PC 매핑 직사각형(임의 종횡비 [ZoneRect]) Vendor CDC 프레임을 UART로 전송합니다
+ * (Phase 4.9.11). 단일 줌([sendZoomStateFrame])과 달리 중심점+배율 모델로 표현할 수 없는
+ * 임의 종횡비 직사각형을 4축 독립 인코딩으로 손실 없이 전송한다. 전송 시점(확정 1회/정의
+ * 드래그 중 30Hz 스로틀/해제 1회)은 호출측이 결정한다.
+ */
+private fun sendZoneStateFrame(pcRect: ZoneRect, targetMonitor: Int) {
+    try {
+        UsbSerialManager.sendVendorCdcFrame(ZoomStateCommand.buildFrame(pcRect, targetMonitor))
+    } catch (e: IllegalStateException) {
+        Log.w("AbsolutePointingPad", "Failed to send zone state: ${e.message}")
     }
 }
 
@@ -454,23 +597,35 @@ private fun PointingArea(
     onJumpToPage: (Int) -> Unit,
     targetMonitor: UByte,
     magnificationMode: MagnificationMode,
+    zoneCrossBehavior: ZoneCrossBehavior,
     zoomArming: Boolean,
     zoomAwaitingConfirm: Boolean,
     onMagnificationModeChange: (MagnificationMode) -> Unit,
     onZoomArmingChange: (Boolean) -> Unit,
     onZoomAwaitingConfirmChange: (Boolean) -> Unit,
+    definingZoneIndex: MutableState<Int>,
+    zoneRectAwaitingConfirm: MutableState<Boolean>,
+    zoneRectPreview: MutableState<ZoneRect?>,
+    zoneCenterPoint: MutableState<TouchRatio?>,
+    zoneRedefining: MutableState<Boolean>,
+    onRequestRestartDefinition: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val view = LocalView.current
-    // 단일 줌 좌표 계산/UI에 쓰는 파생값(멀티 존은 4.9.11에서 배선, 이 Phase는 Single만 다룬다).
+    // 단일 줌 좌표 계산/UI에 쓰는 파생값.
     val mapping = (magnificationMode as? MagnificationMode.Single)?.mapping ?: ZoneMapping()
+    // 멀티 존 파생값 (Phase 4.9.11).
+    val zoneState = (magnificationMode as? MagnificationMode.Zone)?.state
+    val isZoneMode = zoneState != null
     // pointerInput은 clickMode/filteredConfig/localState.dragMode 변경 시에만 재시작되므로,
     // targetMonitor(모니터 셀렉터 선택값)·확대 매핑 모드 변경을 실행 중인 제스처 루프에서도 즉시
     // 반영하려면 rememberUpdatedState로 최신값을 캡처해야 한다.
     val currentTargetMonitor by rememberUpdatedState(targetMonitor)
     val currentMapping by rememberUpdatedState(mapping)
+    val currentMagnificationMode by rememberUpdatedState(magnificationMode)
+    val currentZoneCrossBehavior by rememberUpdatedState(zoneCrossBehavior)
     val currentZoomArming by rememberUpdatedState(zoomArming)
     val currentZoomAwaitingConfirm by rememberUpdatedState(zoomAwaitingConfirm)
 
@@ -492,7 +647,7 @@ private fun PointingArea(
     val borderColor = when {
         localState.dragMode -> TouchpadColorGreen
         clickMode == ClickMode.RIGHT_CLICK -> TouchpadColorYellow
-        mapping.defined || zoomArming -> TouchpadColorZoom
+        mapping.defined || zoomArming || isZoneMode -> TouchpadColorZoom
         else -> TouchpadColorPink
     }
 
@@ -550,6 +705,44 @@ private fun PointingArea(
                     var zoomAdjusting = false
                     var zoomAdjustCenterCandidate = lastRatio
 
+                    // ── 멀티 존 정의/실시간 점프 파생값 (Phase 4.9.11) ──
+                    // defining: 개수 선택 직후~마지막 존 확정 전(enabled=false). liveJump: 정의 완료 후
+                    // 실시간 점프(enabled=true). 둘 다 아니면 단일 줌/일반 포인팅 분기로 진행.
+                    val zoneStateNow = (currentMagnificationMode as? MagnificationMode.Zone)?.state
+                    val defining = zoneStateNow != null && !zoneStateNow.enabled
+                    val liveJump = zoneStateNow != null && zoneStateNow.enabled
+                    val zoneAreas = if (liveJump) {
+                        divideZoneAreas(areaWidth, areaHeight, zoneStateNow!!.zoneCount)
+                    } else {
+                        emptyList()
+                    }
+
+                    // 존 정의 드래그가 이번 제스처에서 진행 중인지(단일 줌 zoomDefining과 동형).
+                    var zoneDefining = false
+                    var zoneCenterRatio = lastRatio
+                    // 확정 대기 중 재터치가 탭(확정)/드래그(재조정)/롱프레스(재시작) 중 무엇인지 판가름 전 상태.
+                    var zoneAdjusting = false
+                    // 확정 대기 중 재터치 시작한 롱프레스 재시작 타이머(§713). 재드래그 전환/탭 확정 시 취소.
+                    var zoneRestartJob: Job? = null
+                    // 실시간 점프 중 마지막으로 전송한 존 인덱스(중복 ZoneState 프레임 억제, §721).
+                    var lastSentZoneIdx = -1
+                    // 이번 연속 터치(DOWN~UP)가 시작된 존 인덱스(Phase 4.9.11 zoneCrossBehavior=BLOCK용).
+                    // 손을 떼지 않은 채 다른 존으로 넘어가도 이 값으로 좌표를 고정한다.
+                    var zoneTouchStartIdx = -1
+                    // 존 정의 드래그 중 30Hz 스로틀 기준 시각(§723, 단일 줌과 동일 상수 재사용).
+                    var lastZoneTxMs = 0L
+
+                    // 멀티 존 확정 대기 중 재드래그로 새 직사각형 정의를 시작하는 헬퍼. 중심점도 함께
+                    // hoisted 상태로 내보내 오버레이가 점으로 표시할 수 있게 한다. 초기 프리뷰도
+                    // rectFromCenterDrag(center, center)로 계산해 최소 크기 보장을 그대로 적용받는다
+                    // (MOVE 없이 바로 손을 떼는 경우에도 0폭 직사각형이 남지 않도록).
+                    fun startZoneDefining(centerRatio: TouchRatio) {
+                        zoneDefining = true
+                        zoneCenterRatio = centerRatio
+                        zoneRectPreview.value = rectFromCenterDrag(centerRatio, centerRatio)
+                        zoneCenterPoint.value = centerRatio
+                    }
+
                     // 직사각형 ROI 매핑을 적용해 좌표를 전송하는 헬퍼(Phase 4.9.10). 미정의 존은
                     // pcRect=ZoneRect.FULL(항등)이라 applyRoi가 자동으로 원본 ratio를 그대로 반환한다.
                     fun sendZoomed(ratio: TouchRatio, buttons: UByte = 0x00u) {
@@ -595,7 +788,9 @@ private fun PointingArea(
                         unmapFromValid(detectedEdge, rawRatio, false, false, EdgeSwipeConstants.CORNER_BUTTON_BLOCKED_RATIO)
                             ?.let { EdgeZoneDetector.findActiveZone(filteredConfig, detectedEdge, it) }
                     } else null
-                    val isAssignedZone = gateZone?.trigger?.hasAssignedAction() == true
+                    // 멀티 존 정의 중(defining)에는 대상 셀이 패드 전체를 차지하므로 엣지 gate를
+                    // 억제한다(§710 확정 해석). 실시간 점프(liveJump)는 엣지존과 공존(§727)이라 gate 유지.
+                    val isAssignedZone = gateZone?.trigger?.hasAssignedAction() == true && !defining
 
                     var edgeStartInwardPx = 0f
                     var edgeStartAlongPx = 0f
@@ -612,7 +807,40 @@ private fun PointingArea(
                     } else {
                         isEdgeCandidate.value = false
                         entryEdge.value = null
-                        if (currentZoomArming && currentZoomAwaitingConfirm) {
+                        if (defining && zoneRectAwaitingConfirm.value) {
+                            // ── 확정 대기 중 추가 터치: 탭(확정)/드래그(재조정)/롱프레스(재시작) 미판정.
+                            // 판가름 전까지는 기존 프리뷰(zoneRectPreview)를 건드리지 않는다. 롱프레스
+                            // 재시작 타이머(§713)를 시작 — 재드래그 전환/탭 확정 시 취소된다.
+                            zoneAdjusting = true
+                            zoneRestartJob = coroutineScope.launch {
+                                delay(AbsolutePointingConstants.MULTI_ZONE_RESTART_LONGPRESS_MS)
+                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                onRequestRestartDefinition()
+                            }
+                        } else if (defining) {
+                            // ── 새 존 정의 시작: 패드 전체가 대상 셀(§710 확정 해석), DOWN 위치를 중심점으로 ──
+                            startZoneDefining(lastRatio)
+                        } else if (liveJump) {
+                            // ── 실시간 점프 DOWN: hitTestPad로 셀 판정, 존 전환 시 ZoneState 1회 전송 ──
+                            // 이번 연속 터치의 시작 존을 기록(zoneCrossBehavior=BLOCK일 때 좌표 고정 기준).
+                            val idx = hitTestPad(downPosition, zoneAreas)
+                            if (idx >= 0) {
+                                zoneTouchStartIdx = idx
+                                val zm = zoneStateNow!!.zones[idx]
+                                if (idx != lastSentZoneIdx) {
+                                    sendZoneStateFrame(zm.pcRect, zm.targetMonitor)
+                                    lastSentZoneIdx = idx
+                                }
+                                touchActive = true
+                                indicatorPosition = downPosition
+                                // 드래그 앤 드롭과 충돌 방지(§727): dragPressed는 절대 세우지 않는다.
+                                sendAbsolutePosition(
+                                    resolveZoneRatio(downPosition, zoneAreas[idx], zm),
+                                    0x00u,
+                                    zm.targetMonitor.toUByte()
+                                )
+                            }
+                        } else if (currentZoomArming && currentZoomAwaitingConfirm) {
                             // ── 확정 대기 중 추가 터치: 탭(확정)인지 드래그(재정의)인지 MOVE에서 판가름.
                             // 판가름 전까지는 기존 확정 후보(currentMapping)를 건드리지 않는다.
                             zoomAdjusting = true
@@ -649,7 +877,66 @@ private fun PointingArea(
                             val isTapGesture = pressDuration <= AbsolutePointingConstants.CLICK_MAX_DURATION_MS &&
                                 movementDp <= AbsolutePointingConstants.CLICK_MAX_MOVEMENT_DP
 
-                            if (zoomDefining) {
+                            if (zoneDefining) {
+                                // ── 존 정의 드래그 종료 ──
+                                zoneDefining = false
+                                val drawnRect = zoneRectPreview.value ?: ZoneRect.FULL
+                                // ── 겹침 검증(Phase 4.9.11): 존을 그리는 시점(드래그 종료)에 바로 검증한다
+                                // (원탭 확정까지 기다리지 않음). 이미 확정된 존과 겹치면 확정 대기로 넘어가지
+                                // 않고 그 자리에서 거부 후 같은 존을 다시 그리게 한다(재정의 중 표시) ──
+                                val overlapsExisting = zoneStateNow != null && zoneStateNow.zones.filter { it.defined }
+                                    .any { rectsOverlap(drawnRect, it.pcRect) }
+                                if (overlapsExisting) {
+                                    view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+                                    ToastController.show(
+                                        "이미 정의된 존과 겹칩니다. 다시 정의해주세요.",
+                                        ToastType.ERROR
+                                    )
+                                    zoneRectPreview.value = null
+                                    zoneCenterPoint.value = null
+                                    zoneRedefining.value = true
+                                } else {
+                                    // 직사각형은 이 시점 프리뷰로 고정, 확정은 아직 안 됨 — "확정 대기"로
+                                    // 전환(4.9.6 zoomDefining UP 패턴과 동형, §711) ──
+                                    zoneRectAwaitingConfirm.value = true
+                                    sendZoneStateFrame(drawnRect, currentTargetMonitor.toInt())
+                                }
+                            } else if (zoneAdjusting) {
+                                // ── 확정 대기 중 재터치가 끝까지 드래그로 전환되지 않음 → 탭 판정.
+                                // 겹침 검증은 이미 정의(드래그 종료) 시점에 끝났으므로 여기서는 재검증 없이
+                                // 그대로 확정하고 다음 존으로(또는 마지막이면 실시간 전환, §712/§714) ──
+                                zoneRestartJob?.cancel()
+                                zoneRestartJob = null
+                                if (isTapGesture && zoneStateNow != null) {
+                                    val idx = definingZoneIndex.value
+                                    val newRect = zoneRectPreview.value ?: ZoneRect.FULL
+                                    val committedZones = zoneStateNow.zones.toMutableList().also {
+                                        it[idx] = ZoneMapping(
+                                            pcRect = newRect,
+                                            targetMonitor = currentTargetMonitor.toInt(),
+                                            defined = true
+                                        )
+                                    }
+                                    zoneRectAwaitingConfirm.value = false
+                                    zoneRectPreview.value = null
+                                    zoneCenterPoint.value = null
+                                    zoneRedefining.value = false
+                                    if (idx + 1 >= zoneStateNow.zoneCount) {
+                                        // 마지막 존 확정 → 실시간 점프 모드로 전환(§714)
+                                        onMagnificationModeChange(
+                                            MagnificationMode.Zone(zoneStateNow.copy(enabled = true, zones = committedZones))
+                                        )
+                                    } else {
+                                        onMagnificationModeChange(
+                                            MagnificationMode.Zone(zoneStateNow.copy(zones = committedZones))
+                                        )
+                                        definingZoneIndex.value = idx + 1
+                                    }
+                                }
+                                zoneAdjusting = false
+                            } else if (liveJump) {
+                                // ── 실시간 점프는 DOWN/MOVE에서 이미 좌표를 전송했으므로 UP은 상태만 정리 ──
+                            } else if (zoomDefining) {
                                 // ── 줌 정의 드래그 종료: 레벨/중심점은 이 시점 값으로 고정, 확정은
                                 // 아직 안 됨 — arming 유지한 채 "확정 대기"로 전환(유저 확정: 손 떼는
                                 // 즉시 확정 대신 별도 탭을 한 번 더 요구) ──
@@ -731,7 +1018,62 @@ private fun PointingArea(
 
                         if (change.positionChanged()) {
                             val pos = change.position
-                            if (zoomDefining) {
+                            if (zoneDefining) {
+                                // ── 존 정의 모드: 중심점 대비 손가락 위치로 직사각형 실시간 갱신·프리뷰 (§711) ──
+                                val fingerRatio = AbsoluteCoordinateCalculator.calculateTouchRatio(pos.x, pos.y, areaWidth, areaHeight)
+                                val rect = rectFromCenterDrag(zoneCenterRatio, fingerRatio)
+                                zoneRectPreview.value = rect
+                                val now = System.currentTimeMillis()
+                                if (now - lastZoneTxMs >= AbsolutePointingConstants.ZOOM_STATE_THROTTLE_MS) {
+                                    lastZoneTxMs = now
+                                    sendZoneStateFrame(rect, currentTargetMonitor.toInt())
+                                }
+                            } else if (zoneAdjusting) {
+                                // ── 확정 대기 중 재터치: 이동 거리가 클릭 임계값을 넘으면 재정의 드래그로
+                                // 전환(기존 확정 후보를 이 시점부터 덮어씀), 롱프레스 재시작 타이머는 취소 ──
+                                val movedPx = (pos - downPosition).getDistance()
+                                val movedDp = with(density) { movedPx.toDp().value }
+                                if (movedDp > AbsolutePointingConstants.CLICK_MAX_MOVEMENT_DP) {
+                                    zoneRestartJob?.cancel()
+                                    zoneRestartJob = null
+                                    zoneAdjusting = false
+                                    val fingerRatio = AbsoluteCoordinateCalculator.calculateTouchRatio(downPosition.x, downPosition.y, areaWidth, areaHeight)
+                                    startZoneDefining(fingerRatio)
+                                }
+                            } else if (liveJump) {
+                                // ── 실시간 점프 MOVE: hitTestPad로 셀 판정, 존 전환 시에만 ZoneState 재전송 ──
+                                val rawIdx = hitTestPad(pos, zoneAreas)
+                                if (rawIdx >= 0) {
+                                    // 손을 떼지 않은 채 다른 존으로 경계를 넘었는지(§ zoneCrossBehavior, Phase 4.9.11).
+                                    // lastSentZoneIdx가 아직 -1(이번 터치 첫 판정)이면 "진입"이지 "이동"이
+                                    // 아니므로 크로스로 취급하지 않는다.
+                                    val crossedZone = lastSentZoneIdx >= 0 && rawIdx != lastSentZoneIdx
+                                    if (crossedZone && currentZoneCrossBehavior == ZoneCrossBehavior.HAPTIC) {
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                    // BLOCK이면 점프를 막고 좌표를 시작 존에 고정 — normalizeInZone의 0~1
+                                    // 클램프 덕분에 손가락이 계속 나가도 커서는 시작 존의 매핑 경계에서 멈춘다.
+                                    val effectiveIdx = if (crossedZone &&
+                                        currentZoneCrossBehavior == ZoneCrossBehavior.BLOCK &&
+                                        zoneTouchStartIdx >= 0
+                                    ) {
+                                        zoneTouchStartIdx
+                                    } else {
+                                        rawIdx
+                                    }
+                                    val zm = zoneStateNow!!.zones[effectiveIdx]
+                                    if (effectiveIdx != lastSentZoneIdx) {
+                                        sendZoneStateFrame(zm.pcRect, zm.targetMonitor)
+                                        lastSentZoneIdx = effectiveIdx
+                                    }
+                                    indicatorPosition = pos
+                                    sendAbsolutePosition(
+                                        resolveZoneRatio(pos, zoneAreas[effectiveIdx], zm),
+                                        0x00u,
+                                        zm.targetMonitor.toUByte()
+                                    )
+                                }
+                            } else if (zoomDefining) {
                                 // ── 줌 정의 모드: 중심점 대비 드래그 거리(dp) → 줌 레벨 실시간 갱신 ──
                                 updateZoomLevelFromDrag(pos)
                             } else if (zoomAdjusting) {
@@ -855,11 +1197,104 @@ private fun PointingArea(
         if (indicatorAlpha > 0f) {
             CoordinateIndicator(position = indicatorPosition, alpha = indicatorAlpha)
         }
+
+        // 멀티 존 정의 오버레이 (Phase 4.9.11): 정의 중(enabled=false)에만 표시. 확정된 해석(§710)대로
+        // 대상 셀이 패드 전체를 차지하므로 그리드 분할선·나머지 셀 딤 표시는 없다. 다만 이미 확정된
+        // 이전 존들의 PC 매핑 직사각형을 옅게 겹쳐 그려, 새 존을 그릴 때 겹치지 않게 참고할 수 있게 한다.
+        if (zoneState != null && !zoneState.enabled) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                // 이미 확정된 이전 존들 — 겹침 방지 참고용, 현재 프리뷰보다 옅고 얇게 그려 구분한다.
+                zoneState.zones.filter { it.defined }.forEach { z ->
+                    val r = z.pcRect
+                    drawRect(
+                        color = TouchpadColorZoom.copy(alpha = AbsolutePointingConstants.MULTI_ZONE_PREVIOUS_RECT_ALPHA),
+                        topLeft = Offset(r.minX * size.width, r.minY * size.height),
+                        size = Size(
+                            (r.maxX - r.minX) * size.width,
+                            (r.maxY - r.minY) * size.height
+                        ),
+                        style = Stroke(
+                            width = with(density) { AbsolutePointingConstants.MULTI_ZONE_PREVIOUS_RECT_WIDTH_DP.dp.toPx() }
+                        )
+                    )
+                }
+                // 현재 정의/재정의 중인 프리뷰 — 위 레이어보다 진하고 굵게 그려 구분한다.
+                zoneRectPreview.value?.let { rect ->
+                    drawRect(
+                        color = TouchpadColorZoom.copy(alpha = AbsolutePointingConstants.MULTI_ZONE_RECT_PREVIEW_ALPHA),
+                        topLeft = Offset(rect.minX * size.width, rect.minY * size.height),
+                        size = Size(
+                            (rect.maxX - rect.minX) * size.width,
+                            (rect.maxY - rect.minY) * size.height
+                        ),
+                        style = Stroke(
+                            width = with(density) { AbsolutePointingConstants.MULTI_ZONE_RECT_PREVIEW_WIDTH_DP.dp.toPx() }
+                        )
+                    )
+                }
+                // 정의 드래그의 중심점 — 손가락이 어디서 시작했는지 기준점을 명확히 보여준다.
+                zoneCenterPoint.value?.let { center ->
+                    val dotCenter = Offset(center.x * size.width, center.y * size.height)
+                    val dotRadiusPx = with(density) { AbsolutePointingConstants.MULTI_ZONE_CENTER_DOT_RADIUS_DP.dp.toPx() }
+                    drawCircle(color = Color.White, radius = dotRadiusPx, center = dotCenter)
+                    drawCircle(
+                        color = TouchpadColorZoom,
+                        radius = dotRadiusPx,
+                        center = dotCenter,
+                        style = Stroke(
+                            width = with(density) { AbsolutePointingConstants.MULTI_ZONE_CENTER_DOT_RING_WIDTH_DP.dp.toPx() }
+                        )
+                    )
+                }
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.align(Alignment.Center)
+            ) {
+                Text(
+                    text = "존 ${definingZoneIndex.value + 1}/${zoneState.zoneCount} ${if (zoneRedefining.value) "재정의 중" else "정의 중"}",
+                    color = TouchpadColorZoom,
+                    fontSize = AbsolutePointingConstants.MULTI_ZONE_GUIDE_TEXT_SIZE_SP.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                if (zoneRectAwaitingConfirm.value) {
+                    Text(
+                        text = "탭하여 확정 · 길게 눌러 재시작",
+                        color = TouchpadColorZoom,
+                        fontSize = AbsolutePointingConstants.ZOOM_CONFIRM_HINT_TEXT_SIZE_SP.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // 멀티 존 실시간 점프 그리드 오버레이 (Phase 4.9.11): 모든 존 정의가 끝나 enabled=true로
+        // 전환된 뒤에도 서브 패드 경계를 계속 표시해, 하나의 큰 패드가 아니라 균등 분할된 여러
+        // 서브 패드로 보이게 한다(divideZoneAreas는 hitTestPad 판정과 동일한 셀 분할을 재사용).
+        if (zoneState != null && zoneState.enabled) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                divideZoneAreas(size.width, size.height, zoneState.zoneCount).forEach { cell ->
+                    drawRect(
+                        color = TouchpadColorZoom.copy(alpha = AbsolutePointingConstants.MULTI_ZONE_GRID_LINE_ALPHA),
+                        topLeft = Offset(cell.left, cell.top),
+                        size = Size(cell.width, cell.height),
+                        style = Stroke(
+                            width = with(density) { AbsolutePointingConstants.MULTI_ZONE_GRID_LINE_WIDTH_DP.dp.toPx() }
+                        )
+                    )
+                }
+            }
+        }
+
         // 줌 레벨 텍스트 (Phase 4.9.6): 정의/확정 대기 중(zoomArming)은 화면 정가운데 크게(유저 확정,
         // 원탭 확정 흐름에서 진행 상태를 명확히 보여주기 위함), 확정된 활성 줌(mapping.defined만,
         // arming 아님)은 설계 §4.5.4대로 우상단에 작게 표시. 1x(둘 다 아님)에서는 미표시.
         // 배율 수치는 pcRect 폭에서 역산(Phase 4.9.10, zoomLevelFromPcRect).
-        if (zoomArming) {
+        // 멀티 존 모드(isZoneMode)에서는 위 오버레이(정의 중 프리뷰 또는 실시간 그리드)가 대신
+        // 표시되므로 이 블록은 건너뛴다.
+        if (isZoneMode) {
+            // 멀티 존: 정의 중엔 정의 오버레이, 실시간 점프 중엔 그리드 오버레이(위)가 표시. 텍스트는 없음.
+        } else if (zoomArming) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.align(Alignment.Center)

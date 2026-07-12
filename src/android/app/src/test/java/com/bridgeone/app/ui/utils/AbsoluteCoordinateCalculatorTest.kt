@@ -281,4 +281,38 @@ class AbsoluteCoordinateCalculatorTest {
         assertTrue(range.minX in 0..32767)
         assertTrue(range.maxY in 0..32767)
     }
+
+    // ── zoneRectToMappingRange (Phase 4.9.11) ────────────────────────────
+
+    @Test
+    fun `zoneRectToMappingRange - FULL은 전체 범위(0,0,32767,32767)`() {
+        val range = AbsoluteCoordinateCalculator.zoneRectToMappingRange(ZoneRect.FULL)
+        assertEquals(0, range.minX)
+        assertEquals(0, range.minY)
+        assertEquals(32767, range.maxX)
+        assertEquals(32767, range.maxY)
+    }
+
+    @Test
+    fun `zoneRectToMappingRange - 임의 종횡비 직사각형을 축 독립 인코딩`() {
+        // 정사각 윈도우 가정 없이 각 축을 독립적으로 인코딩(가로로 넓은 직사각형).
+        val range = AbsoluteCoordinateCalculator.zoneRectToMappingRange(
+            ZoneRect(minX = 0.1f, minY = 0.2f, maxX = 0.9f, maxY = 0.4f)
+        )
+        assertEquals(3277, range.minX) // round(0.1*32767)
+        assertEquals(6553, range.minY) // round(0.2*32767)
+        assertEquals(29490, range.maxX) // round(0.9*32767)
+        assertEquals(13107, range.maxY) // round(0.4*32767)
+    }
+
+    @Test
+    fun `zoneRectToMappingRange - 범위를 벗어난 비율도 0~32767로 클램핑`() {
+        val range = AbsoluteCoordinateCalculator.zoneRectToMappingRange(
+            ZoneRect(minX = -0.5f, minY = -0.5f, maxX = 1.5f, maxY = 1.5f)
+        )
+        assertEquals(0, range.minX)
+        assertEquals(0, range.minY)
+        assertEquals(32767, range.maxX)
+        assertEquals(32767, range.maxY)
+    }
 }

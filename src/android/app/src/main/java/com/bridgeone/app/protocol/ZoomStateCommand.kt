@@ -2,6 +2,7 @@ package com.bridgeone.app.protocol
 
 import com.bridgeone.app.ui.utils.AbsoluteCoordinateCalculator
 import com.bridgeone.app.ui.utils.AbsoluteZoomState
+import com.bridgeone.app.ui.utils.ZoneRect
 import org.json.JSONObject
 
 /**
@@ -100,6 +101,25 @@ object ZoomStateCommand {
         val range = AbsoluteCoordinateCalculator.calculateZoomMappingRange(zoom)
         val payload = buildPayload(
             zoomLevel = zoom.level,
+            minX = range.minX,
+            minY = range.minY,
+            maxX = range.maxX,
+            maxY = range.maxY,
+            targetMonitor = targetMonitor
+        )
+        return frame(payload)
+    }
+
+    /**
+     * 멀티 존 PC 매핑 직사각형([ZoneRect], 임의 종횡비)과 대상 모니터로부터 완성된 Vendor CDC
+     * 프레임을 만듭니다 (Phase 4.9.11). min/max 매핑 범위는 AbsoluteCoordinateCalculator.
+     * zoneRectToMappingRange()로 산출한다(축 독립 인코딩, 정사각 윈도우 가정 없음).
+     * zoom_level 필드는 표시용으로 zoomLevelFromPcRect()(정사각 가정 역산)를 사용한다.
+     */
+    fun buildFrame(pcRect: ZoneRect, targetMonitor: Int): ByteArray {
+        val range = AbsoluteCoordinateCalculator.zoneRectToMappingRange(pcRect)
+        val payload = buildPayload(
+            zoomLevel = AbsoluteCoordinateCalculator.zoomLevelFromPcRect(pcRect),
             minX = range.minX,
             minY = range.minY,
             maxX = range.maxX,

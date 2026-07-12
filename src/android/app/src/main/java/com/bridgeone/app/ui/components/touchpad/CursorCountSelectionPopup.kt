@@ -50,6 +50,9 @@ private const val POPUP_EXIT_DURATION_MS = 120
 private const val POPUP_SLIDE_OFFSET_DP = 12f
 // 앵커(ControlButtonContainer) 실제 높이 아래 여백 (dp, Phase 4.8.6). 기본값: 8f
 private const val ANCHOR_TOP_GAP_DP = 8f
+// 개수 버튼이 이 개수를 초과하면 한 줄이 아닌 2줄로 나눠 표시(Phase 4.9.11, 멀티 존 2~8 범위가
+// 한 줄에 다 들어가지 않아 화면 밖으로 잘리는 문제 방지). 기본값: 4
+private const val COUNT_BUTTONS_SINGLE_ROW_MAX = 4
 
 /** 팝업 단계 (Phase 4.8.8). COUNT=커서 수 선택, PRESET=패드별 프리셋 지정 */
 private enum class CursorPopupStage { COUNT, PRESET }
@@ -81,6 +84,9 @@ private enum class CursorPopupStage { COUNT, PRESET }
  * @param anchorTopDp `ControlButtonContainer`의 실제 렌더 높이 (호출부에서 `onGloballyPositioned`로 측정해 전달)
  * @param initialPadPresetMapping PRESET 단계 진입 시 초기값으로 쓸 패드별 프리셋 매핑(Phase 4.8.8)
  * @param onConfirm   개수+프리셋 확정 콜백. 선택 커서 수와 패드별 프리셋 매핑을 전달
+ * @param countRange  개수 선택 버튼 범위(Phase 4.9.11). 기본값은 멀티 커서(Page 2) 범위 그대로 유지
+ * @param skipPreset  true면 개수 탭 즉시 PRESET 단계를 건너뛰고 onConfirm을 바로 호출(Phase 4.9.11,
+ *        멀티 존은 패드별 프리셋 개념이 없음). 기본값 false — 기존 멀티 커서 동작 그대로 유지
  */
 @Composable
 fun CursorCountSelectionPopup(
@@ -91,7 +97,9 @@ fun CursorCountSelectionPopup(
     onDisable: (() -> Unit)? = null,
     anchorTopDp: Dp = 0.dp,
     initialPadPresetMapping: List<Int?> = emptyList(),
-    onConfirm: (Int, List<Int?>) -> Unit = { _, _ -> }
+    onConfirm: (Int, List<Int?>) -> Unit = { _, _ -> },
+    countRange: IntRange = MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX,
+    skipPreset: Boolean = false
 ) {
     val view = LocalView.current
 
@@ -109,7 +117,7 @@ fun CursorCountSelectionPopup(
 
     // Phase 4.8.8: PRESET 단계 상태. 비활성 → 멀티 진입 시 개수 선택 후 이 단계로 넘어간다.
     var stage by remember { mutableStateOf(CursorPopupStage.COUNT) }
-    var selectedCount by remember { mutableStateOf(MULTI_CURSOR_COUNT_MIN) }
+    var selectedCount by remember { mutableStateOf(countRange.first) }
     var presetMapping by remember { mutableStateOf<List<Int?>>(emptyList()) }
 
     LaunchedEffect(visible) {
@@ -158,8 +166,17 @@ fun CursorCountSelectionPopup(
             )
             return@Box
         }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // 개수 버튼이 COUNT_BUTTONS_SINGLE_ROW_MAX를 넘으면 2줄로 나눠 표시(Phase 4.9.11).
+        val counts = countRange.toList()
+        val itemsPerRow = if (counts.size > COUNT_BUTTONS_SINGLE_ROW_MAX) {
+            (counts.size + 1) / 2
+        } else {
+            counts.size.coerceAtLeast(1)
+        }
+        val countRows = counts.chunked(itemsPerRow)
+
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = anchorTopDp + ANCHOR_TOP_GAP_DP.dp)
@@ -169,69 +186,79 @@ fun CursorCountSelectionPopup(
                 .background(Color(0xFF1E1E1E).copy(alpha = 0.9f))
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
-            for (count in MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX) {
-                val isCurrent = count == frozenCurrentCount
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isCurrent) TouchpadColorPurple.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.1f))
-                        .then(
-                            if (isCurrent) Modifier.border(2.dp, TouchpadColorPurple, RoundedCornerShape(8.dp))
-                            else Modifier
-                        )
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(),
-                            onClick = {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                                } else {
-                                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                }
-                                // Phase 4.8.8: 활성/비활성 상관없이 개수 탭은 즉시 적용하지 않고
-                                // 패드별 프리셋 지정 단계로 넘어간다.
-                                selectedCount = count
-                                presetMapping = initialPadPresetMapping
-                                stage = CursorPopupStage.PRESET
-                            }
-                        )
-                ) {
-                    Text(
-                        text = count.toString(),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-            }
-            if (frozenCurrentCount != null && frozenOnDisable != null) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(TouchpadColorRed.copy(alpha = 0.85f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(),
-                            onClick = {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                                } else {
-                                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                }
-                                frozenOnDisable()
-                            }
-                        )
-                ) {
-                    Text(
-                        text = "해제",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+            countRows.forEachIndexed { rowIndex, rowCounts ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (count in rowCounts) {
+                        val isCurrent = count == frozenCurrentCount
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isCurrent) TouchpadColorPurple.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.1f))
+                                .then(
+                                    if (isCurrent) Modifier.border(2.dp, TouchpadColorPurple, RoundedCornerShape(8.dp))
+                                    else Modifier
+                                )
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = ripple(),
+                                    onClick = {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        } else {
+                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                        }
+                                        if (skipPreset) {
+                                            // Phase 4.9.11: 멀티 존은 패드별 프리셋 개념이 없으므로
+                                            // PRESET 단계를 건너뛰고 즉시 확정한다.
+                                            onConfirm(count, emptyList())
+                                        } else {
+                                            // Phase 4.8.8: 활성/비활성 상관없이 개수 탭은 즉시 적용하지 않고
+                                            // 패드별 프리셋 지정 단계로 넘어간다.
+                                            selectedCount = count
+                                            presetMapping = initialPadPresetMapping
+                                            stage = CursorPopupStage.PRESET
+                                        }
+                                    }
+                                )
+                        ) {
+                            Text(
+                                text = count.toString(),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                    if (rowIndex == countRows.lastIndex && frozenCurrentCount != null && frozenOnDisable != null) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(TouchpadColorRed.copy(alpha = 0.85f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = ripple(),
+                                    onClick = {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        } else {
+                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                        }
+                                        frozenOnDisable()
+                                    }
+                                )
+                        ) {
+                            Text(
+                                text = "해제",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
                 }
             }
         }

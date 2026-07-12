@@ -61,12 +61,15 @@ import com.bridgeone.app.ui.common.loadSwipeWrapEdge
 import com.bridgeone.app.ui.common.loadTtsGender
 import com.bridgeone.app.ui.common.loadTtsRate
 import com.bridgeone.app.ui.common.loadZoneMoveMethod
+import com.bridgeone.app.ui.common.loadZoneCrossBehavior
 import com.bridgeone.app.ui.common.saveAudioFeedbackEnabled
 import com.bridgeone.app.ui.common.saveInputMode
 import com.bridgeone.app.ui.common.saveSwipeWrapEdge
 import com.bridgeone.app.ui.common.saveZoneMoveMethod
+import com.bridgeone.app.ui.common.saveZoneCrossBehavior
 import com.bridgeone.app.ui.common.saveTtsGender
 import com.bridgeone.app.ui.common.saveTtsRate
+import com.bridgeone.app.ui.common.ZoneCrossBehavior
 import com.bridgeone.app.ui.components.touchpad.CursorMode
 import com.bridgeone.app.ui.components.touchpad.DynamicsCurveEditor
 import com.bridgeone.app.ui.components.touchpad.DpiLevel
@@ -427,6 +430,12 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
         AudioController.setGender(ttsGender)
     }
 
+    // 멀티 존 실시간 점프 중 경계를 넘을 때의 동작(진동/점프 금지/끄기). SharedPreferences에서 복원. (Phase 4.9.11)
+    var zoneCrossBehavior by remember { mutableStateOf(loadZoneCrossBehavior(context)) }
+    LaunchedEffect(zoneCrossBehavior) {
+        saveZoneCrossBehavior(context, zoneCrossBehavior)
+    }
+
     // 터치패드별 버튼 표시 설정
     val buttonVisibilityRepo = remember { TouchpadButtonVisibilityRepository(context) }
     var standardButtonVisibility by remember {
@@ -714,7 +723,8 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onCyclePage = onCyclePage,
                         onJumpToPage = onJumpToPage,
                         magnificationMode = page3MagnificationMode,
-                        onMagnificationModeChange = { page3MagnificationMode = it }
+                        onMagnificationModeChange = { page3MagnificationMode = it },
+                        zoneCrossBehavior = zoneCrossBehavior
                     )
                     3 -> Page3KeyboardPlaceholder()
                     4 -> Page4MinecraftPlaceholder()
@@ -733,6 +743,8 @@ fun StandardModePage(onCurveEditorVisibleChange: (Boolean) -> Unit = {}) {
                         onTtsRateChange = { ttsRate = it },
                         ttsGender = ttsGender,
                         onTtsGenderChange = { ttsGender = it },
+                        zoneCrossBehavior = zoneCrossBehavior,
+                        onZoneCrossBehaviorChange = { zoneCrossBehavior = it },
                         standardAssignments = standardAssignments,
                         selectedZonePage = selectedZonePage,
                         onSelectedZonePageChange = { selectedZonePage = it },

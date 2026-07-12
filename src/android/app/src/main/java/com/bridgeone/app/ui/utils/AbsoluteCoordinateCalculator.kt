@@ -202,4 +202,20 @@ object AbsoluteCoordinateCalculator {
         val width = (pcRect.maxX - pcRect.minX).coerceAtLeast(0.0001f)
         return (1f / width).coerceIn(AbsolutePointingConstants.ZOOM_LEVEL_MIN, AbsolutePointingConstants.ZOOM_LEVEL_MAX)
     }
+
+    /**
+     * 임의 종횡비 [ZoneRect]를 절대좌표 스케일(0~32767) 정수로 인코딩합니다 (Phase 4.9.11).
+     * calculateZoomMappingRange()와 달리 정사각 윈도우를 가정하지 않고 4개 축을 각각 독립적으로
+     * 인코딩한다 — 멀티 존의 pcRect는 임의 종횡비 직사각형이라 중심점+배율 모델로는 표현 불가능하다.
+     * ZoneRect.FULL이면 전체 범위(0, 0, 32767, 32767)를 반환한다.
+     */
+    fun zoneRectToMappingRange(pcRect: ZoneRect): ZoomMappingRange {
+        fun encode(ratio: Float) = (ratio * ABS_COORDINATE_MAX).roundToInt().coerceIn(0, ABS_COORDINATE_MAX)
+        return ZoomMappingRange(
+            minX = encode(pcRect.minX),
+            minY = encode(pcRect.minY),
+            maxX = encode(pcRect.maxX),
+            maxY = encode(pcRect.maxY)
+        )
+    }
 }

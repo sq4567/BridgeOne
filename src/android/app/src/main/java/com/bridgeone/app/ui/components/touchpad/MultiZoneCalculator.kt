@@ -95,14 +95,27 @@ internal fun resolveZoneRatio(pos: Offset, padRect: Rect, mapping: ZoneMapping):
  * 존/영역 정의 제스처용 실시간 직사각형 계산 (멀티 존 4.9.11, 단일 줌 4.9.12에서 사용).
  * `dx = |finger.x - center.x|`, `dy = |finger.y - center.y|`로 `[center∓dx, center∓dy]`
  * (0~1 클램프) 직사각형을 계산한다. 손가락이 화면 밖으로 나가면 해당 축이 0 또는 1에서
- * 클램프되어 모니터 끝까지 확장된다.
+ * 클램프되어 모니터 끝까지 확장된다. dx/dy는 [AbsolutePointingConstants.MULTI_ZONE_MIN_RECT_SIZE_RATIO]의
+ * 절반 미만으로 내려가지 않도록 하한을 둬(Phase 4.9.11), 손가락을 중심점 부근에서 떼도 지나치게
+ * 작거나 0폭인 존이 만들어지지 않게 한다.
  */
 internal fun rectFromCenterDrag(center: TouchRatio, finger: TouchRatio): ZoneRect {
-    val dx = abs(finger.x - center.x)
-    val dy = abs(finger.y - center.y)
+    val minHalfSize = AbsolutePointingConstants.MULTI_ZONE_MIN_RECT_SIZE_RATIO / 2f
+    val dx = abs(finger.x - center.x).coerceAtLeast(minHalfSize)
+    val dy = abs(finger.y - center.y).coerceAtLeast(minHalfSize)
     val minX = (center.x - dx).coerceIn(0f, 1f)
     val maxX = (center.x + dx).coerceIn(0f, 1f)
     val minY = (center.y - dy).coerceIn(0f, 1f)
     val maxY = (center.y + dy).coerceIn(0f, 1f)
     return ZoneRect(minX, minY, maxX, maxY)
+}
+
+/**
+ * 두 [ZoneRect]가 겹치는지 판정합니다(멀티 존 정의 확정 시 겹침 검증용, Phase 4.9.11).
+ * AABB(축 정렬 직사각형) 교차 판정 — 경계선만 맞닿은 경우(한 축이 정확히 같은 값)는
+ * 겹침으로 취급하지 않는다(부등호가 모두 strict `<`/`>`이므로 여러 존을 서로 붙여서
+ * 빈틈없이 타일링해도 겹침 오탐이 발생하지 않는다).
+ */
+internal fun rectsOverlap(a: ZoneRect, b: ZoneRect): Boolean {
+    return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY
 }

@@ -135,6 +135,8 @@ data class ControlButtonConfig(
  *   true면 아직 줌 레벨은 1x이지만 버튼은 ON(풀사이즈 모드) 표시로 즉시 전환한다(다른 제어 버튼과
  *   동일하게 탭 즉시 시각 피드백을 주기 위함). 기본값: false
  * @param onZoomClick ZoomButton 탭 콜백 (AbsolutePointingPad 전용, Phase 4.9.6). null이면 Disabled 표시.
+ * @param onZoomLongClick ZoomButton 롱프레스 콜백 — 멀티 존 모드 진입(개수 선택 팝업 표시)
+ *   (AbsolutePointingPad 전용, Phase 4.9.11). null이면 롱프레스 비활성.
  * @param modifier 외부 Modifier
  */
 @Composable
@@ -150,6 +152,7 @@ fun ControlButtonContainer(
     zoomLevel: Float = 1f,
     zoomArming: Boolean = false,
     onZoomClick: (() -> Unit)? = null,
+    onZoomLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
@@ -406,7 +409,8 @@ fun ControlButtonContainer(
                             buttonWidth = buttonWidth,
                             buttonHeight = buttonHeight,
                             enabled = onZoomClick != null,
-                            onClick = { onZoomClick?.invoke() }
+                            onClick = { onZoomClick?.invoke() },
+                            onLongClick = onZoomLongClick
                         )
                     }
                 }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignment
+import com.bridgeone.app.ui.common.ZoneCrossBehavior
 import com.bridgeone.app.ui.components.AbsolutePointingPad
 import com.bridgeone.app.ui.components.touchpad.MacroStep
 import com.bridgeone.app.ui.components.touchpad.MouseButton
@@ -26,7 +27,8 @@ internal fun Page3AbsolutePointing(
     onCyclePage: (PageNav) -> Unit = {},
     onJumpToPage: (Int) -> Unit = {},
     magnificationMode: MagnificationMode = MagnificationMode.Off,
-    onMagnificationModeChange: (MagnificationMode) -> Unit = {}
+    onMagnificationModeChange: (MagnificationMode) -> Unit = {},
+    zoneCrossBehavior: ZoneCrossBehavior = ZoneCrossBehavior.OFF
 ) {
     AbsolutePointingPad(
         modifier = Modifier.fillMaxSize(),
@@ -39,6 +41,7 @@ internal fun Page3AbsolutePointing(
         onCyclePage = onCyclePage,
         onJumpToPage = onJumpToPage,
         magnificationMode = magnificationMode,
-        onMagnificationModeChange = onMagnificationModeChange
+        onMagnificationModeChange = onMagnificationModeChange,
+        zoneCrossBehavior = zoneCrossBehavior
     )
 }

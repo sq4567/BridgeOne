@@ -45,6 +45,7 @@ import com.bridgeone.app.ui.common.TouchpadButtonVisibility
 import com.bridgeone.app.ui.common.TouchpadEdgeZoneAssignment
 import com.bridgeone.app.ui.common.TouchpadIds
 import com.bridgeone.app.ui.common.TtsGender
+import com.bridgeone.app.ui.common.ZoneCrossBehavior
 import com.bridgeone.app.ui.components.touchpad.EdgeInteractionMode
 import com.bridgeone.app.ui.components.touchpad.TouchpadState
 
@@ -68,6 +69,8 @@ internal fun Page5Settings(
     onTtsRateChange: (Float) -> Unit = {},
     ttsGender: TtsGender = TtsGender.DEFAULT,
     onTtsGenderChange: (TtsGender) -> Unit = {},
+    zoneCrossBehavior: ZoneCrossBehavior = ZoneCrossBehavior.OFF,
+    onZoneCrossBehaviorChange: (ZoneCrossBehavior) -> Unit = {},
     standardAssignments: Map<Int, TouchpadEdgeZoneAssignment> = emptyMap(),
     selectedZonePage: Int = 0,
     onSelectedZonePageChange: (Int) -> Unit = {},
@@ -323,6 +326,23 @@ internal fun Page5Settings(
                 }
             }
 
+            // 멀티 존 실시간 점프 경계 이동 동작 (Phase 4.9.11)
+            item {
+                Text(
+                    text = "멀티 존 경계 이동 동작",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFAAAAAA),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            item {
+                SettingsZoneCrossBehaviorSection(
+                    currentMode = zoneCrossBehavior,
+                    onModeSelected = onZoneCrossBehaviorChange
+                )
+            }
+
             // 버튼 표시 섹션
             item {
                 Text(
@@ -386,6 +406,59 @@ private fun SettingsInputModeSection(
                         text = when (mode) {
                             InputMode.NORMAL -> "요소를 직접 터치하고 드래그합니다"
                             InputMode.SWIPE -> "화면 어디서나 스와이프로 선택, 어디서나 터치로 조작합니다"
+                        },
+                        fontSize = 12.sp,
+                        color = Color(0xFF888888)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 멀티 존 실시간 점프 중 손을 떼지 않고 다른 서브 패드로 경계를 넘었을 때의 동작 선택 (Phase 4.9.11).
+ * 세 값은 상호 배타적인 라디오 그룹이다.
+ */
+@Composable
+private fun SettingsZoneCrossBehaviorSection(
+    currentMode: ZoneCrossBehavior,
+    onModeSelected: (ZoneCrossBehavior) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        ZoneCrossBehavior.entries.forEach { mode ->
+            val isSelected = currentMode == mode
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isSelected) Color(0xFF2A2A2A) else Color.Transparent,
+                        RoundedCornerShape(8.dp)
+                    )
+                    .clickable { onModeSelected(mode) }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                RadioButton(
+                    selected = isSelected,
+                    onClick = { onModeSelected(mode) }
+                )
+                Column {
+                    Text(
+                        text = when (mode) {
+                            ZoneCrossBehavior.OFF -> "끄기"
+                            ZoneCrossBehavior.HAPTIC -> "진동으로 알림"
+                            ZoneCrossBehavior.BLOCK -> "점프 금지"
+                        },
+                        fontSize = 14.sp,
+                        color = Color(0xFFEEEEEE)
+                    )
+                    Text(
+                        text = when (mode) {
+                            ZoneCrossBehavior.OFF -> "손을 떼지 않고 다른 서브 패드로 넘어가면 그대로 점프합니다"
+                            ZoneCrossBehavior.HAPTIC -> "점프는 그대로 하되, 경계를 넘는 순간 진동으로 알려줍니다"
+                            ZoneCrossBehavior.BLOCK -> "경계를 넘어도 점프하지 않고, 손을 뗄 때까지 처음 존에 고정합니다"
                         },
                         fontSize = 12.sp,
                         color = Color(0xFF888888)

@@ -1,6 +1,7 @@
 package com.bridgeone.app.protocol
 
 import com.bridgeone.app.ui.utils.AbsoluteZoomState
+import com.bridgeone.app.ui.utils.ZoneRect
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -138,5 +139,37 @@ class ZoomStateCommandTest {
         assertEquals(32767, json.getInt("max_x"))
         assertEquals(32767, json.getInt("max_y"))
         assertEquals(0, json.getInt("target_monitor"))
+    }
+
+    // ── buildFrame(ZoneRect) — 멀티 존 임의 종횡비 인코딩 (Phase 4.9.11) ─────────
+
+    @Test
+    fun `buildFrame(pcRect) - 임의 종횡비 직사각형을 축 독립 인코딩(정사각 가정 없음)`() {
+        val frame = ZoomStateCommand.buildFrame(
+            ZoneRect(minX = 0.1f, minY = 0.2f, maxX = 0.9f, maxY = 0.4f),
+            targetMonitor = 2
+        )
+        val len = (frame[2].toInt() and 0xFF) or ((frame[3].toInt() and 0xFF) shl 8)
+        val payloadBytes = frame.copyOfRange(4, 4 + len)
+        val json = JSONObject(String(payloadBytes, Charsets.UTF_8))
+
+        assertEquals(3277, json.getInt("min_x"))
+        assertEquals(6553, json.getInt("min_y"))
+        assertEquals(29490, json.getInt("max_x"))
+        assertEquals(13107, json.getInt("max_y"))
+        assertEquals(2, json.getInt("target_monitor"))
+    }
+
+    @Test
+    fun `buildFrame(pcRect) - FULL은 전체 범위(0,0,32767,32767)`() {
+        val frame = ZoomStateCommand.buildFrame(ZoneRect.FULL, targetMonitor = 0)
+        val len = (frame[2].toInt() and 0xFF) or ((frame[3].toInt() and 0xFF) shl 8)
+        val payloadBytes = frame.copyOfRange(4, 4 + len)
+        val json = JSONObject(String(payloadBytes, Charsets.UTF_8))
+
+        assertEquals(0, json.getInt("min_x"))
+        assertEquals(0, json.getInt("min_y"))
+        assertEquals(32767, json.getInt("max_x"))
+        assertEquals(32767, json.getInt("max_y"))
     }
 }

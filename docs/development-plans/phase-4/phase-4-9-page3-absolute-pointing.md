@@ -34,7 +34,6 @@ updated: "2026-07-11"
 - 엣지존 줌/드래그 모드 토글 액션
 - 멀티 존 모드: 임의 종횡비 직사각형 ROI 존별 매핑(모니터 배정 포함) + 자동/자유 배치 + 프리셋 저장/불러오기 + 활성 구성 존 추가/제거, 터치 즉시 판정
 - 손떨림 보정 (원시 좌표 EMA 스무딩)
-- 존 경계 진동 피드백 (멀티존 전환 시 햅틱)
 - 터치 시작 확정 디바운스 (스치는 접촉 필터링)
 - 스크롤 모드 (커서 위치 고정 + 상대 델타 스크롤, 일반/무한 둘 다)
 
@@ -707,29 +706,54 @@ DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9
 ### 진입 및 정의 흐름
 
 1. **진입**: ZoomButton **롱프레스**로 멀티존 모드 진입(탭=단일 줌은 그대로 유지, 멀티커서 CursorModeButton의 탭=선택/롱프레스=전환 이원화 관용구 답습) → `CursorCountSelectionPopup` 재사용(문구만 "존 개수"로, 범위는 `MULTI_ZONE_COUNT_MIN~MAX`인 2~8 — 커서 개수 범위(2~4)보다 넓으므로 팝업에 `countRange: IntRange` 파라미터를 신규 추가해 호출측에서 범위를 지정. 기본값은 기존 `MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX`로 둬 Page 2(멀티커서) 호출부는 그대로 동작)
-2. `definingZoneIndex`(0부터) 순서로 각 셀을 정의: 그리드 분할선 오버레이 + "존 k/N 정의 중" 안내 + 대상 셀 하이라이트, 나머지 셀은 흐리게. **패드 전체 화면을 대상 모니터의 미리보기 캔버스로 간주**하고 그 위에서 PC 매핑 직사각형을 그린다
-3. 대상 셀 안에서 중심점 DOWN → 손가락을 바깥으로 드래그(`rectFromCenterDrag(center, finger)`로 실시간 직사각형 프리뷰 계산·렌더 — 손가락을 아래로 내리면 세로로 긴 직사각형이 되는 등 종횡비 자유. 손가락이 패드 밖으로 나가면 해당 축이 모니터 끝까지 클램프) → 손 뗌 → **확정 대기** 상태로 전환(4.9.6의 `zoomAwaitingConfirm` 2단계 확정 패턴 재사용: 확정 전 몇 번이든 재드래그로 직사각형 재조정 가능)
-4. 확정 대기 중 **원탭** → `zones[definingZoneIndex] = ZoneMapping(pcRect = 정의된 직사각형, defined = true)`, `definingZoneIndex++`로 다음 셀로 이동
-5. 확정 대기 중 **롱프레스** → 이번 존 정의를 취소하고 1번(개수 선택 팝업)으로 되돌아감(전체 재시작)
-6. 마지막 존까지 정의되면 `page3MagnificationMode`를 `MagnificationMode.Zone(state.copy(enabled = true))`로 전환, 이후 실시간 점프 모드로 동작
+2. `definingZoneIndex`(0부터) 순서로 각 셀을 정의: **정의 중에는 대상 셀 하나가 풀사이즈 모드처럼 패드 전체를 차지**한다(그리드 분할선·나머지 셀 딤 표시 없음 — 다른 셀이 화면에 함께 보이지 않으므로). "존 k/N 정의 중" 안내 텍스트만 표시하며, **패드 전체 화면을 대상 모니터의 미리보기 캔버스로 간주**하고 그 위에서 PC 매핑 직사각형을 그린다. 그리드 분할(`divideZoneAreas`)은 이 정의 단계가 아니라 6번의 실시간 점프 단계에서 `hitTestPad`로 손가락이 속한 셀을 판정할 때만 쓰인다. 단, **이미 확정된 이전 존들의 PC 매핑 직사각형은 옅은 색으로 겹쳐 표시**해(현재 프리뷰보다 낮은 alpha/얇은 선) 새 존을 그릴 때 겹치지 않게 참고할 수 있게 한다
+3. 패드 전체(=대상 셀) 안에서 중심점 DOWN → 손가락을 바깥으로 드래그(`rectFromCenterDrag(center, finger)`로 실시간 직사각형 프리뷰 계산·렌더 — 손가락을 아래로 내리면 세로로 긴 직사각형이 되는 등 종횡비 자유. 손가락이 패드 밖으로 나가면 해당 축이 모니터 끝까지 클램프) → 손 뗌(=**존 정의 완료 시점**) → **겹침 검증**: 방금 그린 직사각형이 이미 확정된 다른 존(`zones.filter { it.defined }`)과 `rectsOverlap`으로 겹치는지 즉시 확인. **겹치면 확정 대기로 넘어가지 않고 그 자리에서 거부**: `ToastController.show(..., ToastType.ERROR)` 에러 토스트 + REJECT 햅틱 후 프리뷰를 지우고 같은 `definingZoneIndex`를 "재정의 중" 상태로 되돌려(5번과 동일한 재정의 흐름) 처음부터 다시 그리게 한다. 겹치지 않으면 **확정 대기** 상태로 전환(4.9.6의 `zoomAwaitingConfirm` 2단계 확정 패턴 재사용: 확정 전 몇 번이든 재드래그로 직사각형 재조정 가능 — 재드래그로 완성한 새 직사각형도 다음 손 뗌 시점에 동일하게 겹침 검증). 좌표 정규화는 정의 제스처 내내 패드 전체 기준(`calculateTouchRatio`)이다. **중심점은 흰 점+오렌지 테두리로 오버레이에 계속 표시**해 기준점을 명확히 보여준다. `rectFromCenterDrag`는 dx/dy에 `MULTI_ZONE_MIN_RECT_SIZE_RATIO`(기본 0.1, 모니터 대비 비율)의 절반을 하한으로 강제해, 손가락을 거의 움직이지 않고 떼도 지나치게 작거나 0폭인 존이 만들어지지 않는다
+4. 확정 대기 중 **원탭** → 겹침 검증은 이미 3번(정의 완료 시점)에서 끝났으므로 재검증 없이 바로 확정: `zones[definingZoneIndex] = ZoneMapping(pcRect = 정의된 직사각형, defined = true)`, `definingZoneIndex++`로 다음 셀로 이동
+5. 확정 대기 중 **롱프레스** → `definingZoneIndex == 0`(첫 존, 아직 확정된 존 없음)이면 1번(개수 선택 팝업)으로 되돌아감(전체 재시작). `definingZoneIndex > 0`(이미 확정된 이전 존이 있음)이면 전체 재시작 대신 **이번 존만 재정의**: 직사각형 프리뷰만 지우고 같은 `definingZoneIndex`로 다시 3번부터(정의 전 상태로 복귀), 이미 확정된 이전 존들의 `zones`는 보존. 안내 텍스트를 "존 k/N 정의 중"에서 "존 k/N **재정의 중**"으로 전환해 재정의 상태임을 표시(존 커밋 시 원래 문구로 복귀)
+6. 마지막 존까지 정의되면 `page3MagnificationMode`를 `MagnificationMode.Zone(state.copy(enabled = true))`로 전환, 이후 실시간 점프 모드로 동작. **enabled=true 전환 후에도 서브 패드 경계(`divideZoneAreas` 결과)를 옅은 그리드 선으로 계속 표시**해, 패드가 하나의 큰 영역이 아니라 균등 분할된 여러 서브 패드로 보이게 한다(정의 단계의 그리드 미표시 원칙과 별개 — 정의 단계는 "대상 셀=패드 전체"라 그리드가 무의미하지만, 실시간 점프 단계는 여러 셀이 동시에 화면에 존재하므로 경계 표시가 필요)
 7. 멀티존 활성 중 ZoomButton 재탭 → `page3MagnificationMode = MagnificationMode.Off`로 전환 + 해제 프레임 1회 전송
 
 미정의 존(`defined=false`)은 항등 매핑으로 취급(확대 없이 셀 영역을 그대로 stretch).
 
-### 실시간 점프 전송 (기존 헬퍼 무변경 재사용)
+### 프로토콜 확장 (임의 종횡비 ZoneRect 인코딩 신설)
 
-- 존 전환 감지(`curZoneIdx != lastSentZoneIdx`) 시 그 존의 `sendZoomStateFrame(zone.mapping, zone.targetMonitor)`를 스로틀 없이 1회 전송, `lastSentZoneIdx` 갱신으로 중복 억제
-- `sendAbsolutePosition(ratio, buttons, zone.targetMonitor)`로 좌표 전송 — 이때 `targetMonitor`는 모니터 셀렉터 값이 아니라 **존별 배정값**을 사용
-- 존 정의 중 직사각형 드래그에는 기존 `ZOOM_STATE_THROTTLE_MS`(30Hz) 스로틀 그대로 적용
+기존 `sendZoomStateFrame(zoom: AbsoluteZoomState, ...)`/`ZoomStateCommand.buildFrame(zoom, ...)`은 중심점+배율 기반 **정사각 윈도우 전용**이라 멀티존의 임의 종횡비 `pcRect`를 손실 없이 표현할 수 없다. 이 Phase에서 인코딩 경로를 신설한다:
+- `AbsoluteCoordinateCalculator.zoneRectToMappingRange(pcRect: ZoneRect): ZoomMappingRange` — 4개 축을 각각 독립적으로 `(ratio * ABS_COORDINATE_MAX).roundToInt().coerceIn(0, ABS_COORDINATE_MAX)` 인코딩(FULL → 0,0,32767,32767)
+- `ZoomStateCommand.buildFrame(pcRect: ZoneRect, targetMonitor: Int)` 오버로드 — 위 함수로 얻은 min/max와 `zoomLevelFromPcRect(pcRect)`(표시용 level)로 기존 `buildPayload(...)` 재사용. 기존 `buildFrame(zoom, ...)`는 단일 줌 회귀 방지를 위해 그대로 유지
+- `AbsolutePointingPad.kt`에 파일 프라이빗 `sendZoneStateFrame(pcRect: ZoneRect, targetMonitor: Int)` 신설(`sendZoomStateFrame`과 동형)
+
+### 실시간 점프 전송
+
+- 존 전환 감지(`curZoneIdx != lastSentZoneIdx`) 시 그 존의 `sendZoneStateFrame(zone.mapping.pcRect, zone.mapping.targetMonitor)`를 스로틀 없이 1회 전송, `lastSentZoneIdx` 갱신으로 중복 억제
+- `sendAbsolutePosition(ratio, buttons, zone.mapping.targetMonitor)`로 좌표 전송 — 이때 `targetMonitor`는 모니터 셀렉터 값이 아니라 **존별 배정값**을 사용. 단, 이 Phase엔 존별 모니터 셀렉터 UI가 없으므로 각 존 확정 시점의 모니터 셀렉터 값으로 배정(존별 개별 배정 UI는 후속 Phase)
+- 존 정의 중 직사각형 드래그에는 기존 `ZOOM_STATE_THROTTLE_MS`(30Hz) 스로틀 그대로 적용, `sendZoneStateFrame`으로 전송
+
+### 존 경계 이동 동작 설정 (계획 외 추가, Phase 4.9.11)
+
+실시간 점프 중 **손을 떼지 않고 다른 서브 패드로 경계를 넘었을 때**의 동작을 환경 설정(Page 5)에서 3지선다 라디오 그룹으로 고를 수 있다. `ZoneCrossBehavior`(`ui/common/ZoneCrossBehaviorPrefs.kt`, SharedPreferences 영속화) enum:
+- `OFF`(기본값): 기존 동작 그대로 즉시 점프, 별도 피드백 없음
+- `HAPTIC`: 점프는 그대로 허용하되 경계를 넘는 순간 `HapticFeedbackConstants.CLOCK_TICK` 햅틱으로 알림
+- `BLOCK`: 점프 자체를 막음 — 좌표가 터치가 시작된 존(`zoneTouchStartIdx`)에 고정되어, 손가락이 다른 존 화면 영역으로 넘어가도 `normalizeInZone`의 0~1 클램프에 의해 커서가 시작 존의 매핑 경계에서 멈춘다(손을 떼고 다시 터치해야 새 존으로 진입)
+
+**감지 지점**: `liveJump` MOVE 브랜치에서 `hitTestPad`로 구한 현재 존(`rawIdx`)이 `lastSentZoneIdx`(이번 연속 터치 중 마지막으로 전송한 존, DOWN 시 -1로 초기화)와 다르면 "경계 이동"으로 판정(`crossedZone`). DOWN에서의 최초 진입은 `lastSentZoneIdx == -1`이라 크로스로 취급하지 않는다.
+
+**상태 전파**: `StandardModePage`가 `loadZoneCrossBehavior`/`saveZoneCrossBehavior`로 hoisting(다른 환경설정 항목과 동일한 `var state by remember + LaunchedEffect(state) { save... }` 패턴) → `Page5Settings`(편집 UI, `SettingsZoneCrossBehaviorSection`)와 `Page3AbsolutePointing → AbsolutePointingPad`(소비, `rememberUpdatedState`로 실행 중인 제스처 루프에도 즉시 반영) 양쪽에 전달.
 
 ### 모드 배타성
 
 단일 줌 / 멀티 존 / 드래그 앤 드롭은 상호 배타. 단일 줌과 멀티 존 사이의 배타는 `MagnificationMode` sealed class 자체가 보장(한 값은 Single 또는 Zone 중 하나만 가짐, 강제 해제 코드 불필요). 드래그 앤 드롭은 별개 상태(`localState.dragMode`)라 여전히 진입 지점(ZoomButton 탭·롱프레스, 커서수팝업 확정)에서 명시적으로 차단해야 한다. 멀티존은 "즉시 점프 포인팅"이라 드래그 홀드와 개념이 충돌(존 경계를 넘으면 좌표가 순간이동해 드래그 궤적이 깨짐) — 멀티존 활성 시 드래그 앤 드롭 진입 차단. 엣지존(좌표 무관 이산 액션)은 기존 gate 로직 그대로 공존.
 
 ### 수정 파일
-- `ui/components/AbsolutePointingPad.kt` — 제스처 루프에 멀티존 DOWN/MOVE 실시간 점프 브랜치, 존 정의 세션 상태(`multiZoneDefining`, `definingZoneIndex`, `zoneRectDefining`/`zoneRectAwaitingConfirm`), 직사각형 프리뷰·그리드 분할선 오버레이 렌더, ZoomButton 롱프레스 배선, 확정 대기 중 롱프레스 취소 브랜치
-- `ui/components/touchpad/CursorCountSelectionPopup.kt` — 개수 선택 루프의 범위를 신규 `countRange: IntRange` 파라미터로 파라미터화(기본값은 기존 `MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX`라 Page 2 동작은 그대로 유지). 멀티존 호출측은 `MULTI_ZONE_COUNT_MIN..MULTI_ZONE_COUNT_MAX`(2~8) 전달
-- `ui/utils/AbsolutePointingConstants.kt` — 그리드 오버레이 렌더 상수(분할선 굵기/alpha, 하이라이트 alpha, 직사각형 프리뷰 굵기/alpha, 안내 텍스트 크기, 모두 기본값 주석 필수)
+- `ui/components/AbsolutePointingPad.kt` — 제스처 루프에 멀티존 DOWN/MOVE/UP 정의·실시간 점프 브랜치, 존 정의 세션 상태(`multiZonePopupVisible`, `definingZoneIndex`, `zoneRectAwaitingConfirm`, `zoneRectPreview`, `zoneCenterPoint`, `zoneRedefining`), 직사각형 프리뷰 오버레이 렌더(그리드 분할선·딤은 정의 단계엔 없음, 대신 이미 확정된 이전 존들을 옅게 겹쳐 표시 + 정의 중심점을 점으로 표시), 실시간 점프 단계(enabled=true) 서브 패드 그리드 경계 오버레이(`divideZoneAreas` 렌더링), ZoomButton 롱프레스 배선, 확정 대기 중 롱프레스 재시작 브랜치(`onRequestRestartDefinition` — 첫 존은 팝업 재시작, 이후 존은 해당 존만 재정의), `sendZoneStateFrame` 헬퍼, 원탭 확정 시 `rectsOverlap` 겹침 검증 + `ToastController` 에러 토스트 브랜치
+- `ui/components/touchpad/MultiZoneCalculator.kt` — 두 `ZoneRect`의 AABB 교차 판정 순수 함수 `rectsOverlap(a, b)` 신설(경계선만 맞닿은 경우는 겹침 아님으로 처리). `rectFromCenterDrag`에 `MULTI_ZONE_MIN_RECT_SIZE_RATIO` 기반 dx/dy 하한(`coerceAtLeast`) 추가
+- `ui/components/touchpad/CursorCountSelectionPopup.kt` — 개수 선택 루프의 범위를 신규 `countRange: IntRange` 파라미터로 파라미터화(기본값은 기존 `MULTI_CURSOR_COUNT_MIN..MULTI_CURSOR_COUNT_MAX`라 Page 2 동작은 그대로 유지). `skipPreset: Boolean` 파라미터 신규 추가(멀티존은 프리셋 개념이 없어 PRESET 단계 우회). 멀티존 호출측은 `countRange=MULTI_ZONE_COUNT_MIN..MULTI_ZONE_COUNT_MAX`(2~8), `skipPreset=true` 전달
+- `ui/components/touchpad/ControlButtonContainer.kt` — ZoomButton 슬롯에 `onZoomLongClick` 파라미터 신규 추가 및 `combinedClickable`의 `onLongClick`에 배선
+- `protocol/ZoomStateCommand.kt`, `ui/utils/AbsoluteCoordinateCalculator.kt` — 임의 종횡비 `ZoneRect` → 프레임 인코딩 경로 신설(`zoneRectToMappingRange`, `buildFrame(pcRect, targetMonitor)` 오버로드)
+- `ui/utils/AbsolutePointingConstants.kt` — 정의 오버레이/제스처 상수(직사각형 프리뷰 굵기/alpha, 이전 존 겹침 참고 오버레이 굵기/alpha, 안내 텍스트 크기, 확정 대기 중 롱프레스 재시작 임계, 실시간 점프 그리드 경계선 굵기/alpha, 정의 직사각형 최소 크기 비율, 중심점 표시 반지름/테두리 굵기, 모두 기본값 주석 필수)
+- `ui/common/ZoneCrossBehaviorPrefs.kt` **(신규 파일, 계획 외 추가)** — `ZoneCrossBehavior` enum(OFF/HAPTIC/BLOCK) + `loadZoneCrossBehavior`/`saveZoneCrossBehavior` (기존 `InputMode.kt`/`AudioFeedbackPrefs.kt`와 동일한 `enum.name` 문자열 저장 패턴)
+- `ui/pages/StandardModePage.kt` **(계획 외 추가)** — `zoneCrossBehavior` hoisted 상태(`var + LaunchedEffect` 저장 패턴) 추가, `Page5Settings`/`Page3AbsolutePointing` 양쪽에 전달
+- `ui/pages/standard/Page5Settings.kt` **(계획 외 추가)** — `zoneCrossBehavior`/`onZoneCrossBehaviorChange` 파라미터 추가, "멀티 존 경계 이동 동작" 섹션(`SettingsZoneCrossBehaviorSection`, `SettingsInputModeSection`과 동일한 RadioButton+설명 패턴) 신설
+- `ui/pages/standard/Page3AbsolutePointing.kt` **(계획 외 추가)** — `zoneCrossBehavior` 파라미터를 `AbsolutePointingPad`로 그대로 전달하는 위임 배선 추가
 
 **참조 문서**:
 - 본 문서 Phase 4.9.10(데이터 모델) — `MultiZoneCalculator`의 `divideZoneAreas`/`rectFromCenterDrag`/`resolveZoneRatio`
@@ -737,15 +761,27 @@ DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9
 - 본 문서 Phase 4.9.5(모니터 셀렉터) — 존별 모니터 배정의 `targetMonitor` 규약
 
 **검증**:
-- [ ] 2~8분할 각각에서 존 판정(`hitTestPad`)이 셀 경계를 정확히 구분
-- [ ] 정의 세션: N개 존을 순차 정의(탭 확정) 후 실시간 점프 모드 정상 전환
-- [ ] 확정 대기 중 재드래그로 직사각형이 몇 번이든 재조정되는지, 롱프레스로 개수 선택부터 재시작되는지 확인
-- [ ] 손가락을 패드 밖으로 밀었을 때 해당 축이 모니터 끝까지 클램프되는지(임의 종횡비 직사각형 생성 확인)
-- [ ] 미정의 존 진입 시 항등 매핑(확대 없음) 확인
-- [ ] 존 전환 시 `ZOOM_STATE`+`targetMonitor` 프레임이 스로틀 없이 1회 전송(중복 없음)
-- [ ] 단일 줌/드래그 앤 드롭과 상호 배타 동작(동시 활성 불가) 확인
-- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
-- [ ] 실기기 필요: 존 경계를 넘나드는 실제 조작감, 직사각형 정의 드래그 체감, 서버 측 존 전환 시 커서 텔레포트 체감 지연(펌웨어/서버 완성 후 후속 통합 Phase에서 검증)
+- [x] `zoneRectToMappingRange`/`buildFrame(pcRect, ...)` 단위테스트(FULL 전체범위, 임의 종횡비 축 독립 인코딩, 범위 밖 클램핑) — `AbsoluteCoordinateCalculatorTest`, `ZoomStateCommandTest`
+- [x] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음(`MultiZoneCalculatorTest`, `MultiCursorGridGeometryTest` 등 포함 전체 통과)
+- [x] `rectsOverlap` 단위테스트(겹침/분리/경계 맞닿음/완전 포함) — `MultiZoneCalculatorTest`
+- [x] `rectFromCenterDrag` 최소 크기 하한 단위테스트(중심과 손가락 동일/모서리 중심점/최소 크기보다 큰 드래그는 클램프 미적용) — `MultiZoneCalculatorTest`
+- [x] 이미 확정된 존과 겹치게 새 존을 정의하고 **드래그 손을 떼는 즉시**(확정 대기로 넘어가기 전) 에러 토스트 + REJECT 햅틱이 뜨고, 확정 대기 상태 없이 곧바로 같은 존을 "재정의 중"으로 다시 그릴 수 있는지 (실기기)
+- [x] 정의 중심점(흰 점)이 DOWN 위치에 표시되고, 확정/재정의/재시작 시 사라지는지 (실기기)
+- [x] 손가락을 거의 움직이지 않고 손을 떼도 서브 패드가 최소 크기 이상으로 정의되는지 (실기기)
+- [x] 정의 중 두 번째 존부터 이미 확정된 이전 존들의 PC 매핑 영역이 옅게 겹쳐 보이는지, 현재 그리는 프리뷰와 시각적으로 구분되는지 (실기기)
+- [x] 실시간 점프 모드(enabled=true) 진입 후 서브 패드 그리드 경계선이 계속 보이는지(하나의 큰 패드처럼 보이지 않는지) (실기기)
+- [x] 환경 설정 "멀티 존 경계 이동 동작"에서 OFF/HAPTIC/BLOCK 전환이 즉시 반영되는지, 앱 재시작 후에도 선택값이 유지되는지 (실기기)
+- [x] HAPTIC 선택 시: 손을 떼지 않고 다른 서브 패드로 넘어가는 순간 진동이 오고, 같은 존 안에서는 반복 진동하지 않는지 (실기기)
+- [x] BLOCK 선택 시: 손을 떼지 않고 다른 서브 패드 쪽으로 계속 밀어도 커서가 점프하지 않고 시작 존의 매핑 경계에서 멈추는지, 손을 뗐다가 다시 터치하면 새 존으로 정상 진입하는지 (실기기)
+- [x] 2~8분할 각각에서 존 판정(`hitTestPad`)이 셀 경계를 정확히 구분 (실기기)
+- [x] 정의 세션: N개 존을 순차 정의(탭 확정) 후 실시간 점프 모드 정상 전환 (실기기)
+- [x] 확정 대기 중 재드래그로 직사각형이 몇 번이든 재조정되는지 확인 (실기기)
+- [x] 확정 대기 중 롱프레스: 첫 존(idx==0)에서는 개수 선택 팝업으로 전체 재시작, 두 번째 존부터는 이미 확정된 이전 존을 잃지 않고 해당 존만 "재정의 중"으로 재정의되는지 확인 (실기기)
+- [x] 손가락을 패드 밖으로 밀었을 때 해당 축이 모니터 끝까지 클램프되는지(임의 종횡비 직사각형 생성 확인) (실기기)
+- [x] 미정의 존 진입 시 항등 매핑(확대 없음) 확인 (실기기)
+- [x] 존 전환 시 `ZOOM_STATE`+`targetMonitor` 프레임이 스로틀 없이 1회 전송(중복 없음) (실기기)
+- [x] 단일 줌/드래그 앤 드롭과 상호 배타 동작(동시 활성 불가) 확인 (실기기)
+- [x] 실기기 필요: 존 경계를 넘나드는 실제 조작감, 직사각형 정의 드래그 체감, 서버 측 존 전환 시 커서 텔레포트 체감 지연(펌웨어/서버 완성 후 후속 통합 Phase에서 검증)
 
 ---
 
@@ -760,7 +796,7 @@ DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9
 ### 제스처 교체
 
 - 기존(4.9.6) 단일 줌 정의 흐름: ZoomButton 탭 → PointingArea 중심점 DOWN → 드래그 거리 비례 배율 증가(`dragDistanceToZoomLevel`, 0dp→1x, 50dp→2x, 100dp→4x, 150dp+→8x 선형 보간) → 손 뗌 → 확정 대기(`zoomAwaitingConfirm`) → 원탭 확정. 이 2단계 확정 골격(드래그 → 손 뗌 → 확정 대기 → 원탭, 확정 전 몇 번이든 재드래그 가능) 자체는 유지
-- 신규 흐름: 배율 스칼라 계산 대신 `rectFromCenterDrag(center, finger)`로 직사각형을 실시간 계산·프리뷰. 손가락을 세로/가로로만 밀면 그 축만 늘어나는 임의 종횡비 직사각형(4.9.11 멀티존 정의와 동일한 조작 감각). 손가락이 패드 밖으로 나가면 해당 축이 모니터 끝까지 클램프(4.9.11과 동일 규칙)
+- 신규 흐름: 배율 스칼라 계산 대신 `rectFromCenterDrag(center, finger)`로 직사각형을 실시간 계산·프리뷰. 손가락을 세로/가로로만 밀면 그 축만 늘어나는 임의 종횡비 직사각형(4.9.11 멀티존 정의와 동일한 조작 감각). 손가락이 패드 밖으로 나가면 해당 축이 모니터 끝까지 클램프(4.9.11과 동일 규칙). `rectFromCenterDrag`에 4.9.11에서 추가된 `MULTI_ZONE_MIN_RECT_SIZE_RATIO` 기반 최소 크기 하한도 그대로 상속되므로(별도 구현 불필요) 단일 줌도 손가락을 거의 움직이지 않고 떼면 자동으로 최소 크기가 보장됨. 정의 중 중심점 표시(흰 점+오렌지 테두리, 4.9.11 `zoneCenterPoint` 패턴)도 이 Phase에서 단일 줌 오버레이에 동일하게 적용할지 착수 시점에 결정
 - 확정 시 `page3MagnificationMode = MagnificationMode.Single(ZoneMapping(pcRect = 정의된 직사각형, defined = true))`로 반영
 
 ### 정리 대상
@@ -804,7 +840,7 @@ DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9
 
 존마다 두 단계로 정의(순서: PC 영역 먼저, 그다음 Android 영역):
 1. **PC 대상 영역 정의**: 4.9.11과 동일한 흐름(패드 전체를 모니터 캔버스로 간주, 중심점 DOWN → 바깥 드래그 → 확정 대기 → 원탭 확정 / 롱프레스 재시작)으로 `pcRect` 정의
-2. **Android 입력 영역 정의**: PC 영역 확정 직후, Android 화면 전체가 입력 영역 정의 캔버스로 전환. 중심점 DOWN → 바깥 드래그(`rectFromCenterDrag` 재사용) → 손 뗌 → **겹침 검사**(`rectsOverlap(신규 padRect, 이미 확정된 존들의 padRect)`) — 겹치면 확정 차단 + 붉은 경계 피드백(기존 엣지존 경계 히트 피드백 패턴 참고: 붉은 점멸 + 롱프레스 햅틱) 후 재드래그 유도, 겹치지 않으면 확정 대기 → 원탭 확정 → `zones[definingZoneIndex].padRect` 갱신, 다음 존으로 이동
+2. **Android 입력 영역 정의**: PC 영역 확정 직후, Android 화면 전체가 입력 영역 정의 캔버스로 전환. 중심점 DOWN → 바깥 드래그(`rectFromCenterDrag` 재사용) → 손 뗌(=정의 완료 시점) → **겹침 검사**(`rectsOverlap(신규 padRect, 이미 확정된 존들의 padRect)` — `rectsOverlap`은 4.9.11에서 이미 신설되어 재사용만 하면 됨, 신규 구현 아님) — 겹치면 그 자리에서 확정을 거부하고 재드래그를 유도, 겹치지 않으면 확정 대기 → 원탭 확정 → `zones[definingZoneIndex].padRect` 갱신, 다음 존으로 이동. **피드백 스타일은 4.9.11의 `pcRect` 겹침 검증(`ToastController.show(..., ToastType.ERROR)` + REJECT 햅틱, 정의 완료 시점 즉시 판정)과 통일 권장** — 애초 계획했던 "붉은 점멸 + 롱프레스 햅틱"(엣지존 경계 히트 패턴) 대신, 같은 정의 세션 안에서 PC 영역과 Android 영역 겹침 피드백이 다르게 보이면 혼란을 줄 수 있으므로 착수 시점에 재검토
 
 자동 배치와 달리 자유 배치는 `padRect`가 셀 자동 분할이 아니라 유저가 그린 임의 영역이므로, 정의 완료 후에도 패드에 매핑되지 않은 여백이 남을 수 있다(무매핑 영역, 아래 참조).
 
@@ -814,8 +850,8 @@ DOWN/MOVE 처리(런타임 실시간 점프, 멀티 존 정의 UI는 4.9.11, 4.9
 - `placement == FREE`: `hitTestByPadRect(pos, zones)`(신규)로 터치 위치가 속한 `padRect`를 가진 존을 찾음. 어느 `padRect`에도 속하지 않는 영역은 무매핑으로 취급(좌표 전송 억제 — 존이 정의되지 않은 패드 여백을 실수로 건드려도 커서가 움직이지 않도록)
 
 ### 신규 파일 / 수정 파일
-- `ui/components/touchpad/MultiZoneCalculator.kt`(수정) — `rectsOverlap(a, b)`, `hitTestByPadRect(pos, mappings)` 추가
-- `src/android/app/src/test/.../MultiZoneCalculatorTest.kt`(수정) — `rectsOverlap` 경계값(접함/포함/분리), `hitTestByPadRect` 판정 + 무매핑 영역 검증
+- `ui/components/touchpad/MultiZoneCalculator.kt`(수정) — `hitTestByPadRect(pos, mappings)` 추가. `rectsOverlap(a, b)`는 4.9.11에서 이미 신설되어 그대로 재사용(추가 구현 불필요)
+- `src/android/app/src/test/.../MultiZoneCalculatorTest.kt`(수정) — `hitTestByPadRect` 판정 + 무매핑 영역 검증(`rectsOverlap` 단위테스트는 4.9.11에서 이미 작성됨)
 - `ui/components/touchpad/ZonePlacementSelectionPopup.kt`(신규) — AUTO/FREE 선택 팝업(`CursorCountSelectionPopup` 옆 배치, 유사 스타일)
 - `ui/components/AbsolutePointingPad.kt`(수정) — 배치 선택 단계 배선, 자유 배치 시 `padRect` 정의 세션 상태, 겹침 검사·경계 피드백, FREE 히트테스트 분기, 무매핑 영역 처리
 
@@ -1017,32 +1053,6 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.18: 존 경계 진동 피드백
-
-**목표**: 멀티존(4.9.10, 4.9.11, 4.9.13~4.9.15 — 4.9.12는 단일 줌 전용이라 제외) 활성 중 손가락이 다른 존으로 넘어갈 때 짧은 햅틱 틱을 줘서, 시선을 떼지 않은 상태에서도 손끝으로 존 전환을 인지할 수 있게 한다
-
-**선행 조건**: Phase 4.9.11(자동 배치 + PC 존 정의 UX) 완료 — 존 전환 감지 지점이 이 Phase에서 정의됨
-
-### 적용 위치
-
-- 4.9.11 "실시간 점프 전송"에 이미 정의된 존 전환 감지 지점(`curZoneIdx != lastSentZoneIdx`, `ZOOM_STATE` 프레임 전송을 트리거하는 동일 지점)에 `view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)` 호출을 추가
-- `AbsolutePointingPad.kt:568`에서 엣지존 후보 진입 시 이미 같은 상수(`CLOCK_TICK`)를 쓰고 있어 동일한 세기/패턴을 재사용 — 새 상수나 세기 조정 불필요
-- 단일 줌(`MagnificationMode.Single`)이나 확대모드 Off 상태에서는 발생하지 않음(존 전환 개념 자체가 없음)
-- 시스템 햅틱 설정(단말 진동 끄기 등)은 `performHapticFeedback` 자체가 따르므로 별도 온/오프 토글 불필요(기존 엣지존 햅틱과 동일한 전제)
-
-### 수정 파일
-- `ui/components/AbsolutePointingPad.kt` — 존 전환 감지 지점에 햅틱 호출 추가
-
-**참조 문서**: 본 문서 Phase 4.9.11(자동 배치 + PC 존 정의 UX) "실시간 점프 전송" — 존 전환 감지 지점
-
-**검증**:
-- [ ] 멀티존 활성 중 존 경계를 넘을 때마다 햅틱 발생, 같은 존 안에서는 미발생
-- [ ] 단일 줌/확대모드 Off 상태에서는 햅틱 없음
-- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
-- [ ] 실기기 필요: 존 경계 통과 시 햅틱 타이밍/세기 체감
-
----
-
 ## Phase 4.9.19: 터치 시작 확정 디바운스
 
 **목표**: 패드에 손가락이 닿는 순간의 스치는 접촉(의도치 않은 짧은 터치)이 즉시 커서 이동/클릭으로 이어지지 않도록, DOWN 후 아주 짧은 시간 유지되는지 확인한 뒤에만 포인팅을 확정한다
@@ -1139,7 +1149,7 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 >
 > **⚠️ Phase 4.9.20 변경사항**: `ScrollEngine` 추출로 `TouchpadWrapper.kt`의 스크롤 로직과 `AbsolutePointingPad.kt`의 스크롤 브랜치가 공통 코드를 쓰게 됐다. 추출이 깔끔하게 끝났는지, 두 호출부에 여전히 남은 중복이 있는지 이 시점에 재확인 대상.
 >
-> **⚠️ Phase 4.9.17~4.9.19 변경사항**: 손떨림 보정(4.9.17)으로 `AbsoluteCoordinateCalculator.kt`에 `smoothRatio`, 신규 `TremorSmoothingPrefs.kt`가 추가됐다. 존 경계 진동 피드백(4.9.18)과 터치 시작 확정 디바운스(4.9.19)가 모두 `AbsolutePointingPad.kt`의 같은 DOWN/MOVE 제스처 루프에 손을 대므로, 이 시점에 코드가 지나치게 얽혀 있지 않은지 함께 검토 대상에 포함한다.
+> **⚠️ Phase 4.9.17, 4.9.19 변경사항**: 손떨림 보정(4.9.17)으로 `AbsoluteCoordinateCalculator.kt`에 `smoothRatio`, 신규 `TremorSmoothingPrefs.kt`가 추가됐다. 원래 별도 Phase(4.9.18, 존 경계 진동 피드백)로 계획했던 멀티존 전환 햅틱은 4.9.11 구현 도중 앞당겨져 `ZoneCrossBehavior`(끄기/진동/점프 금지 3지선다, `ui/common/ZoneCrossBehaviorPrefs.kt`)로 흡수됐고, 이미 코드에 반영되어 있어 4.9.18은 문서에서 삭제했다(항상 켜짐이 아니라 설정 가능한 형태로 대체 구현). 터치 시작 확정 디바운스(4.9.19)는 `AbsolutePointingPad.kt`의 같은 DOWN/MOVE 제스처 루프에 손을 대므로, 이 시점에 `ZoneCrossBehavior` 분기와 얽혀 있지 않은지 함께 검토 대상에 포함한다.
 
 **목표**: Page 3 구현 완료 시점의 코드를 검토해 중복 제거·함수 분리·상수 정리 등 리팩토링 수행
 
@@ -1197,6 +1207,5 @@ Page 3 — AbsolutePointingPad
 │   └── 줌 영역 박스 (PC 화면 — Android는 UART 전송까지만, ESP32 중계/Windows 렌더링은 후속 통합 Phase)
 └── 조작 보조 기능
     ├── 손떨림 보정 (원시 좌표 EMA 스무딩)
-    ├── 존 경계 진동 피드백 (멀티존 전환 시 햅틱)
     └── 터치 시작 확정 디바운스 (스치는 접촉 필터링)
 ```

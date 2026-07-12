@@ -7,6 +7,7 @@ import com.bridgeone.app.ui.utils.TouchRatio
 import com.bridgeone.app.ui.utils.ZoneMapping
 import com.bridgeone.app.ui.utils.ZoneRect
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -184,10 +185,12 @@ class MultiZoneCalculatorTest {
     }
 
     @Test
-    fun `rectFromCenterDrag - 세로로만 드래그하면 세로로 긴 직사각형`() {
+    fun `rectFromCenterDrag - 세로로만 드래그하면 가로는 최소 크기, 세로로 긴 직사각형`() {
+        // dx=0(가로 미이동)이라도 최소 크기 하한(Phase 4.9.11)이 가로 폭에 적용된다.
         val rect = rectFromCenterDrag(TouchRatio(0.5f, 0.5f), TouchRatio(0.5f, 0.9f))
-        assertEquals(0.5f, rect.minX, 0.0001f)
-        assertEquals(0.5f, rect.maxX, 0.0001f)
+        val minHalf = AbsolutePointingConstants.MULTI_ZONE_MIN_RECT_SIZE_RATIO / 2f
+        assertEquals(0.5f - minHalf, rect.minX, 0.0001f)
+        assertEquals(0.5f + minHalf, rect.maxX, 0.0001f)
         assertEquals(0.1f, rect.minY, 0.0001f)
         assertEquals(0.9f, rect.maxY, 0.0001f)
     }
@@ -202,9 +205,65 @@ class MultiZoneCalculatorTest {
     }
 
     @Test
-    fun `rectFromCenterDrag - 손가락이 중심과 동일하면 0폭 직사각형`() {
+    fun `rectFromCenterDrag - 손가락이 중심과 동일해도 최소 크기 이상 보장`() {
+        // Phase 4.9.11: 0폭 직사각형 대신 MULTI_ZONE_MIN_RECT_SIZE_RATIO(기본 0.1f)만큼의
+        // 최소 크기가 중심점 기준 대칭으로 강제된다.
         val rect = rectFromCenterDrag(TouchRatio(0.3f, 0.3f), TouchRatio(0.3f, 0.3f))
-        assertEquals(0.3f, rect.minX, 0.0001f)
-        assertEquals(0.3f, rect.maxX, 0.0001f)
+        val minHalf = AbsolutePointingConstants.MULTI_ZONE_MIN_RECT_SIZE_RATIO / 2f
+        assertEquals(0.3f - minHalf, rect.minX, 0.0001f)
+        assertEquals(0.3f + minHalf, rect.maxX, 0.0001f)
+        assertEquals(0.3f - minHalf, rect.minY, 0.0001f)
+        assertEquals(0.3f + minHalf, rect.maxY, 0.0001f)
+        assertTrue(rect.maxX - rect.minX >= AbsolutePointingConstants.MULTI_ZONE_MIN_RECT_SIZE_RATIO - 0.0001f)
+    }
+
+    @Test
+    fun `rectFromCenterDrag - 중심점이 모서리에 있어도 한쪽만 확장해 최소 크기 보장`() {
+        val rect = rectFromCenterDrag(TouchRatio(0f, 0f), TouchRatio(0f, 0f))
+        val minHalf = AbsolutePointingConstants.MULTI_ZONE_MIN_RECT_SIZE_RATIO / 2f
+        assertEquals(0f, rect.minX, 0.0001f)
+        assertEquals(minHalf, rect.maxX, 0.0001f)
+        assertEquals(0f, rect.minY, 0.0001f)
+        assertEquals(minHalf, rect.maxY, 0.0001f)
+    }
+
+    @Test
+    fun `rectFromCenterDrag - 드래그 거리가 최소 크기보다 크면 최소 크기 클램프 미적용`() {
+        // 기존 "중심에서 대칭 확장" 테스트와 동일 입력 — dx=dy=0.1f는 최소 반폭(0.05f)보다 커서
+        // coerceAtLeast가 개입하지 않아야 한다.
+        val rect = rectFromCenterDrag(TouchRatio(0.5f, 0.5f), TouchRatio(0.6f, 0.4f))
+        assertEquals(0.4f, rect.minX, 0.0001f)
+        assertEquals(0.6f, rect.maxX, 0.0001f)
+    }
+
+    // ── rectsOverlap (Phase 4.9.11) ────────────────────────────────
+
+    @Test
+    fun `rectsOverlap - 겹치는 두 직사각형은 true`() {
+        val a = ZoneRect(0.1f, 0.1f, 0.5f, 0.5f)
+        val b = ZoneRect(0.3f, 0.3f, 0.7f, 0.7f)
+        assertTrue(rectsOverlap(a, b))
+        assertTrue(rectsOverlap(b, a))
+    }
+
+    @Test
+    fun `rectsOverlap - 완전히 분리된 두 직사각형은 false`() {
+        val a = ZoneRect(0f, 0f, 0.3f, 0.3f)
+        val b = ZoneRect(0.5f, 0.5f, 0.8f, 0.8f)
+        assertFalse(rectsOverlap(a, b))
+    }
+
+    @Test
+    fun `rectsOverlap - 경계선만 맞닿은 경우는 겹침 아님`() {
+        val a = ZoneRect(0f, 0f, 0.5f, 1f)
+        val b = ZoneRect(0.5f, 0f, 1f, 1f)
+        assertFalse(rectsOverlap(a, b))
+    }
+
+    @Test
+    fun `rectsOverlap - 한 직사각형이 다른 직사각형을 완전히 포함하면 true`() {
+        val outer = ZoneRect(0f, 0f, 1f, 1f)
+        val inner = ZoneRect(0.4f, 0.4f, 0.6f, 0.6f)
+        assertTrue(rectsOverlap(outer, inner))
     }
 }

@@ -79,4 +79,38 @@ object AbsolutePointingConstants {
 
     /** 멀티 존 개수 기본값 (Phase 4.9.10). 기본값: 2 */
     const val MULTI_ZONE_COUNT_DEFAULT: Int = 2
+
+    /** 멀티 존 정의 중 PC 매핑 직사각형 프리뷰 테두리 굵기 (dp) (Phase 4.9.11). 기본값: 2f */
+    const val MULTI_ZONE_RECT_PREVIEW_WIDTH_DP: Float = 2f
+
+    /** 멀티 존 정의 중 PC 매핑 직사각형 프리뷰 불투명도 (Phase 4.9.11). 기본값: 0.9f */
+    const val MULTI_ZONE_RECT_PREVIEW_ALPHA: Float = 0.9f
+
+    /** 멀티 존 정의 중 안내 텍스트("존 k/N 정의 중") 크기 (sp) (Phase 4.9.11). 기본값: 16f */
+    const val MULTI_ZONE_GUIDE_TEXT_SIZE_SP: Float = 16f
+
+    /** 멀티 존 확정 대기 중 재터치가 롱프레스로 판정되어 개수 선택 팝업부터 재시작되는 임계 시간 (ms) (Phase 4.9.11). 기본값: 500L */
+    const val MULTI_ZONE_RESTART_LONGPRESS_MS: Long = 500L
+
+    /** 멀티 존 정의 중 이미 확정된 이전 존 오버레이 불투명도(현재 프리뷰보다 옅게, 겹침 확인용) (Phase 4.9.11). 기본값: 0.35f */
+    const val MULTI_ZONE_PREVIOUS_RECT_ALPHA: Float = 0.35f
+
+    /** 멀티 존 정의 중 이미 확정된 이전 존 오버레이 테두리 굵기 (dp) (Phase 4.9.11). 기본값: 1.5f */
+    const val MULTI_ZONE_PREVIOUS_RECT_WIDTH_DP: Float = 1.5f
+
+    /** 멀티 존 실시간 점프 중 서브 패드 경계선 굵기 (dp) (Phase 4.9.11). 기본값: 1.5f */
+    const val MULTI_ZONE_GRID_LINE_WIDTH_DP: Float = 1.5f
+
+    /** 멀티 존 실시간 점프 중 서브 패드 경계선 불투명도 (Phase 4.9.11). 기본값: 0.35f */
+    const val MULTI_ZONE_GRID_LINE_ALPHA: Float = 0.35f
+
+    /** 멀티 존 정의 직사각형 최소 크기(가로/세로 각각, 모니터 전체 대비 비율) (Phase 4.9.11).
+     * 손가락이 중심점 부근에서 손을 떼도 지나치게 작은 존이 만들어지지 않도록 보장한다. 기본값: 0.1f */
+    const val MULTI_ZONE_MIN_RECT_SIZE_RATIO: Float = 0.1f
+
+    /** 멀티 존 정의 중 중심점 표시 점의 반지름 (dp) (Phase 4.9.11). 기본값: 5f */
+    const val MULTI_ZONE_CENTER_DOT_RADIUS_DP: Float = 5f
+
+    /** 멀티 존 정의 중 중심점 표시 점의 테두리 굵기 (dp) (Phase 4.9.11). 기본값: 2f */
+    const val MULTI_ZONE_CENTER_DOT_RING_WIDTH_DP: Float = 2f
 }
