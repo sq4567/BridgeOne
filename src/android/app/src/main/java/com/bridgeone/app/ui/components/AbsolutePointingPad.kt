@@ -286,6 +286,17 @@ fun AbsolutePointingPad(
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val controlButtonWidthFraction = if (screenWidthDp < 360) 0.60f else 0.64f
 
+    // 색상 우선순위 (설계 component-design-guide-app.md §4.5.7):
+    // 드래그 ON(초록) > 우클릭(노랑) > 줌 활성/대기(주황, Phase 4.9.6) > 기본 좌클릭(핑크)
+    // 패드 테두리는 EdgeZoneOverlay의 존 색상 블록(좌우 존이 x=0/x=w-edgePx에서 시작)과 겹치는 위치라,
+    // PointingArea의 border 모디파이어 대신 여기서 EdgeZoneOverlay 뒤에 별도로 그려 항상 위에 보이게 한다.
+    val padBorderColor = when {
+        localState.dragMode -> TouchpadColorGreen
+        localState.clickMode == ClickMode.RIGHT_CLICK -> TouchpadColorYellow
+        currentMapping.defined || zoomArming || isZoneMode -> TouchpadColorZoom
+        else -> TouchpadColorPink
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -377,7 +388,6 @@ fun AbsolutePointingPad(
                 onZoomAwaitingConfirmChange = { zoomAwaitingConfirm = it },
                 zoomRectPreview = zoomRectPreview,
                 zoomCenterPoint = zoomCenterPoint,
-                borderFadeAlpha = if (isZoneMode) 1f else zoomDefineElementsAlpha.value,
                 definingZoneIndex = definingZoneIndex,
                 zoneRectAwaitingConfirm = zoneRectAwaitingConfirm,
                 zoneRectPreview = zoneRectPreview,
@@ -451,6 +461,20 @@ fun AbsolutePointingPad(
                 modifier = Modifier
                     .fillMaxSize()
                     .alpha(if (isZoneMode) 1f else zoomDefineElementsAlpha.value)
+            )
+
+            // 패드 테두리 (EdgeZoneOverlay 뒤에 그려 존 색상 블록에 덮이지 않게 함, x=0/x=w-edgePx에서
+            // 시작하는 좌우 존 블록이 border 위를 덮어 테두리가 어둡게 보이던 문제를 z-order로 해결).
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(
+                        width = AbsolutePointingConstants.POINTING_AREA_BORDER_WIDTH_DP.dp,
+                        color = padBorderColor.copy(
+                            alpha = padBorderColor.alpha * (if (isZoneMode) 1f else zoomDefineElementsAlpha.value)
+                        ),
+                        shape = RoundedCornerShape(AbsolutePointingConstants.POINTING_AREA_CORNER_RADIUS_DP.dp)
+                    )
             )
 
             // 단일 줌 확정 확대 오버레이 (Phase 4.9.12): 정의 프리뷰 rect가 패드 전체 경계로 커지는
@@ -715,8 +739,6 @@ private fun PointingArea(
     zoneRectAwaitingConfirm: MutableState<Boolean>,
     zoomRectPreview: MutableState<ZoneRect?>,
     zoomCenterPoint: MutableState<TouchRatio?>,
-    // 단일 줌 정의 진입/확정 UI 전환 애니메이션(Phase 4.9.12)이 패드 테두리에 적용하는 fade 알파.
-    borderFadeAlpha: Float,
     zoneRectPreview: MutableState<ZoneRect?>,
     zoneCenterPoint: MutableState<TouchRatio?>,
     zoneRedefining: MutableState<Boolean>,
@@ -752,28 +774,10 @@ private fun PointingArea(
         label = "coordinateIndicatorAlpha"
     )
 
-    // 색상 우선순위 (설계 component-design-guide-app.md §4.5.7):
-    // 드래그 ON(초록) > 우클릭(노랑) > 줌 활성/대기(주황, Phase 4.9.6) > 기본 좌클릭(핑크)
-    // zoomArming(ZoomButton 탭 후 패드 터치 대기 상태)도 주황으로 표시해야 버튼을 눌렀을 때
-    // 즉시 시각 피드백이 생긴다(그렇지 않으면 "눌러도 아무 변화 없음"으로 보임).
-    val borderColor = when {
-        localState.dragMode -> TouchpadColorGreen
-        clickMode == ClickMode.RIGHT_CLICK -> TouchpadColorYellow
-        mapping.defined || zoomArming || isZoneMode -> TouchpadColorZoom
-        else -> TouchpadColorPink
-    }
-
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(AbsolutePointingConstants.POINTING_AREA_CORNER_RADIUS_DP.dp))
             .background(Color(0xFF1E1E1E))
-            .border(
-                width = AbsolutePointingConstants.POINTING_AREA_BORDER_WIDTH_DP.dp,
-                // borderFadeAlpha(Phase 4.9.12): border는 background/pointerInput과 한 modifier
-                // 체인이라 Box 전체에 Modifier.alpha를 걸면 배경까지 같이 사라지므로, 색상 alpha만 조절.
-                color = borderColor.copy(alpha = borderColor.alpha * borderFadeAlpha),
-                shape = RoundedCornerShape(AbsolutePointingConstants.POINTING_AREA_CORNER_RADIUS_DP.dp)
-            )
             .pointerInput(clickMode, filteredConfig, localState.dragMode) {
                 // 엣지 스와이프 상수 (Phase 4.9.3, TouchpadWrapper.kt와 동일 값)
                 val edgeHitWidthPx = density.run { EdgeSwipeConstants.EDGE_HIT_WIDTH_DP.dp.toPx() }
