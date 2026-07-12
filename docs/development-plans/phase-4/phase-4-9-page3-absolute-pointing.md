@@ -36,6 +36,8 @@ updated: "2026-07-11"
 - 손떨림 보정 (원시 좌표 EMA 스무딩)
 - 터치 시작 확정 디바운스 (스치는 접촉 필터링)
 - 스크롤 모드 (커서 위치 고정 + 상대 델타 스크롤, 일반/무한 둘 다)
+- 엣지 팝업(LEGACY_POPUP) 지원 (엣지 존 방식과 설정에 따라 전환)
+- SWIPE 모드 조작 UX (커서 이동은 NORMAL과 동일한 절대좌표, 설정/편집/팝업 화면 전체를 스와이프 순회로 조작)
 
 **패드 비율/배치는 본 Phase 범위 밖** — Phase 4.15 페이지 커스터마이징이 그리드 배치(`colSpan`/`rowSpan`)로 소유한다. 자유 비율(접근성 목적의 왜곡 배치)과 모니터 종횡비 일치 둘 다 그리드 셀 크기 조정으로 표현 가능하며, 4.15 완성 전까지 패드는 Fill 유지.
 
@@ -1155,9 +1157,289 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 ---
 
-## Phase 4.9.20: 리팩토링
+## Phase 4.9.20: 절대좌표 패드 엣지 팝업(LEGACY_POPUP) 지원
 
-> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.19)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
+**목표**: 환경 설정에서 엣지 조작 방식을 "엣지 팝업"으로 선택하면 Page 3(절대좌표 패드)에서도 엣지 팝업이 동작하도록, `AbsolutePointingPad`에 `edgeInteractionMode` 분기를 도입한다. ZONE(기존, 4.9.3~4.9.9)과 LEGACY_POPUP을 설정에 따라 전환.
+
+**배경**: 4.9.3에서 엣지존을 통합할 때 `AbsolutePointingPad.kt`는 ZONE 모드만 하드코딩하고 LEGACY_POPUP은 의도적으로 배제했다(`EdgeSwipeOverlay`(LEGACY_POPUP)는 배제, ZONE 모드만 지원). 그 결과 Page 3는 `EdgeInteractionMode`(`EdgeSwipeOverlay.kt`의 `{ LEGACY_POPUP, ZONE }`) 설정을 아예 참조하지 않아, 환경 설정(`Page5Settings.kt`)에서 엣지 조작 방식을 "엣지 팝업 방식"으로 바꿔도 Page 3에서는 여전히 엣지 존만 표시된다.
+
+**선행 조건**: 4.9.3(엣지존 통합), 4.9.4(드래그 모드), 4.9.19(스크롤 모드) 완료. SCROLL 팝업 카드는 4.9.19 완료가 전제.
+
+**세부 목표**:
+1. **모드 전달 배선**: `AbsolutePointingPad`/`Page3AbsolutePointing`에 `edgeInteractionMode: EdgeInteractionMode` 파라미터 추가. `StandardModePage.kt`가 이미 로드한 `pageState.touchpadState.edgeInteractionMode`를 hoisting해 전달. 제스처 루프에서 `rememberUpdatedState(edgeInteractionMode)`로 최신값 캡처 — `localState`는 fresh `TouchpadState()`라 항상 default이므로 **반드시 hoisted 전역값을 읽고 `localState`에서 읽지 말 것**(기존 `currentTargetMonitor` 패턴과 동일한 함정)
+2. **팝업 항목 = Page 3 제어버튼 미러(패리티 원칙)**: Page 3 전용 아이템 모델 `AbsoluteEdgePopupItem { CLICK, DRAG, SCROLL }` 신설(공유 `EdgeSwipeMode` enum은 확장하지 않음 — Page 1/2 공유 경로 오염 방지). 각 항목:
+   - CLICK(좌/우): `applyEdgeModeToggle(pending, EdgeSwipeMode.CLICK, 0)` 재사용 → `clickMode` 반전
+   - DRAG: `pending.copy(dragMode = !pending.dragMode)` 직접 처리
+   - SCROLL(4.9.19 이후, `showScrollMode` 활성 시만 노출): `applyEdgeModeToggle(pending, EdgeSwipeMode.SCROLL, 0)` 재사용(OFF→NORMAL→INFINITE)
+   - 아이콘/색은 `ControlButtonContainer`의 Page 3 버튼과 동일 리소스 재사용(`ic_l_click`/`ic_rclick`, `ic_drag_mode`/`ic_move_mode`, `ic_normal_scroll`/`ic_infinite_scroll`)
+   - **ZOOM/멀티존은 팝업에서 배제**(비목표로 명시): "pending 토글 후 확인" 모델과 충돌(줌은 arming → 패드 정의 드래그로 이어지는 플로우라 탭 즉시 토글 모델에 맞지 않음). 엣지에서의 줌 진입은 이미 4.9.9 `ToggleAbsoluteZoom`(ZONE 전용 엣지존 액션)과 ZoomButton이 담당하므로 중복 제공 불필요
+3. **임계값 도달 분기**(`PointingArea` 제스처 루프의 `inwardMoved >= triggerDistancePx` 판정 지점):
+   - ZONE: 현재 armed/로테이션 로직 그대로 유지
+   - LEGACY_POPUP: `TouchpadWrapper.kt`의 LEGACY_POPUP 분기(엣지 진입 임계값 도달 시 팝업 오픈) 패턴을 이식 — `LocalInputMode`로 `EdgePopupMode`(SWIPE/DIRECT_TOUCH) 결정, `pendingEdgeState = localState`, `showEdgePopup = true`, `selectedItemIndex` 초기화, 롱프레스 햅틱
+4. **팝업 열림 상태 처리**: DOWN 핸들러 최상단에 `showEdgePopup == true`이면 **다른 모든 DOWN 분기(zoomArming/멀티존 defining·liveJump/일반 포인팅)보다 먼저** 팝업 선택 루프로 진입 후 `return@awaitEachGesture`. SWIPE(2D 그리드 상대이동) + DIRECT_TOUCH(앵커 히트테스트) 경로를 `TouchpadWrapper.kt`의 팝업 액션 선택/커밋 로직 패턴으로 이식하되, 멀티커서 서브화면은 Page 3에 없으므로 제거해 축약. `commitPopup`(pending → localState 반영, SCROLL 진입 시 dragMode 강제 OFF 배타) + `resetPopup`(진입 엣지 복귀 시 취소) 헬퍼 구현. `showEdgePopup`은 `pointerInput` key가 아니므로 State 캡처 필수(stale 값 방지)
+5. **좌표 도달성 보존**: 팝업은 "안쪽 당김(TRIGGER_DISTANCE 초과)"에만 열리고, 엣지 띠 순수 탭은 임계값 미달로 기존 탭 판정 경로로 떨어져 **DOWN 지점 좌표 클릭이 관통**된다(4.9.3에서 확립한 원칙 계승). 얕은/평행 이동 탈출·`inwardMoved < 0` 취소 분기는 ZONE/LEGACY_POPUP 공용으로 유지. LEGACY_POPUP에서는 ZONE의 `isAssignedZone` gate(할당된 존에서만 후보 인정)가 부적합(팝업은 존별이 아닌 전역 어포던스)하므로 gate를 완화 — `detectedEdge != null`(코너 차단 비율 존중, TOP 엣지는 제어버튼 영역 아래에서만)이면 후보로 인정. 도달성은 탭 관통 + 얕은 이동 탈출로 계속 보존됨
+6. **모드 배타 가드**: 팝업 오픈 조건에 `zoomArming`/멀티존 `defining`/`liveJump` 비활성 가드 추가(이들이 이미 패드 제스처를 소유하므로 팝업 진입 억제)
+
+**재사용 vs 신규 결정**:
+- 그대로 재사용: `applyEdgeModeToggle`, 팝업 버튼 히트테스트 헬퍼, `EdgePopupMode`, 엣지 팝업 관련 상수(`EDGE_POPUP_*`), `EdgeBumpOverlay`, `LocalInputMode`
+- `EdgeSwipeOverlay` **재사용 안 함**: 표시 모드 목록 구성 로직이 DPI/SCROLL_SPEED/DYNAMICS를 무조건 포함하고, 모드별 표시 정보 함수도 일반 터치패드의 `EdgeSwipeMode` 7종 전용이라 Page 3에 그대로 붙이면 존재하지 않는 카드가 뜬다. 맞추려면 공유 경로(Page 1/2)를 오염시키게 되므로, 대신 Page 3 전용 축약 오버레이를 신규로 둔다
+- 팝업 상태머신(`showEdgePopup`/`pendingEdgeState`/`selectedItemIndex`/`popupAnchorPx`/`selectedPopupMode`) **공유 추출 안 함 → `AbsolutePointingPad`에 축약 이식**: 4.9.1이 `TouchpadWrapper`의 거대 제스처 상태머신을 재사용하지 않고 별도로 lean 재구현한 관례를 유지한다. 지금 공유 추출하면 Page 1/2 회귀 리스크가 크다. 이로 인한 코드 중복은 4.9.21(리팩토링) 검토 대상으로 남긴다
+
+**신규 파일**:
+- `ui/components/touchpad/AbsoluteEdgePopupOverlay.kt`(가칭) — `AbsoluteEdgePopupItem` enum + 아이템별 표시정보/pending 투영 함수 + SWIPE 그리드/DIRECT_TOUCH 앵커 렌더(`EdgeSwipeOverlay`의 축약본, 멀티커서/DPI/DYNAMICS 관련 로직 제거) + 확인 버튼
+- 신규 순수 로직 단위테스트 파일(팝업 아이템 구성/pending 투영/commit reducer 대상)
+
+**수정 파일**:
+- `ui/components/AbsolutePointingPad.kt`(핵심) — `edgeInteractionMode` 파라미터 추가, 팝업 상태 5종 hoisting, 임계값 분기, DOWN 최상단 팝업 선택 루프 + `commitPopup`/`resetPopup`, LEGACY_POPUP gate 완화, `AbsoluteEdgePopupOverlay` 렌더, 모드 배타 가드
+- `ui/pages/standard/Page3AbsolutePointing.kt` — `edgeInteractionMode` 파라미터 배선
+- `ui/pages/StandardModePage.kt` — `edgeInteractionMode`를 Page3AbsolutePointing에 전달
+- (조건부) 엣지 팝업 관련 상수 파일 — 신규 상수 필요 시에만, 대부분 기존 상수 재사용으로 불필요. 신규 시 기본값 주석 필수
+
+**참조 문서**:
+- 본 문서 4.9.3(엣지존 통합, 존 gate + 탭 관통 도달성 원칙), 4.9.4(드래그 모드), 4.9.19(스크롤 모드)
+- `TouchpadWrapper.kt`의 LEGACY_POPUP 분기/팝업 액션 선택·커밋/엣지 복귀 취소/오버레이 배치 로직
+- `docs/android/technical-specification-app.md` §2.10 — Page 3 엣지 조작 방식이 ZONE/LEGACY_POPUP 양쪽을 지원함을 보강 필요
+
+**검증**:
+- [ ] 단위테스트: `edgeInteractionMode` 분기 술어(LEGACY_POPUP→팝업 개시 / ZONE→armed)
+- [ ] 단위테스트: 팝업 아이템 구성(`showScrollMode` on/off에 따른 SCROLL 포함 여부)
+- [ ] 단위테스트: pending 투영(CLICK 좌↔우 / DRAG on↔off / SCROLL 3단 순환)
+- [ ] 단위테스트: `commitPopup` reducer(SCROLL 진입 시 dragMode 강제 OFF 배타 포함)
+- [ ] 단위테스트: 팝업 그리드 선택 인덱스 계산
+- [ ] `assembleDebug` 빌드 성공 + 기존 단위테스트 회귀 없음
+- [ ] 실기기 필요: 엣지 당김 → 팝업 오픈(SWIPE/DIRECT_TOUCH) 및 확인 적용 동작
+- [ ] 실기기 필요: 엣지 띠 탭 = 그 지점 좌표 클릭 유지(도달성 회귀 없음)
+- [ ] 실기기 필요: 팝업 열림 중 진입 엣지로 복귀 시 취소
+- [ ] 실기기 필요: 설정에서 ZONE↔LEGACY_POPUP 전환이 Page 3에 즉시 반영
+- [ ] 실기기 필요: zoom arming/멀티존 정의·실시간 점프 중 팝업이 뜨지 않음(배타 가드)
+- [ ] 실기기 필요: Page 1/2 엣지 팝업 동작 회귀 없음
+
+**리스크**:
+- DOWN 핸들러 분기 순서 — 팝업 선택 루프를 zoom/멀티존/일반 포인팅보다 먼저 두지 않으면 팝업 열림 중 좌표가 전송되어 커서가 튈 수 있다. `return@awaitEachGesture` 필수
+- `showEdgePopup`이 `pointerInput` key가 아니므로 State로 캡처하지 않으면 stale 값을 읽을 수 있다
+- LEGACY_POPUP에서 gate를 완화하면 엣지에서 시작한 일반 드래그가 팝업에 흡수될 위험 — 탭 관통 + 얕은/평행 이동 탈출 + `inwardMoved < 0` 취소로 방어, 실기기 튜닝 필요
+- SCROLL↔DRAG, zoom·멀티존과 팝업의 상호 배타를 commit/가드에서 누락하면 이중 상태가 발생할 수 있음
+- 팝업 상태머신이 `TouchpadWrapper.kt`와 유사 로직으로 중복 존재 — 의도적 선택이며 4.9.28 통합 검토 대상
+- `LocalInputMode` provider가 Page 3 렌더 트리에 제공되는지 착수 시 확인(Page 1/2와 동일 트리이므로 통상 문제 없음)
+
+---
+
+## Phase 4.9.21: SWIPE 모드 인프라 도입
+
+**배경**: 절대좌표 패드(4.9.1~4.9.20)의 모든 기능은 `InputMode.NORMAL`(직접 터치/드래그) 기준으로 설계됐다. 앱 전역 `InputMode.SWIPE`(화면 어디서나 스와이프로 포커스 이동, 탭으로 선택 — 정밀 타겟팅이 어려운 손 불편 사용자용) 사용자를 위한 조작 경로가 `AbsolutePointingPad.kt`에는 전혀 없다(`LocalInputMode`를 참조하지 않음). 4.9.21~4.9.27은 이 페이지에 SWIPE 조작 UX를 도입한다.
+
+> **유저 확정 원칙(2026-07-13)**: (1) 커서 이동 메커니즘("터치한 절대좌표 = PC 커서 위치")은 NORMAL/SWIPE 동일 — 변경 없음. (2) 모드 진입 방법도 NORMAL/SWIPE 구분 없이 엣지·제어버튼 둘 다 상시 사용 가능. (3) SWIPE 지원 범위는 완전 지원 — 모든 설정/편집/팝업 화면을 SWIPE UX로 재구성.
+
+**목표**: 커서 이동 로직에 영향을 주지 않으면서, "설정/편집 세션"이 열렸을 때만 `SwipeGestureLayer`/`SwipeFocusController`가 활성화되는 기반 구조를 도입한다.
+
+**선행 조건**: 4.9.20(엣지 팝업) 완료 — 이후 Phase들이 다룰 세션(엣지 팝업/줌 정의/멀티존 정의 등)이 이 시점에 모두 존재해야 인프라 설계가 완결된다.
+
+**설계 척추 — 두 플레인 상호배타**: `SwipeGestureLayer`(화면 최상단 투명 오버레이)를 패드에 상시로 깔면 `PointingArea`의 커서 터치를 가로채 "터치=절대좌표" 원칙이 깨진다. 그래서:
+- **포인팅 플레인(기본)**: 활성 세션이 없으면 `SwipeGestureLayer`를 마운트하지 않는다 — 커서 로직은 NORMAL과 완전히 동일하게 동작
+- **세션 플레인**: `zoomArming || (isZoneMode && 정의중) || zoneRectAwaitingConfirm || multiZonePopupVisible || showEdgePopup || multiZoneEditing` 중 하나라도 true일 때만 전면 `SwipeGestureLayer`를 조건부 마운트하고 `LocalSwipeFocusController`를 non-null로 provide(`EdgeZoneEditorScreen.kt`의 `CompositionLocalProvider(LocalInputMode provides ..., LocalSwipeFocusController provides if (inputMode == SWIPE) controller else null)` 패턴 재사용). 이 세션들은 이미 커서 좌표 전송을 억제하는 브랜치라 커서 무회귀가 보장됨
+
+**세부 목표**:
+1. `AbsolutePointingPad`에 `rememberSwipeFocusController()` 1개를 루트에서 생성(hoisting 없이 내부 보유 — Page 3 전용이라 상위로 노출 불필요)
+2. `LocalInputMode.current` 읽어 `currentInputMode`로 캡처(`rememberUpdatedState`)
+3. 세션 활성 판정 술어(`isSessionActive: Boolean`, 위 6개 조건 OR)를 별도 계산해, `currentInputMode == SWIPE && isSessionActive`일 때만 `SwipeGestureLayer`를 최상위 Box에 조건부 컴포지션
+4. scope 스택 골격 — Page 3 루트를 `ROOT` scope로, 각 세션 진입 시 `pushScope(...)`/이탈 시 `popScope()`(EdgeZoneEditorScreen 관용구 답습). 이 Phase는 골격만, 실제 focusable 등록은 4.9.22부터
+5. **합격 기준**: `InputMode.SWIPE`로 전환한 상태에서 활성 세션이 없을 때 Page 3의 커서 이동/클릭/드래그가 NORMAL과 완전히 동일하게 동작(회귀 0)
+
+**신규/수정 파일**:
+- `ui/components/AbsolutePointingPad.kt` — `SwipeFocusController` 보유, `LocalInputMode` 소비, 세션 판정 술어, 조건부 `SwipeGestureLayer` 마운트, scope 스택 골격
+
+**참조 문서**:
+- `ui/common/swipe/SwipeFocusController.kt`(상태 홀더, scope 스택), `SwipeGestureLayer.kt`(제스처 감지), `SwipeFocusable.kt`(포커스 시각화)
+- `ui/components/touchpad/EdgeZoneEditorScreen.kt`(조건부 SwipeGestureLayer + `LocalSwipeFocusController` provide 실전 선례)
+
+**검증**:
+- [ ] SWIPE 전환 + 세션 없음 상태에서 커서 이동/클릭/드래그/스크롤 전부 NORMAL과 동일(단위테스트로 세션 판정 술어 검증, 실기기로 커서 체감 확인)
+- [ ] 세션 활성 조건 6종 각각 진입 시 `SwipeGestureLayer`가 마운트되는지(합성 테스트 또는 로그 확인)
+- [ ] `assembleDebug` 빌드 성공
+- [ ] 실기기 필요: NORMAL↔SWIPE 전환 시 포인팅 동작 회귀 없음
+
+---
+
+## Phase 4.9.22: 제어버튼·모니터셀렉터 SWIPE 지원
+
+**목표**: 상단 `ControlButtonContainer`(클릭모드/줌/드래그/스크롤 버튼)와 `MonitorSelector`(모니터 칩)를 SWIPE 사용자도 스와이프 순회로 접근할 수 있게 한다.
+
+**선행 조건**: 4.9.21(SWIPE 인프라)
+
+> **유저 확정 안**: chrome(상단 제어버튼·모니터셀렉터)은 SWIPE에서도 **직접 탭 유지**(큰 타겟이라 정밀 타겟팅 부담이 적음) + 동시에 `SwipeFocusable`로 보조 등록해 원하는 사용자는 스와이프 순회로도 접근 가능하게 한다.
+
+**세부 목표**:
+1. `ControlButtonContainer`/`MonitorSelector`는 Page 1/2와 공유하는 컴포넌트이므로, **Page 3 호출부(`AbsolutePointingPad.kt`)에서만** 각 버튼/칩을 `SwipeFocusable`로 래핑 — `ControlButtonContainer.kt`/`MonitorSelector.kt` 자체는 수정하지 않아 Page 1/2 무회귀
+2. chrome 영역을 하나의 scope(`CHROME` 등)로 묶어 `gridRow` 동일선상에 버튼들을 배치, 좌우 스와이프로 순회
+3. SWIPE 포커스 상태에서 탭 = 기존 버튼 `onClick`과 동일 동작(activate), 롱프레스가 있는 버튼(줌=탭/롱프레스 분기 등)은 `activateAlt`로 매핑
+4. chrome scope 진입/이탈 트리거는 이 Phase에서 확정(열린 문제) — 직접 탭은 항상 가능하므로 필수 진입 경로는 아니지만, 상시 스와이프 순회를 원하는 사용자를 위한 진입 방식을 정의
+
+**신규/수정 파일**:
+- `ui/components/AbsolutePointingPad.kt` — chrome scope 등록, `ControlButtonContainer`/`MonitorSelector` 호출부에 `SwipeFocusable` 래핑
+
+**참조 문서**:
+- 본 문서 4.9.21(인프라), `ui/common/swipe/SwipeFocusable.kt`
+
+**검증**:
+- [ ] SWIPE 모드에서 제어버튼/모니터칩 직접 탭 여전히 동작(회귀 없음)
+- [ ] SWIPE 모드에서 chrome scope 진입 시 버튼 간 스와이프 순회 + 탭 활성화 동작
+- [ ] Page 1/2에서 `ControlButtonContainer`/`MonitorSelector` 동작 회귀 없음(컴포넌트 자체 무수정 확인)
+- [ ] `assembleDebug` 빌드 성공
+- [ ] 실기기 필요: 스와이프 순회 체감, 직접 탭과의 공존 확인
+
+---
+
+## Phase 4.9.23: 개수·배치·프리셋 팝업 SWIPE 지원
+
+**목표**: `CursorCountSelectionPopup`(멀티존 개수 선택, 4.9.11에서 `skipPreset=true`로 재사용), `ZonePlacementSelectionPopup`(자동/자유 배치 선택, 4.9.13), `MultiZonePresetPopup`(프리셋 목록/저장, 4.9.14)을 SWIPE로 조작 가능하게 한다.
+
+**선행 조건**: 4.9.21(SWIPE 인프라). `ZonePlacementSelectionPopup`/`MultiZonePresetPopup`은 4.9.13/4.9.14 구현이 선행되어야 함(아직 미구현이면 해당 Phase 구현 시 SWIPE 대응을 함께 포함하는 것도 가능 — 착수 시점에 순서 재확인).
+
+> **중요 발견**: `CursorCountSelectionPopup.kt`는 현재 SWIPE 미대응이며 **Page 2 멀티커서와 공유하는 컴포넌트**다. 이 Phase에서 SWIPE화하면 Page 2 멀티커서 개수 선택도 함께 영향받으므로, Page 2 회귀 검증이 이 Phase의 핵심 리스크다.
+
+**세부 목표**:
+1. `CursorCountSelectionPopup`에 SWIPE 대응 추가 — 개수 버튼들을 `SwipeFocusable`로, popup 진입 시 `pushScope`
+2. `ZonePlacementSelectionPopup`/`MultiZonePresetPopup`은 신규 구현 시점(4.9.13/4.9.14)부터 SWIPE 내장 설계로 작성(이 Phase 도달 시점에 이미 있다면 SWIPE 보강만)
+3. **별도 Window `Popup`의 SWIPE 처리**: `Popup`으로 뜨는 팝업은 메인 화면의 `SwipeGestureLayer`가 터치를 받지 못한다. `EdgeZoneEditorScreen.kt`의 해법(SWIPE일 때 팝업 내부를 Box 인라인으로 전환하고 `SwipeGestureLayer.matchParentSize()`를 자체 배치)을 답습
+4. 위 3개 팝업 모두 `LocalSwipeFocusController`가 non-null일 때만 SWIPE 오버레이 활성(NORMAL은 기존 직접 탭 그대로)
+
+**신규/수정 파일**:
+- `ui/components/touchpad/CursorCountSelectionPopup.kt` — SWIPE 대응 추가(Page 2 호출부 회귀 검증 필수)
+- `ui/components/touchpad/ZonePlacementSelectionPopup.kt`, `ui/components/touchpad/MultiZonePresetPopup.kt` — SWIPE 대응(신규 구현이면 내장, 기구현이면 보강)
+
+**참조 문서**:
+- `ui/components/touchpad/EdgeZoneEditorScreen.kt`(별도 Window 팝업의 SWIPE 인라인 전환 선례)
+
+**검증**:
+- [ ] `CursorCountSelectionPopup` SWIPE 조작(스와이프 순회+탭 확정) 동작
+- [ ] Page 2 멀티커서 개수 선택 — NORMAL 동작 회귀 없음, SWIPE 동작도 정상(신규 이득)
+- [ ] `ZonePlacementSelectionPopup`/`MultiZonePresetPopup` SWIPE 조작 동작
+- [ ] `assembleDebug` 빌드 성공
+- [ ] 실기기 필요: 팝업 SWIPE 조작 체감, Page 2 회귀 확인
+
+---
+
+## Phase 4.9.24: 엣지 팝업 SWIPE 지원
+
+**목표**: 4.9.20에서 신설한 `AbsoluteEdgePopupOverlay`의 `EdgePopupMode.SWIPE` 렌더/선택 경로를 완성한다.
+
+**선행 조건**: 4.9.20(엣지 팝업 NORMAL/DIRECT_TOUCH 경로 완료), 4.9.21(SWIPE 인프라)
+
+**배경**: 4.9.20은 `LocalInputMode`로 `EdgePopupMode`(SWIPE/DIRECT_TOUCH)를 결정하는 골격만 두고, 실제 SWIPE 렌더/선택 로직은 이 Phase로 넘겼다.
+
+**세부 목표**:
+1. `AbsoluteEdgePopupOverlay`에 SWIPE 그리드 순회 렌더 추가 — `TouchpadWrapper.kt`의 엣지 팝업 SWIPE 그리드(2D 상대이동, `selectedItemIndex` 갱신) 패턴을 `AbsoluteEdgePopupItem`(CLICK/DRAG/SCROLL) 대상으로 축약 이식
+2. 팝업 열림 시 `pushScope`, 확인/취소 시 `popScope`로 4.9.21 scope 스택에 편입
+3. 포커스 이동 시각 표현은 `SwipeFocusable`(색 변경) 패턴 재사용 — 기존 4.9.20의 pending 투영/commit 로직은 무변경, 렌더/선택 방식만 SWIPE 대응 추가
+
+**신규/수정 파일**:
+- `ui/components/touchpad/AbsoluteEdgePopupOverlay.kt` — SWIPE 렌더 분기 추가
+
+**참조 문서**:
+- 본 문서 4.9.20(엣지 팝업 골격), `TouchpadWrapper.kt`의 엣지 팝업 SWIPE 그리드 로직
+
+**검증**:
+- [ ] 엣지 팝업 SWIPE 모드에서 그리드 순회 + 탭 확정 동작
+- [ ] DIRECT_TOUCH(NORMAL) 경로 회귀 없음
+- [ ] `assembleDebug` 빌드 성공
+- [ ] 실기기 필요: SWIPE 엣지 팝업 조작 체감
+
+---
+
+## Phase 4.9.25: 줌·멀티존 직사각형 ROI 정의 SWIPE 지원 (핵심)
+
+**목표**: 단일 줌(4.9.6/4.9.12)과 멀티존 자동 배치(4.9.11)의 직사각형 ROI 정의를, NORMAL의 자유 드래그 대신 SWIPE로 조작 가능한 순차 단계 방식으로 제공한다.
+
+**선행 조건**: 4.9.21(SWIPE 인프라), 4.9.23(팝업 SWIPE — 정의 세션과 함께 뜨는 개수/배치 팝업이 선행 완료돼야 함)
+
+**배경 — 왜 어려운가**: NORMAL은 패드 위에서 중심점 DOWN 후 손가락을 자유롭게 바깥으로 드래그해 `rectFromCenterDrag(center, finger)`로 직사각형을 실시간 프리뷰한다. SWIPE는 "손가락의 절대 위치"라는 개념이 없어(스와이프는 상대 델타일 뿐) 이 메타포를 그대로 옮길 수 없다.
+
+> **유저 확정 안(2026-07-13)**: 중심점 배치 → 크기 조절의 순차 2단계 방식.
+> - 정의 세션 진입 시 중심점이 패드 정중앙에 표시된 상태로 시작
+> - **1단계(중심 배치)**: 상하좌우 스와이프 → 중심점 이동 / 탭 → 중심점을 그 자리에 고정하고 2단계로 진행 / 롱프레스 → 정의 세션 자체를 취소(진입 이전 상태로)
+> - **2단계(크기·비율 조절)**: 중심 고정 상태에서 상하좌우 스와이프 → 직사각형의 크기·종횡비 조절 / 탭 → 그 시점의 직사각형을 rect로 확정 / 롱프레스 → 1단계로 복귀(중심점을 다시 이동 가능한 상태로, 크기 조절 값은 폐기)
+> - 각 단계의 롱프레스는 항상 "직전 단계로 되돌아가기"로 일관 — 단계를 스택처럼 취급
+
+**세부 목표**:
+1. 정의 세션 상태에 `DefineStep { PLACING_CENTER, SIZING }` 2단계 상태 추가(단일 줌/멀티존 자동배치 공용)
+2. **PLACING_CENTER**: `SwipeFocusController.manipulate`의 2D delta 누적을 중심점 좌표(패드 비율 0.0~1.0)에 직접 더함(클램프 포함). 탭 시 `DefineStep.SIZING`으로 전환하며 중심 좌표 고정. 롱프레스 시 세션 취소(`resetDefine()`)
+3. **SIZING**: 중심 고정 상태에서 2D delta 누적을 "중심으로부터의 오프셋"으로 취급해 `rectFromCenterDrag(center, center + accumulatedOffset)`에 그대로 먹여 rect 프리뷰 산출 — NORMAL의 순수함수·최소크기 하한(`MULTI_ZONE_MIN_RECT_SIZE_RATIO`)·클램프 로직 그대로 재사용. 탭 시 rect 확정(멀티존이면 `rectsOverlap` 겹침검증 후 다음 존으로 진행). 롱프레스 시 `DefineStep.PLACING_CENTER`로 복귀(중심 좌표는 유지한 채 다시 이동 가능, SIZING에서 쌓인 오프셋은 폐기)
+4. 이 흐름은 세션 플레인이므로 `SwipeGestureLayer` 마운트 + `LocalSwipeFocusController` non-null 상태에서만 활성(4.9.21 인프라 사용)
+5. 시각 피드백: 1단계는 중심점 마커만 표시, 2단계는 `rectFromCenterDrag` 결과로 그려지는 프리뷰 사각형 표시(NORMAL의 기존 프리뷰 렌더 재사용)
+6. 멀티존 자동 배치(4.9.11)는 존별로 이 2단계 흐름을 반복(진행 상태 "존 k/N" 안내 병기)
+
+**신규/수정 파일**:
+- `ui/components/AbsolutePointingPad.kt` — `DefineStep` 상태, PLACING_CENTER/SIZING 두 단계의 SWIPE 입력 처리, 단계 전환/취소/복귀 로직
+- 신규 순수 로직 단위테스트 파일 — 단계 전환 규칙, delta→중심좌표/rect 변환 검증
+
+**참조 문서**:
+- 본 문서 4.9.6/4.9.12(단일 줌 NORMAL 정의), 4.9.11(멀티존 자동배치 NORMAL 정의)
+- `MultiZoneCalculator.kt`의 `rectFromCenterDrag`/`rectsOverlap`(순수함수 재사용 대상)
+- `ui/common/swipe/SwipeFocusController.kt`의 `manipulate`(2D delta 소스)
+
+**열린 문제(착수 시 결정)**: 스와이프 델타→중심 이동/크기 조절 감도 계수(1단계와 2단계가 다른 감도를 쓸지), 최소 rect 하한과 SIZING 단계 조작 범위의 관계
+
+**검증**:
+- [ ] 단위테스트: `DefineStep` 전환 규칙(탭=다음 단계, 롱프레스=이전 단계, 초기 진입=PLACING_CENTER)
+- [ ] 단위테스트: PLACING_CENTER에서 누적 delta→중심좌표 클램프
+- [ ] 단위테스트: SIZING에서 누적 delta→`rectFromCenterDrag` 결과가 NORMAL 정의와 동일한 최소크기/클램프 규칙을 따르는지
+- [ ] `assembleDebug` 빌드 성공
+- [ ] 실기기 필요: 단일 줌/멀티존 SWIPE 정의 조작감, 단계 전환 체감, 롱프레스 되돌리기 동작
+
+---
+
+## Phase 4.9.26: 멀티존 자유 배치 SWIPE 지원
+
+**목표**: 멀티존 자유 배치(4.9.13, PC 존 rect + Android 입력 영역 padRect 2단계 정의)에 4.9.25의 중심점 배치→크기 조절 메타포를 확장 적용한다.
+
+**선행 조건**: 4.9.25(줌·멀티존 ROI SWIPE 핵심 메타포), 4.9.13(멀티존 자유 배치 NORMAL 구현)
+
+**세부 목표**:
+1. 4.9.13의 "PC 존 rect 정의 → Android 입력 padRect 정의" 2단계 흐름 각각에 4.9.25의 `DefineStep`(PLACING_CENTER/SIZING) 2단계를 그대로 적용 — 총 4단계(PC 중심배치→PC 크기조절→Android 중심배치→Android 크기조절)가 순차 진행
+2. Android padRect 정의 시 겹침검증(`rectsOverlap` 또는 4.9.13에서 정의한 자유배치 전용 검증)을 SIZING 확정 시점에 동일하게 적용
+3. 단계 간 롱프레스 규칙은 4.9.25와 동일(직전 단계로 복귀), 4단계 전체의 취소(전체 세션 이탈)는 최초 단계(PC 중심배치)에서의 롱프레스로 처리
+
+**신규/수정 파일**:
+- `ui/components/AbsolutePointingPad.kt` — 자유배치 4단계 SWIPE 확장
+
+**참조 문서**:
+- 본 문서 4.9.25(핵심 메타포), 4.9.13(NORMAL 자유배치 구현)
+
+**검증**:
+- [ ] 단위테스트: 4단계 전환 규칙, 겹침검증 시점
+- [ ] `assembleDebug` 빌드 성공
+- [ ] 실기기 필요: 자유배치 SWIPE 조작감, 4단계 전환 체감
+
+---
+
+## Phase 4.9.27: 멀티존 추가·제거 재편집 SWIPE 지원
+
+**목표**: 멀티존 추가/제거 재편집(4.9.15)에서 기존 존 선택·제거와 신규 존 추가를 SWIPE로 조작 가능하게 한다.
+
+**선행 조건**: 4.9.25/4.9.26(존 정의 메타포), 4.9.15(추가/제거 NORMAL 구현)
+
+**세부 목표**:
+1. 재편집 진입 시 활성 존들을 각각 `SwipeFocusable`로 등록(존 scope), 좌우 스와이프로 순회
+2. 탭 = 존 선택(activate, 하이라이트), 롱프레스 = 존 제거(activateAlt) — NORMAL의 탭=선택/롱프레스=제거 규칙과 동일 매핑
+3. "+존 추가" 버튼도 focusable로 등록, 탭 시 4.9.25/4.9.26의 정의 흐름(DefineStep)으로 진입해 신규 존 정의
+
+**신규/수정 파일**:
+- `ui/components/AbsolutePointingPad.kt` — 재편집 존 목록 SWIPE 등록, 추가 진입 배선
+
+**참조 문서**:
+- 본 문서 4.9.25/4.9.26(존 정의 메타포 재사용), 4.9.15(NORMAL 추가/제거 구현)
+
+**검증**:
+- [ ] 존 목록 SWIPE 순회 + 탭 선택/롱프레스 제거 동작
+- [ ] "+존 추가" → SWIPE 정의 흐름 진입 확인
+- [ ] `assembleDebug` 빌드 성공
+- [ ] 실기기 필요: 재편집 SWIPE 조작감
+
+---
+
+## Phase 4.9.28: 리팩토링
+
+> **의도적으로 세부 계획을 비워둠**: 이 Phase의 구체적인 리팩토링 항목(어떤 파일을 어떻게 나눌지, 어떤 중복을 제거할지 등)은 지금 미리 정하지 않는다. Page 3의 모든 기능(4.9.1~4.9.27, NORMAL+SWIPE 양쪽)이 실제로 구현된 이후에야 코드의 최종 형태를 볼 수 있으므로, 이 Phase에 착수하는 세션에서 그 시점의 코드를 직접 읽고 리팩토링 범위와 방법을 그때 계획한다(`bridgeone-refactoring` 스킬 활용).
 >
 > **⚠️ Phase 4.9.9 변경사항**: 엣지존에 줌/드래그 모드 토글 액션(`ToggleAbsoluteZoom`/`ToggleAbsoluteDrag`)이 추가되며 `AbsolutePointingPad.kt`의 ZoomButton 토글 로직이 엣지존 디스패처와 공유하도록 헬퍼로 추출됐다. 이 헬퍼가 이후 Phase(멀티존 등)의 줌 진입 로직과 자연스럽게 합쳐지는지 이 시점에 재확인 대상.
 >
@@ -1165,7 +1447,11 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 >
 > **⚠️ Phase 4.9.19 변경사항**: `ScrollEngine` 추출로 `TouchpadWrapper.kt`의 스크롤 로직과 `AbsolutePointingPad.kt`의 스크롤 브랜치가 공통 코드를 쓰게 됐다. 추출이 깔끔하게 끝났는지, 두 호출부에 여전히 남은 중복이 있는지 이 시점에 재확인 대상.
 >
+> **⚠️ Phase 4.9.20 변경사항**: 엣지 팝업(LEGACY_POPUP) 지원이 추가되며 `AbsolutePointingPad.kt`에 팝업 상태머신(`showEdgePopup`/`pendingEdgeState`/`selectedItemIndex`/`popupAnchorPx`/`selectedPopupMode`, `commitPopup`/`resetPopup`)이 축약 이식됐다. 이 상태머신이 `TouchpadWrapper.kt`의 원본 팝업 상태머신과 상당 부분 중복되므로, 공통 오버레이/상태머신으로 묶을 여지가 있는지 이 시점에 검토 대상(`EdgeSwipeOverlay`를 아이템 주입형으로 일반화하는 대안 포함). 신규 `AbsoluteEdgePopupOverlay.kt`(Page 3 전용 축약 오버레이)가 `EdgeSwipeOverlay.kt`와 구조적으로 얼마나 겹치는지도 함께 확인.
+>
 > **⚠️ Phase 4.9.17, 4.9.18 변경사항**: 손떨림 보정(4.9.17)으로 `AbsoluteCoordinateCalculator.kt`에 `smoothRatio`, 신규 `TremorSmoothingPrefs.kt`가 추가됐다. 원래 별도 하위 Phase(존 경계 진동 피드백)로 계획했던 멀티존 전환 햅틱은 4.9.11 구현 도중 앞당겨져 `ZoneCrossBehavior`(끄기/진동/점프 금지 3지선다, `ui/common/ZoneCrossBehaviorPrefs.kt`)로 흡수됐고, 이미 코드에 반영되어 있어 해당 계획은 문서에서 삭제했다(항상 켜짐이 아니라 설정 가능한 형태로 대체 구현). 터치 시작 확정 디바운스(4.9.18)는 `AbsolutePointingPad.kt`의 같은 DOWN/MOVE 제스처 루프에 손을 대므로, 이 시점에 `ZoneCrossBehavior` 분기와 얽혀 있지 않은지 함께 검토 대상에 포함한다.
+>
+> **⚠️ Phase 4.9.21~4.9.27 변경사항(SWIPE 모드 지원)**: `AbsolutePointingPad.kt`에 두 플레인(포인팅/세션) 상호배타 구조, `SwipeFocusController`/scope 스택, chrome·팝업·엣지팝업·존 정의(중심점 배치→크기조절 `DefineStep` 2단계)·재편집 각각의 SWIPE 분기가 순차로 누적됐다. 특히 4.9.25에서 도입한 `DefineStep`(PLACING_CENTER/SIZING) 상태머신이 단일 줌·멀티존 자동배치·자유배치(4.9.26)·재편집 신규 존(4.9.27)까지 반복 재사용되므로, NORMAL 정의 세션 상태(`zoomDefining`/`multiZoneDefining` 계열)와 SWIPE `DefineStep`이 한 컴포넌트에 나란히 존재하며 병렬 구조가 될 가능성이 높다 — 공통 상태머신으로 묶을 여지가 있는지 이 시점에 재확인 대상. `CursorCountSelectionPopup.kt`(4.9.23에서 SWIPE 대응 추가, Page 2 공유)도 회귀 없이 잘 얹혔는지 함께 확인.
 
 **목표**: Page 3 구현 완료 시점의 코드를 검토해 중복 제거·함수 분리·상수 정리 등 리팩토링 수행
 
@@ -1210,7 +1496,7 @@ Page 3 — AbsolutePointingPad
 │   ├── 줌 시 직사각형 ROI로 매핑 범위 축소 (임의 종횡비, 비율 기반)
 │   ├── 멀티 존 시 자동(그리드)/자유 배치(2~8) + 존별 독립 직사각형 ROI 매핑, 터치 즉시 판정, 활성 구성 재편집으로 존 추가/제거
 │   ├── CoordinateIndicator (십자선 + 점)
-│   └── 엣지존/엣지스와이프 시스템 (좌표 무관 기능만, 줌/드래그 모드 토글 포함)
+│   └── 엣지존/엣지스와이프 시스템 (좌표 무관 기능만, 줌/드래그 모드 토글 포함; 설정에 따라 엣지 존 방식 또는 엣지 팝업 방식(LEGACY_POPUP)으로 동작)
 ├── ControlButtonContainer (상단 오버레이, 기존 컴포넌트 재사용)
 │   ├── ClickModeButton (좌/우 토글)
 │   ├── ZoomButton (탭=단일 줌, 롱프레스=멀티 존 진입, DPI 슬롯 자리)
@@ -1223,7 +1509,13 @@ Page 3 — AbsolutePointingPad
 │   ├── 줌 레벨 텍스트 (앱 내, 4.9.12에서 배율 스칼라 폐지 후 유지/대체 여부 결정)
 │   ├── 멀티 존 정의 오버레이 (그리드 분할선/직사각형 프리뷰 + 정의 중 셀 하이라이트, 앱 내)
 │   └── 줌 영역 박스 (PC 화면 — Android는 UART 전송까지만, ESP32 중계/Windows 렌더링은 후속 통합 Phase)
-└── 조작 보조 기능
-    ├── 손떨림 보정 (원시 좌표 EMA 스무딩)
-    └── 터치 시작 확정 디바운스 (스치는 접촉 필터링)
+├── 조작 보조 기능
+│   ├── 손떨림 보정 (원시 좌표 EMA 스무딩)
+│   └── 터치 시작 확정 디바운스 (스치는 접촉 필터링)
+└── SWIPE 모드 조작 계층 (InputMode.SWIPE 전용, 커서 이동 자체는 NORMAL과 동일한 절대좌표 유지)
+    ├── 포인팅/세션 두 플레인 상호배타 (활성 세션 없으면 SwipeGestureLayer 미마운트 → 커서 무회귀)
+    ├── 제어버튼·모니터셀렉터 (직접 탭 유지 + SwipeFocusable 보조 등록)
+    ├── 개수·배치·프리셋 팝업 (SwipeFocusable 순회 + 별도 Window 팝업의 인라인 전환)
+    ├── 엣지 팝업 (EdgePopupMode.SWIPE 그리드 순회)
+    └── 줌·멀티존 ROI 정의 (중심점 배치 → 크기·비율 조절 2단계, 단계별 롱프레스=이전 단계 복귀)
 ```
