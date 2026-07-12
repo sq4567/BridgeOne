@@ -649,6 +649,8 @@ object UsbSerialManager {
     }
 
     fun sendFrame(frame: BridgeFrame) {
+        if (!UsbConstants.INPUT_TRANSMISSION_ENABLED) return
+
         // 포트 연결 상태 확인
         check(usbSerialPort != null && isConnected) { "USB Serial port is not connected" }
 
@@ -679,6 +681,8 @@ object UsbSerialManager {
      * @throws IllegalStateException 포트가 열려있지 않거나 바이트 크기가 유효하지 않은 경우
      */
     fun sendCommandBytes(bytes: ByteArray) {
+        if (!UsbConstants.INPUT_TRANSMISSION_ENABLED) return
+
         check(usbSerialPort != null && isConnected) { "USB Serial port is not connected" }
         check(bytes.size == UsbConstants.DELTA_FRAME_SIZE) {
             "Invalid command size: ${bytes.size}, expected: ${UsbConstants.DELTA_FRAME_SIZE}"
@@ -702,6 +706,8 @@ object UsbSerialManager {
      * @throws IllegalStateException 포트가 열려있지 않거나 바이트 크기가 유효하지 않은 경우
      */
     fun sendVendorCdcFrame(bytes: ByteArray) {
+        if (!UsbConstants.INPUT_TRANSMISSION_ENABLED) return
+
         check(usbSerialPort != null && isConnected) { "USB Serial port is not connected" }
         check(bytes.isNotEmpty() && bytes.size <= UsbConstants.VENDOR_CDC_MAX_FRAME_SIZE) {
             "Invalid vendor CDC frame size: ${bytes.size}"

@@ -1165,6 +1165,8 @@ fun smoothRatio(previous: TouchRatio?, current: TouchRatio, alpha: Float): Touch
 
 Phase 4가 "Android 완성" 단계라는 원래 취지에 맞춰, 아래 항목은 ESP32/Windows 서버 작업이 진행되는 후속 통합 Phase로 이동한다. 설계는 이미 완료됨(참조 문서 표시).
 
+> **⚠️ 임시 게이팅 상수 — 후속 통합 Phase에서 제거 필요**: 실기기 테스트 중 절대좌표 패드 사용 시 PC에서 이상 키 입력이 발생하는 문제가 있고(재현 조건 미파악), Windows 서버가 아직 이 프레임을 처리하지 못하는 상태라 `UsbConstants.kt`의 `INPUT_TRANSMISSION_ENABLED = false`로 모든 PC 전송(`UsbSerialManager.sendFrame`/`sendCommandBytes`/`sendVendorCdcFrame`)을 임시 차단해 두었다. 아래 Windows 서버 파트(`AbsolutePositionMessage` 파싱 핸들러 등) 구현 및 실기기 통합 검증이 끝나면 `INPUT_TRANSMISSION_ENABLED`를 `true`로 되돌리고 이 주석과 상수를 제거할 것.
+
 ### ESP32 (`esp32s3-code-implementation-guide.md` §3.3.2, §4.3)
 - `0xFF/0x02`(절대좌표 서버 중계) · `0xFF/0x30`(줌 상태) → Vendor CDC 바이너리/JSON 패스스루
 - `EVENT_MONITOR_COUNT` 역방향 통지 중계

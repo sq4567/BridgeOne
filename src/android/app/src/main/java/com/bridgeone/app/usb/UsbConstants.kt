@@ -115,5 +115,21 @@ object UsbConstants {
      * 0xFE(역방향 알림 프레임 헤더)와 0xFF(미래 예약)는 프로토콜 예약 바이트입니다.
      */
     const val MAX_SEQUENCE_NUMBER = 253  // 기본값: 253
+
+    // ========== 입력 전송 게이팅 (임시) ==========
+
+    /**
+     * PC로의 사용자 입력 프레임 전송 활성화 여부.
+     *
+     * Windows 서버 미완성 + 절대좌표 패드 이상 키 입력 문제 격리를 위한 임시 게이팅.
+     * false이면 sendFrame/sendCommandBytes/sendVendorCdcFrame이 전송을 건너뛴다.
+     * 연결 유지용 모드 폴링 쿼리는 게이팅 대상이 아니므로 계속 동작한다.
+     *
+     * TODO: Windows 서버 AbsolutePositionMessage 파싱 핸들러 구현 + 실기기 통합 검증 완료 후
+     * true로 되돌리고 이 상수 제거. 상세: docs/development-plans/phase-4/phase-4-9-page3-absolute-pointing.md
+     * "펌웨어·서버 파트" 섹션 참고.
+     * 기본값: true ⚠️ 의도적 변경(현재 false)
+     */
+    const val INPUT_TRANSMISSION_ENABLED = false  // 기본값: true ⚠️ 의도적 변경
 }
 
